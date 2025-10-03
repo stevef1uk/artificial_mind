@@ -1,6 +1,6 @@
 # 🔐 Secure Packaging Guide
 
-Create the required security files for the AGI project.
+Create the required security files for the Artificial Mind project.
 
 ## Required Artifacts
 

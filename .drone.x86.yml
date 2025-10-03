@@ -1,0 +1,216 @@
+kind: pipeline
+type: docker
+name: build-deploy-k8s-x86
+
+platform:
+  arch: amd64
+  os: linux
+
+steps:
+  - name: build-push-monitor-ui
+    image: alpine:latest
+    volumes:
+      - name: docker
+        path: /var/run/docker.sock
+    commands:
+      - apk add --no-cache docker
+      - docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD
+      - test -f secure/customer_public.pem || { echo "secure/customer_public.pem not found"; exit 1; }
+      - test -f secure/vendor_public.pem || { echo "secure/vendor_public.pem not found"; exit 1; }
+      - docker build -f Dockerfile.monitor-ui.secure --build-arg CUSTOMER_PUBLIC_KEY=secure/customer_public.pem --build-arg VENDOR_PUBLIC_KEY=secure/vendor_public.pem -t $DOCKER_USERNAME/monitor-ui:secure-x86 .
+      - docker push $DOCKER_USERNAME/monitor-ui:secure-x86
+    environment:
+      DOCKER_USERNAME:
+        from_secret: docker_username
+      DOCKER_PASSWORD:
+        from_secret: docker_password
+
+  - name: build-push-fsm-server
+    image: alpine:latest
+    volumes:
+      - name: docker
+        path: /var/run/docker.sock
+    commands:
+      - apk add --no-cache docker
+      - docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD
+      - test -f secure/customer_public.pem || { echo "secure/customer_public.pem not found"; exit 1; }
+      - test -f secure/vendor_public.pem || { echo "secure/vendor_public.pem not found"; exit 1; }
+      - docker build -f Dockerfile.fsm.secure --build-arg CUSTOMER_PUBLIC_KEY=secure/customer_public.pem --build-arg VENDOR_PUBLIC_KEY=secure/vendor_public.pem -t $DOCKER_USERNAME/fsm-server:secure-x86 .
+      - docker push $DOCKER_USERNAME/fsm-server:secure-x86
+    environment:
+      DOCKER_USERNAME:
+        from_secret: docker_username
+      DOCKER_PASSWORD:
+        from_secret: docker_password
+
+  - name: build-push-data-processor
+    image: alpine:latest
+    volumes:
+      - name: docker
+        path: /var/run/docker.sock
+    commands:
+      - apk add --no-cache docker
+      - docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD
+      - test -f secure/customer_public.pem || { echo "secure/customer_public.pem not found"; exit 1; }
+      - test -f secure/vendor_public.pem || { echo "secure/vendor_public.pem not found"; exit 1; }
+      - docker build -f Dockerfile.news-ingestor.secure --build-arg CUSTOMER_PUBLIC_KEY=secure/customer_public.pem --build-arg VENDOR_PUBLIC_KEY=secure/vendor_public.pem -t $DOCKER_USERNAME/news-ingestor:secure-x86 .
+      - docker push $DOCKER_USERNAME/news-ingestor:secure-x86
+    environment:
+      DOCKER_USERNAME:
+        from_secret: docker_username
+      DOCKER_PASSWORD:
+        from_secret: docker_password
+
+  - name: build-push-hdn-server
+    image: alpine:latest
+    volumes:
+      - name: docker
+        path: /var/run/docker.sock
+    commands:
+      - apk add --no-cache docker
+      - docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD
+      - test -f secure/customer_public.pem || { echo "secure/customer_public.pem not found"; exit 1; }
+      - test -f secure/vendor_public.pem || { echo "secure/vendor_public.pem not found"; exit 1; }
+      - docker build -f Dockerfile.hdn.secure --build-arg CUSTOMER_PUBLIC_KEY=secure/customer_public.pem --build-arg VENDOR_PUBLIC_KEY=secure/vendor_public.pem -t $DOCKER_USERNAME/hdn-server:secure-x86 .
+      - docker push $DOCKER_USERNAME/hdn-server:secure-x86
+    environment:
+      DOCKER_USERNAME:
+        from_secret: docker_username
+      DOCKER_PASSWORD:
+        from_secret: docker_password
+
+  - name: build-push-goal-manager
+    image: alpine:latest
+    volumes:
+      - name: docker
+        path: /var/run/docker.sock
+    commands:
+      - apk add --no-cache docker
+      - docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD
+      - test -f secure/customer_public.pem || { echo "secure/customer_public.pem not found"; exit 1; }
+      - test -f secure/vendor_public.pem || { echo "secure/vendor_public.pem not found"; exit 1; }
+      - docker build -f Dockerfile.goal-manager.secure --build-arg CUSTOMER_PUBLIC_KEY=secure/customer_public.pem --build-arg VENDOR_PUBLIC_KEY=secure/vendor_public.pem -t $DOCKER_USERNAME/goal-manager:secure-x86 .
+      - docker push $DOCKER_USERNAME/goal-manager:secure-x86
+    environment:
+      DOCKER_USERNAME:
+        from_secret: docker_username
+      DOCKER_PASSWORD:
+        from_secret: docker_password
+
+  - name: build-push-principles-server
+    image: alpine:latest
+    volumes:
+      - name: docker
+        path: /var/run/docker.sock
+    commands:
+      - apk add --no-cache docker
+      - docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD
+      - test -f secure/customer_public.pem || { echo "secure/customer_public.pem not found"; exit 1; }
+      - test -f secure/vendor_public.pem || { echo "secure/vendor_public.pem not found"; exit 1; }
+      - docker build -f Dockerfile.principles.secure --build-arg CUSTOMER_PUBLIC_KEY=secure/customer_public.pem --build-arg VENDOR_PUBLIC_KEY=secure/vendor_public.pem -t $DOCKER_USERNAME/principles-server:secure-x86 .
+      - docker push $DOCKER_USERNAME/principles-server:secure-x86
+    environment:
+      DOCKER_USERNAME:
+        from_secret: docker_username
+      DOCKER_PASSWORD:
+        from_secret: docker_password
+
+  - name: build-push-wiki-bootstrapper
+    image: alpine:latest
+    volumes:
+      - name: docker
+        path: /var/run/docker.sock
+    commands:
+      - apk add --no-cache docker
+      - docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD
+      - test -f secure/customer_public.pem || { echo "secure/customer_public.pem not found"; exit 1; }
+      - test -f secure/vendor_public.pem || { echo "secure/vendor_public.pem not found"; exit 1; }
+      - docker build -f Dockerfile.wiki-bootstrapper.secure --build-arg CUSTOMER_PUBLIC_KEY=secure/customer_public.pem --build-arg VENDOR_PUBLIC_KEY=secure/vendor_public.pem -t $DOCKER_USERNAME/wiki-bootstrapper:secure-x86 .
+      - docker push $DOCKER_USERNAME/wiki-bootstrapper:secure-x86
+    environment:
+      DOCKER_USERNAME:
+        from_secret: docker_username
+      DOCKER_PASSWORD:
+        from_secret: docker_password
+
+  - name: build-push-wiki-summarizer
+    image: alpine:latest
+    volumes:
+      - name: docker
+        path: /var/run/docker.sock
+    commands:
+      - apk add --no-cache docker
+      - docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD
+      - test -f secure/customer_public.pem || { echo "secure/customer_public.pem not found"; exit 1; }
+      - test -f secure/vendor_public.pem || { echo "secure/vendor_public.pem not found"; exit 1; }
+      - docker build -f Dockerfile.wiki-summarizer.secure --build-arg CUSTOMER_PUBLIC_KEY=secure/customer_public.pem --build-arg VENDOR_PUBLIC_KEY=secure/vendor_public.pem -t $DOCKER_USERNAME/wiki-summarizer:secure-x86 .
+      - docker push $DOCKER_USERNAME/wiki-summarizer:secure-x86
+    environment:
+      DOCKER_USERNAME:
+        from_secret: docker_username
+      DOCKER_PASSWORD:
+        from_secret: docker_password
+
+  - name: deploy-to-x86-server
+    image: alpine:latest
+    volumes:
+      - name: docker
+        path: /var/run/docker.sock
+    commands:
+      - apk add --no-cache curl openssh-client sshpass kubectl
+      - mkdir -p ~/.ssh
+      - ssh-keyscan -H $X86_SERVER_HOST >> ~/.ssh/known_hosts
+      - echo '#!/bin/sh' > apply-x86.sh
+      - echo 'set -e' >> apply-x86.sh
+      # Only create secure token secrets if they don't exist (don't overwrite existing ones)
+      - echo "kubectl -n agi get secret secure-customer || kubectl -n agi create secret generic secure-customer --from-literal=token=\"$SECURE_CUSTOMER_TOKEN\"" >> apply-x86.sh
+      - echo "kubectl -n agi get secret secure-vendor || kubectl -n agi create secret generic secure-vendor --from-literal=token=\"$SECURE_VENDOR_TOKEN\"" >> apply-x86.sh
+      # Create FSM ConfigMap
+      - echo "kubectl delete configmap fsm-config -n agi --ignore-not-found=true" >> apply-x86.sh
+      - echo "kubectl create configmap fsm-config -n agi --from-file=artificial_mind.yaml=k3s/fsm/config/artificial_mind.yaml" >> apply-x86.sh
+      - echo 'kubectl delete svc principles-server -n agi --ignore-not-found=true' >> apply-x86.sh
+      - echo 'kubectl delete deploy principles-server -n agi --ignore-not-found=true' >> apply-x86.sh
+      - echo 'kubectl delete svc hdn-server -n agi --ignore-not-found=true' >> apply-x86.sh
+      - echo 'kubectl delete deploy hdn-server -n agi --ignore-not-found=true' >> apply-x86.sh
+      - echo 'kubectl delete svc goal-manager -n agi --ignore-not-found=true' >> apply-x86.sh
+      - echo 'kubectl delete deploy goal-manager -n agi --ignore-not-found=true' >> apply-x86.sh
+      - echo 'kubectl delete svc fsm-server -n agi --ignore-not-found=true' >> apply-x86.sh
+      - echo 'kubectl delete deploy fsm-server -n agi --ignore-not-found=true' >> apply-x86.sh
+      - echo 'kubectl delete svc monitor-ui -n agi --ignore-not-found=true' >> apply-x86.sh
+      - echo 'kubectl delete deploy monitor-ui -n agi --ignore-not-found=true' >> apply-x86.sh
+      - echo 'kubectl apply -f ~/k3s/principles-server.yaml' >> apply-x86.sh
+      - echo 'kubectl apply -f ~/k3s/hdn-server.yaml' >> apply-x86.sh
+      - echo 'kubectl apply -f ~/k3s/goal-manager.yaml' >> apply-x86.sh
+      - echo 'kubectl apply -f ~/k3s/fsm-server.yaml' >> apply-x86.sh
+      - echo 'kubectl apply -f ~/k3s/monitor-ui.yaml' >> apply-x86.sh
+      - echo 'kubectl apply -f ~/k3s/wiki-summarizer-cronjob.yaml' >> apply-x86.sh
+      - echo 'kubectl set image deployment/principles-server principles-server='$DOCKER_USERNAME'/principles-server:secure-x86 -n agi' >> apply-x86.sh
+      - echo 'kubectl set image deployment/hdn-server hdn-server='$DOCKER_USERNAME'/hdn-server:secure-x86 -n agi' >> apply-x86.sh
+      - echo 'kubectl set image deployment/goal-manager goal-manager='$DOCKER_USERNAME'/goal-manager:secure-x86 -n agi' >> apply-x86.sh
+      - echo 'kubectl set image deployment/fsm-server fsm-server='$DOCKER_USERNAME'/fsm-server:secure-x86 -n agi' >> apply-x86.sh
+      - echo 'kubectl set image deployment/monitor-ui monitor-ui='$DOCKER_USERNAME'/monitor-ui:secure-x86 -n agi' >> apply-x86.sh
+      - echo 'kubectl rollout status deployment/principles-server -n agi' >> apply-x86.sh
+      - echo 'kubectl rollout status deployment/hdn-server -n agi' >> apply-x86.sh
+      - echo 'kubectl rollout status deployment/goal-manager -n agi' >> apply-x86.sh
+      - echo 'kubectl rollout status deployment/fsm-server -n agi' >> apply-x86.sh
+      - echo 'kubectl rollout status deployment/monitor-ui -n agi' >> apply-x86.sh
+      - chmod +x apply-x86.sh
+      - sshpass -p "$SSH_PASSWORD" scp -r k3s pi@$X86_SERVER_HOST:~/
+      - sshpass -p "$SSH_PASSWORD" scp apply-x86.sh pi@$X86_SERVER_HOST:~/
+      - sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no pi@$X86_SERVER_HOST './apply-x86.sh'
+    environment:
+      SSH_PASSWORD:
+        from_secret: SSH_PASSWORD
+      X86_SERVER_HOST:
+        from_secret: X86_SERVER_HOST
+      SECURE_CUSTOMER_TOKEN:
+        from_secret: SECURE_CUSTOMER_TOKEN
+      SECURE_VENDOR_TOKEN:
+        from_secret: SECURE_VENDOR_TOKEN
+      DOCKER_USERNAME:
+        from_secret: docker_username
+
+volumes:
+  - name: docker
+    host:
+      path: /var/run/docker.sock

@@ -1,10 +1,10 @@
 # ⚙️ Configuration Guide
 
-This guide covers all configuration options for the AGI project, including Docker customization, LLM provider setup, and deployment scenarios.
+This guide covers all configuration options for the Artificial Mind project, including Docker customization, LLM provider setup, and deployment scenarios.
 
 ## 📁 Environment Configuration
 
-The AGI project uses a `.env` file for all configuration. Start by copying the example:
+The Artificial Mind project uses a `.env` file for all configuration. Start by copying the example:
 
 ```bash
 cp .env.example .env
@@ -676,4 +676,4 @@ spec:
         averageUtilization: 70
 ```
 
-This configuration guide provides comprehensive options for customizing the AGI project to fit your specific needs, whether you're running it locally, in production, or in a Kubernetes cluster.
+This configuration guide provides comprehensive options for customizing the Artificial Mind project to fit your specific needs, whether you're running it locally, in production, or in a Kubernetes cluster.

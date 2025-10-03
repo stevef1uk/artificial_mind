@@ -179,7 +179,7 @@ View recent tool calls with:
 - Request timeout: 30 seconds
 
 ### Safe Headers
-- User-Agent: AGI-Safe-Bot/1.0
+- User-Agent: Artificial Mind-Safe-Bot/1.0
 - Accept: text/html,application/xhtml+xml,application/xml
 - Accept-Language: en-US,en;q=0.9
 

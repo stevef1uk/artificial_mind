@@ -1,8 +1,8 @@
-# Natural Language Interface for AGI System
+# Natural Language Interface for Artificial Mind System
 
 ## 🎯 Overview
 
-The AGI system now supports natural language input through the Monitor UI, making it accessible to users without technical knowledge of APIs or structured commands.
+The Artificial Mind system now supports natural language input through the Monitor UI, making it accessible to users without technical knowledge of APIs or structured commands.
 
 ## 🚀 Features
 

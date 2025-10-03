@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Domain Knowledge System extends your AGI architecture with a structured knowledge graph stored in Neo4j. This system allows your AI agent to reason about domain-specific concepts, constraints, relationships, and safety principles.
+The Domain Knowledge System extends your Artificial Mind architecture with a structured knowledge graph stored in Neo4j. This system allows your AI agent to reason about domain-specific concepts, constraints, relationships, and safety principles.
 
 ## Architecture
 

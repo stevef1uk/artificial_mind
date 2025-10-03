@@ -1,6 +1,6 @@
-# 🚀 AGI Project Setup Guide
+# 🚀 Artificial Mind Project Setup Guide
 
-This guide will help you set up the AGI project from scratch, configure your own Docker and LLM settings, and get everything running.
+This guide will help you set up the Artificial Mind project from scratch, configure your own Docker and LLM settings, and get everything running.
 
 ## 📋 Prerequisites
 
@@ -70,7 +70,7 @@ Create a `.env` file in the project root:
 
 ```bash
 # =============================================================================
-# AGI PROJECT CONFIGURATION
+# Artificial Mind PROJECT CONFIGURATION
 # =============================================================================
 
 # =============================================================================
@@ -219,7 +219,7 @@ services:
 
 ## 🤖 LLM Provider Setup
 
-The AGI project supports multiple LLM providers. Choose the one that best fits your needs:
+The Artificial Mind project supports multiple LLM providers. Choose the one that best fits your needs:
 
 ### Option 1: OpenAI (Recommended for Production BUT ensure you underdtand the costs!)
 
@@ -700,6 +700,6 @@ curl http://localhost:9090/metrics
 
 ---
 
-**Welcome to the AGI Project! 🚀**
+**Welcome to the Artificial Mind Project! 🚀**
 
 You're now ready to explore the world of AI building AI. Start with the basic examples and gradually work your way up to more complex use cases.

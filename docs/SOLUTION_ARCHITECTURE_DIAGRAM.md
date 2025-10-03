@@ -1,8 +1,8 @@
-# AGI System - High-Level Solution Architecture
+# Artificial Mind System - High-Level Solution Architecture
 
 ## Executive Summary
 
-This diagram represents the high-level architecture of an Artificial General Intelligence (AGI) system that combines ethical decision-making, hierarchical planning, intelligent code generation, and self-aware learning capabilities.
+This diagram represents the high-level architecture of an Artificial Mind (Artificial Mind) system that combines ethical decision-making, hierarchical planning, intelligent code generation, and self-aware learning capabilities.
 
 ## Architecture Diagram
 
@@ -173,4 +173,4 @@ graph TB
 
 ---
 
-*This architecture represents a comprehensive AGI system designed for safe, ethical, and intelligent task execution with continuous learning capabilities.*
+*This architecture represents a comprehensive Artificial Mind system designed for safe, ethical, and intelligent task execution with continuous learning capabilities.*

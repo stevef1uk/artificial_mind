@@ -45,7 +45,7 @@ def build_document():
     doc = Document()
 
     # Title
-    title = doc.add_heading('AGI Solution Architecture', level=0)
+    title = doc.add_heading('Artificial Mind Solution Architecture', level=0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     add_paragraph(doc, f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%SZ')} (UTC)")
 

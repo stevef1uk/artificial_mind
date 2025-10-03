@@ -1,8 +1,8 @@
-# AGI Project Architecture
+# Artificial Mind Project Architecture
 
 ## 🎯 Project Overview
 
-The AGI (Artificial General Intelligence) project is a comprehensive AI system that combines **ethical decision-making**, **hierarchical planning**, **intelligent code generation**, and **self-aware learning** to create an autonomous AI agent capable of understanding, planning, and executing complex tasks while maintaining ethical boundaries.
+The Artificial Mind (Artificial Mind) project is a comprehensive AI system that combines **ethical decision-making**, **hierarchical planning**, **intelligent code generation**, and **self-aware learning** to create an autonomous AI agent capable of understanding, planning, and executing complex tasks while maintaining ethical boundaries.
 
 ## 🏗️ System Architecture
 

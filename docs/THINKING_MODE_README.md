@@ -4,7 +4,7 @@ This document describes the **Thinking Mode** feature that allows you to see ins
 
 ## 🎯 Overview
 
-The Thinking Mode feature adds introspection capabilities to your AGI system, allowing you to:
+The Thinking Mode feature adds introspection capabilities to your Artificial Mind system, allowing you to:
 
 - **See the AI's thoughts** as it processes requests
 - **Stream reasoning in real-time** via WebSockets/SSE
@@ -398,4 +398,4 @@ To contribute to the thinking mode feature:
 
 ## 📄 License
 
-This feature is part of the AGI system and follows the same license terms.
+This feature is part of the Artificial Mind system and follows the same license terms.

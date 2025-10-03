@@ -1,6 +1,6 @@
-# AGI System API Reference
+# Artificial Mind System API Reference
 
-This document provides comprehensive API reference for the AGI system components.
+This document provides comprehensive API reference for the Artificial Mind system components.
 
 ## Table of Contents
 

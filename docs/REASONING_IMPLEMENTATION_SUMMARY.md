@@ -218,7 +218,7 @@ The reasoning layer transforms your FSM from a simple state machine into an inte
 - **Explain** its reasoning process
 - **Generate** its own goals
 
-This makes your system significantly more "AI-like" and moves it toward true artificial general intelligence capabilities.
+This makes your system significantly more "AI-like" and moves it toward true Artificial Mind capabilities.
 
 ## Conclusion
 

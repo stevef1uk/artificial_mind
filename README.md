@@ -1,4 +1,4 @@
-# 🧠 AGI Project V0.2
+# 🧠 Artificial Mind Project V0.2
 ## *AI Designing and Building AI*
 
 **Project Directed by:** Steven Fisher  
@@ -10,7 +10,7 @@
 
 ## 🎯 Project Overview
 
-This is an advanced Artificial General Intelligence (AGI) system that represents a unique collaboration between human direction and AI capabilities. The project demonstrates AI designing and building AI, showcasing the potential for recursive intelligence development where AI systems can contribute to their own evolution and the creation of more sophisticated AI architectures.
+This is an advanced Artificial Mind (Artificial Mind) system that represents a unique collaboration between human direction and AI capabilities. The project demonstrates AI designing and building AI, showcasing the potential for recursive intelligence development where AI systems can contribute to their own evolution and the creation of more sophisticated AI architectures.
 
 ### 🌟 Key Philosophy
 
@@ -20,7 +20,7 @@ This project embodies the concept of **"AI Building AI"** - where artificial int
 
 ## 🏗️ System Architecture
 
-The AGI system consists of several interconnected components that work together to create a comprehensive artificial intelligence platform:
+The Artificial Mind system consists of several interconnected components that work together to create a comprehensive artificial intelligence platform:
 
 ### Core Components
 

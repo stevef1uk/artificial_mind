@@ -1,6 +1,6 @@
 # Tool Metrics and Logging System
 
-This document describes the comprehensive tool call logging and metrics system implemented for the AGI platform.
+This document describes the comprehensive tool call logging and metrics system implemented for the Artificial Mind platform.
 
 ## Overview
 

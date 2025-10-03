@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Generate AGI Solution Architecture PowerPoint deck.
-Creates docs/AGI_Solution_Architecture.pptx with sections:
+Generate Artificial Mind Solution Architecture PowerPoint deck.
+Creates docs/Artificial_Mind_Solution_Architecture.pptx with sections:
   - Context & High-Level View
   - Component Deep Dives (next level down)
   - Technical Architecture
@@ -50,7 +50,7 @@ def build_deck() -> Presentation:
     # 1) Title
     add_title_slide(
         prs,
-        title="AGI Solution Architecture",
+        title="Artificial Mind Solution Architecture",
         subtitle="Context, High-Level View, Components, and Technical Architecture",
     )
 
@@ -201,7 +201,7 @@ def build_deck() -> Presentation:
 
 def main() -> None:
     prs = build_deck()
-    output = "docs/AGI_Solution_Architecture.pptx"
+    output = "docs/Artificial_Mind_Solution_Architecture.pptx"
     prs.save(output)
     print(f"✅ Generated {output}")
 

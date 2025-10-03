@@ -1,6 +1,6 @@
-# Docker Resource Configuration for AGI Services
+# Docker Resource Configuration for Artificial Mind Services
 
-This document describes the configurable Docker resource limits for AGI services running on different hardware platforms.
+This document describes the configurable Docker resource limits for Artificial Mind services running on different hardware platforms.
 
 ## Environment Variables
 
