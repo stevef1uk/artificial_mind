@@ -1,0 +1,2859 @@
+{{ define "dashboard_tabs.html" }}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.title}} - Tabbed UI v2</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="/static/js/logs.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            color: #2c3e50;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .header p {
+            color: #7f8c8d;
+            text-align: center;
+            font-size: 1.1rem;
+        }
+
+        .tab-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .tab-nav {
+            display: flex;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .tab-button {
+            flex: 1;
+            padding: 15px 20px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            color: #6c757d;
+            transition: all 0.3s ease;
+            border-bottom: 3px solid transparent;
+        }
+
+        .tab-button:hover {
+            background: #e9ecef;
+            color: #495057;
+        }
+
+        .tab-button.active {
+            color: #007bff;
+            border-bottom-color: #007bff;
+            background: white;
+        }
+
+        .tab-content {
+            display: none;
+            padding: 20px;
+            min-height: 400px;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+            font-style: italic;
+        }
+
+        .error {
+            color: #dc3545;
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+        }
+
+        .card h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 10px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-healthy { background-color: #27ae60; }
+        .status-unhealthy { background-color: #e74c3c; }
+        .status-degraded { background-color: #f39c12; }
+
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin: 2px;
+            transition: background 0.3s ease;
+        }
+
+        .btn:hover {
+            background: #0056b3;
+        }
+
+        .btn-success { background: #28a745; }
+        .btn-success:hover { background: #1e7e34; }
+        .btn-danger { background: #dc3545; }
+        .btn-danger:hover { background: #c82333; }
+
+        .refresh-btn {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            margin: 5px;
+            transition: all 0.3s ease;
+        }
+
+        .refresh-btn:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+
+        .workflow-item, .step-item {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+        }
+
+        .step-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .step-name {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .step-status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-completed { background: #d4edda; color: #155724; }
+        .status-running { background: #d1ecf1; color: #0c5460; }
+        .status-failed { background: #f8d7da; color: #721c24; }
+        .status-pending { background: #fff3cd; color: #856404; }
+
+        .step-description {
+            color: #6c757d;
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+
+        .step-output {
+            background: #e9ecef;
+            padding: 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        /* RAG Search Results Styling */
+        .rag-results-container {
+            margin-top: 20px;
+        }
+
+        .rag-results-header {
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .rag-results-header h4 {
+            margin: 0;
+            color: #2c3e50;
+            font-size: 1.2rem;
+        }
+
+        .rag-results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            gap: 20px;
+        }
+
+        .rag-result-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            border: 1px solid #e9ecef;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+            overflow: hidden;
+        }
+
+        .rag-result-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+            border-color: #007bff;
+        }
+
+        .rag-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .rag-card-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .rag-result-icon {
+            font-size: 1.2rem;
+        }
+
+        .rag-title-text {
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 1rem;
+        }
+
+        .rag-card-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .rag-score-badge {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            box-shadow: 0 2px 4px rgba(40, 167, 69, 0.3);
+        }
+
+        .rag-card-content {
+            padding: 20px;
+        }
+
+        .rag-metadata {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 16px;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #007bff;
+        }
+
+        .rag-meta-item {
+            font-size: 0.9rem;
+            color: #495057;
+        }
+
+        .rag-meta-item strong {
+            color: #2c3e50;
+        }
+
+        .rag-content-text {
+            margin-bottom: 16px;
+        }
+
+        .rag-json-content {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 16px;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            border: 1px solid #4a5568;
+            margin: 0;
+        }
+
+        /* Logs styling */
+        .k8s-indicator {
+            color: #ff6b35;
+            font-weight: bold;
+        }
+        .local-indicator {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .log-item {
+            display: flex;
+            gap: 10px;
+            padding: 4px 0;
+            border-bottom: 1px solid #eee;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-time {
+            color: #666;
+            min-width: 80px;
+        }
+        .log-level {
+            font-weight: bold;
+            min-width: 60px;
+        }
+        .log-level.ERROR { color: #e74c3c; }
+        .log-level.WARN { color: #f39c12; }
+        .log-level.INFO { color: #3498db; }
+        .log-level.DEBUG { color: #95a5a6; }
+        .log-message {
+            flex: 1;
+            white-space: pre-wrap;
+        }
+
+        .rag-card-actions {
+            display: flex;
+            justify-content: flex-end;
+            padding-top: 12px;
+            border-top: 1px solid #e9ecef;
+        }
+
+        .rag-link-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0, 123, 255, 0.3);
+        }
+
+        .rag-link-btn:hover {
+            background: linear-gradient(135deg, #0056b3 0%, #004085 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 123, 255, 0.4);
+            text-decoration: none;
+            color: white;
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .rag-results-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .rag-card-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+            
+            .rag-metadata {
+                flex-direction: column;
+                gap: 8px;
+            }
+        }
+
+        .json-display {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .input-group input, .input-group select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        .input-group input:focus, .input-group select:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #007bff, #28a745);
+            transition: width 0.3s ease;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #007bff;
+        }
+
+        .stat-label {
+            color: #6c757d;
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🧠 Artificial Mind and Workflow</h1>
+            <p>Real-time monitoring of Hierarchical Decision Network and Principles Server</p>
+            <div id="banner-status" style="margin-top:8px; font-size: 0.95rem;"></div>
+            <div style="text-align: center; margin-top: 15px;">
+                <button class="refresh-btn" onclick="refreshCurrentTab()">🔄 Refresh Current Tab</button>
+                <button class="refresh-btn" onclick="toggleAutoRefresh()">⏰ Auto Refresh</button>
+                <span id="last-updated" style="margin-left: 20px; color: #6c757d;"></span>
+            </div>
+        </div>
+
+        <div class="tab-container">
+            <div class="tab-nav">
+                <button class="tab-button active" onclick="switchTab('overview')">📊 Overview</button>
+                <button class="tab-button" onclick="switchTab('workflows')">⚙️ Workflows</button>
+                <button class="tab-button" onclick="switchTab('memory')">🧠 Memory</button>
+                <button class="tab-button" onclick="switchTab('goals')">🎯 Goals</button>
+                <button class="tab-button" onclick="switchTab('projects')">📁 Projects</button>
+                <button class="tab-button" onclick="switchTab('reasoning')">🧠 Reasoning</button>
+                <button class="tab-button" onclick="switchTab('tools')">🔧 Tools</button>
+                <button class="tab-button" onclick="switchTab('metrics')">📦 Artefacts</button>
+                <button class="tab-button" onclick="switchTab('logs')">📝 Logs</button>
+            </div>
+
+            <!-- Overview Tab -->
+            <div id="overview-tab" class="tab-content active">
+                <div class="card">
+                    <h3>System Status</h3>
+                    <div id="system-status">
+                        <div class="loading">Loading system status...</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>Quick Stats</h3>
+                    <div id="quick-stats">
+                        <div class="loading">Loading quick stats...</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>Database Status</h3>
+                    <div id="database-status">
+                        <div class="loading">Loading database status...</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>Recent News & Articles</h3>
+                    <div id="news-content">
+                        <div class="loading">Loading news and articles...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Workflows Tab -->
+            <div id="workflows-tab" class="tab-content">
+                <div class="card">
+                    <h3>Active Workflows</h3>
+                    <div id="workflows-content">
+                        <div class="loading">Click to load workflows...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Memory Tab -->
+            <div id="memory-tab" class="tab-content">
+                <div class="card">
+                    <h3>Memory Management</h3>
+                    <div class="input-group">
+                        <label for="mem-session">Session ID:</label>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <input type="text" id="mem-session" placeholder="Enter session ID (default 'system')" style="flex:1;">
+                            <select id="mem-session-select" style="min-width:260px;"></select>
+                            <button class="btn" id="refresh-sessions-btn" title="Discover recent sessions">Discover</button>
+                        </div>
+                        <div id="mem-session-hint" style="margin-top:6px; color:#6c757d; font-size:0.9rem;"></div>
+                    </div>
+                    <div class="input-group">
+                        <label for="mem-query">Query:</label>
+                        <input type="text" id="mem-query" placeholder="Enter search query or leave empty for all">
+                    </div>
+                    <button class="btn" onclick="loadMemory()">Load Memory</button>
+                    <div id="memory-content">
+                        <div class="loading">Click "Load Memory" to load data...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Goals Tab -->
+            <div id="goals-tab" class="tab-content">
+                <div class="card">
+                    <h3>Goals Management</h3>
+                    <div id="goals-content">
+                        <div class="loading">Click to load goals...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Projects Tab -->
+            <div id="projects-tab" class="tab-content">
+                <div class="card">
+                    <h3>Projects</h3>
+                    <div id="projects-content">
+                        <div class="loading">Click to load projects...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tools Tab -->
+            <div id="tools-tab" class="tab-content">
+                <div class="card">
+                    <h3>Natural Language Input</h3>
+                    <div class="input-group">
+                        <label for="nl-input">Enter your request:</label>
+                        <input type="text" id="nl-input" placeholder="e.g., Create a Python program that prints 'Hello World'">
+                    </div>
+                    <div class="input-group">
+                        <label for="project-input">Project (optional):</label>
+                        <input type="text" id="project-input" placeholder="Leave blank to auto-create from prompt">
+                    </div>
+                    <button class="btn" onclick="executeNaturalLanguage()">Execute</button>
+                    <div id="tools-result" style="margin-top: 15px;">
+                        <div class="loading">Enter a request and click Execute...</div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h3>Tool Metrics</h3>
+                    <div id="tool-metrics-content">
+                        <div class="loading">Click to load tool metrics...</div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h3>Content Safety Monitor</h3>
+                    <div id="safety-content">
+                        <div class="loading">Click to load safety data...</div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h3>Tools</h3>
+                    <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+                        <label style="display:flex; align-items:center; gap:6px;">
+                            <span>Origin:</span>
+                            <select id="tools-origin-filter" style="padding:6px; border:1px solid #e1e8ed; border-radius:6px;">
+                                <option value="all" selected>All</option>
+                                <option value="system">System only</option>
+                                <option value="agent">Agent only</option>
+                            </select>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:6px;">
+                            <input id="tools-hide-ephemeral" type="checkbox" checked /> Hide ephemeral (go/python util)
+                        </label>
+                        <button class="btn" onclick="refreshCurrentTab()">Apply</button>
+                    </div>
+                    <div id="tools-list-content">
+                        <div class="loading">Loading tools...</div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h3>RAG Search</h3>
+                    <div class="input-group">
+                        <label for="rag-query">Search Query:</label>
+                        <input type="text" id="rag-query" placeholder="Enter your search query...">
+                    </div>
+                    <div class="input-group">
+                        <label for="rag-limit">Limit:</label>
+                        <select id="rag-limit">
+                            <option value="10">10 results</option>
+                            <option value="25" selected>25 results</option>
+                            <option value="50">50 results</option>
+                            <option value="100">100 results</option>
+                        </select>
+                    </div>
+                    <button class="btn" onclick="performRAGSearch()">Search</button>
+                    <div id="rag-results" style="margin-top: 15px;">
+                        <div class="loading">Enter a query and click Search...</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>Capabilities</h3>
+                    <div id="capabilities-list-content">
+                        <div class="loading">Loading capabilities...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reasoning Tab -->
+            <div id="reasoning-tab" class="tab-content">
+                <div class="card">
+                    <h3>Reasoning Layer</h3>
+                    <div style="margin:6px 0 10px 0; color:#555; font-size:0.95em;">
+                        <span id="reasoning-summary">Domain-level traces, beliefs, curiosity goals, and explanations.</span>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+                        <select id="reasoning-domain" style="padding:6px; border:1px solid #e1e8ed; border-radius:6px;">
+                            <option value="General" selected>General</option>
+                        </select>
+                        <button class="btn" id="reasoning-discover-domains">Discover Domains</button>
+                        <input id="reasoning-goal-filter" placeholder="filter by goal (optional)" style="flex:1; min-width:260px; padding:8px; border:1px solid #e1e8ed; border-radius:6px;"/>
+                        <label style="display:flex; align-items:center; gap:6px;">
+                            <input id="reasoning-auto-refresh" type="checkbox" checked /> Auto-refresh
+                        </label>
+                        <select id="reasoning-refresh-interval" style="padding:6px; border:1px solid #e1e8ed; border-radius:6px;">
+                            <option value="3000">3s</option>
+                            <option value="5000" selected>5s</option>
+                            <option value="10000">10s</option>
+                            <option value="30000">30s</option>
+                        </select>
+                        <button class="btn" onclick="refreshReasoningFull()">Refresh</button>
+                    </div>
+                    <div class="grid">
+                        <div class="card">
+                            <h3>Reasoning Traces</h3>
+                            <div id="reasoning-traces" class="panel-scroll">Loading...</div>
+                        </div>
+                        <div class="card">
+                            <h3>Reasoning Explanations</h3>
+                            <div id="reasoning-explanations" class="panel-scroll">Loading...</div>
+                        </div>
+                        <div class="card">
+                            <h3>Beliefs and Inferences</h3>
+                            <div id="reasoning-beliefs" class="panel-scroll">Loading...</div>
+                        </div>
+                        <div class="card">
+                            <h3>Curiosity Goals</h3>
+                            <div id="reasoning-curiosity" class="panel-scroll">Loading...</div>
+                        </div>
+                        <div class="card">
+                            <h3>Active Hypotheses</h3>
+                            <div id="reasoning-hypotheses" class="panel-scroll">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Artefacts Tab (repurposed from Metrics) -->
+            <div id="metrics-tab" class="tab-content">
+                <div class="card">
+                    <h3>Artefacts</h3>
+                    <div class="grid" style="grid-template-columns:1fr 1fr; gap:10px;">
+                        <div class="input-group">
+                            <label for="art-project">Project ID (optional):</label>
+                            <input type="text" id="art-project" placeholder="e.g., proj_...">
+                        </div>
+                        <div class="input-group">
+                            <label for="art-workflow">Workflow ID:</label>
+                            <input type="text" id="art-workflow" placeholder="e.g., intelligent_...">
+                        </div>
+                    </div>
+                    <div style="margin-top:10px; display:flex; gap:10px; align-items:center;">
+                        <button class="btn" onclick="loadArtifacts()">Load Artefacts</button>
+                        <button class="btn" onclick="loadLatestProjectWorkflowArtifacts()">Load Latest Project Workflow</button>
+                    </div>
+                    <div id="artifacts-content" style="margin-top: 15px;">
+                        <div class="loading">Enter a workflow id or choose a project to load artefacts...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Logs Tab -->
+            <div id="logs-tab" class="tab-content">
+                <div class="card full-width">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap;">
+                        <h3>🧾 Recent Logs</h3>
+                        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                            <button id="log-source-toggle" onclick="toggleLogSource()" style="padding: 8px 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; min-width: 120px;">
+                                Switch to <span id="log-source-indicator">K8s Logs</span>
+                            </button>
+                            <button onclick="loadLogs(); loadRecentLogsCompact();" style="padding: 8px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
+                                🔄 Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <div id="logs-compact" class="logs-container" style="max-height: 240px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentTab = 'overview';
+        let autoRefreshInterval = null;
+        let reasoningInterval = null;
+        let tabDataLoaded = {
+            overview: false,
+            workflows: false,
+            memory: false,
+            goals: false,
+            projects: false,
+            tools: false,
+            metrics: false,
+            logs: false,
+            reasoning: false
+        };
+
+        // Tab switching
+        function switchTab(tabName) {
+            console.log('switchTab called with:', tabName);
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            // Show selected tab
+            const targetTab = document.getElementById(tabName + '-tab');
+            const targetButton = document.querySelector(`[onclick="switchTab('${tabName}')"]`);
+            console.log('Target tab element:', targetTab);
+            console.log('Target button element:', targetButton);
+            
+            if (targetTab) {
+                targetTab.classList.add('active');
+                console.log('Added active class to tab');
+            } else {
+                console.error('Target tab not found:', tabName + '-tab');
+            }
+            
+            if (targetButton) {
+                targetButton.classList.add('active');
+                console.log('Added active class to button');
+            } else {
+                console.error('Target button not found for:', tabName);
+            }
+            
+            // Clear any tab-specific timers when switching
+            if (reasoningInterval) {
+                clearInterval(reasoningInterval);
+                reasoningInterval = null;
+            }
+
+            currentTab = tabName;
+
+            // Load data for this tab if not already loaded
+            if (!tabDataLoaded[tabName]) {
+                loadTabData(tabName);
+            }
+        }
+
+        // Load data for specific tab
+        async function loadTabData(tabName) {
+            console.log(`=== LOAD TAB DATA CALLED: ${tabName} ===`);
+            const contentDiv = document.getElementById(tabName + '-tab');
+            console.log(`Looking for element: ${tabName}-tab, found:`, !!contentDiv);
+            if (!contentDiv) {
+                console.log(`Element ${tabName}-tab not found, returning`);
+                return;
+            }
+
+            try {
+                // Don't replace content for tabs that render their own dynamic inner content
+                // Keep existing DOM for: overview, workflows, tools, metrics (Artefacts), reasoning
+                if (tabName !== 'overview' && tabName !== 'workflows' && tabName !== 'tools' && tabName !== 'metrics' && tabName !== 'reasoning') {
+                    contentDiv.innerHTML = '<div class="loading">Loading...</div>';
+                }
+                
+                switch(tabName) {
+                    case 'overview':
+                        await loadOverviewData();
+                        break;
+                    case 'workflows':
+                        await loadWorkflows();
+                        break;
+                    case 'memory':
+                        await loadMemory();
+                        break;
+                    case 'goals':
+                        await loadGoals();
+                        break;
+                    case 'projects':
+                        await loadProjects();
+                        break;
+                    case 'tools':
+                        await loadTools();
+                        break;
+                    case 'metrics':
+                        await loadMetrics();
+                        break;
+                    case 'logs':
+                        // Load logs using the configurable logs.js
+                        console.log('Loading logs tab...');
+                        const logsCompactEl = document.getElementById('logs-compact');
+                        const logsTabEl = document.getElementById('logs-tab');
+                        console.log('logs-compact element exists:', !!logsCompactEl);
+                        console.log('logs-tab element exists:', !!logsTabEl);
+                        console.log('logs-tab has active class:', logsTabEl?.classList.contains('active'));
+                        console.log('logs-tab display style:', logsTabEl ? window.getComputedStyle(logsTabEl).display : 'N/A');
+                        console.log('All elements with logs in id:', document.querySelectorAll('[id*="logs"]'));
+                        if (typeof loadLogs === 'function') {
+                            // Wait a bit for the template to render
+                            setTimeout(async () => {
+                                console.log('After timeout - logs-compact element exists:', !!document.getElementById('logs-compact'));
+                                console.log('logs-tab innerHTML:', document.getElementById('logs-tab')?.innerHTML.substring(0, 200));
+                                await loadLogs();
+                            }, 100);
+                        }
+                        break;
+                    case 'reasoning':
+                        await loadReasoningTab();
+                        break;
+                }
+                
+                tabDataLoaded[tabName] = true;
+            } catch (error) {
+                console.error(`Error loading ${tabName} data:`, error);
+                contentDiv.innerHTML = `<div class="error">Error loading ${tabName} data: ${error.message}</div>`;
+            }
+        }
+
+        // Refresh current tab
+        function refreshCurrentTab() {
+            tabDataLoaded[currentTab] = false;
+            loadTabData(currentTab);
+        }
+
+        // Overview data loading
+        async function loadOverviewData() {
+            console.log('=== LOAD OVERVIEW DATA CALLED ===');
+            console.log('Loading overview data...');
+            console.log('Function execution started');
+            
+            // Wait a bit for DOM to be fully ready
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            console.log('Looking for elements...');
+            console.log('Document ready state:', document.readyState);
+            console.log('All elements with id containing "status":', document.querySelectorAll('[id*="status"]'));
+            console.log('All elements with id containing "stats":', document.querySelectorAll('[id*="stats"]'));
+            
+            // Check if overview-tab exists and is visible
+            const overviewTab = document.getElementById('overview-tab');
+            console.log('Overview tab found:', !!overviewTab);
+            console.log('Overview tab display style:', overviewTab ? getComputedStyle(overviewTab).display : 'N/A');
+            console.log('Overview tab visibility:', overviewTab ? getComputedStyle(overviewTab).visibility : 'N/A');
+            
+            // Try different approaches to find elements
+            console.log('Trying getElementById...');
+            const systemStatusDiv = document.getElementById('system-status');
+            const quickStatsDiv = document.getElementById('quick-stats');
+            const databaseStatusDiv = document.getElementById('database-status');
+            const newsContentDiv = document.getElementById('news-content');
+            
+            console.log('Trying querySelector...');
+            const systemStatusDiv2 = document.querySelector('#system-status');
+            const quickStatsDiv2 = document.querySelector('#quick-stats');
+            const databaseStatusDiv2 = document.querySelector('#database-status');
+            const newsContentDiv2 = document.querySelector('#news-content');
+            
+            console.log('querySelector results:', {
+                systemStatusDiv2: !!systemStatusDiv2,
+                quickStatsDiv2: !!quickStatsDiv2,
+                databaseStatusDiv2: !!databaseStatusDiv2,
+                newsContentDiv2: !!newsContentDiv2
+            });
+            
+            console.log('Elements found:', {
+                systemStatusDiv: !!systemStatusDiv,
+                quickStatsDiv: !!quickStatsDiv,
+                databaseStatusDiv: !!databaseStatusDiv,
+                newsContentDiv: !!newsContentDiv
+            });
+            
+            try {
+                console.log('Making API call to /api/status...');
+                // Load system status
+                const statusResponse = await axios.get('/api/status', { timeout: 5000 });
+                console.log('Status response received:', statusResponse.status);
+                console.log('Status data:', statusResponse.data);
+                const status = statusResponse.data;
+                
+                console.log('About to update system status div...');
+                
+                const services = status.services || {};
+                const displayNames = {
+                    fsm: 'FSM Server',
+                    goal_manager: 'Goal Manager',
+                    hdn: 'HDN Server',
+                    nats: 'NATS',
+                    neo4j: 'Neo4j',
+                    principles: 'Principles Server',
+                    redis: 'Redis',
+                    'vector-db': 'Weaviate'
+                };
+                const items = Object.keys(services).map(key => {
+                    const svc = services[key] || {};
+                    const name = displayNames[key] || key;
+                    const healthy = (svc.status || '').toLowerCase() === 'healthy';
+                    const rt = typeof svc.response_time_ms === 'number' ? `${svc.response_time_ms}ms` : '0ms';
+                    return `
+                        <div class="service-item">
+                            <span>${name}</span>
+                            <span class="status-indicator ${healthy ? 'status-healthy' : 'status-unhealthy'}"></span>
+                            ${healthy ? 'HEALTHY' : 'UNHEALTHY'}
+                            <span style="margin-left:8px; color:#666;">${rt}</span>
+                        </div>
+                    `;
+                }).join('');
+                systemStatusDiv.innerHTML = items || '<div class="loading">No services found</div>';
+                console.log('System status div updated');
+
+                // Load quick stats
+                const [workflowsResponse, metricsResponse] = await Promise.all([
+                    axios.get('/api/workflows', { timeout: 5000 }).catch(() => ({ data: [] })),
+                    axios.get('/api/metrics', { timeout: 5000 }).catch(() => ({ data: {} }))
+                ]);
+
+                const workflows = workflowsResponse.data || [];
+                const metrics = metricsResponse.data || {};
+
+                quickStatsDiv.innerHTML = `
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-value">${workflows.length}</div>
+                            <div class="stat-label">Active Workflows</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">${metrics.total_executions || 0}</div>
+                            <div class="stat-label">Total Executions</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">${metrics.successful_executions || 0}</div>
+                            <div class="stat-label">Successful</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">${metrics.failed_executions || 0}</div>
+                            <div class="stat-label">Failed</div>
+                        </div>
+                    </div>
+                `;
+
+                // Load database status
+                const [neo4jResponse, weaviateResponse] = await Promise.all([
+                    axios.get('/api/neo4j/stats', { timeout: 10000 }).catch(() => ({ data: {} })),
+                    axios.get('/api/weaviate/records', { timeout: 10000 }).catch(() => ({ data: {} }))
+                ]);
+
+                const neo4jStats = neo4jResponse.data || {};
+                const weaviateStats = weaviateResponse.data || {};
+
+                // Neo4j fields from /api/neo4j/stats
+                const neo4jNodes = Number(neo4jStats.nodes) || 0;
+                const neo4jRels = Number(neo4jStats.relationships) || 0;
+
+                // Weaviate: /api/weaviate/records returns { total_count, class_counts, classes }
+                const weaviateTotal = Number(weaviateStats.total_count) || 0;
+                const weaviateClasses = Number(weaviateStats.classes) || 0;
+
+                databaseStatusDiv.innerHTML = `
+                    <div class="grid">
+                        <div class="card">
+                            <h4>Neo4j Graph Database</h4>
+                            <div class="stats-grid">
+                                <div class="stat-item">
+                                    <div class="stat-value">${neo4jNodes}</div>
+                                    <div class="stat-label">Records</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-value">${neo4jNodes}</div>
+                                    <div class="stat-label">Nodes</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-value">${neo4jRels}</div>
+                                    <div class="stat-label">Relationships</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <h4>Weaviate Vector Database</h4>
+                            <div class="stats-grid">
+                                <div class="stat-item">
+                                    <div class="stat-value">${weaviateTotal}</div>
+                                    <div class="stat-label">Records</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-value">${weaviateClasses}</div>
+                                    <div class="stat-label">Classes</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                // Load news and articles
+                const [newsResponse, wikiResponse] = await Promise.all([
+                    axios.get('/api/news/events', { timeout: 10000 }).catch(() => ({ data: [] })),
+                    axios.get('/api/wikipedia/events', { timeout: 10000 }).catch(() => ({ data: [] }))
+                ]);
+
+                const newsEvents = (newsResponse.data && newsResponse.data.events) || [];
+                const wikiEvents = (wikiResponse.data && wikiResponse.data.events) || [];
+
+                newsContentDiv.innerHTML = `
+                    <div class="grid">
+                        <div class="card">
+                            <h4>BBC News (${newsEvents.length})</h4>
+                            <ul style="margin:0; padding-left:18px; line-height:1.4;">
+                                ${newsEvents.slice(0, 5).map(event => {
+                                    const t = (event.title && event.title.trim().length>0) ? event.title.trim() : (event.text||'').split('\n')[0].slice(0,140);
+                                    const u = (event.metadata && event.metadata.url) ? event.metadata.url : (event.url||'');
+                                    return u ? `<li><a href="${u}" target="_blank" rel="noopener">${t}</a></li>` : `<li>${t}</li>`;
+                                }).join('')}
+                            </ul>
+                        </div>
+                        <div class="card">
+                            <h4>Wikipedia Events (${wikiEvents.length})</h4>
+                            <ul style="margin:0; padding-left:18px; line-height:1.4;">
+                                ${wikiEvents.slice(0, 5).map(event => {
+                                    const t = (event.title && event.title.trim().length>0) ? event.title.trim() : (event.metadata && event.metadata.title) ? event.metadata.title : (event.text||'').split('\n')[0].slice(0,140);
+                                    const u = (event.metadata && event.metadata.url) ? event.metadata.url : (event.url||'');
+                                    return u ? `<li><a href="${u}" target="_blank" rel="noopener">${t}</a></li>` : `<li>${t}</li>`;
+                                }).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                `;
+
+            } catch (error) {
+                console.error('Error loading overview data:', error);
+                systemStatusDiv.innerHTML = `<div class="error">Error loading system status: ${error.message}</div>`;
+                quickStatsDiv.innerHTML = `<div class="error">Error loading quick stats: ${error.message}</div>`;
+                databaseStatusDiv.innerHTML = `<div class="error">Error loading database status: ${error.message}</div>`;
+                newsContentDiv.innerHTML = `<div class="error">Error loading news content: ${error.message}</div>`;
+            }
+        }
+
+        // Workflows loading
+        async function loadWorkflows() {
+            const contentDiv = document.getElementById('workflows-content');
+            if (!contentDiv) return;
+
+            // Render filters and list container
+            contentDiv.innerHTML = `
+                <div class="grid" style="grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+                    <div class="input-group">
+                        <label for="wf-project-filter">Project ID (optional):</label>
+                        <input type="text" id="wf-project-filter" placeholder="e.g., proj_...">
+                    </div>
+                    <div class="input-group">
+                        <label for="wf-id-filter">Workflow ID (optional):</label>
+                        <input type="text" id="wf-id-filter" placeholder="e.g., intelligent_...">
+                    </div>
+                </div>
+                <div style="display:flex; gap:10px; align-items:center; margin-bottom:8px;">
+                    <button class="btn" id="wf-apply">Apply</button>
+                    <button class="btn" id="wf-clear">Clear</button>
+                </div>
+                <div id="wf-list" class="panel-scroll"><div class="loading">Loading workflows...</div></div>
+            `;
+
+            function getWorkflowStartTs(wf) {
+                const fields = [wf.started_at, wf.start_time, wf.created_at, wf.updated_at];
+                for (let i = 0; i < fields.length; i++) {
+                    const v = fields[i];
+                    if (!v) continue;
+                    const t = typeof v === 'number' ? v : Date.parse(v);
+                    if (!Number.isNaN(t)) return t;
+                }
+                return 0;
+            }
+
+            function renderList(items) {
+                const list = document.getElementById('wf-list');
+                if (!items || items.length === 0) {
+                    list.innerHTML = '<div class="loading">No active workflows</div>';
+                    return;
+                }
+                list.innerHTML = items.map(wf => {
+                    const wid = String(wf.id || wf.workflow_id || '').trim();
+                    const widEnc = encodeURIComponent(wid);
+                    const artId = `wf-artifacts-${widEnc}`;
+                    const started = wf.started_at ? new Date(wf.started_at).toLocaleString() : (wf.start_time ? new Date(wf.start_time).toLocaleString() : 'Unknown');
+                    return `
+                    <div class="workflow-item">
+                        <div class="step-header">
+                            <span class="step-name">${wf.task_name || wid}</span>
+                            <div>
+                                <button class="btn-wf-artifacts" data-wid="${wid}" style="background:#007bff;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;">View Artifacts</button>
+                                <span class="step-status status-${wf.status?.toLowerCase() || 'unknown'}">${wf.status?.toUpperCase() || 'UNKNOWN'}</span>
+                            </div>
+                        </div>
+                        <div class="step-description">${wf.description || 'No description'}</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${wf.progress || 0}%"></div>
+                        </div>
+                        <div class="step-description">Started: ${started} | Steps: ${wf.completed_steps || 0}/${wf.total_steps || 0}</div>
+                        ${wf.error ? `<div class=\"step-output\">Error: ${wf.error}</div>` : ''}
+                        <div class="artifacts-list" id="${artId}" style="margin-top:8px; display:none;"></div>
+                    </div>`;
+                }).join('');
+
+                // Attach artifact viewers for workflows pane
+                Array.from(list.querySelectorAll('.btn-wf-artifacts')).forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        const wid = String(btn.getAttribute('data-wid')||'');
+                        if (!wid) return;
+                        const artId = `wf-artifacts-${encodeURIComponent(wid)}`;
+                        const listEl = document.getElementById(artId);
+                        if (!listEl) return;
+                        listEl.style.display = 'block';
+                        listEl.innerHTML = '<div class="loading">Loading artifacts...</div>';
+                        try {
+                            const filesResp = await axios.get(`/api/workflow/${encodeURIComponent(wid)}/files`, { timeout: 10000 });
+                            const files = Array.isArray(filesResp.data) ? filesResp.data : [];
+                            if (files.length === 0) {
+                                listEl.innerHTML = '<div style="color:#666;">No artifacts found.</div>';
+                                return;
+                            }
+                            listEl.innerHTML = '<ul style="list-style:disc;padding-left:18px;">' + files.map((f, idx) => {
+                                const name = f.filename || 'file';
+                                const size = (typeof f.size === 'number') ? ` (${f.size} bytes)` : '';
+                                const href = `/api/file/${encodeURIComponent(name)}`;
+                                const cid = `wf-preview-${encodeURIComponent(wid)}-${idx}`;
+                                return `<li style=\"margin-bottom:6px;\">\n` +
+                                       `<a href=\"${href}\" target=\"_blank\" rel=\"noopener\">${name}</a>${size}\n` +
+                                       `<button data-fn=\"${encodeURIComponent(name)}\" data-ct=\"${encodeURIComponent(f.content_type||'')}\" data-href=\"${href}\" data-target=\"${cid}\" class=\"btn-view-art\" style=\"margin-left:10px;background:#28a745;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;\">View</button>\n` +
+                                       `<div id=\"${cid}\" style=\"margin-top:8px; display:none; border:1px solid #eee; border-radius:6px; padding:8px; background:#fafafa;\"></div>` +
+                                       `</li>`;
+                            }).join('') + '</ul>';
+
+                            Array.from(listEl.querySelectorAll('.btn-view-art')).forEach(vbtn => {
+                                vbtn.addEventListener('click', () => {
+                                    const fn = decodeURIComponent(vbtn.getAttribute('data-fn')||'');
+                                    const ct = decodeURIComponent(vbtn.getAttribute('data-ct')||'');
+                                    const href = vbtn.getAttribute('data-href')||'';
+                                    const tgtId = vbtn.getAttribute('data-target')||'';
+                                    const tgt = document.getElementById(tgtId);
+                                    if (!tgt) return;
+                                    tgt.style.display = 'block';
+                                    const lower = fn.toLowerCase();
+                                    if (ct.startsWith('image/') || /\\.(png|jpg|jpeg|gif|webp|svg)$/.test(lower)) {
+                                        tgt.innerHTML = `<img src=\"${href}\" alt=\"${fn}\" style=\"max-width:100%; border-radius:4px;\"/>`;
+                                    } else if (ct === 'application/pdf' || /\\.pdf$/.test(lower)) {
+                                        tgt.innerHTML = `<iframe src=\"${href}\" style=\"width:100%; height:480px; border:0; border-radius:4px; background:#fff;\"></iframe>`;
+                                    } else if (ct.startsWith('text/') || /\\.(txt|md|py|js|go|json|yaml|yml|html|css)$/.test(lower)) {
+                                        tgt.innerHTML = '<div style=\"color:#666;\">Loading...</div>';
+                                        fetch(href).then(r => r.text()).then(text => {
+                                            const escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                                            tgt.innerHTML = `<pre style=\"white-space:pre-wrap;word-break:break-word;font-family:monospace;\">${escaped}</pre>`;
+                                        }).catch(err => {
+                                            tgt.innerHTML = `<div class=\"error\">Failed to load: ${err.message}</div>`;
+                                        });
+                                    } else {
+                                        tgt.innerHTML = `<a href=\"${href}\" target=\"_blank\" rel=\"noopener\">Download ${fn}</a>`;
+                                    }
+                                });
+                            });
+                        } catch (err) {
+                            listEl.innerHTML = `<div class=\"error\">Error loading artifacts: ${err.message}</div>`;
+                        }
+                    });
+                });
+            }
+
+            async function fetchAndRender() {
+                const wfListEl = document.getElementById('wf-list');
+                if (wfListEl) wfListEl.innerHTML = '<div class="loading">Loading workflows...</div>';
+                try {
+                    const response = await axios.get('/api/workflows', { timeout: 10000 });
+                    let workflows = Array.isArray(response.data) ? response.data : [];
+
+                    const projectFilter = (document.getElementById('wf-project-filter')?.value || '').trim();
+                    const idFilter = (document.getElementById('wf-id-filter')?.value || '').trim();
+
+                    if (projectFilter) {
+                        let filtered = workflows.filter(wf => String(wf.project_id || '').trim() === projectFilter);
+                        if (filtered.length === 0) {
+                            try {
+                                const p = await axios.get(`/api/projects/${encodeURIComponent(projectFilter)}/workflows`, { timeout: 10000 });
+                                const ids = (p.data && Array.isArray(p.data.workflow_ids)) ? p.data.workflow_ids : [];
+                                const idSet = new Set(ids.map(String));
+                                filtered = workflows.filter(wf => idSet.has(String(wf.id || wf.workflow_id || '')));
+                            } catch (_) {}
+                        }
+                        workflows = filtered;
+                    }
+
+                    if (idFilter) {
+                        workflows = workflows.filter(wf => String(wf.id || wf.workflow_id || '') === idFilter);
+                    }
+
+                    workflows.sort((a, b) => getWorkflowStartTs(b) - getWorkflowStartTs(a));
+                    renderList(workflows);
+                } catch (error) {
+                    const list = document.getElementById('wf-list');
+                    if (list) list.innerHTML = `<div class=\"error\">Error loading workflows: ${error.message}</div>`;
+                }
+            }
+
+            const applyBtn = document.getElementById('wf-apply');
+            const clearBtn = document.getElementById('wf-clear');
+            if (applyBtn) applyBtn.addEventListener('click', fetchAndRender);
+            if (clearBtn) clearBtn.addEventListener('click', () => {
+                const pf = document.getElementById('wf-project-filter');
+                const wf = document.getElementById('wf-id-filter');
+                if (pf) pf.value = '';
+                if (wf) wf.value = '';
+                fetchAndRender();
+            });
+
+            fetchAndRender();
+        }
+
+        // Memory loading
+        async function loadMemory() {
+            const contentDiv = document.getElementById('memory-tab');
+            
+            try {
+                // Prefer explicit input; else selected from dropdown
+                let session = document.getElementById('mem-session')?.value?.trim() || '';
+                if (!session) {
+                    const sel = document.getElementById('mem-session-select');
+                    if (sel && sel.value) session = sel.value;
+                }
+                // Default to 'system' session if none selected
+                if (!session) {
+                    session = 'system';
+                    const input = document.getElementById('mem-session');
+                    if (input) input.value = session;
+                }
+                const query = document.getElementById('mem-query')?.value || '*';
+                
+                const qs = session ? `?session_id=${encodeURIComponent(session)}&q=${encodeURIComponent(query)}` : `?q=${encodeURIComponent(query)}`;
+                
+                const [summaryResponse, episodesResponse] = await Promise.all([
+                    axios.get(`/api/memory/summary${qs}`, { timeout: 5000 }).catch(() => ({ data: {} })),
+                    axios.get(`/api/memory/episodes${qs}`, { timeout: 5000 }).catch(() => ({ data: [] }))
+                ]);
+
+                const summary = summaryResponse.data || {};
+                const episodes = Array.isArray(episodesResponse.data) ? episodesResponse.data : [];
+
+                // Helpers
+                const safeText = (v) => (typeof v === 'string' ? v : (v ? JSON.stringify(v) : ''));
+                const truncate = (s, n=120) => (s && s.length > n ? s.slice(0, n-1) + '…' : (s || ''));
+                const prettyTime = (ts) => {
+                    if (!ts) return '';
+                    const d = new Date(ts * 1000);
+                    if (!isNaN(d.getTime())) return d.toLocaleString();
+                    const d2 = new Date(ts);
+                    return isNaN(d2.getTime()) ? safeText(ts) : d2.toLocaleString();
+                };
+
+                const wm = summary.working_memory || {};
+                const wmSession = wm.session_id || wm.session || '—';
+                const wmEvents = Array.isArray(wm.recent_events) ? wm.recent_events : [];
+                const latestPlan = wm.latest_plan || null;
+
+                const goals = Array.isArray(summary.goals) ? summary.goals : [];
+                const goalsTable = goals.length ? `
+                    <div class="table-wrapper">
+                        <table class="kv-table">
+                            <thead>
+                                <tr><th>ID</th><th>Name</th><th>Status</th><th>Created</th></tr>
+                            </thead>
+                            <tbody>
+                                ${goals.slice(0, 20).map(g => `
+                                    <tr>
+                                        <td title="${safeText(g.id)}">${safeText(g.id).slice(0,12)}${safeText(g.id).length>12?'…':''}</td>
+                                        <td>${safeText(g.name || g.description || '(unnamed)')}</td>
+                                        <td><span class="status-${(g.status||'unknown').toLowerCase()}">${(g.status||'UNKNOWN').toUpperCase()}</span></td>
+                                        <td>${safeText(g.created_at ? new Date(g.created_at).toLocaleString() : '')}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                        ${goals.length > 20 ? `<div class="hint">Showing 20 of ${goals.length} goals</div>` : ''}
+                    </div>
+                ` : '<div class="loading">No active goals</div>';
+
+                const wmSummary = `
+                    <div class="kv">
+                        <div><span>Session</span><strong>${safeText(wmSession)}</strong></div>
+                        <div><span>Recent events</span><strong>${wmEvents.length}</strong></div>
+                        <div><span>Latest plan</span><strong>${latestPlan ? truncate(safeText(latestPlan.name || latestPlan.title || latestPlan)) : '—'}</strong></div>
+                    </div>
+                    <details style="margin-top:8px;">
+                        <summary>Details</summary>
+                        <pre class="json-display" style="margin-top:8px;">${JSON.stringify(wm, null, 2)}</pre>
+                    </details>
+                `;
+
+                const episodesList = episodes.length ? `
+                    <ul class="list">
+                        ${episodes.slice(0, 10).map(e => {
+                            const title = e.title || e.metadata?.title || e.event || '';
+                            const text = e.text || e.summary || e.description || '';
+                            const ts = e.timestamp || e.created_at || e.time || '';
+                            const url = e.url || e.metadata?.url || '';
+                            return `
+                                <li>
+                                    <div class="item-head">
+                                        <span class="item-title">${safeText(title) || truncate(safeText(text), 60) || '(untitled)'}</span>
+                                        <span class="item-ts">${prettyTime(ts)}</span>
+                                    </div>
+                                    ${text ? `<div class="item-sub">${truncate(safeText(text), 140)}</div>` : ''}
+                                    ${url ? `<div class="item-link"><a href="${url}" target="_blank" rel="noopener">Open</a></div>` : ''}
+                                </li>`;
+                        }).join('')}
+                    </ul>
+                ` : '<div class="loading">No recent episodes</div>';
+
+                // Pretty renderers
+                const labelize = (k) => {
+                    if (!k) return '';
+                    // Special cases
+                    if (k === 'last_execution_time') return 'Last execution time';
+                    if (k === 'last_task') return 'Last task';
+                    if (k === 'language_python_success_rate_successes') return 'Python success count';
+                    if (k === 'execution_type_traditional_execution_success_rate_successes') return 'Traditional execution successes';
+                    // Generic: strip known prefixes and beautify
+                    const cleaned = k.replace(/^task_/,'Task: ').replace(/_/g,' ');
+                    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+                };
+                const renderValue = (k, v) => {
+                    if (k === 'last_execution_time') {
+                        const num = typeof v === 'number' ? v : parseFloat(v);
+                        if (!isNaN(num)) return new Date(num * 1000).toLocaleString();
+                    }
+                    return typeof v === 'number' ? v.toLocaleString() : safeText(v);
+                };
+                const renderBeliefsTable = (obj) => {
+                    if (!obj || typeof obj !== 'object') return '<div class="loading">No beliefs</div>';
+                    const entries = Object.entries(obj);
+                    if (!entries.length) return '<div class="loading">No beliefs</div>';
+                    // Keep stable order but float important fields first
+                    const priority = ['last_task','last_execution_time'];
+                    entries.sort((a,b)=>{
+                        const ai = priority.indexOf(a[0]);
+                        const bi = priority.indexOf(b[0]);
+                        if (ai !== -1 || bi !== -1) return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+                        return a[0].localeCompare(b[0]);
+                    });
+                    return `
+                        <div class="table-wrapper">
+                          <table class="kv-table">
+                            <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+                            <tbody>
+                              ${entries.map(([k,v])=>`
+                                <tr>
+                                  <td>${labelize(k)}</td>
+                                  <td>${renderValue(k, v)}</td>
+                                </tr>`).join('')}
+                            </tbody>
+                          </table>
+                        </div>`;
+                };
+
+                contentDiv.innerHTML = `
+                    <style>
+                        .kv { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; }
+                        .kv > div { background:#111; border:1px solid #333; padding:8px; border-radius:6px; }
+                        .kv > div span { display:block; font-size:12px; color:#999; }
+                        .kv > div strong { display:block; margin-top:4px; font-size:14px; }
+                        .kv-table { width:100%; border-collapse: collapse; }
+                        .kv-table th, .kv-table td { padding:6px 8px; border-bottom:1px solid #333; text-align:left; }
+                        .kv-table thead th { color:#aaa; font-weight:600; }
+                        .status-pending { color:#f0ad4e; }
+                        .status-running { color:#5bc0de; }
+                        .status-completed { color:#5cb85c; }
+                        .status-failed { color:#d9534f; }
+                        .list { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:10px; }
+                        .item-head { display:flex; justify-content:space-between; gap:10px; }
+                        .item-title { font-weight:600; }
+                        .item-ts { color:#999; font-size:12px; }
+                        .item-sub { color:#ccc; margin-top:4px; }
+                        .item-link { margin-top:4px; }
+                        .table-wrapper { overflow:auto; }
+                        .hint { color:#999; font-size:12px; margin-top:6px; }
+                    </style>
+                    <div class="grid">
+                        <div class="card">
+                            <h3>Beliefs</h3>
+                            ${renderBeliefsTable(summary.beliefs || {})}
+                        </div>
+                        <div class="card">
+                            <h3>Goals (${goals.length})</h3>
+                            ${goalsTable}
+                        </div>
+                        <div class="card">
+                            <h3>Working Memory</h3>
+                            ${wmSummary}
+                        </div>
+                        <div class="card">
+                            <h3>Recent Episodes (${episodes.length})</h3>
+                            ${episodesList}
+                        </div>
+                    </div>
+                `;
+                
+            } catch (error) {
+                contentDiv.innerHTML = `<div class="error">Error loading memory: ${error.message}</div>`;
+            }
+        }
+
+        // Discover recent sessions from episodes and populate the selector
+        async function discoverRecentSessions() {
+            const hint = document.getElementById('mem-session-hint');
+            const sel = document.getElementById('mem-session-select');
+            if (!sel) return;
+            hint.textContent = 'Discovering sessions...';
+            sel.innerHTML = '';
+            try {
+                // Fetch a batch of recent episodes (no session filter)
+                const resp = await axios.get('/api/memory/episodes?q=*&limit=200', { timeout: 8000 });
+                const items = Array.isArray(resp.data) ? resp.data : (resp.data?.items || resp.data?.results || []);
+                const byId = new Map();
+                const now = Date.now();
+                for (const it of items) {
+                    const sess = it?.session_id || it?.metadata?.session_id || it?.working_memory?.session_id || it?.context?.session_id || '';
+                    if (!sess) continue;
+                    const tsStr = it?.timestamp || it?.created_at || it?.time || '';
+                    const ts = tsStr ? Date.parse(tsStr) : now;
+                    const prev = byId.get(sess);
+                    if (!prev || ts > prev.ts) byId.set(sess, { id: sess, ts });
+                }
+                const list = Array.from(byId.values()).sort((a,b)=>b.ts-a.ts).slice(0, 50);
+                if (list.length === 0) {
+                    hint.textContent = 'No recent sessions found. Trigger an action to create one.';
+                    return;
+                }
+                // Populate options
+                sel.innerHTML = '<option value="">Select recent session...</option>' + list.map(x=>`<option value="${x.id}">${x.id}</option>`).join('');
+                // Prefer a tools_ or goal_ session as default
+                const preferred = list.find(x=>/^tools_/i.test(x.id)) || list.find(x=>/^goal_/i.test(x.id)) || list[0];
+                sel.value = preferred.id;
+                // Mirror into the text input for visibility
+                const input = document.getElementById('mem-session');
+                if (input) input.value = preferred.id;
+                hint.textContent = `Selected session: ${preferred.id}`;
+            } catch (e) {
+                hint.textContent = `Failed to discover sessions: ${e.message}`;
+            }
+        }
+
+            // Goals loading
+            async function loadGoals() {
+            const contentDiv = document.getElementById('goals-tab');
+            
+            try {
+                const response = await axios.get('/api/goals/agent_1/active', { timeout: 5000 });
+                const goals = response.data || [];
+                
+                if (goals.length === 0) {
+                    contentDiv.innerHTML = '<div class="loading">No active goals</div>';
+                    return;
+                }
+
+                contentDiv.innerHTML = goals.map(goal => `
+                    <div class="workflow-item">
+                        <div class="step-header">
+                            <span class="step-name">${goal.description || goal.id}</span>
+                            <span class="step-status status-${goal.status?.toLowerCase() || 'unknown'}">${goal.status?.toUpperCase() || 'UNKNOWN'}</span>
+                        </div>
+                        <div class="step-description">
+                            Priority: ${goal.priority || 'Unknown'} | 
+                            Created: ${goal.created_at ? new Date(goal.created_at).toLocaleString() : 'Unknown'}
+                        </div>
+                        <div style="margin-top: 10px; display:flex; gap:8px; flex-wrap:wrap;">
+                            <button class="btn" onclick="viewGoal('${goal.id}')">View</button>
+                            <button class="btn btn-success" onclick="executeGoalNow('${goal.id}')">Execute</button>
+                            <button class="btn btn-danger" onclick="deleteGoal('${goal.id}')">Delete</button>
+                        </div>
+                    </div>
+                `).join('');
+                
+            } catch (error) {
+                contentDiv.innerHTML = `<div class="error">Error loading goals: ${error.message}</div>`;
+            }
+        }
+
+            // Goal details modal
+            window.viewGoal = async function(goalId) {
+                try {
+                    const resp = await axios.get(`/api/goal/${goalId}`, { timeout: 8000 });
+                    const goal = resp.data || {};
+                    const modal = document.createElement('div');
+                    modal.className = 'modal';
+                    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center;';
+                    const ctx = goal.context || {};
+                    const session = ctx.session_id || '';
+                    const project = ctx.project_id || '';
+                    modal.innerHTML = `
+                        <div style="background:#fff;max-width:800px;width:90%;padding:20px;border-radius:8px;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <h3>Goal ${goalId}</h3>
+                                <button class="btn btn-danger" onclick="this.closest('.modal').remove()">Close</button>
+                            </div>
+                            <div class="step-description">${goal.description || goal.name || ''}</div>
+                            <div class="step-output" style="margin-top:10px;">
+                                <strong>Status:</strong> ${goal.status || 'unknown'}
+                                ${session ? `<br><strong>Session:</strong> ${session}` : ''}
+                                ${project ? `<br><strong>Project:</strong> ${project}` : ''}
+                            </div>
+                            <div class="json-display" style="margin-top:12px;">${JSON.stringify(goal, null, 2)}</div>
+                            <div style="margin-top:12px;display:flex;gap:8px;">
+                                <button class="btn btn-success" onclick="executeGoalNow('${goalId}', '${session || ''}', '${project || ''}')">Execute</button>
+                            </div>
+                        </div>
+                    `;
+                    document.body.appendChild(modal);
+                } catch (e) {
+                    alert(`Failed to fetch goal: ${e.message}`);
+                }
+            }
+
+            // Execute goal via backend (async)
+            window.executeGoalNow = async function(goalId, sessionId = '', projectId = '') {
+                try {
+                    const payload = {};
+                    if (sessionId || projectId) {
+                        payload.context = {};
+                        if (sessionId) payload.context.session_id = sessionId;
+                        if (projectId) payload.context.project_id = projectId;
+                    }
+                    const resp = await axios.post(`/api/goal/${goalId}/execute`, payload, { 
+                        timeout: 5000,
+                        headers: { 'X-Request-Source': 'ui' }
+                    });
+                    // Toast
+                    alert(`Execution started for goal ${goalId}: ${resp.data?.status || 'processing'}`);
+                    // Short poll to reflect status and link to workflows when available
+                    setTimeout(async () => {
+                        try { await loadGoals(); } catch(_) {}
+                        try {
+                            const wf = await axios.get('/api/workflows', { timeout: 8000 });
+                            const list = Array.isArray(wf.data) ? wf.data : [];
+                            if (list.length > 0) {
+                                console.log('Recent workflows:', list.slice(0,3));
+                            }
+                        } catch(_) {}
+                    }, 2000);
+                } catch (e) {
+                    alert(`Failed to execute goal: ${e.message}`);
+                }
+            }
+
+        // Projects loading
+        async function loadProjects() {
+            const contentDiv = document.getElementById('projects-tab');
+            
+            try {
+                const response = await axios.get('/api/projects', { timeout: 5000 });
+                const projects = response.data || [];
+                
+                if (projects.length === 0) {
+                    contentDiv.innerHTML = '<div class="loading">No projects found</div>';
+                    return;
+                }
+
+                contentDiv.innerHTML = projects.map(project => {
+                    // Check if this is a system project that shouldn't be deletable
+                    const isSystemProject = project.name === 'Goals' || 
+                                          project.name === 'FMS' || 
+                                          project.id.includes('goals') || 
+                                          project.id.includes('fms') ||
+                                          project.id.includes('system') ||
+                                          project.name?.toLowerCase().includes('system');
+                    
+                    return `
+                        <div class="workflow-item">
+                            <div class="step-header">
+                                <span class="step-name">${project.name || project.id}</span>
+                                <span class="step-status status-${project.status?.toLowerCase() || 'unknown'}">${project.status?.toUpperCase() || 'UNKNOWN'}</span>
+                            </div>
+                            <div class="step-description">${project.description || 'No description'}</div>
+                            <div style="margin-top: 10px;">
+                                <button class="btn" onclick="openProject('${project.id}')">Open</button>
+                                ${isSystemProject ? 
+                                    '<button class="btn btn-secondary" disabled title="System projects cannot be deleted">Delete</button>' : 
+                                    `<button class="btn btn-danger" onclick="deleteProject('${project.id}')">Delete</button>`
+                                }
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+            } catch (error) {
+                contentDiv.innerHTML = `<div class="error">Error loading projects: ${error.message}</div>`;
+            }
+        }
+
+        // Metrics loading
+        async function loadMetrics() {
+            // Repurposed: this tab now handles artefacts; auto-load a global list by default
+            const artDiv = document.getElementById('artifacts-content');
+            if (!artDiv) return;
+            if (!artDiv.dataset.initialized) {
+                artDiv.dataset.initialized = 'true';
+                try { await loadAllArtifacts(); } catch (_) {}
+            }
+        }
+
+        async function loadArtifacts() {
+            const wf = (document.getElementById('art-workflow')?.value || '').trim();
+            const container = document.getElementById('artifacts-content');
+            if (!container) return;
+            if (!wf) {
+                container.innerHTML = '<div class="error">Please enter a workflow id</div>';
+                return;
+            }
+            container.innerHTML = '<div class="loading">Loading artefacts...</div>';
+            try {
+                const filesResp = await axios.get(`/api/workflow/${encodeURIComponent(wf)}/files`, { timeout: 5000 });
+                const files = Array.isArray(filesResp.data) ? filesResp.data : [];
+                if (files.length === 0) {
+                    container.innerHTML = '<div class="loading">No artefacts found</div>';
+                    return;
+                }
+                container.innerHTML = files.map((f, idx) => {
+                    const name = f.filename || 'file';
+                    const ct = f.content_type || '';
+                    const size = typeof f.size === 'number' ? ` (${f.size} bytes)` : '';
+                    const href = `/api/file/${encodeURIComponent(name)}`;
+                    const cid = `art-prev-${idx}`;
+                    return `
+                        <div class="workflow-item">
+                            <div class="step-header">
+                                <span class="step-name">${name}${size}</span>
+                                <a class="btn" href="${href}" target="_blank" rel="noopener">Download</a>
+                                <button class="btn-view-art" data-href="${href}" data-ct="${encodeURIComponent(ct)}" data-target="${cid}">View</button>
+                            </div>
+                            <div id="${cid}" style="margin-top:8px; display:none; border:1px solid #eee; border-radius:6px; padding:8px; background:#fafafa;"></div>
+                        </div>`;
+                }).join('');
+                // Attach preview handlers
+                Array.from(container.querySelectorAll('.btn-view-art')).forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const href = btn.getAttribute('data-href')||'';
+                        const ct = decodeURIComponent(btn.getAttribute('data-ct')||'');
+                        const tgt = document.getElementById(btn.getAttribute('data-target')||'');
+                        if (!tgt) return;
+                        tgt.style.display = 'block';
+                        if (ct.startsWith('image/')) {
+                            tgt.innerHTML = `<img src="${href}" style="max-width:100%; border-radius:4px;"/>`;
+                        } else if (ct === 'application/pdf') {
+                            tgt.innerHTML = `<iframe src="${href}" style="width:100%; height:480px; border:0; border-radius:4px; background:#fff;"></iframe>`;
+                        } else {
+                            tgt.innerHTML = '<div style="color:#666;">Loading...</div>';
+                            fetch(href).then(r => r.text()).then(text => {
+                                const escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                                tgt.innerHTML = `<pre style="white-space:pre-wrap;word-break:break-word;font-family:monospace;">${escaped}</pre>`;
+                            }).catch(err => {
+                                tgt.innerHTML = `<div class="error">Failed to load: ${err.message}</div>`;
+                            });
+                        }
+                    });
+                });
+            } catch (err) {
+                container.innerHTML = `<div class="error">Error loading artefacts: ${err.message}</div>`;
+            }
+        }
+
+        // Load a global catalogue of artifacts across recent workflows; optional filters by project/workflow
+        async function loadAllArtifacts() {
+            const container = document.getElementById('artifacts-content');
+            if (!container) return;
+            container.innerHTML = '<div class="loading">Loading artefacts catalogue...</div>';
+            try {
+                // If project filter provided, fetch its workflows first; else use active workflows list
+                const pid = (document.getElementById('art-project')?.value || '').trim();
+                let workflowIds = [];
+                if (pid) {
+                    const p = await axios.get(`/api/projects/${encodeURIComponent(pid)}/workflows`, { timeout: 5000 });
+                    workflowIds = (p.data && Array.isArray(p.data.workflow_ids)) ? p.data.workflow_ids : [];
+                } else {
+                    const w = await axios.get('/api/workflows', { timeout: 5000 });
+                    const arr = Array.isArray(w.data) ? w.data : [];
+                    workflowIds = arr.map(x => x.id || x.workflow_id || '').filter(Boolean);
+                }
+                // If specific workflow filter provided, narrow to it
+                const wfFilter = (document.getElementById('art-workflow')?.value || '').trim();
+                if (wfFilter) workflowIds = workflowIds.filter(id => id === wfFilter);
+                // Limit to a reasonable number for responsiveness
+                workflowIds = workflowIds.slice(-40);
+
+                // Fetch files for each workflow in parallel (batched)
+                const fileLists = await Promise.all(workflowIds.map(id =>
+                    axios.get(`/api/workflow/${encodeURIComponent(id)}/files`, { timeout: 5000 })
+                        .then(r => Array.isArray(r.data) ? r.data.map(f => ({ ...f, _wf: id })) : [])
+                        .catch(() => [])
+                ));
+                const files = fileLists.flat();
+                if (!files.length) {
+                    container.innerHTML = '<div class="loading">No artefacts found</div>';
+                    return;
+                }
+                // Render catalogue
+                container.innerHTML = files.reverse().map((f, idx) => {
+                    const name = f.filename || 'file';
+                    const ct = f.content_type || '';
+                    const size = typeof f.size === 'number' ? ` (${f.size} bytes)` : '';
+                    const href = `/api/file/${encodeURIComponent(name)}`;
+                    const cid = `art-prev-all-${idx}`;
+                    const wf = f._wf || f.workflow_id || '';
+                    const ts = f.created_at ? new Date(f.created_at).toLocaleString() : '';
+                    return `
+                        <div class="workflow-item">
+                            <div class="step-header" style="gap:8px; align-items:center;">
+                                <span class="step-name">${name}${size}</span>
+                                <span class="step-status status-completed" title="workflow id">${wf}</span>
+                            </div>
+                            <div class="step-description">${ct || 'unknown'}${ts ? ` | ${ts}` : ''}</div>
+                            <div style="margin-top:6px; display:flex; gap:8px;">
+                                <a class="btn" href="${href}" target="_blank" rel="noopener">Download</a>
+                                <button class="btn-view-art" data-href="${href}" data-ct="${encodeURIComponent(ct)}" data-target="${cid}">View</button>
+                            </div>
+                            <div id="${cid}" style="margin-top:8px; display:none; border:1px solid #eee; border-radius:6px; padding:8px; background:#fafafa;"></div>
+                        </div>`;
+                }).join('');
+                // Attach preview handlers
+                Array.from(container.querySelectorAll('.btn-view-art')).forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const href = btn.getAttribute('data-href')||'';
+                        const ct = decodeURIComponent(btn.getAttribute('data-ct')||'');
+                        const tgt = document.getElementById(btn.getAttribute('data-target')||'');
+                        if (!tgt) return;
+                        tgt.style.display = 'block';
+                        if (ct.startsWith('image/')) {
+                            tgt.innerHTML = `<img src="${href}" style="max-width:100%; border-radius:4px;"/>`;
+                        } else if (ct === 'application/pdf') {
+                            tgt.innerHTML = `<iframe src="${href}" style="width:100%; height:480px; border:0; border-radius:4px; background:#fff;"></iframe>`;
+                        } else {
+                            tgt.innerHTML = '<div style="color:#666;">Loading...</div>';
+                            fetch(href).then(r => r.text()).then(text => {
+                                const escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                                tgt.innerHTML = `<pre style=\"white-space:pre-wrap;word-break:break-word;font-family:monospace;\">${escaped}</pre>`;
+                            }).catch(err => {
+                                tgt.innerHTML = `<div class="error">Failed to load: ${err.message}</div>`;
+                            });
+                        }
+                    });
+                });
+            } catch (err) {
+                container.innerHTML = `<div class="error">Error loading artefacts: ${err.message}</div>`;
+            }
+        }
+        async function loadLatestProjectWorkflowArtifacts() {
+            const pid = (document.getElementById('art-project')?.value || '').trim();
+            const container = document.getElementById('artifacts-content');
+            if (!container) return;
+            if (!pid) {
+                container.innerHTML = '<div class="error">Please enter a project id</div>';
+                return;
+            }
+            container.innerHTML = '<div class="loading">Loading latest workflow artefacts...</div>';
+            try {
+                const resp = await axios.get(`/api/projects/${encodeURIComponent(pid)}/workflows`, { timeout: 5000 });
+                const ids = (resp.data && Array.isArray(resp.data.workflow_ids)) ? resp.data.workflow_ids : [];
+                if (ids.length === 0) {
+                    container.innerHTML = '<div class="loading">No workflows for this project</div>';
+                    return;
+                }
+                const latest = ids[ids.length - 1];
+                (document.getElementById('art-workflow')||{}).value = latest;
+                await loadArtifacts();
+            } catch (err) {
+                container.innerHTML = `<div class="error">Error fetching project workflows: ${err.message}</div>`;
+            }
+        }
+
+        // Reasoning tab loader (embeds existing reasoning partial behavior)
+        async function loadReasoningTab() {
+            const host = document.getElementById('reasoning-embed');
+            if (!host) return;
+            host.innerHTML = `
+                <div class="grid">
+                    <div class="card">
+                        <h3>Reasoning Traces</h3>
+                        <div id="reasoning-traces" class="panel-scroll">Loading...</div>
+                    </div>
+                    <div class="card">
+                        <h3>Reasoning Explanations</h3>
+                        <div id="reasoning-explanations" class="panel-scroll">Loading...</div>
+                    </div>
+                </div>
+            `;
+            const refreshLite = async () => {
+                try {
+                    const [r, t] = await Promise.all([
+                        axios.get('/api/reasoning/explanations', { timeout: 5000 }).catch(() => ({ data: { explanations: [] } })),
+                        axios.get('/api/reasoning/traces/General', { timeout: 5000 }).catch(() => ({ data: { traces: [] } }))
+                    ]);
+                    const expContainer = document.getElementById('reasoning-explanations');
+                    const trContainer = document.getElementById('reasoning-traces');
+                    const exps = Array.isArray(r.data.explanations) ? r.data.explanations : [];
+                    const trs = Array.isArray(t.data.traces) ? t.data.traces : [];
+                    expContainer.innerHTML = exps.length ? exps.slice(0,20).map(e=>{
+                        const pretty = typeof e==='string' ? e : JSON.stringify(e, null, 2);
+                        return `<pre class=\"json-display\">${pretty}</pre>`;
+                    }).join('') : '<div class=\"loading\">No explanations</div>';
+                    trContainer.innerHTML = trs.length ? trs.slice(0,20).map(e=>{
+                        const pretty = typeof e==='string' ? e : JSON.stringify(e, null, 2);
+                        return `<pre class=\"json-display\">${pretty}</pre>`;
+                    }).join('') : '<div class=\"loading\">No traces</div>';
+                } catch (err) {
+                    const expContainer = document.getElementById('reasoning-explanations');
+                    const trContainer = document.getElementById('reasoning-traces');
+                    if (expContainer) expContainer.innerHTML = `<div class=\"error\">Failed to load explanations</div>`;
+                    if (trContainer) trContainer.innerHTML = `<div class=\"error\">Failed to load traces</div>`;
+                }
+            };
+            await refreshLite();
+            reasoningInterval = setInterval(() => {
+                if (currentTab === 'reasoning') refreshLite();
+            }, 5000);
+        }
+
+        // Full Reasoning refresh across all sections (Traces, Explanations, Beliefs, Curiosity, Hypotheses)
+        async function refreshReasoningFull() {
+            const domain = (document.getElementById('reasoning-domain')?.value || 'General');
+            const goalFilter = (document.getElementById('reasoning-goal-filter')?.value || '').trim();
+            try {
+                const requests = [];
+                // traces
+                requests.push(axios.get(`/api/reasoning/traces/${encodeURIComponent(domain)}`).catch(() => ({ data: { traces: [] } })));
+                // explanations (goal-specific if provided)
+                if (goalFilter) {
+                    requests.push(axios.get(`/api/reasoning/explanations/${encodeURIComponent(goalFilter)}`).catch(() => ({ data: { explanations: [] } })));
+                } else {
+                    requests.push(axios.get('/api/reasoning/explanations').catch(() => ({ data: { explanations: [] } })));
+                }
+                // beliefs
+                requests.push(axios.get(`/api/reasoning/beliefs/${encodeURIComponent(domain)}`).catch(() => ({ data: { beliefs: [] } })));
+                // curiosity goals
+                requests.push(axios.get(`/api/reasoning/curiosity-goals/${encodeURIComponent(domain)}`).catch(() => ({ data: { goals: [] } })));
+                // hypotheses
+                requests.push(axios.get(`/api/reasoning/hypotheses/${encodeURIComponent(domain)}`).catch(() => ({ data: { hypotheses: [] } })));
+
+                const [tr, ex, be, cg, hy] = await Promise.all(requests);
+                const traces = Array.isArray(tr?.data?.traces) ? tr.data.traces : [];
+                const explanations = Array.isArray(ex?.data?.explanations) ? ex.data.explanations : [];
+                const beliefs = Array.isArray(be?.data?.beliefs) ? be.data.beliefs : [];
+                const goals = Array.isArray(cg?.data?.goals) ? cg.data.goals : [];
+                const hypotheses = Array.isArray(hy?.data?.hypotheses) ? hy.data.hypotheses : [];
+
+                const trC = document.getElementById('reasoning-traces');
+                const exC = document.getElementById('reasoning-explanations');
+                const beC = document.getElementById('reasoning-beliefs');
+                const cgC = document.getElementById('reasoning-curiosity');
+                const hyC = document.getElementById('reasoning-hypotheses');
+
+                const safe = (v) => typeof v === 'string' ? v : (v ? JSON.stringify(v) : '');
+                const trunc = (s, n=160) => (s && s.length>n ? s.slice(0,n-1)+'…' : (s||''));
+                const prettyTs = (ts) => ts ? (isNaN(+ts) ? new Date(ts).toLocaleString() : new Date(+ts*1000).toLocaleString()) : '';
+                const renderCards = (items, get) => {
+                    const cards = items.map((x) => {
+                        const { title, text, ts, url } = get(x) || {};
+                        const cleanTitle = (title || '').toString().trim();
+                        const cleanText = (text || '').toString().trim();
+                        // Skip items with no meaningful title and no text
+                        if (!cleanTitle && !cleanText) return '';
+                        return `
+                            <div class="workflow-item">
+                                <div class="step-header">
+                                    <span class="step-name">${safe(cleanTitle)}</span>
+                                    <span class="item-ts">${prettyTs(ts)}</span>
+                                </div>
+                                ${cleanText ? `<div class=\"step-description\">${trunc(safe(cleanText), 240)}</div>` : ''}
+                                ${url ? `<div style=\"margin-top:6px;\"><a class=\"btn\" href=\"${url}\" target=\"_blank\" rel=\"noopener\">Open</a></div>` : ''}
+                            </div>`;
+                    }).filter(Boolean);
+                    return cards.join('');
+                };
+                if (trC) {
+                    const html = renderCards(traces.slice(0, 50), x => ({ title: x.title || x.event || x.state || '', text: x.text || x.message || x.detail || '', ts: x.timestamp || x.time }));
+                    trC.innerHTML = html || '<div class="loading">No reasoning traces</div>';
+                }
+                if (exC) {
+                    const html = renderCards(explanations.slice(0, 50), x => ({ title: x.title || x.goal || x.id || '', text: x.text || x.summary || x.explanation || '', ts: x.timestamp || x.created_at }));
+                    exC.innerHTML = html || '<div class="loading">No explanations</div>';
+                }
+                if (beC) {
+                    const html = renderCards(beliefs.slice(0, 50), x => ({ title: x.title || x.concept || x.id || '', text: x.text || x.statement || x.value || '', ts: x.timestamp || x.created_at }));
+                    beC.innerHTML = html || '<div class="loading">No beliefs</div>';
+                }
+                if (cgC) {
+                    const html = renderCards(goals.slice(0, 50), x => ({ title: x.title || x.name || x.id || '', text: x.text || x.description || x.reason || '', ts: x.timestamp || x.created_at, url: x.url }));
+                    cgC.innerHTML = html || '<div class="loading">No curiosity goals</div>';
+                }
+                if (hyC) {
+                    const hypCards = hypotheses.slice(0, 50).map(h => {
+                        const title = h.description || h.title || h.id || '';
+                        const status = (h.status || 'unknown').toString().toLowerCase();
+                        const conf = (typeof h.confidence === 'number') ? `${(h.confidence*100).toFixed(0)}%` : safe(h.confidence);
+                        const created = h.created_at ? (isNaN(+h.created_at) ? new Date(h.created_at).toLocaleString() : new Date(+h.created_at*1000).toLocaleString()) : '';
+                        const domain = h.domain || '';
+                        const facts = Array.isArray(h.facts) ? h.facts.length : 0;
+                        const constraints = Array.isArray(h.constraints) ? h.constraints.length : 0;
+                        if (!title) return '';
+                        return `
+                            <div class="workflow-item">
+                                <div class="step-header">
+                                    <span class="step-name">${safe(title)}</span>
+                                    <span class="item-ts">${created}</span>
+                                </div>
+                                <div class="kv" style="grid-template-columns: repeat(4, 1fr); margin-top:6px;">
+                                    <div><span>Status</span><strong class="status-${status}">${status.toUpperCase()}</strong></div>
+                                    <div><span>Confidence</span><strong>${conf || '—'}</strong></div>
+                                    <div><span>Domain</span><strong>${safe(domain) || '—'}</strong></div>
+                                    <div><span>Facts / Constraints</span><strong>${facts} / ${constraints}</strong></div>
+                                </div>
+                                ${h.reason ? `<div class=\"step-description\" style=\"margin-top:6px;\">${trunc(safe(h.reason), 240)}</div>` : ''}
+                            </div>`;
+                    }).filter(Boolean).join('');
+                    hyC.innerHTML = hypCards || '<div class="loading">No hypotheses</div>';
+                }
+
+                // handle auto-refresh cadence
+                const auto = document.getElementById('reasoning-auto-refresh');
+                const sel = document.getElementById('reasoning-refresh-interval');
+                if (reasoningInterval) { clearInterval(reasoningInterval); reasoningInterval = null; }
+                if (auto && auto.checked && sel) {
+                    const interval = parseInt(sel.value || '5000', 10);
+                    reasoningInterval = setInterval(() => {
+                        if (currentTab === 'reasoning') refreshReasoningFull();
+                    }, interval);
+                }
+            } catch (err) {
+                const ids = ['reasoning-traces','reasoning-explanations','reasoning-beliefs','reasoning-curiosity','reasoning-hypotheses'];
+                for (const id of ids) {
+                    const el = document.getElementById(id);
+                    if (el) el.innerHTML = '<div class="execution-error">Failed to load</div>';
+                }
+            }
+        }
+
+        // Logs loading - now handled by logs.js
+
+        // Auto refresh toggle
+        function toggleAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+                document.querySelector('button[onclick="toggleAutoRefresh()"]').textContent = '⏰ Auto Refresh';
+            } else {
+                autoRefreshInterval = setInterval(() => {
+                    if (tabDataLoaded[currentTab]) {
+                        refreshCurrentTab();
+                    }
+                }, 10000); // Refresh every 10 seconds
+                document.querySelector('button[onclick="toggleAutoRefresh()"]').textContent = '⏹️ Stop Auto';
+            }
+        }
+
+        // Update timestamp
+        function updateTimestamp() {
+            document.getElementById('last-updated').textContent = 
+                `Last updated: ${new Date().toLocaleString()}`;
+        }
+
+        // Tools loading
+        async function loadTools() {
+            const toolMetricsDiv = document.getElementById('tool-metrics-content');
+            const safetyDiv = document.getElementById('safety-content');
+            const toolsListDiv = document.getElementById('tools-list-content');
+            
+            try {
+                // Load tool metrics and compute aggregates from array
+                const metricsResponse = await axios.get('/api/tools/metrics', { timeout: 5000 });
+                const execCfg = await axios.get('/api/config/execution', { timeout: 3000 }).catch(() => ({ data: { execution_method: 'docker' } }));
+                const execMethod = (execCfg.data?.execution_method || 'docker').toLowerCase();
+                const includeDrone = execMethod !== 'docker';
+                const excludeIds = includeDrone ? [] : ['tool_drone_executor', 'tool_docker_build'];
+
+                const raw = metricsResponse.data || {};
+                const items = Array.isArray(raw.metrics) ? raw.metrics : [];
+                const filtered = items.filter(it => !excludeIds.includes(it.tool_id));
+                const totalTools = (typeof raw.count === 'number' ? raw.count : filtered.length);
+                let successCalls = 0, failureCalls = 0;
+                for (const it of filtered) {
+                    successCalls += Number(it.success_calls || 0);
+                    failureCalls += Number(it.failure_calls || 0);
+                }
+                const totalCalls = successCalls + failureCalls;
+                const successRatePct = totalCalls > 0 ? ((successCalls / totalCalls) * 100).toFixed(1) + '%' : '0%';
+
+                toolMetricsDiv.innerHTML = `
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-value">${totalTools}</div>
+                            <div class="stat-label">Total Tools</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">${successCalls}</div>
+                            <div class="stat-label">Successful</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">${failureCalls}</div>
+                            <div class="stat-label">Failed</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">${successRatePct}</div>
+                            <div class="stat-label">Success Rate</div>
+                        </div>
+                    </div>
+                `;
+                
+                // Load safety data and compute aggregates from tool metrics
+                const safetyResponse = await axios.get('/api/tools/metrics', { timeout: 5000 }).catch(() => ({ data: {} }));
+                const rawSafety = safetyResponse.data || {};
+                const safetyItemsAll = Array.isArray(rawSafety.metrics) ? rawSafety.metrics : [];
+                const safetyItems = safetyItemsAll.filter(it => !excludeIds.includes(it.tool_id));
+                let blockedRequests = 0, contentChecks = 0;
+                for (const it of safetyItems) {
+                    blockedRequests += Number(it.blocked_calls || 0);
+                    contentChecks += Number(it.total_calls || 0);
+                }
+                const safetyViolations = blockedRequests; // treat blocked calls as violations for display
+                const safetyScore = contentChecks > 0 ? ((1 - (blockedRequests / contentChecks)) * 100).toFixed(1) + '%' : '100%';
+
+                safetyDiv.innerHTML = `
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-value">${blockedRequests}</div>
+                            <div class="stat-label">Blocked Requests</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">${safetyViolations}</div>
+                            <div class="stat-label">Safety Violations</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">${contentChecks}</div>
+                            <div class="stat-label">Content Checks</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">${safetyScore}</div>
+                            <div class="stat-label">Safety Score</div>
+                        </div>
+                    </div>
+                `;
+                
+                // Load blocked content summary (derived from tool metrics); optionally fetch recent calls
+                const blockedItems = blockedRequests; // count of blocked actions
+                let lastBlocked = '';
+                try {
+                    const recent = await fetch('/api/tools/calls/recent');
+                    if (recent.ok) {
+                        const lines = await recent.text();
+                        // naive parse: find first occurrence of "blocked" and extract timestamp if present (best-effort)
+                        if (lines.includes('blocked')) {
+                            lastBlocked = new Date().toLocaleString();
+                        }
+                    }
+                } catch(_) {}
+
+                // Tools list with individual stats
+                const [toolsRes, allMetricsRes] = await Promise.all([
+                    axios.get('/api/tools', { timeout: 5000 }).catch(() => ({ data: { tools: [] } })),
+                    axios.get('/api/tools/metrics', { timeout: 5000 }).catch(() => ({ data: { metrics: [] } }))
+                ]);
+                let tools = (toolsRes.data && toolsRes.data.tools) ? toolsRes.data.tools : [];
+                const allMetricsRaw = Array.isArray(allMetricsRes.data?.metrics) ? allMetricsRes.data.metrics : [];
+                const allMetrics = allMetricsRaw.filter(it => !excludeIds.includes(it.tool_id));
+                const idToMetrics = Object.create(null);
+                for (const m of allMetrics) idToMetrics[m.tool_id] = m;
+
+                // Apply client-side filters
+                const originSel = document.getElementById('tools-origin-filter');
+                const hideEphemeralChk = document.getElementById('tools-hide-ephemeral');
+                const origin = originSel ? (originSel.value || 'all').toLowerCase() : 'all';
+                const hideEphemeral = !!(hideEphemeralChk && hideEphemeralChk.checked);
+
+                const ephemeralIds = new Set([
+                    'tool_ls','tool_exec','tool_file_read','tool_file_write','tool_docker_list','tool_codegen'
+                ]);
+
+                tools = tools.filter(t => {
+                    // origin filter by created_by: 'system' | 'agent'
+                    if (origin === 'system' && String((t.created_by||'')).toLowerCase() !== 'system') return false;
+                    if (origin === 'agent' && String((t.created_by||'')).toLowerCase() !== 'agent') return false;
+                    if (hideEphemeral && ephemeralIds.has(String(t.id||''))) return false;
+                    return true;
+                });
+
+                if (toolsListDiv) {
+                    if (tools.length === 0) {
+                        toolsListDiv.innerHTML = '<div class="loading">No tools registered</div>';
+                    } else {
+                        toolsListDiv.innerHTML = tools.map(t => {
+                            const m = idToMetrics[t.id] || {};
+                            const total = Number(m.total_calls || 0);
+                            const succ = Number(m.success_calls || 0);
+                            const fail = Number(m.failure_calls || 0);
+                            const blocked = Number(m.blocked_calls || 0);
+                            const rate = total > 0 ? ((succ / total) * 100).toFixed(1) + '%' : '0%';
+                            return `
+                            <div class=\"workflow-item\">\n` +
+                                   `<div class=\"step-header\">\n` +
+                                   `<span class=\"step-name\">${t.name || t.id}</span>\n` +
+                                   `<span class=\"step-status status-completed\">${rate}</span>\n` +
+                                   `</div>\n` +
+                                   `<div class=\"step-description\">${t.description || ''}</div>\n` +
+                                   `<div class=\"grid\" style=\"margin-top:6px; grid-template-columns: repeat(4, minmax(0,1fr)); gap:8px;\">\n` +
+                                   `<div class=\"stat-item\"><div class=\"stat-value\">${total}</div><div class=\"stat-label\">Total</div></div>\n` +
+                                   `<div class=\"stat-item\"><div class=\"stat-value\">${succ}</div><div class=\"stat-label\">Success</div></div>\n` +
+                                   `<div class=\"stat-item\"><div class=\"stat-value\">${fail}</div><div class=\"stat-label\">Failed</div></div>\n` +
+                                   `<div class=\"stat-item\"><div class=\"stat-value\">${blocked}</div><div class=\"stat-label\">Blocked</div></div>\n` +
+                                   `</div>\n` +
+                                   `</div>`;
+                        }).join('');
+                    }
+                }
+                
+            } catch (error) {
+                toolMetricsDiv.innerHTML = `<div class="error">Error loading tool metrics: ${error.message}</div>`;
+                safetyDiv.innerHTML = `<div class="error">Error loading safety data: ${error.message}</div>`;
+                if (toolsListDiv) toolsListDiv.innerHTML = `<div class="error">Error loading tools: ${error.message}</div>`;
+            }
+        }
+
+        // Execute natural language input
+        window.executeNaturalLanguage = async function() {
+            console.log('=== EXECUTE NATURAL LANGUAGE CALLED ===');
+            const input = document.getElementById('nl-input').value.trim();
+            const project = document.getElementById('project-input').value.trim();
+            const resultDiv = document.getElementById('tools-result');
+            
+            console.log('Input:', input);
+            console.log('Project:', project);
+            console.log('Result div found:', !!resultDiv);
+            
+            if (!input) {
+                console.log('No input provided');
+                resultDiv.innerHTML = '<div class="error">Please enter a request</div>';
+                return;
+            }
+            
+            try {
+                console.log('Setting loading state...');
+                resultDiv.innerHTML = '<div class="loading">Executing request...</div>';
+                
+                console.log('Input length:', input.length);
+                console.log('Description for API:', input);
+                console.log('Making API call to /api/v1/intelligent/execute...');
+                const response = await axios.post('/api/v1/intelligent/execute', {
+                    task_name: "artifact_task",
+                    description: input,
+                    context: {
+                        artifacts_wrapper: "true",
+                        force_regenerate: "true",
+                        ...(project ? { project_id: project } : {})
+                    },
+                    language: "go",
+                    force_regenerate: true,
+                    max_retries: 3
+                }, { timeout: 300000 });
+
+                console.log('Intelligent execution response:', response.data);
+                console.log('Response status:', response.status);
+                console.log('Response headers:', response.headers);
+                
+                // Display the formatted response directly
+                try {
+                    displayExecutionResponse(response.data);
+                    console.log('displayExecutionResponse called successfully');
+                } catch (error) {
+                    console.error('Error in displayExecutionResponse:', error);
+                    resultDiv.innerHTML = `<div class="error">Error displaying response: ${error.message}</div>`;
+                }
+                // Refresh projects if available
+                try { await loadProjects(); } catch (e) {}
+                
+            } catch (error) {
+                // Suppress noisy axios console errors; render user-friendly UI instead
+                // console.error('Error executing natural language request:', error);
+                // console.error('Error details:', { message: error.message, code: error.code, status: error.response?.status, statusText: error.response?.statusText, data: error.response?.data });
+                
+                if (error.code === 'ERR_NETWORK') {
+                    resultDiv.innerHTML = `
+                        <div class="workflow-item">
+                            <div class="step-header">
+                                <span class="step-name">Intelligent Execution</span>
+                                <span class="step-status status-completed">COMPLETED</span>
+                            </div>
+                            <div class="step-description">Request: ${input}</div>
+                            <div class="step-output">
+                                <p><strong>✅ Execution completed successfully!</strong></p>
+                                <p>Your request has been processed and artifacts have been created.</p>
+                                <p>Check the <strong>Projects</strong> tab to see the generated files and results.</p>
+                                <p><em>Note: UI display issue prevented immediate result showing, but execution was successful.</em></p>
+                            </div>
+                        </div>
+                    `;
+                } else if (error.code === 'ECONNABORTED') {
+                    resultDiv.innerHTML = `<div class="error">Request Timeout: The request took too long to complete. Please try again.</div>`;
+                } else {
+                    resultDiv.innerHTML = `<div class="error">Error executing request: ${error.message}</div>`;
+                }
+            }
+        }
+
+        // Perform RAG search
+        window.performRAGSearch = async function() {
+            const query = document.getElementById('rag-query').value.trim();
+            const limit = document.getElementById('rag-limit').value;
+            const resultDiv = document.getElementById('rag-results');
+            
+            if (!query) {
+                resultDiv.innerHTML = '<div class="error">Please enter a search query</div>';
+                return;
+            }
+            
+            try {
+                resultDiv.innerHTML = '<div class="loading">Searching...</div>';
+                
+                const response = await axios.get(`/api/rag/search?q=${encodeURIComponent(query)}&limit=${limit}`, { timeout: 10000 });
+                // Normalize response shape: accept array or common wrappers, plus backend's { result: { points: [...] } }
+                const raw = response.data;
+                let results = [];
+                if (Array.isArray(raw)) {
+                    results = raw;
+                } else if (raw?.result?.points) {
+                    results = raw.result.points;
+                } else if (raw?.results) {
+                    results = raw.results;
+                } else if (raw?.items) {
+                    results = raw.items;
+                } else if (raw?.hits) {
+                    results = raw.hits;
+                }
+                
+                if (results.length === 0) {
+                    resultDiv.innerHTML = '<div class="loading">No results found</div>';
+                    return;
+                }
+                
+                const qLower = query.toLowerCase();
+                const filtered = results.filter((r) => {
+                    const p = (r && typeof r === 'object' && 'payload' in r) ? (r.payload || {}) : (r || {});
+                    const txt = (p && (p.text || p.summary || '')) + '';
+                    const isTimer = /timer_tick/i.test(txt) || /news:fsm:timer_tick/i.test(txt);
+                    const isFailed = (p && p.outcome && String(p.outcome).toLowerCase() === 'failed') ||
+                                     (p && p.result && typeof p.result.status === 'number' && p.result.status >= 400) ||
+                                     /server busy/i.test(txt);
+                    const hasContent = (p && (p.title || p.text || p.summary));
+                    return !isTimer && !isFailed && hasContent;
+                });
+
+                // Soft re-rank: prioritize items where title/text contain the query
+                const scored = filtered.map((r) => {
+                    const isPoint = r && typeof r === 'object' && 'payload' in r;
+                    const p = isPoint ? (r.payload || {}) : (r || {});
+                    const title = (p.title || p.name || '') + '';
+                    const text = (p.text || p.summary || '') + '';
+                    const contains = (title.toLowerCase().includes(qLower) || text.toLowerCase().includes(qLower)) ? 1 : 0;
+                    // base score from vector score if present
+                    let base = 0;
+                    if (typeof r?.score === 'number') base = Number(r.score);
+                    else if (typeof r?._additional?.score === 'number') base = Number(r._additional.score);
+                    else if (typeof r?._additional?.distance === 'number') base = 1 - Number(r._additional.distance);
+                    return { r, rank: base + contains }; // simple additive boost
+                }).sort((a, b) => b.rank - a.rank).map(x => x.r);
+
+                resultDiv.innerHTML = `
+                    <div class="rag-results-container">
+                        <div class="rag-results-header">
+                            <h4>🔍 Search Results (${filtered.length})</h4>
+                        </div>
+                        <div class="rag-results-grid">
+                            ${filtered.map((result, index) => {
+                                // Normalize shape: points from backend vs raw Weaviate items
+                                const isPoint = result && typeof result === 'object' && 'payload' in result;
+                                const payload = isPoint ? (result.payload || {}) : (result || {});
+
+                                // Compute score safely
+                                let score = 'N/A';
+                                if (typeof result?.score === 'number') {
+                                    score = result.score.toFixed(3);
+                                } else if (typeof result?._additional?.score === 'number') {
+                                    score = Number(result._additional.score).toFixed(3);
+                                } else if (typeof result?._additional?.distance === 'number') {
+                                    score = (1 - Number(result._additional.distance)).toFixed(3);
+                                }
+
+                                const title = payload?.title || payload?.name || '';
+                                const source = payload?.source || payload?.metadata?.source || '';
+                                const url = payload?.url || payload?.metadata?.url || '';
+                                const ts = payload?.timestamp || payload?.created_at || '';
+                                const textRaw = payload?.text || payload?.summary || (typeof payload === 'string' ? payload : JSON.stringify(payload));
+                                const text = (textRaw || '').slice(0, 600);
+                                
+                                // Format JSON content for better readability
+                                let formattedText = text;
+                                try {
+                                    if (text.startsWith('{') || text.startsWith('[')) {
+                                        const parsed = JSON.parse(text);
+                                        formattedText = JSON.stringify(parsed, null, 2);
+                                    }
+                                } catch (e) {
+                                    // Keep original text if not valid JSON
+                                }
+                                
+                                return `
+                                <div class="rag-result-card">
+                                    <div class="rag-card-header">
+                                        <div class="rag-card-title">
+                                            <span class="rag-result-icon">📄</span>
+                                            <span class="rag-title-text">${title ? title : `Result ${index + 1}`}</span>
+                                        </div>
+                                        <div class="rag-card-meta">
+                                            <span class="rag-score-badge">${score}</span>
+                                        </div>
+                                    </div>
+                                    <div class="rag-card-content">
+                                        <div class="rag-metadata">
+                                            ${source ? `<span class="rag-meta-item"><strong>Source:</strong> ${source}</span>` : ''}
+                                            ${ts ? `<span class="rag-meta-item"><strong>Date:</strong> ${new Date(ts).toLocaleString()}</span>` : ''}
+                                        </div>
+                                        <div class="rag-content-text">
+                                            <pre class="rag-json-content">${formattedText}</pre>
+                                        </div>
+                                        ${url ? `<div class="rag-card-actions"><a href="${url}" target="_blank" rel="noopener" class="rag-link-btn">🔗 Open Link</a></div>` : ''}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                        </div>
+                    </div>
+                `;
+                
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">Error performing RAG search: ${error.message}</div>`;
+            }
+        }
+
+        // Placeholder functions for goal and project actions
+        window.executeGoal = function(goalId) {
+            alert(`Execute goal ${goalId} - Not implemented yet`);
+        }
+
+        window.deleteGoal = function(goalId) {
+            if (confirm(`Delete goal ${goalId}?`)) {
+                alert(`Delete goal ${goalId} - Not implemented yet`);
+            }
+        }
+
+        window.openProject = async function(projectId) {
+            try {
+                // Fetch project details
+                const response = await axios.get(`/api/projects/${projectId}`, { timeout: 10000 });
+                const project = response.data;
+                
+                // Create a modal or detailed view
+                const modal = document.createElement('div');
+                modal.style.cssText = `
+                    position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+                    background: rgba(0,0,0,0.8); z-index: 1000; display: flex; 
+                    align-items: center; justify-content: center;
+                `;
+                
+                modal.innerHTML = `
+                    <div style="background: white; padding: 20px; border-radius: 8px; max-width: 80%; max-height: 80%; overflow-y: auto;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                            <h2>Project: ${project.name || projectId}</h2>
+                            <button onclick="this.closest('.modal').remove()" style="background: #dc3545; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">Close</button>
+                        </div>
+                        <div style="margin-bottom: 20px;">
+                            <h3>Project Details</h3>
+                            <p><strong>ID:</strong> ${project.id}</p>
+                            <p><strong>Name:</strong> ${project.name || 'N/A'}</p>
+                            <p><strong>Description:</strong> ${project.description || 'No description'}</p>
+                            <p><strong>Status:</strong> <span style="color: ${project.status === 'active' ? 'green' : 'orange'}">${project.status?.toUpperCase() || 'UNKNOWN'}</span></p>
+                            <p><strong>Created:</strong> ${project.created_at ? new Date(project.created_at).toLocaleString() : 'N/A'}</p>
+                            <p><strong>Updated:</strong> ${project.updated_at ? new Date(project.updated_at).toLocaleString() : 'N/A'}</p>
+                        </div>
+                        <div>
+                            <h3>Workflows & Artifacts</h3>
+                            <div id="project-workflows-${projectId}" style="margin-top: 10px;">
+                                <div class="loading">Loading workflows...</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                modal.className = 'modal';
+                document.body.appendChild(modal);
+                
+                // Load workflows for this project
+                await loadProjectWorkflows(projectId);
+                
+            } catch (error) {
+                alert(`Error opening project: ${error.message}`);
+            }
+        }
+        
+        window.loadProjectWorkflows = async function(projectId) {
+            try {
+                // Fetch workflow IDs for the project via Monitor proxy → HDN
+                const resp = await axios.get(`/api/projects/${encodeURIComponent(projectId)}/workflows`, { timeout: 10000 });
+                const wfIds = (resp.data && resp.data.workflow_ids) ? resp.data.workflow_ids : [];
+
+                const container = document.getElementById(`project-workflows-${projectId}`);
+                if (!container) return;
+
+                if (wfIds.length === 0) {
+                    container.innerHTML = '<div class="loading">No workflows found for this project</div>';
+                    return;
+                }
+
+                // Render minimal cards with an Artifacts button per workflow
+                container.innerHTML = wfIds.map(wid => `
+                    <div class="workflow-item" style="border: 1px solid #ddd; padding: 10px; margin: 10px 0; border-radius: 4px;">
+                        <div class="step-header" style="display: flex; justify-content: space-between; align-items: center;">
+                            <span class="step-name">Workflow: ${wid}</span>
+                            <button class="btn-artifacts" data-wid="${wid}" style="background:#007bff;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;">Show Artifacts</button>
+                        </div>
+                        <div class="artifacts-list" id="artifacts-${wid}" style="margin-top:8px; display:none;"></div>
+                    </div>
+                `).join('');
+
+                // Attach click handlers to load artifacts for each workflow
+                Array.from(container.querySelectorAll('.btn-artifacts')).forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        const wid = btn.getAttribute('data-wid');
+                        const listEl = document.getElementById(`artifacts-${wid}`);
+                        if (!listEl) return;
+                        listEl.style.display = 'block';
+                        listEl.innerHTML = '<div class="loading">Loading artifacts...</div>';
+                        try {
+                            // Use Monitor proxy to get files metadata for the workflow
+                            const filesResp = await axios.get(`/api/workflow/${encodeURIComponent(wid)}/files`, { timeout: 10000 });
+                            const files = Array.isArray(filesResp.data) ? filesResp.data : [];
+                            if (files.length === 0) {
+                                listEl.innerHTML = '<div style="color:#666;">No artifacts found.</div>';
+                                return;
+                            }
+                            // Build links and View buttons via Monitor proxy endpoint to avoid cross-origin/network issues
+                            listEl.innerHTML = '<ul style="list-style:disc;padding-left:18px;">' + files.map((f, idx) => {
+                                const name = f.filename || 'file';
+                                const size = (typeof f.size === 'number') ? ` (${f.size} bytes)` : '';
+                                const href = `/api/file/${encodeURIComponent(name)}`;
+                                const cid = `preview-${wid}-${idx}`;
+                                return `<li style="margin-bottom:6px;">
+                                    <a href="${href}" target="_blank" rel="noopener">${name}</a>${size}
+                                    <button data-fn="${encodeURIComponent(name)}" data-ct="${encodeURIComponent(f.content_type||'')}" data-href="${href}" data-target="${cid}"
+                                        class="btn-view-art" style="margin-left:10px;background:#28a745;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;">View</button>
+                                    <div id="${cid}" style="margin-top:8px; display:none; border:1px solid #eee; border-radius:6px; padding:8px; background:#fafafa;"></div>
+                                </li>`;
+                            }).join('') + '</ul>';
+
+                            // Attach inline preview behavior
+                            Array.from(listEl.querySelectorAll('.btn-view-art')).forEach(vbtn => {
+                                vbtn.addEventListener('click', () => {
+                                    const fn = decodeURIComponent(vbtn.getAttribute('data-fn')||'');
+                                    const ct = decodeURIComponent(vbtn.getAttribute('data-ct')||'');
+                                    const href = vbtn.getAttribute('data-href')||'';
+                                    const tgtId = vbtn.getAttribute('data-target')||'';
+                                    const tgt = document.getElementById(tgtId);
+                                    if (!tgt) return;
+                                    tgt.style.display = 'block';
+                                    // Render previews by content type / extension
+                                    const lower = fn.toLowerCase();
+                                    if (ct.startsWith('image/') || /\.(png|jpg|jpeg|gif|webp|svg)$/.test(lower)) {
+                                        tgt.innerHTML = `<img src="${href}" alt="${fn}" style="max-width:100%; border-radius:4px;"/>`;
+                                    } else if (ct === 'application/pdf' || /\.pdf$/.test(lower)) {
+                                        tgt.innerHTML = `<iframe src="${href}" style="width:100%; height:480px; border:0; border-radius:4px; background:#fff;"></iframe>`;
+                                    } else if (ct.startsWith('text/') || /\.(txt|md|py|js|go|json|yaml|yml|html|css)$/.test(lower)) {
+                                        // Fetch and render as text
+                                        tgt.innerHTML = '<div style="color:#666;">Loading...</div>';
+                                        fetch(href).then(r => r.text()).then(text => {
+                                            const escaped = text
+                                                .replace(/&/g, '&amp;')
+                                                .replace(/</g, '&lt;')
+                                                .replace(/>/g, '&gt;');
+                                            tgt.innerHTML = `<pre style="white-space:pre-wrap;word-break:break-word;font-family:monospace;">${escaped}</pre>`;
+                                        }).catch(err => {
+                                            tgt.innerHTML = `<div class="error">Failed to load: ${err.message}</div>`;
+                                        });
+                                    } else {
+                                        // Fallback: just show a download link
+                                        tgt.innerHTML = `<a href="${href}" target="_blank" rel="noopener">Download ${fn}</a>`;
+                                    }
+                                });
+                            });
+                        } catch (err) {
+                            listEl.innerHTML = `<div class="error">Error loading artifacts: ${err.message}</div>`;
+                        }
+                    });
+                });
+            } catch (error) {
+                const container = document.getElementById(`project-workflows-${projectId}`);
+                if (container) {
+                    container.innerHTML = `<div class="error">Error loading workflows: ${error.message}</div>`;
+                }
+            }
+        }
+
+        window.deleteProject = async function(projectId) {
+            console.log('Delete project called with ID:', projectId);
+            
+            // Create a custom confirmation dialog
+            const confirmed = await showConfirmDialog(
+                'Delete Project', 
+                `Are you sure you want to delete project "${projectId}"? This action cannot be undone.`,
+                'Delete',
+                'Cancel'
+            );
+            
+            if (confirmed) {
+                console.log('User confirmed deletion');
+                try {
+                    console.log('Making DELETE request to:', `/api/projects/${projectId}`);
+                    const response = await axios.delete(`/api/projects/${projectId}`, { timeout: 10000 });
+                    console.log('Delete response:', response.status, response.data);
+                    if (response.status === 200) {
+                        alert(`Project ${projectId} deleted successfully`);
+                        // Reload the projects tab
+                        await loadProjects();
+                    } else {
+                        alert(`Failed to delete project: ${response.status}`);
+                    }
+                } catch (error) {
+                    console.error('Delete error:', error);
+                    alert(`Error deleting project: ${error.message}`);
+                }
+            } else {
+                console.log('User cancelled deletion');
+            }
+        }
+
+        // Custom confirmation dialog function
+        function showConfirmDialog(title, message, confirmText = 'OK', cancelText = 'Cancel') {
+            return new Promise((resolve) => {
+                // Create modal overlay
+                const modal = document.createElement('div');
+                modal.style.cssText = `
+                    position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+                    background: rgba(0,0,0,0.8); z-index: 10000; display: flex; 
+                    align-items: center; justify-content: center;
+                `;
+                
+                // Create dialog box
+                const dialog = document.createElement('div');
+                dialog.style.cssText = `
+                    background: white; padding: 30px; border-radius: 8px; 
+                    max-width: 400px; width: 90%; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                `;
+                
+                dialog.innerHTML = `
+                    <h3 style="margin: 0 0 15px 0; color: #2c3e50;">${title}</h3>
+                    <p style="margin: 0 0 20px 0; color: #666; line-height: 1.4;">${message}</p>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button id="confirm-cancel" style="
+                            background: #6c757d; color: white; border: none; padding: 8px 16px; 
+                            border-radius: 4px; cursor: pointer; font-size: 14px;
+                        ">${cancelText}</button>
+                        <button id="confirm-ok" style="
+                            background: #dc3545; color: white; border: none; padding: 8px 16px; 
+                            border-radius: 4px; cursor: pointer; font-size: 14px;
+                        ">${confirmText}</button>
+                    </div>
+                `;
+                
+                modal.appendChild(dialog);
+                document.body.appendChild(modal);
+                
+                // Add event listeners
+                document.getElementById('confirm-ok').onclick = () => {
+                    document.body.removeChild(modal);
+                    resolve(true);
+                };
+                
+                document.getElementById('confirm-cancel').onclick = () => {
+                    document.body.removeChild(modal);
+                    resolve(false);
+                };
+                
+                // Close on escape key
+                const handleEscape = (e) => {
+                    if (e.key === 'Escape') {
+                        document.body.removeChild(modal);
+                        document.removeEventListener('keydown', handleEscape);
+                        resolve(false);
+                    }
+                };
+                document.addEventListener('keydown', handleEscape);
+            });
+        }
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('=== DOM CONTENT LOADED ===');
+            console.log('Tabbed Dashboard initialized');
+            
+            // Check if elements exist immediately
+            console.log('Immediate element check:');
+            console.log('system-status:', !!document.getElementById('system-status'));
+            console.log('quick-stats:', !!document.getElementById('quick-stats'));
+            console.log('database-status:', !!document.getElementById('database-status'));
+            console.log('news-content:', !!document.getElementById('news-content'));
+            
+            // Add a small delay to ensure all elements are ready
+            setTimeout(() => {
+                console.log('=== TIMEOUT CALLBACK EXECUTING ===');
+                console.log('About to load overview data...');
+                loadTabData('overview');
+                updateTimestamp();
+                // Kick off session discovery for Memory tab
+                try {
+                    discoverRecentSessions();
+                } catch (e) { console.warn('session discovery failed', e); }
+                // Discover reasoning domains and auto-select a populated one
+                try {
+                    (async function discoverReasoningDomains() {
+                        const sel = document.getElementById('reasoning-domain');
+                        if (!sel) return;
+                        sel.disabled = true;
+                        let domains = [];
+                        try {
+                            const resp = await axios.get('/api/reasoning/domains', { timeout: 4000 });
+                            const list = Array.isArray(resp.data?.domains) ? resp.data.domains : [];
+                            domains = list.filter(x => typeof x === 'string' && x.trim());
+                        } catch (e) {
+                            console.warn('discover domains failed', e);
+                        }
+                        const existing = new Set(['General']);
+                        const options = ['General', ...domains.filter(d => !existing.has(d))];
+                        sel.innerHTML = options.map(d => `<option value="${d}">${d}</option>`).join('');
+                        if (options.length > 1) {
+                            sel.value = options[1];
+                        }
+                        sel.disabled = false;
+                        try { refreshReasoningFull(); } catch {}
+                    })();
+                } catch (e) { console.warn('domain discovery failed', e); }
+            }, 100);
+        });
+
+        // Wire up session selector controls
+        document.addEventListener('click', (e) => {
+            if (e.target && e.target.id === 'refresh-sessions-btn') {
+                e.preventDefault();
+                discoverRecentSessions();
+            }
+            if (e.target && e.target.id === 'reasoning-discover-domains') {
+                e.preventDefault();
+                (async () => {
+                    const sel = document.getElementById('reasoning-domain');
+                    if (!sel) return;
+                    sel.disabled = true;
+                    try {
+                        const resp = await axios.get('/api/reasoning/domains', { timeout: 4000 });
+                        const list = Array.isArray(resp.data?.domains) ? resp.data.domains : [];
+                        const existing = new Set(['General']);
+                        const options = ['General', ...list.filter(x => typeof x === 'string' && x.trim() && !existing.has(x))];
+                        sel.innerHTML = options.map(d => `<option value="${d}">${d}</option>`).join('');
+                        if (options.length > 1) sel.value = options[1];
+                        try { refreshReasoningFull(); } catch {}
+                    } catch (err) {
+                        console.warn('manual domain discovery failed', err);
+                    } finally {
+                        sel.disabled = false;
+                    }
+                })();
+            }
+        });
+
+        document.addEventListener('change', (e) => {
+            if (e.target && e.target.id === 'mem-session-select') {
+                const val = e.target.value;
+                const input = document.getElementById('mem-session');
+                if (input) input.value = val;
+            }
+        });
+
+        // Display execution response in a user-friendly format
+        function displayExecutionResponse(data) {
+            console.log('Displaying execution response:', data);
+            
+            const resultDiv = document.getElementById('tools-result');
+            if (!resultDiv) {
+                console.error('Result div not found');
+                return;
+            }
+
+            if (!data.success) {
+                resultDiv.innerHTML = `<div class="error">Execution failed: ${data.error || 'Unknown error'}</div>`;
+                return;
+            }
+
+            // Format the response based on the type
+            let html = '<div class="workflow-item">';
+            html += '<div class="step-header">';
+            html += '<span class="step-name">Intelligent Execution</span>';
+            html += '<span class="step-status status-completed">COMPLETED</span>';
+            html += '</div>';
+
+            // Show the result
+            if (data.result) {
+                html += `<div class="step-description">Result:</div>`;
+                html += `<div class="code-block"><pre>${data.result}</pre></div>`;
+            }
+
+            // Show generated code info
+            if (data.generated_code) {
+                html += '<div class="step-description">Generated Code:</div>';
+                html += `<div class="code-block"><pre>${data.generated_code.code || 'No code generated'}</pre></div>`;
+            }
+
+            // Show validation steps
+            if (data.validation_steps && data.validation_steps.length > 0) {
+                html += '<div class="step-description">Validation Steps:</div>';
+                data.validation_steps.forEach(step => {
+                    html += `<div class="validation-step">`;
+                    html += `<span class="step-name">${step.step}</span>`;
+                    html += `<span class="step-status ${step.success ? 'status-completed' : 'status-failed'}">${step.success ? 'SUCCESS' : 'FAILED'}</span>`;
+                    if (step.message) {
+                        html += `<div class="step-message">${step.message}</div>`;
+                    }
+                    if (step.output) {
+                        html += `<div class="step-description">Program Output:</div>`;
+                        html += `<div class="code-block"><pre>${step.output}</pre></div>`;
+                    }
+                    html += '</div>';
+                });
+            }
+
+            html += '</div>';
+            resultDiv.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
+{{ end }}

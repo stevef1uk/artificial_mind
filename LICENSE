@@ -1,0 +1,55 @@
+MIT License with Attribution Requirement
+
+Copyright (c) 2025 Steven Fisher
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+1. The above copyright notice and this permission notice shall be included in all
+   copies or substantial portions of the Software.
+
+2. Any derivative works, modifications, or distributions of this Software must
+   include the original copyright notice and this license file in their entirety.
+
+3. The name "Steven Fisher" must be prominently displayed in any documentation,
+   about pages, or credits sections of any software that uses or is derived from
+   this Software.
+
+4. Any substantial portions of this Software that are used in other projects
+   must be clearly attributed to Steven Fisher and this original work.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+ATTRIBUTION REQUIREMENTS:
+
+When using this software or any derivative works, you must:
+
+1. Include this entire license file in your project
+2. Display "Steven Fisher" as the original author in:
+   - README files
+   - About/credits sections
+   - Documentation
+   - Any user-facing attribution
+
+3. If you create derivative works, you may add your own copyright notice
+   but must preserve the original "Copyright (c) 2025 Steven Fisher" notice
+
+4. Commercial use is permitted, but attribution to Steven Fisher is required
+
+This license ensures that Steven Fisher receives proper credit for the original
+work while allowing maximum freedom for others to use, modify, and distribute
+the software.
+
+For questions about this license, please contact Steven Fisher.

@@ -1,0 +1,14 @@
+{{ define "daily_summary.html" }}
+<div class="card full-width">
+	<h3>📅 Daily Summary</h3>
+	<div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+		<input id="ds-date" type="date" style="padding:8px; border:1px solid #e1e8ed; border-radius:6px;"/>
+		<button class="btn" onclick="loadDailySummary()">Load</button>
+	</div>
+	<pre id="daily-summary" class="code-block panel-scroll" style="min-height:160px; white-space:pre-wrap;"></pre>
+	<div id="daily-summary-history" class="panel-scroll" style="margin-top:8px; min-height:120px;">
+		Loading history...
+	</div>
+</div>
+{{ end }}
+

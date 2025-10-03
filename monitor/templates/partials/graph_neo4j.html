@@ -1,0 +1,17 @@
+{{ define "graph_neo4j.html" }}
+<div class="card">
+    <h3>🕸️ Neo4j Graph Stats</h3>
+    <div id="neo4j-stats" class="panel-scroll">
+        <div class="loading">Loading Neo4j stats...</div>
+    </div>
+    <div style="margin-top:8px; display:flex; gap:10px; align-items:center;">
+        <button class="btn" onclick="refreshNeo4jStats()">Refresh</button>
+        <span id="neo4j-stats-timestamp" style="font-size:0.9em; color:#777;">Last checked: never</span>
+    </div>
+    <div style="margin-top:8px; font-size:0.85em; color:#666;">
+        Auto-refresh every 5 minutes.
+    </div>
+</div>
+{{ end }}
+
+

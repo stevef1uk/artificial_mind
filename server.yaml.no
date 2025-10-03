@@ -1,0 +1,21 @@
+hdn_url: http://localhost:8081
+principles_url: http://localhost:8080
+nats_url: nats://localhost:4222
+redis_url: redis://localhost:6379
+neo4j_uri: bolt://localhost:7687
+neo4j_user: neo4j
+neo4j_pass: test1234
+qdrant_url: http://localhost:6333
+
+autonomy: false
+autonomy_every_seconds: 30
+
+anchor_goals:
+  - name: Curiosity & Knowledge Expansion
+    description: Always try to discover missing connections, patterns, or rules.
+  - name: User-Centric Improvement
+    description: Seek inferences that could improve the user’s life (efficiency, clarity, insight).
+  - name: Planetary Stewardship
+    description: Explore ideas for reducing harm, improving sustainability, or enabling better global systems.
+  - name: Creativity & Innovation
+    description: Look for new combinations of concepts that could lead to inventions or optimizations.

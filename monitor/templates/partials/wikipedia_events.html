@@ -1,0 +1,438 @@
+{{ define "wikipedia_events.html" }}
+<div class="panel wikipedia-events-panel">
+    <div class="panel-header">
+        <h3>📚 Recent Wikipedia Content</h3>
+        <div class="panel-controls">
+            <button id="refresh-wikipedia" class="btn btn-sm btn-outline">🔄 Refresh</button>
+            <span class="wikipedia-count" id="wikipedia-count">Loading...</span>
+        </div>
+    </div>
+    <div class="panel-content">
+        <div class="wikipedia-events-container" id="wikipedia-events-container">
+            <div class="loading-spinner">Loading Wikipedia content...</div>
+        </div>
+    </div>
+</div>
+
+<style>
+.wikipedia-events-panel {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 15px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(10px);
+}
+
+.wikipedia-events-panel .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.wikipedia-events-panel h3 {
+    color: #2c3e50;
+    font-size: 1.4rem;
+    margin: 0;
+}
+
+.panel-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.wikipedia-count {
+    color: #6c757d;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.wikipedia-events-container {
+    max-height: 500px;
+    overflow-y: auto;
+    padding-right: 5px;
+}
+
+.wikipedia-events-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.wikipedia-events-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.wikipedia-events-container::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+.wikipedia-events-container::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+.wikipedia-event {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    padding: 15px;
+    margin-bottom: 12px;
+    transition: all 0.3s ease;
+    position: relative;
+    border-left: 4px solid #0066cc;
+}
+
+.wikipedia-event:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-color: #0066cc;
+}
+
+.wikipedia-event.expanded {
+    border-color: #0056b3;
+    box-shadow: 0 6px 20px rgba(0, 102, 204, 0.15);
+}
+
+.wikipedia-event-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+}
+
+.wikipedia-source {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #0066cc;
+}
+
+.wikipedia-timestamp {
+    color: #6c757d;
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+.wikipedia-text {
+    color: #2c3e50;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    margin-bottom: 8px;
+    word-wrap: break-word;
+}
+
+.wikipedia-full-text {
+    background: #ffffff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 15px;
+    margin-top: 10px;
+    color: #495057;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    max-height: 300px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    display: none;
+}
+
+.wikipedia-full-text.show {
+    display: block;
+}
+
+.wikipedia-summary-info,
+.wikipedia-content,
+.wikipedia-technical {
+    margin-bottom: 20px;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border-left: 4px solid #007bff;
+}
+
+.wikipedia-summary-info h4,
+.wikipedia-content h4,
+.wikipedia-technical h4 {
+    color: #495057;
+    font-size: 1rem;
+    margin-bottom: 10px;
+    margin-top: 0;
+}
+
+.wikipedia-summary-info p,
+.wikipedia-content p,
+.wikipedia-technical p {
+    margin: 8px 0;
+    font-size: 0.9rem;
+    color: #6c757d;
+}
+
+.wikipedia-summary-info a {
+    color: #007bff;
+    text-decoration: none;
+}
+
+.wikipedia-summary-info a:hover {
+    text-decoration: underline;
+}
+
+.summary-text {
+    background: #ffffff;
+    padding: 12px;
+    border-radius: 6px;
+    border: 1px solid #dee2e6;
+    font-style: italic;
+    line-height: 1.5;
+    color: #495057;
+}
+
+.summary-original,
+.summary-llm {
+    margin-bottom: 15px;
+}
+
+.summary-original h5,
+.summary-llm h5 {
+    color: #495057;
+    font-size: 0.9rem;
+    margin-bottom: 8px;
+    margin-top: 0;
+    font-weight: 600;
+}
+
+.summary-llm .summary-text {
+    background: #f8f9fa;
+    border-left: 4px solid #28a745;
+    font-style: normal;
+    color: #2c3e50;
+}
+
+.llm-summary {
+    position: relative;
+}
+
+.llm-summary::before {
+    content: "🤖";
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    background: #28a745;
+    color: white;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+}
+
+.wikipedia-actions {
+    margin-top: 10px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.wikipedia-metadata {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.wikipedia-tag {
+    background: #e9ecef;
+    color: #495057;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.wikipedia-type {
+    background: #0066cc;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.loading-spinner {
+    text-align: center;
+    color: #6c757d;
+    padding: 20px;
+    font-style: italic;
+}
+
+.no-wikipedia {
+    text-align: center;
+    color: #6c757d;
+    padding: 40px 20px;
+    font-style: italic;
+}
+
+.no-wikipedia .icon {
+    font-size: 2rem;
+    margin-bottom: 10px;
+    display: block;
+}
+
+.error-message {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+    border-radius: 8px;
+    padding: 15px;
+    margin: 10px 0;
+    text-align: center;
+}
+
+.btn {
+    padding: 6px 12px;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    background: white;
+    color: #495057;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: all 0.2s ease;
+}
+
+.btn:hover {
+    background: #f8f9fa;
+    border-color: #adb5bd;
+}
+
+.btn-outline {
+    border-color: #0066cc;
+    color: #0066cc;
+}
+
+.btn-outline:hover {
+    background: #0066cc;
+    color: white;
+}
+
+.btn-expand {
+    background: #28a745;
+    color: white;
+    border: 1px solid #28a745;
+    font-size: 0.75rem;
+    padding: 4px 8px;
+}
+
+.btn-expand:hover {
+    background: #218838;
+    border-color: #1e7e34;
+}
+
+.btn-collapse {
+    background: #6c757d;
+    color: white;
+    border: 1px solid #6c757d;
+    font-size: 0.75rem;
+    padding: 4px 8px;
+}
+
+.btn-collapse:hover {
+    background: #5a6268;
+    border-color: #545b62;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const container = document.getElementById('wikipedia-events-container');
+    const refreshBtn = document.getElementById('refresh-wikipedia');
+    const countSpan = document.getElementById('wikipedia-count');
+
+    function loadWikipediaEvents() {
+        container.innerHTML = '<div class="loading-spinner">Loading Wikipedia content...</div>';
+        
+        fetch('/api/wikipedia/events')
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    container.innerHTML = `<div class="error-message">Error: ${data.error}</div>`;
+                    return;
+                }
+                
+                countSpan.textContent = `${data.count} entries`;
+                
+                if (data.events && data.events.length > 0) {
+                    container.innerHTML = data.events.map(event => createWikipediaEventHTML(event)).join('');
+                } else {
+                    container.innerHTML = '<div class="no-wikipedia"><span class="icon">📚</span>No Wikipedia content found</div>';
+                }
+            })
+            .catch(error => {
+                console.error('Error loading Wikipedia events:', error);
+                container.innerHTML = `<div class="error-message">Failed to load Wikipedia content: ${error.message}</div>`;
+            });
+    }
+
+    function createWikipediaEventHTML(event) {
+        const timestamp = event.timestamp ? new Date(event.timestamp).toLocaleString() : '';
+        const eventId = `wiki-event-${event.id}`;
+        const title = (event.metadata && event.metadata.title) ? event.metadata.title : (event.text || '').split('\n')[0].slice(0, 140);
+        const url = (event.metadata && event.metadata.url) ? event.metadata.url : '';
+
+        const titleHTML = url ? `<a href="${url}" target="_blank" rel="noopener">${title}</a>` : title;
+
+        return `
+            <div class="wikipedia-event" id="${eventId}">
+                <div class="wikipedia-event-header">
+                    <div class="wikipedia-source">
+                        <span>📚</span>
+                        <span>Wikipedia</span>
+                    </div>
+                    ${timestamp ? `<div class=\"wikipedia-timestamp\">${timestamp}</div>` : ''}
+                </div>
+                <div class="wikipedia-text" style="font-weight:600;">${titleHTML}</div>
+            </div>
+        `;
+    }
+
+    // Global function for toggling Wikipedia content
+    window.toggleWikipediaContent = function(eventId) {
+        const eventElement = document.getElementById(eventId);
+        const fullTextElement = document.getElementById(`${eventId}-full`);
+        const button = eventElement.querySelector('.btn-expand');
+        
+        if (fullTextElement.classList.contains('show')) {
+            // Collapse
+            fullTextElement.classList.remove('show');
+            eventElement.classList.remove('expanded');
+            button.textContent = '📖 View Full Content';
+            button.className = 'btn btn-expand';
+        } else {
+            // Expand
+            fullTextElement.classList.add('show');
+            eventElement.classList.add('expanded');
+            button.textContent = '📄 Close';
+            button.className = 'btn btn-collapse';
+        }
+    };
+
+    // Load Wikipedia events on page load
+    loadWikipediaEvents();
+
+    // Refresh button
+    refreshBtn.addEventListener('click', loadWikipediaEvents);
+
+    // Auto-refresh every 30 seconds
+    setInterval(loadWikipediaEvents, 30000);
+});
+</script>
+{{ end }}

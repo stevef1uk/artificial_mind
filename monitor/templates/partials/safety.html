@@ -1,0 +1,663 @@
+<!-- Safety Monitoring Panel -->
+<div id="safety-panel" style="padding:16px; margin:16px; border:1px solid #ddd; border-radius:8px; background:#fff;">
+    <div class="pane-header">
+        <h3>🛡️ Safety Monitor</h3>
+        <div class="pane-controls">
+            <button onclick="toggleSafetyAutoRefresh()" id="auto-refresh-btn" class="btn btn-sm">Auto: ON</button>
+            <button onclick="refreshSafetyData()" class="btn btn-sm">Refresh</button>
+            <button onclick="clearSafetyLog()" class="btn btn-sm btn-danger">Clear Log</button>
+            <button onclick="clearAllSafetyData()" class="btn btn-sm btn-danger">Clear All Data</button>
+        </div>
+    </div>
+    
+    <div class="safety-dashboard">
+        <!-- Safety Statistics -->
+        <div class="safety-stats">
+            <div class="stat-card">
+                <div class="stat-number" id="total-requests">0</div>
+                <div class="stat-label">Total Requests</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="blocked-requests">0</div>
+                <div class="stat-label">Blocked</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="allowed-requests">0</div>
+                <div class="stat-label">Allowed</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="block-rate">0%</div>
+                <div class="stat-label">Block Rate</div>
+            </div>
+        </div>
+
+        <!-- Safety Categories -->
+        <div class="safety-categories">
+            <div class="category-card">
+                <h4>🚫 Blocked Categories</h4>
+                <div class="category-stats">
+                    <div class="category-item">
+                        <span class="category-name">Adult Content</span>
+                        <span class="category-count" id="adult-blocked">0</span>
+                    </div>
+                    <div class="category-item">
+                        <span class="category-name">Malicious Sites</span>
+                        <span class="category-count" id="malicious-blocked">0</span>
+                    </div>
+                    <div class="category-item">
+                        <span class="category-name">Suspicious URLs</span>
+                        <span class="category-count" id="suspicious-blocked">0</span>
+                    </div>
+                    <div class="category-item">
+                        <span class="category-name">Content Filtered</span>
+                        <span class="category-count" id="content-blocked">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Real-time Activity Feed -->
+        <div class="activity-feed">
+            <h4>📊 Real-time Activity</h4>
+            <div class="feed-controls">
+                <label>
+                    <input type="checkbox" id="show-allowed" checked> Show Allowed
+                </label>
+                <label>
+                    <input type="checkbox" id="show-blocked" checked> Show Blocked
+                </label>
+                <label>
+                    <input type="checkbox" id="auto-scroll" checked> Auto Scroll
+                </label>
+            </div>
+            <div class="activity-log" id="activity-log">
+                <div class="log-entry placeholder">
+                    <div class="log-time">Waiting for activity...</div>
+                    <div class="log-message">Safety monitoring is active</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Blocked Sites -->
+        <div class="blocked-sites">
+            <h4>🚫 Recently Blocked Sites</h4>
+            <div class="blocked-list" id="blocked-sites-list">
+                <div class="blocked-item placeholder">
+                    <div class="site-url">No blocked sites yet</div>
+                    <div class="block-reason">Safety system is monitoring</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.safety-dashboard {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto 1fr;
+    gap: 20px;
+    height: calc(100vh - 120px);
+    padding: 20px;
+}
+
+.safety-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 15px;
+    grid-column: 1 / -1;
+}
+
+.stat-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 20px;
+    border-radius: 10px;
+    text-align: center;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.stat-number {
+    font-size: 2.5em;
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.stat-label {
+    font-size: 0.9em;
+    opacity: 0.9;
+}
+
+.safety-categories {
+    grid-column: 1;
+    grid-row: 2;
+}
+
+.category-card {
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    height: fit-content;
+}
+
+.category-stats {
+    margin-top: 15px;
+}
+
+.category-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.category-item:last-child {
+    border-bottom: none;
+}
+
+.category-name {
+    font-weight: 500;
+}
+
+.category-count {
+    background: #ff4757;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.8em;
+    font-weight: bold;
+}
+
+.activity-feed {
+    grid-column: 2;
+    grid-row: 2 / 4;
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+}
+
+.feed-controls {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+}
+
+.feed-controls label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.9em;
+    cursor: pointer;
+}
+
+.activity-log {
+    flex: 1;
+    overflow-y: auto;
+    border: 1px solid #eee;
+    border-radius: 5px;
+    padding: 10px;
+    background: #f8f9fa;
+    max-height: 400px;
+}
+
+.log-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+    font-size: 0.9em;
+}
+
+.log-entry:last-child {
+    border-bottom: none;
+}
+
+.log-entry.allowed {
+    background: #d4edda;
+    margin: 2px 0;
+    padding: 8px;
+    border-radius: 4px;
+    border-left: 4px solid #28a745;
+}
+
+.log-entry.blocked {
+    background: #f8d7da;
+    margin: 2px 0;
+    padding: 8px;
+    border-radius: 4px;
+    border-left: 4px solid #dc3545;
+}
+
+.log-time {
+    color: #666;
+    font-size: 0.8em;
+    white-space: nowrap;
+    min-width: 80px;
+}
+
+.log-message {
+    flex: 1;
+}
+
+.log-status {
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.8em;
+}
+
+.log-status.allowed {
+    background: #28a745;
+    color: white;
+}
+
+.log-status.blocked {
+    background: #dc3545;
+    color: white;
+}
+
+.blocked-sites {
+    grid-column: 1;
+    grid-row: 3;
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    height: fit-content;
+}
+
+.blocked-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.blocked-item {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 10px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.blocked-item:last-child {
+    border-bottom: none;
+}
+
+.site-url {
+    font-family: monospace;
+    font-size: 0.9em;
+    color: #dc3545;
+    word-break: break-all;
+}
+
+.block-reason {
+    font-size: 0.8em;
+    color: #666;
+    font-style: italic;
+}
+
+.placeholder {
+    text-align: center;
+    color: #999;
+    font-style: italic;
+}
+
+.pane-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.btn {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+
+.btn-sm {
+    padding: 4px 8px;
+    font-size: 0.8em;
+}
+
+.btn-danger {
+    background: #dc3545;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #c82333;
+}
+
+/* Scrollbar styling */
+.activity-log::-webkit-scrollbar,
+.blocked-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.activity-log::-webkit-scrollbar-track,
+.blocked-list::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.activity-log::-webkit-scrollbar-thumb,
+.blocked-list::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+.activity-log::-webkit-scrollbar-thumb:hover,
+.blocked-list::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+</style>
+
+<script>
+let safetyData = {
+    totalRequests: 0,
+    blockedRequests: 0,
+    allowedRequests: 0,
+    categories: {
+        adult: 0,
+        malicious: 0,
+        suspicious: 0,
+        content: 0
+    },
+    recentActivity: [],
+    blockedSites: []
+};
+
+let autoRefresh = true;
+let refreshInterval;
+
+// Initialize safety monitoring
+function initSafetyMonitoring() {
+    console.log('🛡️ Initializing safety monitoring...');
+    fetchSafetyData();
+    startAutoRefresh();
+}
+
+// Fetch safety data from API
+async function fetchSafetyData() {
+    try {
+        // Fetch tool metrics
+        const metricsResponse = await fetch('/api/tools/metrics');
+        if (metricsResponse.ok) {
+            const metrics = await metricsResponse.json();
+            updateSafetyStats(metrics);
+        }
+
+        // Fetch recent calls
+        const callsResponse = await fetch('/api/tools/calls/recent');
+        if (callsResponse.ok) {
+            const calls = await callsResponse.json();
+            updateActivityFeed(calls);
+        }
+    } catch (error) {
+        console.error('Error fetching safety data:', error);
+    }
+}
+
+// Update safety statistics
+function updateSafetyStats(metrics) {
+    if (!metrics || !metrics.metrics) {
+        console.log('No metrics data available');
+        return;
+    }
+    const httpTool = metrics.metrics.find(m => m.tool_id === 'tool_http_get');
+    if (httpTool) {
+        safetyData.totalRequests = httpTool.total_calls;
+        safetyData.blockedRequests = httpTool.blocked_calls;
+        safetyData.allowedRequests = httpTool.success_calls;
+        
+        // Update UI
+        document.getElementById('total-requests').textContent = safetyData.totalRequests;
+        document.getElementById('blocked-requests').textContent = safetyData.blockedRequests;
+        document.getElementById('allowed-requests').textContent = safetyData.allowedRequests;
+        
+        const blockRate = safetyData.totalRequests > 0 ? 
+            Math.round((safetyData.blockedRequests / safetyData.totalRequests) * 100) : 0;
+        document.getElementById('block-rate').textContent = blockRate + '%';
+    }
+}
+
+// Update activity feed
+function updateActivityFeed(calls) {
+    const activityLog = document.getElementById('activity-log');
+    const showAllowed = document.getElementById('show-allowed').checked;
+    const showBlocked = document.getElementById('show-blocked').checked;
+    const autoScroll = document.getElementById('auto-scroll').checked;
+    
+    // Clear existing entries
+    activityLog.innerHTML = '';
+    
+    // Process recent calls
+    const recentCalls = (calls && calls.calls) ? calls.calls.slice(0, 50) : []; // Show last 50 calls
+    recentCalls.reverse(); // Show newest first
+    
+    recentCalls.forEach(call => {
+        if (call.tool_id === 'tool_http_get') {
+            const isAllowed = call.status === 'success';
+            const isBlocked = call.status === 'blocked' || call.status === 'failure';
+            
+            // Skip if filtered out
+            if (isAllowed && !showAllowed) return;
+            if (isBlocked && !showBlocked) return;
+            
+            const logEntry = createLogEntry(call, isAllowed, isBlocked);
+            activityLog.appendChild(logEntry);
+        }
+    });
+    
+    // Auto scroll to bottom
+    if (autoScroll) {
+        activityLog.scrollTop = activityLog.scrollHeight;
+    }
+    
+    // Update blocked sites list
+    updateBlockedSitesList(recentCalls);
+}
+
+// Create a log entry
+function createLogEntry(call, isAllowed, isBlocked) {
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${isAllowed ? 'allowed' : 'blocked'}`;
+    
+    const time = new Date(call.timestamp).toLocaleTimeString();
+    const url = call.parameters?.url || 'Unknown URL';
+    const status = isAllowed ? 'ALLOWED' : 'BLOCKED';
+    const reason = call.error || 'Success';
+    
+    entry.innerHTML = `
+        <div class="log-time">${time}</div>
+        <div class="log-message">
+            <div><strong>${url}</strong></div>
+            <div style="font-size: 0.8em; color: #666;">${reason}</div>
+        </div>
+        <div class="log-status ${isAllowed ? 'allowed' : 'blocked'}">${status}</div>
+    `;
+    
+    return entry;
+}
+
+// Update blocked sites list
+function updateBlockedSitesList(calls) {
+    const blockedSitesList = document.getElementById('blocked-sites-list');
+    const blockedCalls = calls.filter(call => 
+        call.tool_id === 'tool_http_get' && 
+        (call.status === 'blocked' || call.status === 'failure')
+    );
+    
+    // Get unique blocked sites
+    const uniqueSites = new Map();
+    blockedCalls.forEach(call => {
+        const url = call.parameters?.url;
+        if (url && !uniqueSites.has(url)) {
+            uniqueSites.set(url, call);
+        }
+    });
+    
+    // Clear existing list
+    blockedSitesList.innerHTML = '';
+    
+    // Add blocked sites
+    Array.from(uniqueSites.values()).slice(0, 10).forEach(call => {
+        const siteItem = document.createElement('div');
+        siteItem.className = 'blocked-item';
+        
+        const url = call.parameters?.url || 'Unknown URL';
+        const reason = call.error || 'Blocked';
+        const time = new Date(call.timestamp).toLocaleTimeString();
+        
+        siteItem.innerHTML = `
+            <div class="site-url">${url}</div>
+            <div class="block-reason">${reason} (${time})</div>
+        `;
+        
+        blockedSitesList.appendChild(siteItem);
+    });
+    
+    // Show placeholder if no blocked sites
+    if (uniqueSites.size === 0) {
+        blockedSitesList.innerHTML = `
+            <div class="blocked-item placeholder">
+                <div class="site-url">No blocked sites yet</div>
+                <div class="block-reason">Safety system is monitoring</div>
+            </div>
+        `;
+    }
+}
+
+// Toggle auto refresh
+function toggleSafetyAutoRefresh() {
+    autoRefresh = !autoRefresh;
+    const btn = document.getElementById('auto-refresh-btn');
+    btn.textContent = `Auto: ${autoRefresh ? 'ON' : 'OFF'}`;
+    btn.style.background = autoRefresh ? '#28a745' : '#6c757d';
+    
+    if (autoRefresh) {
+        startAutoRefresh();
+    } else {
+        stopAutoRefresh();
+    }
+}
+
+// Start auto refresh
+function startAutoRefresh() {
+    if (refreshInterval) clearInterval(refreshInterval);
+    refreshInterval = setInterval(fetchSafetyData, 2000); // Refresh every 2 seconds
+}
+
+// Stop auto refresh
+function stopAutoRefresh() {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+        refreshInterval = null;
+    }
+}
+
+// Manual refresh
+function refreshSafetyData() {
+    fetchSafetyData();
+}
+
+// Clear safety log
+function clearSafetyLog() {
+    if (confirm('Clear the activity log and blocked sites list? This will not affect the actual data.')) {
+        // Clear activity log
+        const activityLog = document.getElementById('activity-log');
+        activityLog.innerHTML = `
+            <div class="log-entry placeholder">
+                <div class="log-time">Log cleared</div>
+                <div class="log-message">Activity log has been cleared</div>
+            </div>
+        `;
+        
+        // Clear blocked sites list
+        const blockedSitesList = document.getElementById('blocked-sites-list');
+        blockedSitesList.innerHTML = `
+            <div class="blocked-item placeholder">
+                <div class="site-url">No blocked sites yet</div>
+                <div class="block-reason">Safety system is monitoring</div>
+            </div>
+        `;
+        
+        // Reset statistics to show cleared state
+        document.getElementById('total-requests').textContent = '0';
+        document.getElementById('blocked-requests').textContent = '0';
+        document.getElementById('allowed-requests').textContent = '0';
+        document.getElementById('block-rate').textContent = '0%';
+        
+        // Clear the safety data cache so refresh doesn't reload old data
+        safetyData = {
+            totalRequests: 0,
+            blockedRequests: 0,
+            allowedRequests: 0,
+            categories: {
+                adult: 0,
+                malicious: 0,
+                suspicious: 0,
+                content: 0
+            },
+            recentActivity: [],
+            blockedSites: []
+        };
+        
+        console.log('🛡️ Safety log and blocked sites list cleared');
+    }
+}
+
+// Clear all safety data (display + underlying data)
+async function clearAllSafetyData() {
+    if (confirm('Clear ALL safety data? This will clear the display AND delete only safety-related data (tool metrics + logs). Other system data will be preserved. This cannot be undone!')) {
+        try {
+            // Clear only safety-related Redis data
+            const response = await fetch('/api/clear-safety-data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (response.ok) {
+                // Clear display
+                clearSafetyLog();
+                
+                // Reset statistics
+                document.getElementById('total-requests').textContent = '0';
+                document.getElementById('blocked-requests').textContent = '0';
+                document.getElementById('allowed-requests').textContent = '0';
+                document.getElementById('block-rate').textContent = '0%';
+                
+                console.log('🛡️ All safety data cleared successfully');
+                alert('All safety data has been cleared!');
+            } else {
+                console.error('Failed to clear safety data');
+                alert('Failed to clear safety data. Please try again.');
+            }
+        } catch (error) {
+            console.error('Error clearing safety data:', error);
+            alert('Error clearing safety data. Please try again.');
+        }
+    }
+}
+
+// Initialize when safety pane is shown
+document.addEventListener('DOMContentLoaded', function() {
+    // Add event listeners for filter checkboxes
+    document.getElementById('show-allowed').addEventListener('change', fetchSafetyData);
+    document.getElementById('show-blocked').addEventListener('change', fetchSafetyData);
+    
+    // Initialize safety monitoring
+    initSafetyMonitoring();
+});
+</script>

@@ -1,0 +1,17 @@
+{{ define "graph_qdrant.html" }}
+<div class="card">
+    <h3>🧰 Weaviate (RAG) Status</h3>
+    <div id="qdrant-stats" class="panel-scroll">
+        <div class="loading">Loading Weaviate stats...</div>
+    </div>
+    <div style="margin-top:8px; display:flex; gap:10px; align-items:center;">
+        <button class="btn" onclick="refreshQdrantStats()">Refresh</button>
+        <span id="qdrant-stats-timestamp" style="font-size:0.9em; color:#777;">Last checked: never</span>
+    </div>
+    <div style="margin-top:8px; font-size:0.85em; color:#666;">
+        Auto-refresh every 5 minutes.
+    </div>
+</div>
+{{ end }}
+
+

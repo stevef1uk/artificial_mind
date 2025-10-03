@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Monitor Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <h1>Monitor API Test</h1>
+    <div id="status"></div>
+    <div id="metrics"></div>
+    
+    <script>
+        async function testAPI() {
+            try {
+                console.log('Testing API...');
+                const response = await axios.get('/api/status');
+                const data = response.data;
+                console.log('API Response:', data);
+                
+                document.getElementById('status').innerHTML = `
+                    <h2>System Status: ${data.overall}</h2>
+                    <p>Total Executions: ${data.metrics.total_executions}</p>
+                    <p>Success Rate: ${data.metrics.success_rate.toFixed(1)}%</p>
+                    <p>Avg Execution Time: ${data.metrics.avg_execution_time_ms.toFixed(0)}ms</p>
+                `;
+                
+            } catch (error) {
+                console.error('API Error:', error);
+                document.getElementById('status').innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+        
+        testAPI();
+    </script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+{{ define "logs.html" }}
+<div class="card full-width">
+	<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap;">
+		<h3>🧾 Recent Logs</h3>
+		<div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+			<button id="log-source-toggle" onclick="toggleLogSource()" style="padding: 8px 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; min-width: 120px;">
+				Switch to <span id="log-source-indicator">K8s Logs</span>
+			</button>
+			<button onclick="loadLogs(); loadRecentLogsCompact();" style="padding: 8px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
+				🔄 Refresh
+			</button>
+		</div>
+	</div>
+	<div id="logs-compact" class="logs-container" style="max-height: 240px;"></div>
+</div>
+
+<style>
+.k8s-indicator {
+	color: #ff6b35;
+	font-weight: bold;
+}
+.local-indicator {
+	color: #28a745;
+	font-weight: bold;
+}
+.log-item {
+	display: flex;
+	gap: 10px;
+	padding: 4px 0;
+	border-bottom: 1px solid #eee;
+	font-family: monospace;
+	font-size: 12px;
+}
+.log-time {
+	color: #666;
+	min-width: 80px;
+}
+.log-level {
+	font-weight: bold;
+	min-width: 60px;
+}
+.log-level.ERROR { color: #e74c3c; }
+.log-level.WARN { color: #f39c12; }
+.log-level.INFO { color: #3498db; }
+.log-level.DEBUG { color: #95a5a6; }
+.log-message {
+	flex: 1;
+	white-space: pre-wrap;
+}
+</style>
+{{ end }}
+

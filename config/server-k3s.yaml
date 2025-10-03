@@ -1,0 +1,28 @@
+# LLM configuration for in-cluster (k3s) execution
+llm:
+  provider: local
+  settings:
+    model: Qwen2.5-VL-7B-Instruct:latest
+    ollama_url: http://192.168.1.45:11434/api/chat
+hdn_url: http://hdn-server.agi.svc.cluster.local:8081
+principles_url: http://principles-server.agi.svc.cluster.local:8080
+nats_url: nats://nats.agi.svc.cluster.local:4222
+redis_url: redis://redis.agi.svc.cluster.local:6379
+neo4j_uri: bolt://neo4j.agi.svc.cluster.local:7687
+neo4j_user: neo4j
+neo4j_pass: test1234
+qdrant_url: http://weaviate.agi.svc.cluster.local:8080
+goal_manager_url: http://goal-manager.agi.svc.cluster.local:8090
+
+autonomy: true
+autonomy_every_seconds: 120
+
+anchor_goals:
+  - name: Curiosity & Knowledge Expansion
+    description: Always try to discover missing connections, patterns, or rules.
+  - name: User-Centric Improvement
+    description: Seek inferences that could improve the user's life (efficiency, clarity, insight).
+  - name: Planetary Stewardship
+    description: Explore ideas for reducing harm, improving sustainability, or enabling better global systems.
+  - name: Creativity & Innovation
+    description: Look for new combinations of concepts that could lead to inventions or optimizations.

@@ -1,0 +1,3563 @@
+{{ define "dashboard.html" }}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.title}}</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            color: #2c3e50;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .header p {
+            color: #7f8c8d;
+            text-align: center;
+            font-size: 1.1rem;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-healthy { background-color: #27ae60; }
+        .status-unhealthy { background-color: #e74c3c; }
+        .status-degraded { background-color: #f39c12; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+        }
+
+        .card h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 10px;
+        }
+
+        .service-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #ecf0f1;
+        }
+
+        .service-item:last-child {
+            border-bottom: none;
+        }
+
+        .service-name {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .service-status {
+            display: flex;
+            align-items: center;
+        }
+
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .metric-label {
+            color: #7f8c8d;
+        }
+
+        .metric-value {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .alert {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+
+        .alert.error {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+
+        .alert.warning {
+            background: #fff3cd;
+            border-color: #ffeaa7;
+            color: #856404;
+        }
+
+        .workflow-item {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-left: 4px solid #3498db;
+        }
+
+        .workflow-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .workflow-id {
+            font-family: monospace;
+            color: #7f8c8d;
+            font-size: 0.9rem;
+        }
+
+        .workflow-status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-running { background: #d4edda; color: #155724; }
+        .status-completed { background: #d1ecf1; color: #0c5460; }
+        .status-failed { background: #f8d7da; color: #721c24; }
+        .status-pending { background: #fff3cd; color: #856404; }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #ecf0f1;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3498db, #2ecc71);
+            transition: width 0.3s ease;
+        }
+
+        .workflow-name {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .progress-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 5px;
+        }
+
+        .step-count {
+            font-size: 0.8rem;
+            color: #7f8c8d;
+        }
+
+        .workflow-details {
+            margin-top: 10px;
+        }
+
+        .workflow-step {
+            margin-bottom: 8px;
+            color: #2c3e50;
+            font-size: 0.9rem;
+        }
+
+        .workflow-meta {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .workflow-meta small {
+            color: #7f8c8d;
+            font-size: 0.8rem;
+        }
+
+        .workflow-error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 8px;
+            border-radius: 4px;
+            margin-top: 8px;
+            font-size: 0.9rem;
+        }
+
+        .workflow-description {
+            margin-bottom: 8px;
+            color: #2c3e50;
+            font-size: 0.9rem;
+        }
+
+        .workflow-code {
+            margin: 10px 0;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+        }
+
+        .code-block {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 12px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            margin: 8px 0 0 0;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            border: 1px solid #4a5568;
+        }
+
+        .workflow-steps {
+            margin: 15px 0;
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 15px;
+        }
+
+        .workflow-steps h6 {
+            margin-bottom: 10px;
+            color: #495057;
+            font-weight: 600;
+        }
+
+        .step-item {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 12px;
+            margin-bottom: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .step-item:hover {
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .step-item.completed {
+            border-left: 4px solid #28a745;
+        }
+
+        .step-item.running {
+            border-left: 4px solid #007bff;
+        }
+
+        .step-item.failed {
+            border-left: 4px solid #dc3545;
+        }
+
+        .explanation-links {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #eee;
+        }
+
+        .workflow-link, .project-link {
+            display: inline-block;
+            padding: 4px 8px;
+            margin-right: 8px;
+            background: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+
+        .workflow-link:hover, .project-link:hover {
+            background: #0056b3;
+            color: white;
+        }
+
+        .project-link {
+            background: #28a745;
+        }
+
+        .project-link:hover {
+            background: #1e7e34;
+        }
+
+        .session-id {
+            display: inline-block;
+            padding: 4px 8px;
+            background: #6c757d;
+            color: white;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+
+        .step-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+
+        .step-name {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .step-status {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        .step-status.completed {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .step-status.running {
+            background: #cce7ff;
+            color: #004085;
+        }
+
+        .step-status.failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .step-description {
+            color: #6c757d;
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+
+        .step-output {
+            background: #e9ecef;
+            padding: 8px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            color: #495057;
+            margin: 5px 0;
+        }
+
+        .step-duration {
+            color: #6c757d;
+            font-size: 0.8rem;
+            font-style: italic;
+        }
+
+        .workflow-files {
+            margin: 15px 0;
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 15px;
+        }
+
+        .workflow-files h6 {
+            margin-bottom: 10px;
+            color: #495057;
+            font-weight: 600;
+        }
+
+        .file-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            transition: all 0.2s ease;
+        }
+
+        .file-item:hover {
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .file-icon {
+            font-size: 1.2rem;
+            margin-right: 10px;
+        }
+
+        .file-name {
+            flex: 1;
+            font-weight: 500;
+            color: #2c3e50;
+        }
+
+        .file-item button {
+            margin-left: 10px;
+        }
+
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-dialog {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            max-width: 95%;
+            max-height: 95%;
+            width: 90vw;
+            height: 90vh;
+            overflow: hidden;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            border-bottom: 1px solid #dee2e6;
+            background: #f8f9fa;
+        }
+
+        .modal-header h5 {
+            margin: 0;
+            color: #2c3e50;
+        }
+
+        .btn-close {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            color: #6c757d;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-close:hover {
+            color: #dc3545;
+        }
+
+        .modal-body {
+            padding: 20px;
+            overflow-y: auto;
+            max-height: 70vh;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-top: 20px;
+        }
+
+        .refresh-btn {
+            background: linear-gradient(45deg, #3498db, #2ecc71);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin: 10px 5px;
+        }
+
+        .refresh-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Natural Language Input Styles */
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        #nl-input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e8ed;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            transition: border-color 0.3s ease;
+        }
+
+        #nl-input:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+        }
+
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #229954;
+            transform: translateY(-2px);
+        }
+        
+        .status-achieved { color: #28a745; font-weight: 600; }
+        .status-failed { color: #dc3545; font-weight: 600; }
+        .status-pending { color: #ffc107; font-weight: 600; }
+        .status-completed { color: #28a745; font-weight: 600; }
+        .status-active { color: #007bff; font-weight: 600; }
+
+        .btn:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .nl-response {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #3498db;
+        }
+
+        .response-content {
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .task-item {
+            background: white;
+            border: 1px solid #e1e8ed;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+
+        .task-item h4 {
+            margin: 0 0 8px 0;
+            color: #2c3e50;
+            font-size: 16px;
+        }
+
+        .task-item p {
+            margin: 0 0 8px 0;
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+
+        .task-context {
+            background: #ecf0f1;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #2c3e50;
+        }
+
+        .execution-result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .execution-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .execution-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .async-processing {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 10px 0;
+        }
+
+        .processing-indicator {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .processing-indicator h4 {
+            margin: 0 0 0 10px;
+            color: #007bff;
+        }
+
+        .processing-message {
+            font-weight: 500;
+            color: #495057;
+            margin-bottom: 10px;
+        }
+
+        .session-info {
+            font-family: monospace;
+            font-size: 12px;
+            color: #6c757d;
+            background: #e9ecef;
+            padding: 5px 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        .processing-note {
+            font-style: italic;
+            color: #6c757d;
+            font-size: 14px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading {
+            text-align: center;
+            color: #7f8c8d;
+            font-style: italic;
+        }
+
+        .timestamp {
+            color: #95a5a6;
+            font-size: 0.9rem;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        .logs-container {
+            max-height: 400px;
+            overflow-y: auto;
+            background: #2c3e50;
+            color: #ecf0f1;
+            border-radius: 8px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+
+        /* Scrollable panels to prevent page from growing indefinitely */
+        .panel-scroll {
+            max-height: 480px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+
+        .log-level-info { color: #3498db; }
+        .log-level-warning { color: #f39c12; }
+        .log-level-error { color: #e74c3c; }
+        .log-level-critical { color: #e74c3c; font-weight: bold; }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🧠 Artificial Mind and Workflow</h1>
+            <p>Real-time monitoring of Hierarchical Decision Network and Principles Server</p>
+            <div id="banner-status" style="margin-top:8px; font-size: 0.95rem;"></div>
+            <div style="text-align: center; margin-top: 15px;">
+                <button class="refresh-btn" onclick="refreshAll()">🔄 Refresh All</button>
+                <button class="refresh-btn" onclick="toggleAutoRefresh()">⏰ Auto Refresh</button>
+                <button class="refresh-btn" onclick="toggleSafetyPanel()">🛡️ Safety Monitor</button>
+            </div>
+        </div>
+
+        <div class="grid">
+            
+
+            <!-- Execution Trends (moved into first row position) -->
+            <div class="card">
+                <h3>📊 Execution Trends</h3>
+                <div class="chart-container">
+                    <canvas id="executionChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Services Status Card -->
+            <div class="card">
+                <h3>🔧 Services</h3>
+                <div id="services-status">
+                    <div class="loading">Loading services...</div>
+                </div>
+            </div>
+
+            <!-- Metrics Card -->
+            <div class="card">
+                <h3>📈 Metrics</h3>
+                <div id="metrics">
+                    <div class="loading">Loading metrics...</div>
+                </div>
+            </div>
+
+
+            {{ template "logs.html" . }}
+
+            <!-- Natural Language Input Card (full-width, below status boxes) -->
+            <div class="card full-width">
+                <h3>🗣️ Natural Language Input</h3>
+                <div id="natural-language-input">
+                    <div class="input-group">
+                        <textarea id="nl-input" placeholder="Describe what you want to do... (e.g., 'Find the first 20 primes and show me a graph of distribution')" rows="3"></textarea>
+                        <div class="button-group">
+                            <button id="interpret-btn" class="btn btn-primary">Interpret</button>
+                            <button id="execute-btn" class="btn btn-success">Execute</button>
+                            <button id="goal-create-btn" class="btn">Create Goal</button>
+                        </div>
+                        <div class="button-group" style="margin-top:8px; display:flex; align-items:center; gap:10px;">
+                            <label style="display:flex; align-items:center; gap:6px;">
+                                <input id="nl-artifacts" type="checkbox" checked />
+                                <span>Generate artifacts (wrapper)</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div id="nl-response" class="nl-response" style="display: none;">
+                        <div class="response-content"></div>
+                    </div>
+                    
+                    <!-- Live Thinking Panel -->
+                    <div id="thinking-panel" class="thinking-panel" style="display: none; margin-top: 16px; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; background: #f9f9f9;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                            <h4 style="margin: 0; color: #333;">🧠 AI Thinking Process</h4>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span id="thinking-status" style="font-size: 12px; color: #666;">Not connected</span>
+                                <button id="thinking-refresh-btn" style="padding: 4px 8px; font-size: 12px; cursor: pointer;">Refresh</button>
+                            </div>
+                        </div>
+                        <div id="thinking-content" style="max-height: 300px; overflow-y: auto; font-size: 14px;">
+                            <div class="no-thoughts">No thinking data available. Execute a command to see the AI's reasoning process.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {{ template "projects.html" . }}
+
+            {{ template "daily_summary.html" . }}
+
+            {{ template "workflows.html" . }}
+
+            {{ template "capabilities.html" . }}
+
+            {{ template "graph_qdrant.html" . }}
+
+            {{ template "graph_neo4j.html" . }}
+
+            {{ template "rag_search.html" . }}
+
+            {{ template "reasoning.html" . }}
+
+            {{ template "memory.html" . }}
+
+            {{ template "news_events.html" . }}
+
+            {{ template "wikipedia_events.html" . }}
+
+            {{ template "goals.html" . }}
+
+            {{ template "thinking.html" . }}
+
+            {{ template "fsm.html" . }}
+
+            
+        </div>
+
+        <div class="timestamp" id="last-updated">
+            Last updated: Never
+        </div>
+    </div>
+
+    <script>
+        // Global error handler
+        window.addEventListener('error', function(e) {
+            console.error('Global JavaScript error:', e.error);
+            const banner = document.getElementById('banner-status');
+            if (banner) {
+                banner.innerHTML = '<div style="color: #e74c3c;">JavaScript Error: ' + e.error.message + '</div>';
+            }
+        });
+        
+        // Increase axios timeout for long-running execute calls
+        
+
+        // Initialize daily summary on load
+        document.addEventListener('DOMContentLoaded', () => {
+            try {
+                const today = new Date();
+                const yyyy = today.getUTCFullYear();
+                const mm = String(today.getUTCMonth()+1).padStart(2,'0');
+                const dd = String(today.getUTCDate()).padStart(2,'0');
+                document.getElementById('ds-date').value = `${yyyy}-${mm}-${dd}`;
+            } catch {}
+            loadDailySummaryLatest();
+        });
+        if (axios && axios.defaults) {
+            axios.defaults.timeout = 300000; // 5 minutes
+            axios.defaults.headers.common['X-Request-Source'] = 'ui'; // Reserve execution slot for UI
+        }
+        
+        // Helper function for fetch requests with UI header
+        window.uiFetch = function(url, options = {}) {
+            const headers = {
+                'X-Request-Source': 'ui',
+                ...options.headers
+            };
+            return fetch(url, { ...options, headers });
+        };
+        let autoRefreshInterval;
+        let executionChart;
+
+        // Load Current Thinking from FSM (proxied)
+        async function loadThinking() {
+            try {
+                const resp = await axios.get('/api/fsm/thinking');
+                const data = resp.data || {};
+                const focus = (data.thinking_focus || data.state_description || '').toString();
+                const conf = (typeof data.confidence_level === 'number') ? data.confidence_level : (parseFloat(data.confidence_level) || 0);
+                const actions = Array.isArray(data.next_actions) ? data.next_actions : (typeof data.next_actions === 'string' ? data.next_actions.split(/\s*[,|]\s*|\s+/).filter(Boolean) : []);
+
+                const focusEl = document.getElementById('thinking-focus');
+                const confEl = document.getElementById('thinking-confidence');
+                const actEl = document.getElementById('thinking-actions');
+                if (focusEl) focusEl.textContent = focus || '—';
+                if (confEl) confEl.textContent = (isFinite(conf) ? conf.toFixed(2) : '—');
+                if (actEl) {
+                    if (actions.length) {
+                        actEl.innerHTML = actions.map(a => `<span class="action">${(a||'').toString()}</span>`).join(' ');
+                    } else {
+                        actEl.textContent = '—';
+                    }
+                }
+            } catch (err) {
+                const focusEl = document.getElementById('thinking-focus');
+                const confEl = document.getElementById('thinking-confidence');
+                const actEl = document.getElementById('thinking-actions');
+                if (focusEl) focusEl.textContent = 'Unavailable';
+                if (confEl) confEl.textContent = '—';
+                if (actEl) actEl.textContent = '—';
+            }
+        }
+
+        // Initialize the dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Dashboard initialized');
+            // Add a small delay to ensure all elements are ready
+            setTimeout(() => {
+                refreshAll();
+            }, 100);
+            initializeChart();
+            // Start logs compact polling
+            if (typeof loadRecentLogsCompact === 'function') {
+                loadRecentLogsCompact();
+                if (window._logsPoll) clearInterval(window._logsPoll);
+                window._logsPoll = setInterval(loadRecentLogsCompact, 3000);
+            }
+            // Load initial goals
+            if (typeof loadGoals === 'function') {
+                loadGoals();
+            }
+            // Load initial reasoning data and set up auto-refresh
+            refreshReasoning();
+            setupReasoningAutoRefresh();
+            
+            // Load daily summary if function exists
+            if (typeof loadDailySummaryLatest === 'function') {
+                loadDailySummaryLatest();
+            }
+
+            // Set up auto-refresh for goal details if a goal is selected
+            setupGoalDetailsAutoRefresh();
+
+            // Load initial thinking and set up auto-refresh
+            if (typeof loadThinking === 'function') {
+                loadThinking();
+            }
+            if (window._thinkingPoll) clearInterval(window._thinkingPoll);
+            window._thinkingPoll = setInterval(() => {
+                if (typeof loadThinking === 'function') loadThinking();
+            }, 5000);
+        });
+
+        // Generate sample code based on workflow step
+        function getGeneratedCode(currentStep) {
+            if (currentStep.includes('Generating Python code')) {
+                return "import pandas as pd\n" +
+                       "import numpy as np\n" +
+                       "import matplotlib.pyplot as plt\n" +
+                       "import seaborn as sns\n\n" +
+                       "# Load and preprocess sales data\n" +
+                       "def load_sales_data(file_path):\n" +
+                       "    df = pd.read_csv(file_path)\n" +
+                       "    df['date'] = pd.to_datetime(df['date'])\n" +
+                       "    df['month'] = df['date'].dt.month\n" +
+                       "    return df\n\n" +
+                       "# Clean missing values\n" +
+                       "def clean_data(df):\n" +
+                       "    df = df.dropna(subset=['sales_amount'])\n" +
+                       "    df['sales_amount'] = df['sales_amount'].fillna(df['sales_amount'].mean())\n" +
+                       "    return df\n\n" +
+                       "print(\"Data analysis pipeline initialized...\")";
+            } else if (currentStep.includes('Executing data preprocessing')) {
+                return "# Loading sales_data.csv...\n" +
+                       "df = load_sales_data('sales_data.csv')\n" +
+                       "print(f\"Loaded {len(df)} records\")\n\n" +
+                       "# Cleaning missing values...\n" +
+                       "df_clean = clean_data(df)\n" +
+                       "print(f\"Cleaned data: {len(df_clean)} records\")\n\n" +
+                       "# Basic statistics\n" +
+                       "print(\"\\nData Summary:\")\n" +
+                       "print(df_clean.describe())";
+            } else if (currentStep.includes('Running statistical analysis')) {
+                return "# Calculate monthly trends\n" +
+                       "monthly_sales = df_clean.groupby('month')['sales_amount'].sum()\n\n" +
+                       "# Generate visualizations\n" +
+                       "plt.figure(figsize=(12, 6))\n" +
+                       "plt.plot(monthly_sales.index, monthly_sales.values, marker='o')\n" +
+                       "plt.title('Monthly Sales Trends')\n" +
+                       "plt.xlabel('Month')\n" +
+                       "plt.ylabel('Sales Amount')\n" +
+                       "plt.grid(True)\n" +
+                       "plt.show()\n\n" +
+                       "# Statistical analysis\n" +
+                       "correlation = df_clean['sales_amount'].corr(df_clean['month'])\n" +
+                       "print(f\"Sales-Month Correlation: {correlation:.3f}\")";
+            } else if (currentStep.includes('Report generated')) {
+                return "# Report generation completed\n" +
+                       "report_data = {\n" +
+                       "    'total_sales': df_clean['sales_amount'].sum(),\n" +
+                       "    'avg_monthly_sales': monthly_sales.mean(),\n" +
+                       "    'growth_rate': ((monthly_sales.iloc[-1] - monthly_sales.iloc[0]) / monthly_sales.iloc[0]) * 100,\n" +
+                       "    'correlation': correlation\n" +
+                       "}\n\n" +
+                       "# Save to PDF\n" +
+                       "from reportlab.pdfgen import canvas\n" +
+                       "c = canvas.Canvas(\"sales_analysis_report.pdf\")\n" +
+                       "c.drawString(100, 750, \"Sales Analysis Report\")\n" +
+                       "c.drawString(100, 700, f\"Total Sales: ${report_data['total_sales']:,.2f}\")\n" +
+                       "c.drawString(100, 650, f\"Average Monthly: ${report_data['avg_monthly_sales']:,.2f}\")\n" +
+                       "c.drawString(100, 600, f\"Growth Rate: {report_data['growth_rate']:.1f}%\")\n" +
+                       "c.save()\n\n" +
+                       "print(\"Report saved as sales_analysis_report.pdf\")";
+            }
+            return "// Code generation in progress...";
+        }
+
+        // View PDF in modal
+        function viewPDF(filename, workflowId) {
+            showModal('PDF Viewer - ' + filename, `
+                <div style="height: 80vh; width: 100%; display: flex; flex-direction: column;">
+                    <div style="margin-bottom: 10px; text-align: right;">
+                        <button class="btn btn-sm btn-outline-primary" onclick="downloadFile('${filename}', '${workflowId}')">Download PDF</button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="closeModal()" style="margin-left: 10px;">Close</button>
+                    </div>
+                    <iframe src="/api/workflow/${workflowId}/files/${filename}" width="100%" height="100%" style="border: 1px solid #dee2e6; border-radius: 4px;"></iframe>
+                </div>
+            `);
+        }
+
+        // View image in modal
+        function viewImage(filename, workflowId) {
+            showModal('Chart Viewer', `
+                <div style="text-align: center;">
+                    <img src="/api/workflow/${workflowId}/files/${filename}" style="max-width: 100%; max-height: 600px;" alt="${filename}">
+                </div>
+            `);
+        }
+
+        // Download file
+        function downloadFile(filename, workflowId) {
+            window.open(`/api/workflow/${workflowId}/files/${filename}`, '_blank');
+        }
+
+        // Show workflow details
+        function showWorkflowDetails(workflowId) {
+            // Switch to workflows tab and highlight the specific workflow
+            const workflowsTab = document.querySelector('[data-tab="workflows"]');
+            if (workflowsTab) {
+                workflowsTab.click();
+                // Scroll to and highlight the workflow after a short delay
+                setTimeout(() => {
+                    const workflowElement = document.querySelector(`[data-workflow-id="${workflowId}"]`);
+                    if (workflowElement) {
+                        workflowElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        workflowElement.style.border = '2px solid #007bff';
+                        setTimeout(() => {
+                            workflowElement.style.border = '';
+                        }, 3000);
+                    }
+                }, 500);
+            }
+        }
+
+        // Show project details
+        function showProjectDetails(projectId) {
+            // Scroll to and highlight the specific project
+            const projectElement = document.querySelector(`[data-project-id="${projectId}"]`);
+            if (projectElement) {
+                projectElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                projectElement.style.border = '2px solid #28a745';
+                projectElement.style.boxShadow = '0 0 10px rgba(40, 167, 69, 0.3)';
+                setTimeout(() => {
+                    projectElement.style.border = '';
+                    projectElement.style.boxShadow = '';
+                }, 3000);
+            } else {
+                // If project not found, refresh projects and try again
+                loadProjects();
+                setTimeout(() => {
+                    const projectElement = document.querySelector(`[data-project-id="${projectId}"]`);
+                    if (projectElement) {
+                        projectElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        projectElement.style.border = '2px solid #28a745';
+                        projectElement.style.boxShadow = '0 0 10px rgba(40, 167, 69, 0.3)';
+                        setTimeout(() => {
+                            projectElement.style.border = '';
+                            projectElement.style.boxShadow = '';
+                        }, 3000);
+                    }
+                }, 1000);
+            }
+        }
+
+        // Show modal dialog
+        function showModal(title, content) {
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.innerHTML = `
+                <div class="modal-dialog">
+                    <div class="modal-header">
+                        <h5>${title}</h5>
+                        <button class="btn-close" onclick="closeModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        ${content}
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        // Get file icon based on filename and content type
+        function getFileIcon(filename, contentType) {
+            if (contentType === 'application/pdf' || filename.endsWith('.pdf')) {
+                return '📄';
+            } else if (contentType.startsWith('image/') || filename.match(/\.(png|jpg|jpeg|gif|svg)$/i)) {
+                return '🖼️';
+            } else if (contentType === 'text/csv' || filename.endsWith('.csv')) {
+                return '📊';
+            } else if (filename.endsWith('.txt')) {
+                return '📝';
+            } else if (filename.endsWith('.json')) {
+                return '📋';
+            } else {
+                return '📁';
+            }
+        }
+
+        // Get file action function name based on content type
+        function getFileAction(filename, contentType) {
+            if (contentType === 'application/pdf' || filename.endsWith('.pdf')) {
+                return 'viewPDF';
+            } else if (contentType.startsWith('image/') || filename.match(/\.(png|jpg|jpeg|gif|svg)$/i)) {
+                return 'viewImage';
+            } else {
+                return 'downloadFile';
+            }
+        }
+
+        // Get action button text based on content type
+        function getActionText(contentType) {
+            if (contentType === 'application/pdf') {
+                return 'View PDF';
+            } else if (contentType.startsWith('image/')) {
+                return 'View Image';
+            } else {
+                return 'Download';
+            }
+        }
+
+        // Format file size
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // Close modal
+        function closeModal() {
+            const modal = document.querySelector('.modal-overlay');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        // View generated code in modal
+        function viewCode(code, title) {
+            showModal(title || 'Generated Code', `
+                <div style="height: 500px; overflow-y: auto;">
+                    <pre style="background: #2d3748; color: #e2e8f0; padding: 15px; border-radius: 4px; margin: 0; font-family: 'Courier New', monospace; font-size: 0.9rem; white-space: pre-wrap;">${code}</pre>
+                </div>
+            `);
+        }
+
+        // Refresh all data
+        async function refreshAll() {
+            try {
+                console.log('Refreshing all data...');
+                const promises = [
+                    loadSystemStatus(),
+                    loadProjects(),
+                    loadWorkflows(),
+                    loadMetrics(),
+                    loadCapabilities(),
+                    loadMemory()
+                ];
+                
+                // Add loadLogs only if it exists
+                if (typeof loadLogs === 'function') {
+                    promises.push(loadLogs());
+                }
+                
+                await Promise.all(promises);
+                updateTimestamp();
+                console.log('All data refreshed successfully');
+            } catch (error) {
+                console.error('Error refreshing data:', error);
+                // Show error in the banner
+                const banner = document.getElementById('banner-status');
+                if (banner) {
+                    banner.innerHTML = '<div style="color: #e74c3c;">Error: ' + error.message + '</div>';
+                }
+            }
+        }
+        // Load reasoning traces
+        function getSelectedDomain() {
+            const sel = document.getElementById('reasoning-domain');
+            return sel ? sel.value : 'General';
+        }
+
+        function getGoalFilter() {
+            const inp = document.getElementById('reasoning-goal-filter');
+            return inp ? (inp.value || '').toLowerCase() : '';
+        }
+
+        // Dedup helpers
+        function dedupById(items) {
+            const seen = new Set();
+            const out = [];
+            for (const it of items) {
+                const id = (it && (it.id || it.goal || JSON.stringify(it))).toString();
+                if (!seen.has(id)) { seen.add(id); out.push(it); }
+            }
+            return out;
+        }
+
+        function sortByCreatedAtDesc(items) {
+            return items.slice().sort((a,b) => {
+                const ta = Date.parse(a.created_at || a.timestamp || 0) || 0;
+                const tb = Date.parse(b.created_at || b.timestamp || 0) || 0;
+                return tb - ta;
+            });
+        }
+
+        async function loadReasoningTraces() {
+            console.log('Loading reasoning traces...');
+            try {
+                const domain = getSelectedDomain();
+                const resp = await axios.get(`/api/reasoning/traces/${encodeURIComponent(domain)}`);
+                console.log('Reasoning traces response:', resp.data);
+                let traces = resp.data.traces || [];
+                const goalFilter = getGoalFilter();
+                if (goalFilter) {
+                    traces = traces.filter(t => ((t.goal || '').toLowerCase().includes(goalFilter)));
+                }
+                traces = dedupById(traces);
+                traces = sortByCreatedAtDesc(traces).slice(0, 50);
+                const container = document.getElementById('reasoning-traces');
+                console.log('Container found:', container);
+                if (!container) {
+                    console.log('No reasoning-traces container found');
+                    return;
+                }
+                if (!traces.length) {
+                    container.innerHTML = '<div class="loading">No reasoning traces</div>';
+                    return;
+                }
+                container.innerHTML = traces.map(t => `
+                    <div class="step-item">
+                        <div class="step-header">
+                            <span class="step-name">${t.goal || t.id}</span>
+                            <span class="step-status">${(t.confidence || 0).toFixed(2)}</span>
+                        </div>
+                        ${t.conclusion ? `<div class="step-description">${t.conclusion}</div>` : ''}
+                        <div class="step-meta">Domain: ${t.domain || 'General'}</div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                const container = document.getElementById('reasoning-traces');
+                if (container) container.innerHTML = '<div class="execution-error">Failed to load reasoning traces</div>';
+            }
+        }
+
+        // Load beliefs
+        async function loadBeliefs() {
+            try {
+                const domain = getSelectedDomain();
+                const resp = await axios.get(`/api/reasoning/beliefs/${encodeURIComponent(domain)}`);
+                let beliefs = resp.data.beliefs || [];
+                beliefs = dedupById(beliefs);
+                // Additional UI de-duplication: collapse entries with identical normalized text+source within a short window
+                const seen = new Set();
+                const norm = s => (s||'').toLowerCase().replace(/\s+/g,' ').trim();
+                beliefs = beliefs.filter(b => {
+                    const key = `${norm(b.statement||b.id)}|${norm(b.source||'')}`;
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+                beliefs = sortByCreatedAtDesc(beliefs).slice(0, 100);
+                const container = document.getElementById('beliefs-table');
+                if (!container) return;
+                if (!beliefs.length) {
+                    container.innerHTML = '<div class="loading">No beliefs</div>';
+                    return;
+                }
+                container.innerHTML = beliefs.map(b => `
+                    <div class="step-item">
+                        <div class="step-header">
+                            <span class="step-name">${b.statement || b.id}</span>
+                            <span class="step-status">${(b.confidence || 0).toFixed(2)}</span>
+                        </div>
+                        <div class="step-meta">Source: ${b.source || 'unknown'} | Domain: ${b.domain || 'General'}</div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                const container = document.getElementById('beliefs-table');
+                if (container) container.innerHTML = '<div class="execution-error">Failed to load beliefs</div>';
+            }
+        }
+
+        // Load curiosity goals
+        async function loadCuriosityGoals() {
+            try {
+                const domain = getSelectedDomain();
+                const resp = await axios.get(`/api/reasoning/curiosity-goals/${encodeURIComponent(domain)}`);
+                let goals = resp.data.goals || [];
+                goals = dedupById(goals);
+                goals = sortByCreatedAtDesc(goals).slice(0, 100);
+                const container = document.getElementById('curiosity-goals');
+                if (!container) return;
+                if (!goals.length) {
+                    container.innerHTML = '<div class="loading">No curiosity goals</div>';
+                    return;
+                }
+                container.innerHTML = goals.map(g => `
+                    <div class="step-item">
+                        <div class="step-header">
+                            <span class="step-name">${g.description || g.id}</span>
+                            <span class="step-status">P${g.priority || 0}</span>
+                        </div>
+                        <div class="step-meta">Type: ${g.type || 'unknown'} | Status: ${g.status || 'unknown'}</div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                const container = document.getElementById('curiosity-goals');
+                if (container) container.innerHTML = '<div class="execution-error">Failed to load curiosity goals</div>';
+            }
+        }
+
+        // Load hypotheses
+        async function loadHypotheses() {
+            try {
+                const domain = getSelectedDomain();
+                const resp = await axios.get(`/api/reasoning/hypotheses/${encodeURIComponent(domain)}`);
+                let hypotheses = resp.data.hypotheses || [];
+                hypotheses = dedupById(hypotheses);
+                // Additional UI de-duplication: collapse entries with identical normalized description+domain+confidence
+                const seen = new Set();
+                const norm = s => (s||'').toLowerCase().replace(/\s+/g,' ').trim();
+                hypotheses = hypotheses.filter(h => {
+                    const key = `${norm(h.description||h.id)}|${norm(h.domain||'')}|${(h.confidence||0).toFixed(2)}`;
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+                hypotheses = sortByCreatedAtDesc(hypotheses).slice(0, 50);
+                const container = document.getElementById('hypotheses-table');
+                if (!container) return;
+                if (!hypotheses.length) {
+                    container.innerHTML = '<div class="loading">No active hypotheses</div>';
+                    return;
+                }
+                container.innerHTML = hypotheses.map(h => `
+                    <div class="step-item">
+                        <div class="step-header">
+                            <span class="step-name">${h.description || h.id}</span>
+                            <span class="step-status">${h.status || 'proposed'}</span>
+                        </div>
+                        <div class="step-meta">Domain: ${h.domain || 'unknown'} | Confidence: ${(h.confidence || 0).toFixed(2)}</div>
+                        <div class="step-details">Facts: ${(h.facts || []).length} | Constraints: ${(h.constraints || []).length}</div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                const container = document.getElementById('hypotheses-table');
+                if (container) container.innerHTML = '<div class="execution-error">Failed to load hypotheses</div>';
+            }
+        }
+
+        // Load reasoning explanations
+        async function loadReasoningExplanations() {
+            try {
+                const goalFilter = getGoalFilter();
+                let resp;
+                
+                // If no goal filter or empty, use the fallback endpoint for recent explanations
+                if (!goalFilter || goalFilter.trim() === '') {
+                    resp = await axios.get('/api/reasoning/explanations');
+                } else {
+                    resp = await axios.get(`/api/reasoning/explanations/${encodeURIComponent(goalFilter)}`);
+                }
+                
+                let explanations = resp.data.explanations || [];
+                explanations = dedupById(explanations);
+                explanations = sortByCreatedAtDesc(explanations).slice(0, 50);
+                const container = document.getElementById('reasoning-explanations');
+                if (!container) return;
+                if (!explanations.length) {
+                    container.innerHTML = '<div class="loading">No explanations available</div>';
+                    return;
+                }
+                container.innerHTML = explanations.map(e => {
+                    let links = '';
+                    if (e.workflow_id) {
+                        links += `<a href="#workflows" onclick="showWorkflowDetails('${e.workflow_id}')" class="workflow-link">View Workflow</a> `;
+                    }
+                    if (e.project_id) {
+                        links += `<a href="#projects" onclick="showProjectDetails('${e.project_id}')" class="project-link">View Project</a> `;
+                    }
+                    if (e.session_id) {
+                        links += `<span class="session-id">Session: ${e.session_id}</span>`;
+                    }
+                    
+                    return `
+                        <div class="step-item">
+                            <div class="step-description">
+                                <strong>Goal:</strong> ${e.goal || 'Unknown'}<br/>
+                                <strong>Explanation:</strong> ${e.explanation || e.content || 'No explanation available'}<br/>
+                                ${links ? `<div class="explanation-links">${links}</div>` : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (err) {
+                const container = document.getElementById('reasoning-explanations');
+                if (container) container.innerHTML = '<div class="execution-error">Failed to load explanations</div>';
+            }
+        }
+
+        function refreshReasoning() {
+            loadReasoningTraces();
+            loadBeliefs();
+            loadCuriosityGoals();
+            loadHypotheses();
+            loadReasoningExplanations();
+        }
+
+        function setupReasoningAutoRefresh() {
+            const auto = document.getElementById('reasoning-auto-refresh');
+            const sel = document.getElementById('reasoning-refresh-interval');
+            if (!auto || !sel) return;
+            let timer;
+            const start = () => {
+                clearInterval(timer);
+                timer = setInterval(refreshReasoning, parseInt(sel.value || '5000', 10));
+            };
+            const stop = () => clearInterval(timer);
+            auto.addEventListener('change', () => {
+                if (auto.checked) start(); else stop();
+            });
+            sel.addEventListener('change', () => {
+                if (auto.checked) start();
+            });
+            // trigger on domain/goal changes
+            const domainSel = document.getElementById('reasoning-domain');
+            const goalInp = document.getElementById('reasoning-goal-filter');
+            if (domainSel) domainSel.addEventListener('change', refreshReasoning);
+            if (goalInp) goalInp.addEventListener('change', refreshReasoning);
+            if (goalInp) goalInp.addEventListener('keyup', (e) => { if (e.key === 'Enter') refreshReasoning(); });
+            // start initial
+            if (auto.checked) start();
+        }
+
+        // Auto-refresh goal details for selected goal (if UI stores selection)
+        function setupGoalDetailsAutoRefresh() {
+            let activeGoalId = '';
+            const details = document.getElementById('goal-details');
+            const agentInput = document.getElementById('goals-agent');
+            if (!details) return;
+            // heuristic: store current selected goal id in data attribute when user clicks a goal
+            // Many existing UIs already set #goal-details content and possibly data-goal-id; we refresh based on it
+            setInterval(async () => {
+                const gid = details.getAttribute('data-goal-id');
+                if (!gid) return;
+                if (gid !== activeGoalId) { activeGoalId = gid; }
+                try {
+                    // refresh active list and specific goal details so the pane updates
+                    const agent = (agentInput && agentInput.value) || 'agent_1';
+                    await axios.get(`/api/goals/${encodeURIComponent(agent)}/active`);
+                    await axios.get(`/api/goal/${encodeURIComponent(gid)}`);
+                    // Working memory (handled by existing loadMemory/summary flows if present)
+                } catch (_) {}
+            }, 5000);
+        }
+
+        // Load goals: merge Self-Model goals with Goal Manager active goals
+        async function loadGoals() {
+            try {
+                const container = document.getElementById('goals-active');
+                if (!container) return;
+                
+                // Fetch self-model goals
+                const ms = await axios.get('/api/memory/summary');
+                const smGoals = Array.isArray(ms.data?.goals) ? ms.data.goals : [];
+                
+                // Fetch Goal Manager active goals (best-effort)
+                let gmGoals = [];
+                try {
+                    const agent = (document.getElementById('goals-agent') || {}).value || 'agent_1';
+                    const gres = await axios.get(`/api/goals/${encodeURIComponent(agent)}/active`);
+                    const raw = Array.isArray(gres.data) ? gres.data : (gres.data && gres.data.goals) ? gres.data.goals : [];
+                    gmGoals = raw.map(g => ({
+                        id: g.id,
+                        name: g.description || g.name || g.id,
+                        status: g.status || 'active',
+                        created_at: g.created_at,
+                        updated_at: g.updated_at,
+                        source: 'goal_manager'
+                    }));
+                } catch (_) {}
+                
+                // Normalize self-model goals
+                const smNorm = smGoals.map(g => ({
+                    id: g.id,
+                    name: g.name || g.id,
+                    status: g.status || 'pending',
+                    created_at: g.created_at,
+                    updated_at: g.updated_at,
+                    source: 'self_model'
+                }));
+                
+                // Merge unique by id (prefer self-model entry if duplicate)
+                const byId = new Map();
+                gmGoals.forEach(g => byId.set(g.id, g));
+                smNorm.forEach(g => byId.set(g.id, g));
+                
+                // Only pending/active
+                let merged = Array.from(byId.values()).filter(g => (g.status === 'pending' || g.status === 'active'));
+                // Filter out interpreter-only text replies surfaced as pseudo-goals
+                merged = merged.filter(g => (String(g.name || '').toLowerCase() !== 'text response'));
+                
+                if (!merged.length) {
+                    container.innerHTML = `<div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <div class="loading">No pending or active goals</div>
+                        <button class="btn btn-sm btn-warning" onclick="cleanupInternalGoals()">Cleanup Internal Goals</button>
+                    </div>`;
+                    return;
+                }
+                
+                container.innerHTML = `
+                    <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <div style="font-weight:600;">Active Goals</div>
+                        <button class="btn btn-sm btn-warning" onclick="cleanupInternalGoals()">Cleanup Internal Goals</button>
+                    </div>
+                    ${merged.map(g => `
+                    <div class="step-item">
+                        <div class="step-header">
+                            <span class="step-name">${g.name || g.id}</span>
+                            <span class="step-status status-${(g.status||'').toLowerCase()}">${(g.status||'').toUpperCase()}</span>
+                        </div>
+                        <div class="step-meta" style="font-size:0.85em; color:#666; margin:4px 0;">
+                            ${g.created_at ? `Created: ${new Date(g.created_at).toLocaleString()}` : ''}
+                            ${g.updated_at ? ` | Updated: ${new Date(g.updated_at).toLocaleString()}` : ''}
+                            ${g.source ? ` | Source: ${g.source}` : ''}
+                        </div>
+                        <div class="step-actions" style="margin-top:6px; display:flex; gap:8px;">
+                            <button class="btn btn-primary goal-view" data-goal-id="${g.id}">View</button>
+                            <button class="btn btn-success goal-achieve" data-goal-id="${g.id}">Execute & Achieve</button>
+                            ${g.source === 'goal_manager' ? `<button class="btn" data-goal-id="${g.id}" data-gm-archive="1">Archive</button>` : ''}
+                        </div>
+                    </div>
+                    `).join('')}
+                `;
+            } catch (err) {
+                const container = document.getElementById('goals-active');
+                if (container) container.innerHTML = '<div class="execution-error">Failed to load goals</div>';
+            }
+        }
+        async function cleanupInternalGoals() {
+            try {
+                const resp = await axios.post('/api/memory/goals/cleanup', {
+                    statuses: ['pending', 'active'],
+                    patterns: [
+                        '^Execute task: Goal Execution$',
+                        '^Execute task: artifact_task$',
+                        '^Execute task: code_.*'
+                    ]
+                });
+                console.log('Cleanup result:', resp.data);
+                if (typeof loadGoals === 'function') loadGoals();
+            } catch (e) {
+                console.error('Cleanup failed', e);
+                alert('Cleanup failed');
+            }
+        }
+        async function loadGoalDetails(goalId) {
+            try {
+                // Load from self-model memory
+                const ms = await axios.get('/api/memory/summary');
+                const goals = ms.data && Array.isArray(ms.data.goals) ? ms.data.goals : [];
+                const d = goals.find(g => g.id === goalId) || { id: goalId };
+                const el = document.getElementById('goal-details');
+                if (!el) return;
+                el.innerHTML = `
+                    <div class="workflow-item">
+                        <div class="workflow-header"><span class="workflow-name">${d.name || d.id || goalId}</span></div>
+                        <div class="workflow-details">
+                            ${d.description ? `<div class="step-description">${d.description}</div>` : ''}
+                            <div class="step-item">
+                                <div class="step-header">
+                                    <span class="step-name">Status</span>
+                                    <span class="step-status">${(d.status||'').toUpperCase()}</span>
+                                </div>
+                                <div class="step-actions" style="margin-top:6px; display:flex; gap:8px;">
+                                    <button class="btn btn-success goal-achieve" data-goal-id="${d.id}">Execute & Achieve</button>
+                                    <button class="btn btn-danger goal-delete" data-goal-id="${d.id}">Delete</button>
+                                </div>
+                            </div>
+                            ${d.context ? `<div class="step-item"><div class="step-header"><span class="step-name">Context</span></div><div class="step-output">${JSON.stringify(d.context, null, 2)}</div></div>` : ''}
+                        </div>
+                    </div>`;
+
+                // Tiny UI tweak: surface latest outcome inline (workflow + output.txt preview)
+                const sid = `goal_${goalId}`;
+                const memSidInput = document.getElementById('mem-session');
+                if (memSidInput) memSidInput.value = sid;
+                try {
+                    const sum = await axios.get(`/api/memory/summary?session_id=${encodeURIComponent(sid)}`);
+                    const wm = (sum.data && sum.data.working_memory) ? sum.data.working_memory : {};
+                    const events = (wm && wm.recent_events) ? wm.recent_events : [];
+                    let wfId = '';
+                    // Prefer goal_execution completed, then intelligent_execution
+                    for (const e of events) {
+                        if (e && (e.type === 'goal_execution') && (e.status === 'completed') && e.workflow_id) { wfId = e.workflow_id; break; }
+                    }
+                    if (!wfId) {
+                        for (const e of events) {
+                            if (e && (e.type === 'intelligent_execution') && (e.success === true) && e.workflow_id) { wfId = e.workflow_id; break; }
+                        }
+                    }
+                    if (wfId) {
+                        const filesRes = await axios.get(`/api/workflow/${encodeURIComponent(wfId)}/files`);
+                        const files = Array.isArray(filesRes.data) ? filesRes.data : [];
+                        const hasOutput = files.find(f => (f.filename||'').toLowerCase() === 'output.txt');
+                        let preview = '';
+                        if (hasOutput) {
+                            try {
+                                const out = await axios.get(`/api/workflow/${encodeURIComponent(wfId)}/files/output.txt`, { responseType: 'text' });
+                                preview = String(out.data || '').slice(0, 600);
+                            } catch (_) {}
+                        }
+                        const container = document.getElementById('goal-details');
+                        if (container) {
+                            const section = document.createElement('div');
+                            section.className = 'workflow-item';
+                            section.innerHTML = `
+                                <div class="workflow-header"><span class="workflow-name">Latest Outcome</span></div>
+                                <div class="workflow-details">
+                                    <div class="step-item completed">
+                                        <div class="step-header">
+                                            <span class="step-name">Workflow</span>
+                                            <span class="step-status">${wfId}</span>
+                                        </div>
+                                        ${hasOutput ? `<div class="step-actions"><button class="btn" onclick="window.open('/api/workflow/${wfId}/files/output.txt','_blank')">Open output.txt</button></div>` : ''}
+                                        ${preview ? `<pre class="code-block" style="max-height:200px;overflow:auto;">${preview.replace(/</g,'&lt;')}</pre>` : ''}
+                                    </div>
+                                </div>`;
+                            container.appendChild(section);
+                        }
+                    }
+                } catch (_) { /* best-effort */ }
+                const btn = document.getElementById('goal-suggest-btn');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.onclick = async () => {
+                        btn.disabled = true;
+                        btn.textContent = 'Suggesting...';
+                        try {
+                            // Ask monitor to suggest next actions via interpreter
+                            const s = await axios.post(`/api/goal/${encodeURIComponent(goalId)}/suggest`, {}, { timeout: 10000 });
+                            if (s.data && s.data.success) {
+                                showModal('Next Steps Request', `
+                                    <div>
+                                        <p>✅ <strong>Next steps suggestion started successfully!</strong></p>
+                                        <p>The AI is analyzing your goal and will generate suggestions in the background. You can check the Workflows tab to monitor progress.</p>
+                                        <p><em>Status: ${s.data.status || 'processing'}</em></p>
+                                    </div>
+                                `);
+                            } else {
+                                const error = s.data?.error || 'Unknown error';
+                                showModal('Next Steps Error', `
+                                    <div>
+                                        <p>❌ <strong>Failed to start next steps suggestion:</strong></p>
+                                        <p>${error}</p>
+                                    </div>
+                                `);
+                            }
+                            // Hook execute button inside modal
+                            setTimeout(() => {
+                                const ex = document.getElementById('goal-exec-btn');
+                                if (ex) {
+                                    ex.onclick = async () => {
+                                        ex.disabled = true;
+                                        ex.textContent = 'Starting...';
+                                        try {
+                                            const actEl = document.getElementById('goal-exec-action');
+                                            const artEl = document.getElementById('goal-exec-artifacts');
+                                            const action = actEl ? String(actEl.value||'').trim() : '';
+                                            const artifacts_wrapper = !!(artEl && artEl.checked);
+                                            const payload = action ? { action, artifacts_wrapper } : { artifacts_wrapper };
+                                            const r = await axios.post(`/api/goal/${encodeURIComponent(goalId)}/execute`, payload, { 
+                                                timeout: 10000,
+                                                headers: { 'X-Request-Source': 'ui' }
+                                            });
+                                            if (r.data && r.data.success) {
+                                                alert('✅ Goal execution started successfully! The execution is running in the background. You can monitor progress in the Workflows tab.');
+                                            } else {
+                                                alert('❌ Failed to start execution: ' + (r.data?.error || 'Unknown error'));
+                                            }
+                                        } catch (e) {
+                                            let msg = 'Failed to start execution';
+                                            try {
+                                                if (e && e.response) {
+                                                    const ct = e.response.headers && e.response.headers['content-type'] || '';
+                                                    if (ct.includes('application/json')) {
+                                                        msg += "\n" + JSON.stringify(e.response.data, null, 2);
+                                                    } else if (e.response.data) {
+                                                        msg += "\n" + String(e.response.data);
+                                                    } else if (e.message) {
+                                                        msg += "\n" + e.message;
+                                                    }
+                                                } else if (e && e.message) {
+                                                    msg += "\n" + e.message;
+                                                }
+                                            } catch(_) {}
+                                            alert(msg);
+                                        } finally {
+                                            ex.disabled = false;
+                                            ex.textContent = 'Execute Suggested Plan';
+                                        }
+                                    };
+                                }
+                            }, 0);
+                        } catch (e) {
+                            let msg = 'Failed to suggest next steps';
+                            try {
+                                if (e && e.response) {
+                                    const ct = e.response.headers && e.response.headers['content-type'] || '';
+                                    if (ct.includes('application/json')) {
+                                        msg += "\n" + JSON.stringify(e.response.data, null, 2);
+                                    } else if (e.response.data) {
+                                        msg += "\n" + String(e.response.data);
+                                    } else if (e.message) {
+                                        msg += "\n" + e.message;
+                                    }
+                                } else if (e && e.message) {
+                                    msg += "\n" + e.message;
+                                }
+                            } catch(_) {}
+                            alert(msg);
+                        } finally {
+                            btn.disabled = false;
+                            btn.textContent = 'Suggest Next Steps';
+                        }
+                    };
+                }
+            } catch (err) {
+                const el = document.getElementById('goal-details');
+                if (el) el.innerHTML = '<div class="execution-error">Failed to load goal</div>';
+            }
+        }
+        async function achieveGoal(goalId) {
+            // Find the button and disable it during execution
+            const button = document.querySelector(`button[data-goal-id="${goalId}"]`);
+            const originalText = button ? button.textContent : 'Execute & Achieve';
+            
+            if (button) {
+                button.disabled = true;
+                button.textContent = 'Executing...';
+            }
+            
+            try {
+                // Try self-model first
+                const memoryResponse = await axios.get('/api/memory/summary');
+                const goals = memoryResponse.data.goals || [];
+                let goal = goals.find(g => g.id === goalId);
+                let fromGoalManager = false;
+
+                // Fallback to Goal Manager if not present in self-model
+                if (!goal) {
+                    try {
+                        const gm = await axios.get(`/api/goal/${encodeURIComponent(goalId)}`);
+                        const d = gm.data || {};
+                        if (d && (d.id || d.description || d.name)) {
+                            goal = { id: d.id || goalId, name: d.name || d.description || goalId, description: d.description };
+                            fromGoalManager = true;
+                        }
+                    } catch (_) {
+                        // ignore
+                    }
+                }
+
+                if (!goal) {
+                    alert('Goal not found in memory or goal manager');
+                    return;
+                }
+
+                // Extract the actual task text
+                let taskDescription = '';
+                if (goal.description && String(goal.description).trim() !== '') {
+                    taskDescription = String(goal.description).trim();
+                } else if (goal.name) {
+                    taskDescription = String(goal.name).replace('Execute task: ', '').trim();
+                } else {
+                    taskDescription = String(goalId);
+                }
+                
+                // Execute the task using the new async goal execution endpoint
+                const executeResponse = await axios.post(`/api/goal/${encodeURIComponent(goalId)}/execute`, {
+                    action: taskDescription,
+                    artifacts_wrapper: false
+                }, { 
+                    timeout: 10000,
+                    headers: { 'X-Request-Source': 'ui' }
+                });
+                
+                if (executeResponse.data && executeResponse.data.success) {
+                    alert('✅ Goal execution started successfully! The execution is running in the background. You can monitor progress in the Workflows tab.');
+                    
+                    // Refresh the displays
+                    await loadGoals();
+                    await loadGoalDetails(goalId);
+                    await loadMemory();
+                } else {
+                    alert('❌ Failed to start goal execution: ' + (executeResponse.data?.error || 'Unknown error'));
+                }
+            } catch (err) {
+                console.error('Goal execution error:', err);
+                alert('Failed to achieve goal: ' + (err.response?.data?.error || err.message));
+            } finally {
+                // Re-enable the button
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = originalText;
+                }
+            }
+        }
+        // Delegate goal actions
+        document.addEventListener('click', function(e) {
+            const t = e.target;
+            if (!t || !t.classList) return;
+            if (t.classList.contains('goal-view')) {
+                const id = t.getAttribute('data-goal-id');
+                if (id) loadGoalDetails(id);
+            } else if (t.classList.contains('goal-achieve')) {
+                const id = t.getAttribute('data-goal-id');
+                if (id) achieveGoal(id);
+            } else if (t.getAttribute && t.getAttribute('data-gm-archive') === '1') {
+                const id = t.getAttribute('data-goal-id');
+                if (!id) return;
+                if (!confirm('Archive this Goal Manager goal?')) return;
+                axios.post(`/api/goal/${encodeURIComponent(id)}/achieve`)
+                    .then(() => loadGoals())
+                    .catch(() => alert('Failed to archive goal'));
+            } else if (t.classList.contains('goal-delete')) {
+                const id = t.getAttribute('data-goal-id');
+                if (!id) return;
+                if (!confirm('Delete this goal?')) return;
+                axios.delete(`/api/goal/${encodeURIComponent(id)}`)
+                    .then(() => { loadGoals(); const el = document.getElementById('goal-details'); if (el) el.innerHTML = ''; })
+                    .catch(() => alert('Failed to delete goal'));
+            }
+        });
+        // Load recent sessions from episodes
+        async function loadRecentSessions() {
+            try {
+                const response = await axios.get('/api/memory/episodes?q=*&limit=50');
+                // Handle both array response and wrapped response
+                const episodes = Array.isArray(response.data) ? response.data : (response.data.episodes || []);
+                
+                // Extract unique session IDs from episodes
+                const sessionIds = [...new Set(episodes
+                    .map(ep => ep.session_id)
+                    .filter(id => id && id.trim() !== '')
+                )].slice(0, 10); // Show last 10 unique sessions
+                
+                const sessionList = document.getElementById('session-list');
+                if (sessionIds.length === 0) {
+                    sessionList.innerHTML = '<div style="color: #999; font-style: italic;">No sessions found. Try executing a task first.</div>';
+                } else {
+                    sessionList.innerHTML = '<div style="margin-bottom: 5px; font-weight: bold;">Recent Sessions (click to use):</div>' +
+                        sessionIds.map(sessionId => 
+                            `<div onclick="document.getElementById('mem-session').value='${sessionId}'; loadMemory();" 
+                                 style="cursor: pointer; padding: 4px 8px; margin: 2px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 4px; display: inline-block; font-family: monospace; font-size: 0.8em;">
+                                 ${sessionId}
+                             </div>`
+                        ).join(' ');
+                }
+            } catch (err) {
+                document.getElementById('session-list').innerHTML = '<div style="color: #e74c3c;">Error loading sessions</div>';
+            }
+        }
+
+        // Load memory panel
+        async function loadMemory() {
+            try {
+                console.log('loadMemory: Starting...');
+                const session = (document.getElementById('mem-session') || {}).value || '';
+                const q = (document.getElementById('mem-query') || {}).value || '';
+                const qs = session ? `?session_id=${encodeURIComponent(session)}` : '';
+                console.log('loadMemory: Session:', session, 'Query:', q);
+                
+                // Update current session display
+                const currentSessionDisplay = document.getElementById('current-session-display');
+                if (currentSessionDisplay) {
+                    currentSessionDisplay.textContent = session || 'None';
+                }
+                
+                const sum = await axios.get(`/api/memory/summary${qs}`);
+                console.log('loadMemory: Memory response received:', sum.data);
+                const data = sum.data || {};
+                const beliefsEl = document.getElementById('mem-beliefs');
+                console.log('loadMemory: Beliefs element found:', beliefsEl);
+                if (beliefsEl) {
+                    beliefsEl.textContent = JSON.stringify(data.beliefs || {}, null, 2);
+                    console.log('loadMemory: Beliefs updated');
+                }
+                const goals = Array.isArray(data.goals) ? data.goals : [];
+                document.getElementById('mem-goals').innerHTML = goals.length ? goals.map(g => `
+                    <div class="step-item ${((g.status||'').toLowerCase()==='completed')?'completed':''}">
+                        <div class="step-header">
+                            <span class="step-name">${g.name||g.id}</span>
+                            <span class="step-status">${(g.status||'').toUpperCase()}</span>
+                        </div>
+                        <div class="step-description">Created: ${g.created_at ? new Date(g.created_at).toLocaleString() : ''}</div>
+                    </div>`).join('') : '<div class="loading">No goals</div>';
+
+                // Handle working memory - show empty object if not present
+                const workingMemory = data.working_memory || {};
+                if (Object.keys(workingMemory).length === 0 && !session) {
+                    document.getElementById('mem-working').textContent = 'No working memory data. Enter a session ID to view session-specific working memory.';
+                } else {
+                    document.getElementById('mem-working').textContent = JSON.stringify(workingMemory, null, 2);
+                }
+
+                // Episodes - FIXED VERSION
+                try {
+                    let epURL = '/api/memory/episodes';
+                    const params = [];
+                    const q = '*'; // Use default query instead of trying to get from DOM
+                    if (q) params.push(`q=${encodeURIComponent(q)}`);
+                    if (session) params.push(`session_id=${encodeURIComponent(session)}`);
+                    if (params.length) epURL += `?${params.join('&')}`;
+                    
+                    const eps = await axios.get(epURL, { timeout: 5000 }).catch(err => {
+                        console.error('Episodes request failed:', err);
+                        return { data: [] };
+                    });
+                    
+                    const episodes = Array.isArray(eps.data) ? eps.data : [];
+                    let epHtml = episodes.length ? episodes.map(e => `
+                        <div class="step-item">
+                            <div class="step-header">
+                                <span class="step-name">${(e.text||'').slice(0,60)}</span>
+                                <span class="step-status">${(e.outcome||'').toUpperCase()}</span>
+                            </div>
+                            <div class="step-description">${e.session_id ? 'Session: '+e.session_id+' · ' : ''}${e.timestamp || ''}</div>
+                            ${e.tags && e.tags.length ? `<div class="step-output">Tags: ${e.tags.join(', ')}</div>` : ''}
+                        </div>`).join('') : '<div class="loading">No episodes</div>';
+                    
+                    if ((!episodes || episodes.length===0) && data && data.episodic_enabled === false) {
+                        epHtml = '<div class="loading">No episodes (episodic memory disabled). Set RAG_ADAPTER_URL and restart.</div>';
+                    }
+                    document.getElementById('mem-episodes').innerHTML = epHtml;
+                } catch (err) {
+                    console.error('Episodes loading error:', err);
+                    document.getElementById('mem-episodes').innerHTML = '<div class="loading">Error loading episodes</div>';
+                }
+            } catch (err) {
+                console.error('Error loading memory:', err);
+                const beliefsEl = document.getElementById('mem-beliefs');
+                if (beliefsEl) {
+                    beliefsEl.textContent = 'Error loading memory: ' + err.message;
+                }
+            }
+        }
+
+        // Load system status
+        async function loadSystemStatus() {
+            try {
+                const response = await axios.get('/api/status');
+                const data = response.data;
+                
+                // Update system status
+                const statusHtml = `
+                    <div class="service-item">
+                        <span class="service-name">Overall Status</span>
+                        <div class="service-status">
+                            <span class="status-indicator status-${data.overall}"></span>
+                            <span>${data.overall.toUpperCase()}</span>
+                        </div>
+                    </div>
+                `;
+                const banner = document.getElementById('banner-status');
+                if (banner) {
+                    banner.innerHTML = `<strong>Status:</strong> ${data.overall.toUpperCase()} · HDN=${(data.services && data.services.hdn && data.services.hdn.status) || 'n/a'} · Principles=${(data.services && data.services.principles && data.services.principles.status) || 'n/a'} · Redis=${(data.services && data.services.redis && data.services.redis.status) || 'n/a'}`;
+                }
+
+                // Update services
+                let servicesHtml = '';
+                for (const [key, service] of Object.entries(data.services)) {
+                    servicesHtml += `
+                        <div class="service-item">
+                            <span class="service-name">${service.name}</span>
+                            <div class="service-status">
+                                <span class="status-indicator status-${service.status}"></span>
+                                <span>${service.status.toUpperCase()}</span>
+                                <small style="margin-left: 10px; color: #7f8c8d;">${service.response_time_ms}ms</small>
+                            </div>
+                        </div>
+                    `;
+                }
+                document.getElementById('services-status').innerHTML = servicesHtml;
+
+                // Update metrics
+                const metricsHtml = `
+                    <div class="metric">
+                        <span class="metric-label">Active Workflows</span>
+                        <span class="metric-value">${data.metrics.active_workflows}</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Total Executions</span>
+                        <span class="metric-value">${data.metrics.total_executions}</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Success Rate</span>
+                        <span class="metric-value">${data.metrics.success_rate.toFixed(1)}%</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Avg Execution Time</span>
+                        <span class="metric-value">${data.metrics.avg_execution_time_ms.toFixed(0)}ms</span>
+                    </div>
+                `;
+                document.getElementById('metrics').innerHTML = metricsHtml;
+
+                // Alerts are already shown in the main dashboard
+
+            } catch (error) {
+                console.error('Error loading system status:', error);
+            }
+        }
+
+        // Store workflows globally for filtering
+        let allWorkflows = [];
+
+        // Load active workflows
+        async function loadWorkflows() {
+            try {
+                const response = await axios.get('/api/workflows');
+                allWorkflows = response.data;
+                
+                if (allWorkflows.length === 0) {
+                    document.getElementById('workflows').innerHTML = '<div style="text-align: center; color: #7f8c8d;">No workflows found</div>';
+                    return;
+                }
+
+                renderWorkflows(allWorkflows);
+            } catch (error) {
+                console.error('Error loading workflows:', error);
+                document.getElementById('workflows').innerHTML = '<div style="color: #e74c3c;">Error loading workflows</div>';
+            }
+        }
+
+        // Render workflows (used by both loadWorkflows and filterWorkflows)
+        function renderWorkflows(workflows) {
+            try {
+                let workflowsHtml = '';
+                workflows.forEach(workflow => {
+                    const progress = workflow.progress || 0;
+                    const totalSteps = workflow.total_steps || 0;
+                    const completedSteps = workflow.completed_steps || 0;
+                    const failedSteps = workflow.failed_steps || 0;
+                    const currentStep = workflow.current_step || 'Unknown';
+                    
+                    // Calculate time elapsed
+                    const started = new Date(workflow.started_at);
+                    const now = new Date();
+                    const elapsed = Math.floor((now - started) / 1000);
+                    const elapsedText = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
+                    
+                    workflowsHtml += `
+                        <div class="workflow-item" data-workflow-id="${workflow.id}">
+                            <div class="workflow-header">
+                                <span class="workflow-name">${workflow.task_name || 'Workflow'}</span>
+                                <span class="workflow-status status-${workflow.status}">${workflow.status.toUpperCase()}</span>
+                            </div>
+                            <div class="workflow-progress">
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: ${progress}%"></div>
+                                </div>
+                                <div class="progress-info">
+                                    <span class="progress-text">${progress.toFixed(1)}%</span>
+                                    <span class="step-count">${completedSteps}/${totalSteps} steps</span>
+                                </div>
+                            </div>
+                            <div class="workflow-details">
+                                <div class="workflow-step">
+                                    <strong>Current Step:</strong> ${currentStep}
+                                </div>
+                                <div class="workflow-description">
+                                    <strong>Description:</strong> ${workflow.description}
+                                </div>
+                                
+                                <!-- Step Details -->
+                                ${workflow.steps && workflow.steps.length > 0 ? `
+                                    <div class="workflow-steps">
+                                        <h6>Step Details:</h6>
+                                        ${workflow.steps.map(step => `
+                                            <div class="step-item ${step.status}">
+                                                <div class="step-header">
+                                                    <span class="step-name">${step.name}</span>
+                                                    <span class="step-status">${step.status}</span>
+                                                </div>
+                                                <div class="step-description">${step.description}</div>
+                                                ${step.output ? `<div class="step-output">${step.output}</div>` : ''}
+                                                ${step.duration ? `<div class="step-duration">Duration: ${Math.round(step.duration / 1000)}s</div>` : ''}
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                ` : ''}
+                                
+                                ${workflow.generated_code ? `
+                                    <div class="workflow-code">
+                                        <div class="code-header">
+                                            <strong>Generated Code:</strong>
+                                            <button class="btn btn-sm btn-outline-primary" onclick="viewCode('${workflow.generated_code.code ? workflow.generated_code.code.replace(/'/g, "\\'") : 'No code available'}', 'Generated Code - ${workflow.task_name}')">View Full Code</button>
+                                        </div>
+                                        <pre class="code-block">${workflow.generated_code.code ? workflow.generated_code.code.substring(0, 500) + (workflow.generated_code.code.length > 500 ? '...' : '') : 'No code available'}</pre>
+                                    </div>
+                                ` : workflow.status === 'running' ? `
+                                    <div class="workflow-code">
+                                        <div class="code-header">
+                                            <strong>Generated Code:</strong>
+                                            <button class="btn btn-sm btn-outline-primary" onclick="viewCode('${getGeneratedCode(workflow.current_step).replace(/'/g, "\\'")}', 'Generated Code - ${workflow.current_step}')">View Full Code</button>
+                                        </div>
+                                        <pre class="code-block">${getGeneratedCode(workflow.current_step)}</pre>
+                                    </div>
+                                ` : ''}
+                                
+                                <!-- Generated Files -->
+                                ${workflow.files && workflow.files.length > 0 ? `
+                                    <div class="workflow-files">
+                                        <h6>Generated Files:</h6>
+                                        <div class="file-list">
+                                            ${workflow.files.map(file => {
+                                                const fileIcon = getFileIcon(file.filename, file.content_type);
+                                                const fileAction = getFileAction(file.filename, file.content_type);
+                                                return `
+                                                    <div class="file-item">
+                                                        <span class="file-icon">${fileIcon}</span>
+                                                        <span class="file-name">${file.filename}</span>
+                                                        <span class="file-size">(${formatFileSize(file.size)})</span>
+                                                        <button class="btn btn-sm btn-outline-primary" onclick="${fileAction}('${file.filename}', '${workflow.id}')">${getActionText(file.content_type)}</button>
+                                                    </div>
+                                                `;
+                                            }).join('')}
+                                        </div>
+                                    </div>
+                                ` : ''}
+                                
+                                <div class="workflow-meta">
+                                    <small>Started: ${started.toLocaleString()}</small>
+                                    ${workflow.completed_at ? `<small>Completed: ${new Date(workflow.completed_at).toLocaleString()}</small>` : ''}
+                                    <small>Elapsed: ${elapsedText}</small>
+                                    ${failedSteps > 0 ? `<small style="color: #e74c3c;">Failed: ${failedSteps}</small>` : ''}
+                                </div>
+                                ${workflow.error ? `<div class=\"workflow-error\">Error: ${workflow.error} <button class=\"btn btn-sm\" onclick=\"showWorkflowError('${workflow.id}')\">Show details</button></div>` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+                document.getElementById('workflows').innerHTML = workflowsHtml;
+
+            } catch (error) {
+                console.error('Error loading workflows:', error);
+                document.getElementById('workflows').innerHTML = '<div style="color: #e74c3c;">Error loading workflows</div>';
+            }
+        }
+
+        // Filter workflows based on search input
+        function filterWorkflows() {
+            const searchInput = document.getElementById('workflow-search');
+            const searchTerm = searchInput.value.toLowerCase().trim();
+            
+            if (!searchTerm) {
+                renderWorkflows(allWorkflows);
+                return;
+            }
+            
+            const filteredWorkflows = allWorkflows.filter(workflow => {
+                const taskName = (workflow.task_name || '').toLowerCase();
+                const status = (workflow.status || '').toLowerCase();
+                const description = (workflow.description || '').toLowerCase();
+                const currentStep = (workflow.current_step || '').toLowerCase();
+                
+                return taskName.includes(searchTerm) || 
+                       status.includes(searchTerm) || 
+                       description.includes(searchTerm) ||
+                       currentStep.includes(searchTerm);
+            });
+            
+            if (filteredWorkflows.length === 0) {
+                document.getElementById('workflows').innerHTML = '<div style="text-align: center; color: #7f8c8d;">No workflows match your search</div>';
+            } else {
+                renderWorkflows(filteredWorkflows);
+            }
+        }
+
+        // Fetch and display error details for a workflow by trying common artifacts
+        async function showWorkflowError(workflowId) {
+            try {
+                const filesRes = await axios.get(`/api/workflow/${encodeURIComponent(workflowId)}/files`);
+                const files = Array.isArray(filesRes.data) ? filesRes.data : [];
+                const names = files.map(f => String(f.filename||'').toLowerCase());
+                // Prefer output.txt; otherwise show first text-like file
+                let target = '';
+                if (names.includes('output.txt')) target = 'output.txt';
+                else if (names.includes('stderr.txt')) target = 'stderr.txt';
+                else if (names.includes('stdout.txt')) target = 'stdout.txt';
+                else {
+                    const textLike = files.find(f => {
+                        const n = String(f.filename||'').toLowerCase();
+                        return n.endsWith('.txt') || n.endsWith('.log');
+                    });
+                    if (textLike) target = textLike.filename;
+                }
+                let body = '';
+                if (target) {
+                    try {
+                        const txt = await axios.get(`/api/workflow/${encodeURIComponent(workflowId)}/files/${encodeURIComponent(target)}`, { responseType: 'text' });
+                        body = String(txt.data||'').slice(0, 5000);
+                    } catch (_) { body = ''; }
+                }
+                if (!body) {
+                    body = 'No error artifact found for this workflow.';
+                }
+                showModal('Error details - ' + workflowId, `<pre class=\"code-block\" style=\"max-height:60vh;overflow:auto;\">${body.replace(/</g,'&lt;')}</pre>`);
+            } catch (e) {
+                showModal('Error details - ' + workflowId, '<div class=\"execution-error\">Failed to load error details</div>');
+            }
+        }
+
+        // Load metrics
+        async function loadMetrics() {
+            try {
+                const response = await axios.get('/api/metrics');
+                const metrics = response.data;
+                
+                // Update execution chart
+                updateExecutionChart(metrics);
+
+            } catch (error) {
+                console.error('Error loading metrics:', error);
+            }
+        }
+
+        // Load projects
+        async function loadProjects() {
+            try {
+                const response = await axios.get('/api/projects');
+                const projects = Array.isArray(response.data) ? response.data : [];
+
+                // Optionally enrich the Goals project with the latest goal description
+                let latestGoalDesc = '';
+                try {
+                    const agent = (document.getElementById('goals-agent') || {}).value || 'agent_1';
+                    const gres = await axios.get(`/api/goals/${encodeURIComponent(agent)}/active`);
+                    const goals = Array.isArray(gres.data) ? gres.data : (gres.data && gres.data.goals) ? gres.data.goals : [];
+                    if (goals && goals.length) {
+                        latestGoalDesc = String(goals[0].description || goals[0].name || '').trim();
+                    }
+                } catch (_) { /* best-effort */ }
+
+                if (projects.length === 0) {
+                    document.getElementById('projects').innerHTML = '<div class="loading">No projects yet</div>';
+                    return;
+                }
+
+                let html = '';
+                projects.forEach(p => {
+                    const updated = p.updated_at ? new Date(p.updated_at).toLocaleString() : '';
+                    const status = (p.status || '').toUpperCase();
+                    const statusClass = status === 'ACTIVE' ? 'status-running' : (status === 'PAUSED' ? 'status-paused' : 'status-completed');
+                    const isGoals = (String(p.name||p.id||'').toLowerCase() === 'goals');
+                    const desc = String(p.description || (isGoals ? latestGoalDesc : '') || '').trim();
+                    html += `
+                        <div class="workflow-item" data-project-id="${p.id}">
+                            <div class="workflow-header">
+                                <span class="workflow-name">${p.name || p.id}</span>
+                                <span class="workflow-status ${statusClass}">${p.status || ''}</span>
+                            </div>
+                            <div class="workflow-details">
+                                ${desc ? `<div class="step-description">${desc}</div>` : ''}
+                                <div class="step-item completed">
+                                    <div class="step-header">
+                                        <span class="step-name">Updated</span>
+                                        <span class="step-status">${updated}</span>
+                                    </div>
+                                    ${p.next_action ? `<div class="step-output"><strong>Next:</strong> ${p.next_action}</div>` : ''}
+                                    <div class="step-actions">
+                                        <button class="btn btn-primary" onclick="viewProject('${p.id}')">View Details</button>
+                                        ${(() => { const nm = String(p.name||p.id||'').toLowerCase(); return (nm==='goals'||nm==='fsm-agent-agent_1') ? '' : `<button class="btn btn-danger" onclick="deleteProject('${p.id}')">Delete</button>` })()}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                document.getElementById('projects').innerHTML = html;
+            } catch (error) {
+                console.error('Error loading projects:', error);
+                document.getElementById('projects').innerHTML = '<div style="color: #e74c3c;">Error loading projects</div>';
+            }
+        }
+
+        async function deleteProject(id) {
+            if (!confirm('Delete this project?')) return;
+            try {
+                await axios.delete(`/api/projects/${encodeURIComponent(id)}`);
+                await loadProjects();
+            } catch (e) {
+                alert('Failed to delete project');
+            }
+        }
+
+        async function viewProject(projectId) {
+            try {
+                const [projectRes, cpsRes, wfsRes] = await Promise.all([
+                    axios.get(`/api/projects/${projectId}`),
+                    axios.get(`/api/projects/${projectId}/checkpoints`),
+                    axios.get(`/api/projects/${projectId}/workflows`),
+                ]);
+                const p = projectRes.data || {};
+                const cps = Array.isArray(cpsRes.data) ? cpsRes.data : [];
+                const ids = (wfsRes.data && wfsRes.data.workflow_ids) ? wfsRes.data.workflow_ids : [];
+
+                const cpsHtml = cps.length ? cps.map(cp => `
+                    <div class=\"step-item completed\">
+                        <div class=\"step-header\">
+                            <span class=\"step-name\">${new Date(cp.time).toLocaleString()}</span>
+                            <span class=\"step-status\">${cp.id}</span>
+                        </div>
+                        <div class=\"step-description\">${cp.summary || ''}</div>
+                        ${cp.next_action ? `<div class=\\\"step-output\\\"><strong>Next:</strong> ${cp.next_action}</div>` : ''}
+                    </div>
+                `).join('') : '<div class=\"loading\">No checkpoints</div>';
+
+                async function renderWorkflow(id) {
+                    try {
+                        const [filesRes, projRes, detailsRes] = await Promise.all([
+                            axios.get(`/api/workflow/${id}/files`),
+                            axios.get(`/api/workflow/${id}/project`).catch(() => ({ data: null })),
+                            axios.get(`/api/workflow/${id}/details`).catch(() => ({ data: { success: false } })),
+                        ]);
+                        const files = Array.isArray(filesRes.data) ? filesRes.data : [];
+                        const proj = projRes.data && projRes.data.id ? projRes.data : null;
+                        const details = (detailsRes.data && detailsRes.data.success && detailsRes.data.details) ? detailsRes.data.details : null;
+
+                        const filesHtml = files.length ? files.map(f => `
+                            <div class=\"step-item completed\">
+                                <div class=\"step-header\">
+                                    <span class=\"step-name\">${f.filename}</span>
+                                    <span class=\"step-status\">${f.content_type || ''} · ${f.size || 0} B</span>
+                                </div>
+                                <div class=\"step-actions\">
+                                    <button class=\"btn open-file-btn\" data-workflow=\"${id}\" data-filename=\"${f.filename}\">Open</button>
+                                </div>
+                            </div>
+                        `).join('') : '<div class=\"loading\">No files</div>';
+
+                        const projHtml = proj ? `<div class=\"step-description\"><strong>Project:</strong> ${proj.name || proj.id}</div>` : '';
+
+                        // Activities panel
+                        let activitiesHtml = '<div class=\"loading\">Activities unavailable</div>';
+                        if (details && details.steps && Array.isArray(details.steps)) {
+                            const steps = details.steps;
+                            const current = details.current_step || '';
+                            const pending = steps.filter(s => s.status === 'pending');
+                            const running = steps.filter(s => s.status === 'running');
+                            const completed = steps.filter(s => s.status === 'completed');
+                            const failed = steps.filter(s => s.status === 'failed');
+
+                            function stepRow(s) {
+                                const name = s.capability_id || s.step_type || s.id;
+                                const deps = (s.dependencies && s.dependencies.length) ? ` · deps: ${s.dependencies.join(', ')}` : '';
+                                return `<div class=\"step-item ${s.status === 'completed' ? 'completed' : (s.status === 'failed' ? 'error' : '')}\">`+
+                                       `<div class=\"step-header\"><span class=\"step-name\">${name}</span>`+
+                                       `<span class=\"step-status\">${(s.status || '').toUpperCase()}</span></div>`+
+                                       `<div class=\"step-description\">${s.step_type || ''}${deps}</div>`+
+                                       `</div>`;
+                            }
+
+                            activitiesHtml = `
+                                <div class=\"workflow-item\">
+                                    <div class=\"workflow-header\"><span class=\"workflow-name\">Activities</span></div>
+                                    <div class=\"workflow-details\">
+                                        ${running.length ? `<div class=\"step-item\"><div class=\"step-header\"><span class=\"step-name\">Running</span></div>${running.map(stepRow).join('')}</div>` : ''}
+                                        ${pending.length ? `<div class=\"step-item\"><div class=\"step-header\"><span class=\"step-name\">Upcoming</span></div>${pending.map(stepRow).join('')}</div>` : ''}
+                                        ${completed.length ? `<div class=\"step-item\"><div class=\"step-header\"><span class=\"step-name\">Completed</span></div>${completed.map(stepRow).join('')}</div>` : ''}
+                                        ${failed.length ? `<div class=\"step-item\"><div class=\"step-header\"><span class=\"step-name\">Failed</span></div>${failed.map(stepRow).join('')}</div>` : ''}
+                                        ${!running.length && !pending.length && !completed.length && !failed.length ? '<div class=\"loading\">No steps</div>' : ''}
+                                    </div>
+                                </div>`;
+                        }
+
+                        return `<div class=\"step-item\">`+
+                               `<div class=\"step-header\"><span class=\"step-name\">${id}</span></div>`+
+                               `${projHtml}`+
+                               `${activitiesHtml}`+
+                               `<div class=\"workflow-item\"><div class=\"workflow-header\"><span class=\"workflow-name\">Artifacts</span></div><div class=\"workflow-details\">${filesHtml}</div></div>`+
+                               `</div>`
+                    } catch (e) {
+                        return `<div class=\"step-item\"><div class=\"step-header\"><span class=\"step-name\">${id}</span></div><div class=\"loading\">Details unavailable</div></div>`
+                    }
+                }
+
+                let wfHtml = '<div class=\\\"loading\\\">No workflows yet</div>';
+                if (ids.length) {
+                    const items = await Promise.all(ids.map(renderWorkflow));
+                    wfHtml = items.join('');
+                }
+
+                showModal(`Project: ${p.name || p.id}`, `
+                    <div class=\"workflow-details\">
+                        ${p.description ? `<div class=\"step-description\"><strong>Description:</strong> ${p.description}</div>` : ''}
+                        <div class=\"step-item\">
+                            <div class=\"step-header\">
+                                <span class=\"step-name\">Status</span>
+                                <span class=\"step-status\">${(p.status || '').toUpperCase()}</span>
+                            </div>
+                            <div class=\"step-actions\" style=\"margin-top:8px;\">
+                                <button class=\"btn\" id=\"analyze-last-wf-btn\">Analyze last workflow</button>
+                                <span id=\"analyze-status\" style=\"margin-left:8px; color:#7f8c8d;\"></span>
+                            </div>
+                        </div>
+                        <div class=\"workflow-item\">
+                            <div class=\"workflow-header\"><span class=\"workflow-name\">Checkpoints</span></div>
+                            <div class=\"workflow-details\">${cpsHtml}</div>
+                        </div>
+                        <div class=\"workflow-item\">
+                            <div class=\"workflow-header\"><span class=\"workflow-name\">Workflows</span></div>
+                            <div class=\"workflow-details\">${wfHtml}</div>
+                        </div>
+                    </div>
+                `);
+                // Wire analyze button for this project modal
+                setTimeout(() => {
+                    const btn = document.getElementById('analyze-last-wf-btn');
+                    const statusEl = document.getElementById('analyze-status');
+                    if (btn) {
+                        btn.addEventListener('click', async () => {
+                            btn.disabled = true;
+                            if (statusEl) statusEl.textContent = 'Starting analysis...';
+                            try {
+                                const res = await axios.post(`/api/projects/${encodeURIComponent(projectId)}/analyze_last_workflow`);
+                                if (res.data && res.data.success) {
+                                    if (statusEl) statusEl.textContent = 'Running...';
+                                    const wfId = res.data.workflow_id;
+                                    let attempts = 0;
+                                    const poll = setInterval(async () => {
+                                        attempts++;
+                                        try {
+                                            const filesRes = await axios.get(`/api/workflow/${encodeURIComponent(wfId)}/files`);
+                                            const files = Array.isArray(filesRes.data) ? filesRes.data : [];
+                                            const hasAnalysis = files.some(f => (f.filename||'').toLowerCase() === 'analysis.md');
+                                            if (hasAnalysis || attempts > 60) {
+                                                clearInterval(poll);
+                                                if (hasAnalysis) {
+                                                    statusEl.textContent = 'analysis.md ready';
+                                                } else {
+                                                    statusEl.textContent = 'Finished';
+                                                }
+                                                btn.disabled = false;
+                                            }
+                                        } catch (e) {}
+                                    }, 2000);
+                                } else {
+                                    if (statusEl) statusEl.textContent = 'Failed to start';
+                                    btn.disabled = false;
+                                }
+                            } catch (e) {
+                                if (statusEl) statusEl.textContent = 'Error';
+                                btn.disabled = false;
+                            }
+                        });
+                    }
+                }, 50);
+            } catch (err) {
+                alert('Failed to load project details');
+            }
+        }
+
+        // Delegate clicks for file open buttons
+        document.addEventListener('click', function(e) {
+            const t = e.target;
+            if (t && t.classList && t.classList.contains('open-file-btn')) {
+                const wf = t.getAttribute('data-workflow') || '';
+                const fn = t.getAttribute('data-filename') || '';
+                if (!wf || !fn) return;
+                const url = `/api/workflow/${encodeURIComponent(wf)}/files/${encodeURIComponent(fn)}`;
+                window.open(url, '_blank');
+            }
+        });
+
+        
+
+        // Load capabilities grouped by domain
+        async function loadCapabilities() {
+            try {
+                console.log('loadCapabilities: Starting...');
+                const response = await axios.get('/api/capabilities');
+                console.log('loadCapabilities: Response received:', response.data);
+                const data = response.data || {};
+                const container = document.getElementById('capabilities');
+                console.log('loadCapabilities: Container found:', container);
+
+                if (Object.keys(data).length === 0) {
+                    console.log('loadCapabilities: No data found');
+                    container.innerHTML = '<div style="text-align: center; color: #7f8c8d;">No capabilities found</div>';
+                    return;
+                }
+                
+                console.log('loadCapabilities: Processing data with', Object.keys(data).length, 'domains');
+
+                let html = '';
+                Object.keys(data).sort().forEach(domain => {
+                    const caps = data[domain] || [];
+                    // Deduplicate by task+language+code to reduce repeated items
+                    const seen = new Set();
+                    const uniqueCaps = [];
+                    caps.forEach(c => {
+                        const key = `${c.task||''}|${c.language||''}|${(c.code||'').slice(0,64)}`;
+                        if (!seen.has(key)) { seen.add(key); uniqueCaps.push(c); }
+                    });
+                    html += `
+                        <div class="workflow-item">
+                            <div class="workflow-header">
+                                <span class="workflow-name">${domain}</span>
+                                <span class="workflow-status status-completed">${uniqueCaps.length} capability${uniqueCaps.length !== 1 ? 'ies' : 'y'}</span>
+                            </div>
+                            <div class="workflow-details">
+                                ${uniqueCaps.map(c => `
+                                    <div class="step-item completed">
+                                        <div class="step-header">
+                                            <span class="step-name">${c.task}</span>
+                                            <span class="step-status">${c.language || ''}</span>
+                                        </div>
+                                        <div class="step-description">${c.description || ''}</div>
+                                        ${c.tags && c.tags.length ? `<div class="step-output">Tags: ${c.tags.join(', ')}</div>` : ''}
+                                        ${c.code ? `
+                                            <div class="step-actions" style="margin-top:6px;">
+                                                <button class="btn btn-sm btn-outline-primary cap-open-btn" 
+                                                    data-cap-task="${(c.task||'').replace(/"/g, '&quot;')}" 
+                                                    data-cap-lang="${(c.language||'').replace(/"/g, '&quot;')}" 
+                                                    data-cap-code="${(c.code||'').replace(/"/g, '&quot;')}">
+                                                    Open
+                                                </button>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                console.log('loadCapabilities: Generated HTML length:', html.length);
+                container.innerHTML = html;
+                console.log('loadCapabilities: HTML updated successfully');
+                // Force a visual update to test
+                container.style.border = '2px solid green';
+            } catch (error) {
+                console.error('Error loading capabilities:', error);
+                const container = document.getElementById('capabilities');
+                if (container) {
+                    container.innerHTML = '<div style="color: #e74c3c;">Error loading capabilities: ' + error.message + '</div>';
+                }
+            }
+        }
+
+        // Initialize execution chart
+        function initializeChart() {
+            const ctx = document.getElementById('executionChart').getContext('2d');
+            executionChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Executions',
+                        data: [],
+                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update execution chart
+        function updateExecutionChart(metrics) {
+            if (!executionChart) return;
+
+            // Add new data point
+            const now = new Date().toLocaleTimeString();
+            executionChart.data.labels.push(now);
+            executionChart.data.datasets[0].data.push(metrics.total_executions);
+
+            // Keep only last 20 data points
+            if (executionChart.data.labels.length > 20) {
+                executionChart.data.labels.shift();
+                executionChart.data.datasets[0].data.shift();
+            }
+
+            executionChart.update();
+        }
+
+        // Toggle auto refresh
+        function toggleAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+                document.querySelector('button[onclick="toggleAutoRefresh()"]').textContent = '⏰ Auto Refresh';
+            } else {
+                autoRefreshInterval = setInterval(refreshAll, 5000); // Refresh every 5 seconds
+                document.querySelector('button[onclick="toggleAutoRefresh()"]').textContent = '⏹️ Stop Auto';
+            }
+        }
+
+        // Update timestamp
+        function updateTimestamp() {
+            document.getElementById('last-updated').textContent = 
+                `Last updated: ${new Date().toLocaleString()}`;
+        }
+
+        // Natural Language Input Functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const interpretBtn = document.getElementById('interpret-btn');
+            const executeBtn = document.getElementById('execute-btn');
+            const goalCreateBtn = document.getElementById('goal-create-btn');
+            const nlInput = document.getElementById('nl-input');
+            const nlResponse = document.getElementById('nl-response');
+
+            if (interpretBtn) {
+                interpretBtn.addEventListener('click', handleInterpret);
+            }
+            if (executeBtn) {
+                executeBtn.addEventListener('click', handleExecute);
+            }
+            if (goalCreateBtn) {
+                goalCreateBtn.addEventListener('click', handleCreateGoal);
+            }
+            if (nlInput) {
+                nlInput.addEventListener('keydown', function(e) {
+                    if (e.ctrlKey && e.key === 'Enter') {
+                        handleExecute();
+                    }
+                });
+            }
+        });
+
+        function handleInterpret() {
+            const input = document.getElementById('nl-input').value.trim();
+            if (!input) {
+                alert('Please enter some text to interpret');
+                return;
+            }
+
+            const interpretBtn = document.getElementById('interpret-btn');
+            const nlResponse = document.getElementById('nl-response');
+            
+            // Show loading state
+            interpretBtn.disabled = true;
+            interpretBtn.innerHTML = '<span class="loading-spinner"></span> Interpreting...';
+            nlResponse.style.display = 'block';
+            nlResponse.querySelector('.response-content').innerHTML = '<div class="loading">Interpreting your request...</div>';
+
+            // Use standard API endpoint
+            const apiEndpoint = '/api/interpret';
+            const timeout = 30000;
+
+            // Make API call
+            const sidInterpret = `session_${Date.now()}`;
+            const memSidInput1 = document.getElementById('mem-session');
+            if (memSidInput1) memSidInput1.value = sidInterpret;
+            axios.post(apiEndpoint, {
+                input: input,
+                context: {},
+                session_id: sidInterpret
+            }, { timeout: timeout })
+            .then(response => {
+                // Check if this is an asynchronous response
+                if (response.data.status === 'processing') {
+                    displayAsyncProcessingResponse(response.data);
+                    // Poll for completion
+                    pollInterpretationResult(response.data.session_id);
+                } else {
+                    displayFlexibleInterpretationResponse(response.data);
+                    
+                    // Show thinking panel for this session
+                    if (response.data && response.data.session_id) {
+                        showThinkingPanel(response.data.session_id);
+                    }
+                    
+                    // Auto-refresh memory panel for this session
+                    if (typeof loadMemory === 'function') {
+                        loadMemory();
+                    }
+                }
+            })
+            .catch(error => {
+                displayError('Interpretation failed', error);
+            })
+            .finally(() => {
+                interpretBtn.disabled = false;
+                interpretBtn.innerHTML = 'Interpret';
+            });
+        }
+
+        function handleExecute() {
+            const input = document.getElementById('nl-input').value.trim();
+            if (!input) {
+                alert('Please enter some text to execute');
+                return;
+            }
+
+            const executeBtn = document.getElementById('execute-btn');
+            const nlResponse = document.getElementById('nl-response');
+            
+            // Show loading state
+            executeBtn.disabled = true;
+            executeBtn.innerHTML = '<span class="loading-spinner"></span> Executing...';
+            nlResponse.style.display = 'block';
+            nlResponse.querySelector('.response-content').innerHTML = '<div class="loading">Executing your request...</div>';
+
+            // Use intelligent execution API endpoint for better response formatting
+            const apiEndpoint = '/api/v1/intelligent/execute';
+            const timeout = 300000; // Execution can take time
+
+            // Make API call
+            const sidExecute = `session_${Date.now()}`;
+            const memSidInput2 = document.getElementById('mem-session');
+            if (memSidInput2) memSidInput2.value = sidExecute;
+            const nlArtifactsEl = document.getElementById('nl-artifacts');
+            const artifacts_wrapper = !!(nlArtifactsEl && nlArtifactsEl.checked);
+
+            axios.post(apiEndpoint, {
+                task_name: "artifact_task",
+                description: input,
+                context: {
+                    artifacts_wrapper: artifacts_wrapper ? "true" : "false",
+                    force_regenerate: "true"
+                },
+                language: "go",
+                force_regenerate: true,
+                max_retries: 3,
+                timeout: 600
+            }, { timeout: timeout })
+            .then(response => {
+                // console.log('About to call displayExecutionResponse with:', response.data);
+                displayExecutionResponse(response.data);
+                
+                // Show thinking panel for this session
+                if (response.data && response.data.session_id) {
+                    showThinkingPanel(response.data.session_id);
+                }
+                
+                // Refresh workflows to show new execution
+                setTimeout(() => {
+                    loadWorkflows();
+                    if (typeof loadMemory === 'function') {
+                        loadMemory();
+                    }
+                }, 1000);
+            })
+            .catch(error => {
+                // If the browser timed out but the server continued, refresh workflows and show a friendlier note
+                const msg = (error && error.message) || '';
+                if (msg.includes('Network Error') || msg.includes('timeout')) {
+                    // Start lightweight polling and show running message instead of error
+                    const responseContent = document.querySelector('.response-content');
+                    responseContent.innerHTML = `
+                        <div class="nl-response" style="border-left: 4px solid #3498db; padding-left: 10px;">
+                            <h4>⏳ Execution running</h4>
+                            <p>The operation is still in progress. The dashboard will auto-refresh workflows every few seconds.</p>
+                        </div>
+                    `;
+                    loadWorkflows();
+                    let attempts = 0;
+                    const poll = setInterval(() => {
+                        attempts++;
+                        loadWorkflows();
+                    if (attempts > 120) { // ~6 minutes
+                        clearInterval(poll);
+                    }
+                    }, 3000);
+                } else {
+                    displayError('Execution failed', error);
+                }
+            })
+            .finally(() => {
+                executeBtn.disabled = false;
+                executeBtn.innerHTML = 'Execute';
+            });
+        }
+
+        async function handleCreateGoal() {
+            const input = document.getElementById('nl-input').value.trim();
+            if (!input) {
+                alert('Please enter a goal description');
+                return;
+            }
+            const btn = document.getElementById('goal-create-btn');
+            btn.disabled = true;
+            btn.textContent = 'Creating...';
+            try {
+                await axios.post('/api/goals/create_from_nl', {
+                    agent_id: (document.getElementById('goals-agent')||{}).value || 'agent_1',
+                    description: input,
+                    priority: 'medium'
+                });
+                // Refresh goals list
+                if (typeof loadGoals === 'function') loadGoals();
+                alert('Goal created');
+            } catch (e) {
+                alert('Failed to create goal');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Create Goal';
+            }
+        }
+
+        function displayInterpretationResponse(data) {
+            const responseContent = document.querySelector('.response-content');
+            
+            if (data.success && data.tasks) {
+                let html = '<h4>🧠 Flexible Natural Language Processing</h4>';
+                html += '<div class="flexible-response">';
+                
+                data.tasks.forEach((task, index) => {
+                    html += `
+                        <div class="task-item">
+                            <h4>${index + 1}. ${task.task_name}</h4>
+                            <p><strong>Description:</strong> ${task.description}</p>
+                            <p><strong>Language:</strong> ${task.language}</p>
+                            ${task.context && Object.keys(task.context).length > 0 ? 
+                                `<div class="task-context"><strong>Context:</strong> ${JSON.stringify(task.context, null, 2)}</div>` : 
+                                ''
+                            }
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+                html += `<p><em>Session ID: ${data.session_id}</em></p>`;
+                html += '<div class="flexible-info">💡 This response was generated using flexible natural language processing, allowing the LLM to choose the most appropriate response type.</div>';
+                responseContent.innerHTML = html;
+            } else {
+                responseContent.innerHTML = `<div class="execution-error">Interpretation failed: ${data.message || 'Unknown error'}</div>`;
+            }
+        }
+
+        function displayFlexibleInterpretationResponse(data) {
+            const responseContent = document.querySelector('.response-content');
+            
+            if (data.success) {
+                let html = `<div class="success">✅ ${data.message}</div>`;
+                
+                // Display response type
+                html += `<div class="response-type">🧠 Response Type: <strong>${data.response_type}</strong></div>`;
+                
+                // Handle different response types
+                if (data.tool_call) {
+                    html += '<div class="tool-call">';
+                    html += '<h4>🔧 Tool Call:</h4>';
+                    html += `<p><strong>Tool:</strong> ${data.tool_call.tool_id}</p>`;
+                    html += `<p><strong>Description:</strong> ${data.tool_call.description}</p>`;
+                    if (data.tool_call.parameters) {
+                        html += '<p><strong>Parameters:</strong></p>';
+                        html += '<pre>' + JSON.stringify(data.tool_call.parameters, null, 2) + '</pre>';
+                    }
+                    html += '</div>';
+                }
+                
+                if (data.code_artifact) {
+                    html += '<div class="code-artifact">';
+                    html += '<h4>💻 Code Artifact:</h4>';
+                    html += `<p><strong>Language:</strong> ${data.code_artifact.language}</p>`;
+                    html += '<p><strong>Code:</strong></p>';
+                    html += '<pre><code>' + data.code_artifact.code + '</code></pre>';
+                    html += '</div>';
+                }
+                
+                if (data.structured_task) {
+                    html += '<div class="structured-task">';
+                    html += '<h4>📋 Structured Task:</h4>';
+                    html += `<p><strong>Name:</strong> ${data.structured_task.name}</p>`;
+                    html += `<p><strong>Description:</strong> ${data.structured_task.description}</p>`;
+                    if (data.structured_task.subtasks && data.structured_task.subtasks.length > 0) {
+                        html += '<p><strong>Subtasks:</strong></p>';
+                        html += '<ul>';
+                        data.structured_task.subtasks.forEach(subtask => {
+                            html += `<li>${subtask}</li>`;
+                        });
+                        html += '</ul>';
+                    }
+                    html += '</div>';
+                }
+                
+                if (data.text_response) {
+                    html += '<div class="text-response">';
+                    html += '<h4>💬 Text Response:</h4>';
+                    html += `<p>${data.text_response}</p>`;
+                    html += '</div>';
+                }
+                
+                // Show tool execution result if available
+                if (data.tool_execution_result) {
+                    html += '<div class="tool-execution-result">';
+                    html += '<h4>⚡ Tool Execution Result:</h4>';
+                    if (data.tool_execution_result.success) {
+                        html += '<div class="success">✅ Tool executed successfully</div>';
+                        html += '<pre>' + JSON.stringify(data.tool_execution_result.result, null, 2) + '</pre>';
+                    } else {
+                        html += '<div class="error">❌ Tool execution failed</div>';
+                        html += `<p>${data.tool_execution_result.error}</p>`;
+                    }
+                    html += '</div>';
+                }
+                
+                html += `<p><em>Session ID: ${data.session_id}</em></p>`;
+                responseContent.innerHTML = html;
+            } else {
+                responseContent.innerHTML = `<div class="execution-error">❌ ${data.message || 'Flexible interpretation failed'}</div>`;
+            }
+        }
+
+        function displayAsyncProcessingResponse(data) {
+            const responseContent = document.querySelector('.response-content');
+            
+            let html = '<div class="async-processing">';
+            html += '<div class="processing-indicator">';
+            html += '<span class="loading-spinner"></span>';
+            html += '<h4>🔄 Processing Complex Request</h4>';
+            html += '</div>';
+            html += `<div class="processing-message">${data.message}</div>`;
+            html += `<div class="session-info">Session ID: ${data.session_id}</div>`;
+            html += '<div class="processing-note">This request is being processed in the background. Results will appear here when ready.</div>';
+            html += '</div>';
+            
+            responseContent.innerHTML = html;
+        }
+
+        function pollInterpretationResult(sessionId) {
+            const maxAttempts = 60; // Poll for up to 10 minutes (60 * 10 seconds)
+            let attempts = 0;
+            
+            const pollInterval = setInterval(() => {
+                attempts++;
+                
+                // Check if we've exceeded max attempts
+                if (attempts > maxAttempts) {
+                    clearInterval(pollInterval);
+                    const responseContent = document.querySelector('.response-content');
+                    responseContent.innerHTML = '<div class="error">Processing timeout - the request may still be processing in the background.</div>';
+                    return;
+                }
+                
+                // Make a new request to check for results
+                axios.post('/api/interpret', {
+                    input: '', // Empty input for status check
+                    context: {},
+                    session_id: sessionId
+                }, { timeout: 10000 })
+                .then(response => {
+                    // If we get a response with tasks, processing is complete
+                    if (response.data.success && response.data.tasks && response.data.tasks.length > 0) {
+                        clearInterval(pollInterval);
+                        displayFlexibleInterpretationResponse(response.data);
+                        // Auto-refresh memory panel for this session
+                        if (typeof loadMemory === 'function') {
+                            loadMemory();
+                        }
+                    }
+                    // If we get an error, stop polling
+                    else if (!response.data.success) {
+                        clearInterval(pollInterval);
+                        displayFlexibleInterpretationResponse(response.data);
+                    }
+                    // Otherwise, continue polling (still processing)
+                })
+                .catch(error => {
+                    // On error, continue polling unless it's a clear failure
+                    console.log('Polling attempt failed, continuing...', error);
+                });
+            }, 10000); // Poll every 10 seconds
+        }
+
+        function displayExecutionResponse(data) {
+            const responseContent = document.querySelector('.response-content');
+            
+            // Debug logging (can be disabled in production)
+            // console.log('displayExecutionResponse called with:', data);
+            // console.log('responseContent element:', responseContent);
+            // console.log('data.success:', data.success);
+            // console.log('data.result:', data.result);
+            // console.log('data.generated_code:', data.generated_code);
+            // console.log('data.validation_steps:', data.validation_steps);
+            
+            // Check if this is a chained execution response first
+            if (data.success && data.result && data.validation_steps && data.validation_steps.some(step => step.step === 'chained_execution')) {
+                console.log('Detected chained execution response, formatting...');
+                let resultText = data.result;
+                
+                // Format chained execution results for better readability
+                if ((resultText.includes('\\n') || resultText.includes('\n')) && resultText.includes('{')) {
+                    const splitter = resultText.includes('\\n') ? '\\n' : '\n';
+                    const lines = resultText.split(splitter);
+                    if (lines.length >= 2) {
+                        resultText = `🔗 Chained Execution Result:\n\n` +
+                                   `📄 Step 1 (Python): ${lines[0]}\n` +
+                                   `📄 Step 2 (Go): ${lines[1]}`;
+                    }
+                }
+                
+                // Also handle the case where we have a JSON object followed by a number
+                if (resultText.includes('{') && resultText.includes('}') && resultText.includes('\n')) {
+                    const lines = resultText.split('\n');
+                    if (lines.length >= 2 && lines[0].includes('{') && lines[1].match(/^\d+$/)) {
+                        resultText = `🔗 Chained Execution Result:\n\n` +
+                                   `📄 Step 1 (Python): ${lines[0]}\n` +
+                                   `📄 Step 2 (Go): ${lines[1]}`;
+                    }
+                }
+                
+                responseContent.innerHTML = `<div class="task-item">
+                    <h4>🚀 Chained Execution Results:</h4>
+                    <div style="background: #f0f9ff; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9;">
+                        <pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; max-height: 400px; overflow-y: auto;">${resultText}</pre>
+                    </div>
+                </div>`;
+                return;
+            }
+            
+            // Handle regular execution response (not chained)
+            if (data.success && data.result && data.generated_code) {
+                console.log('Detected regular execution response, formatting...');
+                let html = '<h4>🚀 Execution Results:</h4>';
+                
+                // Show task description
+                html += `<div class="task-item">
+                    <h4>📋 Task: ${data.generated_code.description || 'Code Generation'}</h4>
+                    <p><strong>Language:</strong> ${data.generated_code.language || 'Unknown'}</p>
+                    <p><strong>Status:</strong> ✅ Success</p>
+                </div>`;
+                
+                // Show the actual result (clean output)
+                if (data.result) {
+                    let resultText = data.result;
+
+                    // Try to extract actual output from validation_steps first
+                    if (data.validation_steps && data.validation_steps.length > 0) {
+                        const lastStep = data.validation_steps[data.validation_steps.length - 1];
+                        if (lastStep.output && lastStep.output.trim()) {
+                            resultText = lastStep.output.trim();
+                        }
+                    }
+
+                    html += `<div class="task-item">
+                        <h4>📋 Output:</h4>
+                        <div style="background: #f0f9ff; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9;">
+                            <pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; max-height: 400px; overflow-y: auto;">${resultText}</pre>
+                        </div>
+                    </div>`;
+                }
+                
+                // Show the generated code
+                if (data.generated_code && data.generated_code.code) {
+                    html += `<div class="task-item">
+                        <h4>💻 Generated Code (${data.generated_code.language}):</h4>
+                        <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border-left: 4px solid #10b981;">
+                            <pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; max-height: 400px; overflow-y: auto;">${data.generated_code.code}</pre>
+                        </div>
+                    </div>`;
+                }
+                
+                responseContent.innerHTML = html;
+                return;
+            }
+            
+            // Handle intelligent execution response (new format)
+            if (data.success && data.result && data.generated_code) {
+                let html = '<h4>🚀 Execution Results:</h4>';
+                
+                // Show task description
+                html += `<div class="task-item">
+                    <h4>📋 Task: ${data.generated_code.description || 'Code Generation'}</h4>
+                    <p><strong>Language:</strong> ${data.generated_code.language || 'Unknown'}</p>
+                    <p><strong>Status:</strong> ✅ Success</p>
+                </div>`;
+                
+                // Show the actual result (clean output)
+                if (data.result) {
+                    let resultText = '';
+
+                    // Try to extract actual output from validation_steps first
+                    if (data.validation_steps && data.validation_steps.length > 0) {
+                        const lastStep = data.validation_steps[data.validation_steps.length - 1];
+                        if (lastStep.output && lastStep.output.trim()) {
+                            resultText = lastStep.output.trim();
+                        }
+                    }
+                    
+                    // Fallback to result field if no validation output
+                    if (!resultText) {
+                        // Handle both array and string results
+                        if (Array.isArray(data.result)) {
+                            resultText = data.result.join('\n');
+                        } else {
+                            resultText = data.result;
+                        }
+                    }
+
+                    // Decode HTML entities
+                    resultText = (resultText + '')
+                        .replace(/&lt;/g, '<')
+                        .replace(/&gt;/g, '>')
+                        .replace(/&amp;/g, '&');
+
+                    // Format chained execution results for better readability
+                    // Handle both literal "\n" and real newline characters
+                    if ((resultText.includes('\\n') || resultText.includes('\n')) && resultText.includes('{')) {
+                        const splitter = resultText.includes('\\n') ? '\\n' : '\n';
+                        const lines = resultText.split(splitter);
+                        if (lines.length >= 2) {
+                            resultText = `🔗 Chained Execution Result:\n\n` +
+                                       `📄 Step 1 (Python): ${lines[0]}\n` +
+                                       `📄 Step 2 (Go): ${lines[1]}`;
+                        }
+                    }
+                    
+                    // Also handle the case where we have a JSON object followed by a number
+                    if (resultText.includes('{') && resultText.includes('}') && resultText.includes('\n')) {
+                        const lines = resultText.split('\n');
+                        if (lines.length >= 2 && lines[0].includes('{') && lines[1].match(/^\d+$/)) {
+                            resultText = `🔗 Chained Execution Result:\n\n` +
+                                       `📄 Step 1 (Python): ${lines[0]}\n` +
+                                       `📄 Step 2 (Go): ${lines[1]}`;
+                        }
+                    }
+
+                    // Compact noisy environment dumps: collapse consecutive VAR=VALUE lines
+                    const lines = resultText.split('\n');
+                    const compact = [];
+                    let envBlockCount = 0;
+                    const envLine = (s) => /^[A-Z_][A-Z0-9_]*=/.test(s);
+                    for (let i = 0; i < lines.length; i++) {
+                        const line = lines[i];
+                        if (envLine(line)) {
+                            envBlockCount++;
+                            // If next line is not env or end, emit a summary line
+                            const nextIsEnv = i + 1 < lines.length && envLine(lines[i + 1]);
+                            if (!nextIsEnv) {
+                                compact.push(`(omitted ${envBlockCount} environment lines)`);
+                                envBlockCount = 0;
+                            }
+                            continue;
+                        }
+                        compact.push(line);
+                    }
+
+                    // Truncate very long outputs but keep tail which often has the result
+                    let displayText = compact.join('\n');
+                    const MAX_LEN = 4000;
+                    if (displayText.length > MAX_LEN) {
+                        const head = displayText.slice(0, 1200);
+                        const tail = displayText.slice(-2000);
+                        displayText = `${head}\n...\n[output truncated]\n...\n${tail}`;
+                    }
+
+                    html += `<div class="task-item">
+                        <h4>🎯 Execution Output:</h4>
+                        <div style="background: #f0f9ff; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9;">
+                            <pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; max-height: 400px; overflow-y: auto;">${displayText}</pre>
+                        </div>
+                    </div>`;
+                }
+                
+                // Show generated code (collapsible)
+                if (data.generated_code && data.generated_code.code) {
+                    html += `<div class="task-item">
+                        <h4>💻 Generated Code:</h4>
+                        <details>
+                            <summary>Click to view Python code</summary>
+                            <pre style="background: #1e293b; color: #e2e8f0; padding: 15px; border-radius: 8px; margin-top: 10px; overflow-x: auto;"><code>${data.generated_code.code}</code></pre>
+                        </details>
+                    </div>`;
+                }
+                
+                // Show execution time
+                if (data.execution_time_ms) {
+                    const seconds = (data.execution_time_ms / 1000).toFixed(1);
+                    html += `<div class="task-item">
+                        <p><em>⏱️ Execution time: ${seconds} seconds</em></p>
+                    </div>`;
+                }
+                
+                responseContent.innerHTML = html;
+                return;
+            }
+            
+            // Check if this is a chained execution response that wasn't caught above
+            if (data.success && data.result && data.validation_steps && data.validation_steps.some(step => step.step === 'chained_execution')) {
+                console.log('Detected chained execution response, formatting...');
+                console.log('Result text:', data.result);
+                console.log('Contains newline:', data.result.includes('\n'));
+                console.log('Contains JSON:', data.result.includes('{'));
+                let resultText = data.result;
+                
+                // Format chained execution results for better readability
+                if ((resultText.includes('\\n') || resultText.includes('\n')) && resultText.includes('{')) {
+                    const splitter = resultText.includes('\\n') ? '\\n' : '\n';
+                    const lines = resultText.split(splitter);
+                    if (lines.length >= 2) {
+                        resultText = `🔗 Chained Execution Result:\n\n` +
+                                   `📄 Step 1 (Python): ${lines[0]}\n` +
+                                   `📄 Step 2 (Go): ${lines[1]}`;
+                    }
+                }
+                
+                // Also handle the case where we have a JSON object followed by a number
+                if (resultText.includes('{') && resultText.includes('}') && resultText.includes('\n')) {
+                    const lines = resultText.split('\n');
+                    if (lines.length >= 2 && lines[0].includes('{') && lines[1].match(/^\d+$/)) {
+                        resultText = `🔗 Chained Execution Result:\n\n` +
+                                   `📄 Step 1 (Python): ${lines[0]}\n` +
+                                   `📄 Step 2 (Go): ${lines[1]}`;
+                    }
+                }
+                
+                responseContent.innerHTML = `<div class="task-item">
+                    <h4>🚀 Chained Execution Results:</h4>
+                    <div style="background: #f0f9ff; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9;">
+                        <pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; max-height: 400px; overflow-y: auto;">${resultText}</pre>
+                    </div>
+                </div>`;
+                return;
+            }
+            
+            // Handle flexible interpretation response (old format)
+            if (data.success && data.interpretation && data.execution_plan) {
+                let html = '<h4>🚀 Execution Results:</h4>';
+                
+                // Show interpretation summary
+                html += `<div class="task-item">
+                    <h4>📋 Interpretation Summary</h4>
+                    <p>Successfully interpreted ${data.interpretation.tasks.length} task(s)</p>
+                    <p><em>${data.message}</em></p>
+                </div>`;
+                
+                // Show execution results in a user-friendly way
+                data.execution_plan.forEach((result, index) => {
+                    const statusClass = result.success ? 'execution-success' : 'execution-error';
+                    const statusIcon = result.success ? '✅' : '❌';
+                    
+                    html += `
+                        <div class="task-item">
+                            <h4>${statusIcon} Task ${index + 1}: ${result.task.task_name}</h4>
+                            <p><strong>Description:</strong> ${result.task.description}</p>
+                            <div class="execution-result ${statusClass}">
+                                <strong>Status:</strong> ${result.success ? 'Success' : 'Failed'}<br>
+                                ${result.result ? `<strong>Result:</strong> ${result.result}<br>` : ''}
+                                ${result.preview && result.preview.files ? `
+                                    <div style=\"margin-top:8px;\"><strong>Preview:</strong>
+                                        ${result.preview.files.map(f => `
+                                            <div style=\\\"margin-top:6px;\\\">
+                                                <div><em>${f.filename} (${f.language})</em></div>
+                                                <pre style=\\\"background:#2d3748;color:#e2e8f0;padding:10px;border-radius:4px;white-space:pre-wrap;\\\">${f.code}</pre>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                ` : ''}
+                                ${result.error ? `<strong>Error:</strong> ${result.error}` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                responseContent.innerHTML = html;
+            } else {
+                responseContent.innerHTML = `<div class="execution-error">Execution failed: ${data.message || 'Unknown error'}</div>`;
+            }
+        } else {
+            // Fallback: display raw data if no other condition matched
+            console.log('No condition matched, displaying raw data');
+            responseContent.innerHTML = `<div class="task-item">
+                <h4>🚀 Raw Response:</h4>
+                <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border-left: 4px solid #6b7280;">
+                    <pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; max-height: 400px; overflow-y: auto;">${JSON.stringify(data, null, 2)}</pre>
+                </div>
+            </div>`;
+        }
+        }
+
+        function displayError(title, error) {
+            const responseContent = document.querySelector('.response-content');
+            const errorMessage = error.response ? 
+                error.response.data.error || error.response.data.message || 'Unknown error' : 
+                error.message || 'Unknown error';
+            
+            responseContent.innerHTML = `
+                <div class="execution-error">
+                    <h4>❌ ${title}</h4>
+                    <p>${errorMessage}</p>
+                </div>
+            `;
+        }
+
+        // Delegate: open capability code modal
+        document.addEventListener('click', function(e) {
+            const t = e.target;
+            if (t && t.classList && t.classList.contains('cap-open-btn')) {
+                const task = t.getAttribute('data-cap-task') || '';
+                const lang = t.getAttribute('data-cap-lang') || '';
+                const code = t.getAttribute('data-cap-code') || '';
+                showModal(`Capability: ${task} (${lang})`, `
+                    <div>
+                        <pre style=\\\"background:#f8fafc;color:#0f172a;padding:12px;border-radius:6px;white-space:pre-wrap;font-size:13px;line-height:1.4;\\\">${code}</pre>
+                    </div>
+                `);
+            }
+        });
+
+        // Toggle safety panel visibility
+        function toggleSafetyPanel() {
+            const panel = document.getElementById('safety-panel');
+            if (panel) {
+                panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+            }
+        }
+
+        // Live Thinking Panel Functionality
+        let currentSessionId = null;
+        let thinkingRefreshInterval = null;
+
+        // Initialize thinking panel
+        function initThinkingPanel() {
+            const thinkingPanel = document.getElementById('thinking-panel');
+            const thinkingRefreshBtn = document.getElementById('thinking-refresh-btn');
+            
+            if (thinkingRefreshBtn) {
+                thinkingRefreshBtn.addEventListener('click', refreshThinking);
+            }
+        }
+
+        // Show thinking panel and start monitoring
+        function showThinkingPanel(sessionId) {
+            const thinkingPanel = document.getElementById('thinking-panel');
+            if (thinkingPanel) {
+                currentSessionId = sessionId;
+                thinkingPanel.style.display = 'block';
+                updateThinkingStatus('Monitoring session: ' + sessionId);
+                refreshThinking();
+                
+                // Start auto-refresh every 3 seconds
+                if (thinkingRefreshInterval) {
+                    clearInterval(thinkingRefreshInterval);
+                }
+                thinkingRefreshInterval = setInterval(refreshThinking, 3000);
+            }
+        }
+
+        // Hide thinking panel
+        function hideThinkingPanel() {
+            const thinkingPanel = document.getElementById('thinking-panel');
+            if (thinkingPanel) {
+                thinkingPanel.style.display = 'none';
+                currentSessionId = null;
+                
+                if (thinkingRefreshInterval) {
+                    clearInterval(thinkingRefreshInterval);
+                    thinkingRefreshInterval = null;
+                }
+            }
+        }
+
+        // Refresh thinking data
+        async function refreshThinking() {
+            if (!currentSessionId) return;
+            
+            try {
+                const response = await uiFetch(`/api/v1/chat/sessions/${currentSessionId}/history?limit=10`);
+                const data = await response.json();
+                
+                if (data.history && data.history.length > 0) {
+                    displayThinkingData(data.history);
+                    updateThinkingStatus('Connected - ' + data.history.length + ' entries');
+                } else {
+                    displayThinkingData([]);
+                    updateThinkingStatus('No data available');
+                }
+            } catch (error) {
+                console.error('Failed to refresh thinking data:', error);
+                updateThinkingStatus('Connection error');
+            }
+        }
+
+        // Display thinking data
+        function displayThinkingData(history) {
+            const thinkingContent = document.getElementById('thinking-content');
+            if (!thinkingContent) return;
+            
+            if (history.length === 0) {
+                thinkingContent.innerHTML = '<div class="no-thoughts">No thinking data available. Execute a command to see the AI\'s reasoning process.</div>';
+                return;
+            }
+            
+            let html = '';
+            history.forEach(entry => {
+                const timestamp = new Date(entry.timestamp).toLocaleString();
+                const userMessage = entry.metadata?.user_message || 'No user message';
+                const aiResponse = entry.response || 'No AI response';
+                
+                html += `
+                    <div style="margin-bottom: 16px; padding: 12px; border: 1px solid #ddd; border-radius: 6px; background: white;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 12px; color: #666;">
+                            <span>${timestamp}</span>
+                            <span style="background: #e3f2fd; padding: 2px 6px; border-radius: 4px;">Conversation</span>
+                        </div>
+                        <div style="margin-bottom: 8px;">
+                            <strong style="color: #1976d2;">User:</strong> ${userMessage}
+                        </div>
+                        <div style="margin-bottom: 8px;">
+                            <strong style="color: #388e3c;">AI:</strong> ${aiResponse}
+                        </div>
+                        ${entry.metadata?.intent ? `
+                            <div style="font-size: 12px; color: #666; margin-bottom: 4px;">
+                                <strong>Intent:</strong> ${entry.metadata.intent.intent || 'Unknown'}
+                                ${entry.metadata.intent.confidence ? ` (${(entry.metadata.intent.confidence * 100).toFixed(1)}%)` : ''}
+                            </div>
+                        ` : ''}
+                        ${entry.metadata?.action ? `
+                            <div style="font-size: 12px; color: #666;">
+                                <strong>Action:</strong> ${entry.metadata.action.action || 'Unknown'}
+                                ${entry.metadata.action.tool ? ` using ${entry.metadata.action.tool}` : ''}
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+            
+            thinkingContent.innerHTML = html;
+        }
+
+        // Update thinking status
+        function updateThinkingStatus(status) {
+            const thinkingStatus = document.getElementById('thinking-status');
+            if (thinkingStatus) {
+                thinkingStatus.textContent = status;
+            }
+        }
+
+        // Helper function for fetch requests with UI header
+        window.uiFetch = function(url, options = {}) {
+            const headers = {
+                'X-Request-Source': 'ui',
+                ...options.headers
+            };
+            return fetch(url, { ...options, headers });
+        };
+
+        // Initialize thinking panel on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            initThinkingPanel();
+        });
+    </script>
+    <script src="/static/js/daily_summary.js"></script>
+    <script src="/static/js/logs.js"></script>
+    <script src="/static/js/neo4j_stats.js"></script>
+    <script src="/static/js/rag_search.js"></script>
+    <script src="/static/js/qdrant_stats.js"></script>
+</body>
+</html>
+{{ template "tools.html" . }}
+{{ template "safety.html" . }}
+</html>
+{{ end }}

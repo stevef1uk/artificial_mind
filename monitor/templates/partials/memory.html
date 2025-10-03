@@ -1,0 +1,37 @@
+{{ define "memory.html" }}
+<div class="card full-width">
+	<h3>🧠 Memory</h3>
+	<div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+		<input id="mem-session" placeholder="session_id (optional)" style="flex:1; padding:8px; border:1px solid #e1e8ed; border-radius:6px;"/>
+		<input id="mem-query" placeholder="search episodes (q)" style="flex:2; padding:8px; border:1px solid #e1e8ed; border-radius:6px;"/>
+		<button class="btn" onclick="loadRecentSessions()" style="background: #3498db;">Find Sessions</button>
+		<button class="btn" onclick="loadMemory()">Refresh</button>
+	</div>
+	<div id="session-list" style="margin-bottom: 10px; font-size: 0.9em; color: #666; max-height: 100px; overflow-y: auto;"></div>
+	<div style="font-size: 0.8em; color: #999; margin-bottom: 10px;">
+		💡 <strong>Tip:</strong> Session IDs are created when you execute tasks. Use "Find Sessions" to discover recent ones, or execute a new task to create one.
+		<br>📋 <strong>Current Session:</strong> <span id="current-session-display" style="font-family: monospace; background: #f8f9fa; padding: 2px 4px; border-radius: 3px;">None</span>
+	</div>
+	<div class="grid">
+		<div class="card">
+			<h3>Beliefs</h3>
+			<pre id="mem-beliefs" class="code-block panel-scroll" style="min-height:120px; white-space:pre-wrap;"></pre>
+		</div>
+		<div class="card">
+			<h3>Goals</h3>
+			<div id="mem-goals" class="panel-scroll">Loading...</div>
+		</div>
+	</div>
+	<div class="grid">
+		<div class="card">
+			<h3>Working Memory</h3>
+			<pre id="mem-working" class="code-block panel-scroll" style="min-height:120px; white-space:pre-wrap;"></pre>
+		</div>
+		<div class="card">
+			<h3>Recent Episodes</h3>
+			<div id="mem-episodes" class="panel-scroll">Loading...</div>
+		</div>
+	</div>
+</div>
+{{ end }}
+

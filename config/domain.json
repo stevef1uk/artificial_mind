@@ -1,0 +1,46 @@
+{
+  "methods": [
+    {
+      "task": "RespondToQuery",
+      "preconditions": [],
+      "subtasks": ["GenerateResponse"]
+    },
+    {
+      "task": "HelpUser",
+      "preconditions": [],
+      "subtasks": ["GenerateResponse"]
+    },
+    {
+      "task": "ExplainSystem",
+      "preconditions": [],
+      "subtasks": ["GenerateResponse"]
+    },
+    {
+      "task": "ScrapeWebsite",
+      "preconditions": [],
+      "subtasks": ["ExecuteScraping", "ProcessScrapedData"]
+    },
+    {
+      "task": "FetchData",
+      "preconditions": [],
+      "subtasks": ["ExecuteScraping", "ProcessScrapedData"]
+    }
+  ],
+  "actions": [
+    {
+      "task": "GenerateResponse",
+      "preconditions": [],
+      "effects": ["response_generated"]
+    },
+    {
+      "task": "ExecuteScraping",
+      "preconditions": [],
+      "effects": ["data_scraped"]
+    },
+    {
+      "task": "ProcessScrapedData",
+      "preconditions": ["data_scraped"],
+      "effects": ["data_processed"]
+    }
+  ]
+}

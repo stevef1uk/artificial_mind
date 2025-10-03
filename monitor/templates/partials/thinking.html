@@ -1,0 +1,24 @@
+{{ define "thinking.html" }}
+<div class="card full-width">
+	<h3>🧠 Current Thinking</h3>
+	<div id="current-thinking" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:10px;">
+		<div class="data-item">
+			<div class="data-item-header">Focus</div>
+			<div class="data-item-content" id="thinking-focus">Loading...</div>
+		</div>
+		<div class="data-item">
+			<div class="data-item-header">Confidence Level</div>
+			<div class="data-item-content" id="thinking-confidence">-</div>
+		</div>
+		<div class="data-item" style="grid-column: 1 / -1;">
+			<div class="data-item-header">Next Actions</div>
+			<div class="data-item-content" id="thinking-actions">-</div>
+		</div>
+	</div>
+</div>
+<script>
+// thinking loader relies on existing loadThinking() defined in dashboard script
+document.addEventListener('DOMContentLoaded', () => { if (typeof loadThinking === 'function') loadThinking(); });
+</script>
+{{ end }}
+

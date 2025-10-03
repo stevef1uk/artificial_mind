@@ -1,0 +1,50 @@
+{{ define "reasoning.html" }}
+<div class="card full-width">
+	<h3>🧠 Reasoning Layer</h3>
+	<div style="margin:6px 0 10px 0; color:#555; font-size:0.95em;">
+		<span id="reasoning-summary">Domain-level traces, beliefs, curiosity goals, and explanations.</span>
+	</div>
+	<div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+		<select id="reasoning-domain" style="padding:6px; border:1px solid #e1e8ed; border-radius:6px;">
+			<option value="General" selected>General</option>
+			<option value="Networking">Networking</option>
+			<option value="Math">Math</option>
+			<option value="Programming">Programming</option>
+		</select>
+		<input id="reasoning-goal-filter" placeholder="filter by goal (optional)" style="flex:1; min-width:260px; padding:8px; border:1px solid #e1e8ed; border-radius:6px;"/>
+		<label style="display:flex; align-items:center; gap:6px;">
+			<input id="reasoning-auto-refresh" type="checkbox" checked /> Auto-refresh
+		</label>
+		<select id="reasoning-refresh-interval" style="padding:6px; border:1px solid #e1e8ed; border-radius:6px;">
+			<option value="3000">3s</option>
+			<option value="5000" selected>5s</option>
+			<option value="10000">10s</option>
+			<option value="30000">30s</option>
+		</select>
+		<button class="btn" onclick="refreshReasoning()">Refresh</button>
+	</div>
+	<div class="grid">
+		<div class="card">
+			<h3>Reasoning Traces</h3>
+			<div id="reasoning-traces" class="panel-scroll">Loading...</div>
+		</div>
+		<div class="card">
+			<h3>Reasoning Explanations</h3>
+			<div id="reasoning-explanations" class="panel-scroll">Loading...</div>
+		</div>
+		<div class="card">
+			<h3>Beliefs and Inferences</h3>
+			<div id="beliefs-table" class="panel-scroll">Loading...</div>
+		</div>
+		<div class="card">
+			<h3>Curiosity Goals</h3>
+			<div id="curiosity-goals" class="panel-scroll">Loading...</div>
+		</div>
+		<div class="card">
+			<h3>Active Hypotheses</h3>
+			<div id="hypotheses-table" class="panel-scroll">Loading...</div>
+		</div>
+	</div>
+</div>
+{{ end }}
+

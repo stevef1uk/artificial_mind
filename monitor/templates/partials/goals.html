@@ -1,0 +1,26 @@
+{{ define "goals.html" }}
+<div class="card full-width">
+	<h3>🎯 Goals</h3>
+	<div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+		<input id="goals-agent" placeholder="agent id (e.g., agent_1)" value="agent_1" style="flex:1; padding:8px; border:1px solid #e1e8ed; border-radius:6px;"/>
+		<button class="btn" onclick="loadGoals()">Refresh</button>
+	</div>
+	<div class="grid">
+		<div class="card">
+			<h3>Active Goals</h3>
+			<div style="font-size: 0.8em; color: #666; margin-bottom: 10px;">
+				💡 <strong>Tip:</strong> Goals in "PENDING" status need to be executed. Click "Execute & Achieve" to run the task and mark it as completed.
+			</div>
+			<div id="goals-active" class="panel-scroll">Loading...</div>
+		</div>
+		<div class="card">
+			<h3>Goal Details</h3>
+			<div id="goal-details" class="panel-scroll">Select a goal to view details</div>
+			<div class="button-group" style="margin-top:10px;">
+				<button class="btn btn-primary" id="goal-suggest-btn" disabled>Suggest Next Steps</button>
+			</div>
+		</div>
+	</div>
+</div>
+{{ end }}
+

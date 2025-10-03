@@ -1,0 +1,14 @@
+{{ define "workflows.html" }}
+<div class="card full-width">
+	<h3>🔄 Active Workflows</h3>
+	<div style="margin-bottom: 15px;">
+		<input type="text" id="workflow-search" placeholder="Search workflows by task name, status, or description..." 
+		       style="width: 100%; padding: 8px 12px; border: 1px solid #e1e8ed; border-radius: 6px; font-size: 14px;"
+		       onkeyup="filterWorkflows()">
+	</div>
+	<div id="workflows" class="panel-scroll">
+		<div class="loading">Loading workflows...</div>
+	</div>
+</div>
+{{ end }}
+

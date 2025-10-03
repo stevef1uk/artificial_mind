@@ -1,0 +1,289 @@
+{{ define "news_events.html" }}
+<div class="panel news-events-panel">
+    <div class="panel-header">
+        <h3>📰 Recent News Events</h3>
+        <div class="panel-controls">
+            <button id="refresh-news" class="btn btn-sm btn-outline">🔄 Refresh</button>
+            <span class="news-count" id="news-count">Loading...</span>
+        </div>
+    </div>
+    <div class="panel-content">
+        <div class="news-events-container" id="news-events-container">
+            <div class="loading-spinner">Loading news events...</div>
+        </div>
+    </div>
+</div>
+
+<style>
+.news-events-panel {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 15px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(10px);
+}
+
+.news-events-panel .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.news-events-panel h3 {
+    color: #2c3e50;
+    font-size: 1.4rem;
+    margin: 0;
+}
+
+.panel-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.news-count {
+    color: #6c757d;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.news-events-container {
+    max-height: 500px;
+    overflow-y: auto;
+    padding-right: 5px;
+}
+
+.news-events-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.news-events-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.news-events-container::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+.news-events-container::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+.news-event {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    padding: 15px;
+    margin-bottom: 12px;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.news-event:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-color: #007bff;
+}
+
+.news-event.bbc {
+    border-left: 4px solid #bb1919;
+}
+
+.news-event.wikipedia {
+    border-left: 4px solid #0066cc;
+}
+
+.news-event-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+}
+
+.news-source {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.news-source.bbc {
+    color: #bb1919;
+}
+
+.news-source.wikipedia {
+    color: #0066cc;
+}
+
+.news-timestamp {
+    color: #6c757d;
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+.news-text {
+    color: #2c3e50;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    margin-bottom: 8px;
+    word-wrap: break-word;
+}
+
+.news-metadata {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.news-tag {
+    background: #e9ecef;
+    color: #495057;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.news-type {
+    background: #007bff;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.loading-spinner {
+    text-align: center;
+    color: #6c757d;
+    padding: 20px;
+    font-style: italic;
+}
+
+.no-news {
+    text-align: center;
+    color: #6c757d;
+    padding: 40px 20px;
+    font-style: italic;
+}
+
+.no-news .icon {
+    font-size: 2rem;
+    margin-bottom: 10px;
+    display: block;
+}
+
+.error-message {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+    border-radius: 8px;
+    padding: 15px;
+    margin: 10px 0;
+    text-align: center;
+}
+
+.btn {
+    padding: 6px 12px;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    background: white;
+    color: #495057;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: all 0.2s ease;
+}
+
+.btn:hover {
+    background: #f8f9fa;
+    border-color: #adb5bd;
+}
+
+.btn-outline {
+    border-color: #007bff;
+    color: #007bff;
+}
+
+.btn-outline:hover {
+    background: #007bff;
+    color: white;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const container = document.getElementById('news-events-container');
+    const refreshBtn = document.getElementById('refresh-news');
+    const countSpan = document.getElementById('news-count');
+
+    function loadNewsEvents() {
+        container.innerHTML = '<div class="loading-spinner">Loading news events...</div>';
+        
+        fetch('/api/news/events')
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    container.innerHTML = `<div class="error-message">Error: ${data.error}</div>`;
+                    return;
+                }
+                
+                countSpan.textContent = `${data.count} events`;
+                
+                if (data.events && data.events.length > 0) {
+                    container.innerHTML = data.events.map(event => createNewsEventHTML(event)).join('');
+                } else {
+                    container.innerHTML = '<div class="no-news"><span class="icon">📰</span>No news events found</div>';
+                }
+            })
+            .catch(error => {
+                console.error('Error loading news events:', error);
+                container.innerHTML = `<div class="error-message">Failed to load news events: ${error.message}</div>`;
+            });
+    }
+
+    function createNewsEventHTML(event) {
+        const sourceClass = event.source === 'news:fsm' ? 'bbc' : 'wikipedia';
+        const sourceIcon = event.source === 'news:fsm' ? '📺' : '📚';
+        const sourceName = event.source === 'news:fsm' ? 'BBC News' : 'Wikipedia';
+        const timestamp = event.timestamp ? new Date(event.timestamp).toLocaleString() : '';
+
+        const title = (event.title && event.title.trim().length > 0) ? event.title.trim() : (event.text || '').split('\n')[0].slice(0, 140);
+        const url = (event.metadata && event.metadata.url) ? event.metadata.url : (event.url || '');
+
+        const titleHTML = url ? `<a href="${url}" target="_blank" rel="noopener">${title}</a>` : title;
+
+        return `
+            <div class="news-event ${sourceClass}">
+                <div class="news-event-header">
+                    <div class="news-source ${sourceClass}">
+                        <span>${sourceIcon}</span>
+                        <span>${sourceName}</span>
+                    </div>
+                    ${timestamp ? `<div class="news-timestamp">${timestamp}</div>` : ''}
+                </div>
+                <div class="news-text" style="font-weight:600;">${titleHTML}</div>
+            </div>
+        `;
+    }
+
+    // Load news events on page load
+    loadNewsEvents();
+
+    // Refresh button
+    refreshBtn.addEventListener('click', loadNewsEvents);
+
+    // Auto-refresh every 30 seconds
+    setInterval(loadNewsEvents, 30000);
+});
+</script>
+{{ end }}

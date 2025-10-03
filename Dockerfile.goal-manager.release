@@ -1,0 +1,7 @@
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates tzdata
+WORKDIR /root/
+COPY bin/goal-manager ./goal-manager
+EXPOSE 8090
+CMD ["./goal-manager", "-agent=agent_1"]
+

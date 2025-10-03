@@ -1,0 +1,17 @@
+{{ define "rag_search.html" }}
+<div class="card full-width">
+    <h3>🔎 RAG Semantic Search</h3>
+    <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+        <input id="rag-q" placeholder="query (e.g., physics)" style="flex:2; padding:8px; border:1px solid #e1e8ed; border-radius:6px;"/>
+        <input id="rag-limit" type="number" min="1" max="50" value="10" style="width:80px; padding:8px; border:1px solid #e1e8ed; border-radius:6px;"/>
+        <select id="rag-collection" style="padding:8px; border:1px solid #e1e8ed; border-radius:6px;">
+            <option value="WikipediaArticle" selected>WikipediaArticle</option>
+            <option value="agi-episodes">agi-episodes</option>
+        </select>
+        <button class="btn" onclick="runRagSearch()">Search</button>
+    </div>
+    <div id="rag-results" class="panel-scroll">Enter a query to search.</div>
+</div>
+{{ end }}
+
+

@@ -1,0 +1,142 @@
+[
+  {
+    "name": "FirstLaw",
+    "priority": 1,
+    "action": "*",
+    "condition": "human_harm==true",
+    "deny_message": "Action would harm a human (First Law)"
+  },
+  {
+    "name": "SecondLaw",
+    "priority": 2,
+    "action": "*",
+    "condition": "human_order==true && human_harm==true",
+    "deny_message": "Cannot obey order that harms a human (Second Law)"
+  },
+  {
+    "name": "ThirdLaw",
+    "priority": 3,
+    "action": "*",
+    "condition": "self_harm==true && human_harm!=true",
+    "deny_message": "Cannot preserve self at cost of human safety (Third Law)"
+  },
+  {
+    "name": "NoStealing",
+    "priority": 4,
+    "action": "steal",
+    "condition": "",
+    "deny_message": "Stealing violates societal norms"
+  },
+  {
+    "name": "NoHarmHumans",
+    "priority": 1,
+    "action": "harm_human",
+    "condition": "",
+    "deny_message": "Harming humans is strictly prohibited"
+  },
+  {
+    "name": "NoLying",
+    "priority": 5,
+    "action": "lie",
+    "condition": "",
+    "deny_message": "Lying violates societal norms"
+  },
+  {
+    "name": "NoCheating",
+    "priority": 5,
+    "action": "cheat",
+    "condition": "",
+    "deny_message": "Cheating violates societal norms"
+  },
+  {
+    "name": "RespectPrivacy",
+    "priority": 6,
+    "action": "*",
+    "condition": "privacy_violation==true",
+    "deny_message": "Action violates privacy"
+  },
+  {
+    "name": "NoDiscrimination",
+    "priority": 6,
+    "action": "*",
+    "condition": "discrimination==true",
+    "deny_message": "Action violates ethical norms against discrimination"
+  },
+  {
+    "name": "ProtectOthers",
+    "priority": 2,
+    "action": "*",
+    "condition": "endanger_others==true",
+    "deny_message": "Action endangers others"
+  },
+  {
+    "name": "ObeyJustOrders",
+    "priority": 7,
+    "action": "*",
+    "condition": "human_order==true && order_unethical==true",
+    "deny_message": "Cannot follow an unethical order"
+  },
+  {
+    "name": "AvoidSelfHarm",
+    "priority": 8,
+    "action": "*",
+    "condition": "self_harm==true",
+    "deny_message": "Action would cause unnecessary self-harm"
+  },
+  {
+    "name": "NoFileDeletion",
+    "priority": 1,
+    "action": "delete_file",
+    "condition": "",
+    "deny_message": "File deletion operations are prohibited for security"
+  },
+  {
+    "name": "NoSystemCommands",
+    "priority": 1,
+    "action": "execute_command",
+    "condition": "",
+    "deny_message": "System command execution is prohibited for security"
+  },
+  {
+    "name": "NoFileOperations",
+    "priority": 1,
+    "action": "*",
+    "condition": "operation_type==file_operation",
+    "deny_message": "File operations are prohibited for security"
+  },
+  {
+    "name": "NoSystemOperations",
+    "priority": 1,
+    "action": "*",
+    "condition": "operation_type==system_command",
+    "deny_message": "System operations are prohibited for security"
+  },
+  {
+    "name": "BlockHarmfulActions",
+    "priority": 1,
+    "action": "harmful_action",
+    "condition": "",
+    "deny_message": "Harmful actions are strictly prohibited"
+  },
+  {
+    "name": "BlockDataAccess",
+    "priority": 1,
+    "action": "access_private_data",
+    "condition": "",
+    "deny_message": "Access to private data is prohibited"
+  },
+  {
+    "name": "BlockFileAccess",
+    "priority": 1,
+    "action": "access_file",
+    "condition": "",
+    "deny_message": "File access operations are prohibited"
+  },
+  {
+    "name": "BlockSystemAccess",
+    "priority": 1,
+    "action": "system_access",
+    "condition": "",
+    "deny_message": "System access operations are prohibited"
+  }
+]

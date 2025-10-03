@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Thinking Stream</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #1a1a1a;
+            color: #ffffff;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            color: #4CAF50;
+            margin: 0;
+            font-size: 2.5em;
+        }
+        
+        .header p {
+            color: #cccccc;
+            margin: 10px 0 0 0;
+        }
+        
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .control-group label {
+            color: #cccccc;
+            font-weight: 500;
+        }
+        
+        .control-group select,
+        .control-group input {
+            padding: 8px 12px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            background-color: #2a2a2a;
+            color: #ffffff;
+            font-size: 14px;
+        }
+        
+        .control-group button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        .control-group button:hover {
+            background-color: #45a049;
+        }
+        
+        .control-group button:disabled {
+            background-color: #666;
+            cursor: not-allowed;
+        }
+        
+        .status {
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 10px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        
+        .status.connected {
+            background-color: #2e7d32;
+            color: #ffffff;
+        }
+        
+        .status.disconnected {
+            background-color: #d32f2f;
+            color: #ffffff;
+        }
+        
+        .status.connecting {
+            background-color: #f57c00;
+            color: #ffffff;
+        }
+        
+        .thoughts-container {
+            display: grid;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .thought-card {
+            background-color: #2a2a2a;
+            border-radius: 8px;
+            padding: 20px;
+            border-left: 4px solid #4CAF50;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .thought-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        
+        .thought-card.decision {
+            border-left-color: #2196F3;
+        }
+        
+        .thought-card.action {
+            border-left-color: #FF9800;
+        }
+        
+        .thought-card.observation {
+            border-left-color: #9C27B0;
+        }
+        
+        .thought-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .thought-type {
+            background-color: #4CAF50;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+        
+        .thought-card.decision .thought-type {
+            background-color: #2196F3;
+        }
+        
+        .thought-card.action .thought-type {
+            background-color: #FF9800;
+        }
+        
+        .thought-card.observation .thought-type {
+            background-color: #9C27B0;
+        }
+        
+        .thought-timestamp {
+            color: #888;
+            font-size: 12px;
+        }
+        
+        .thought-content {
+            margin-bottom: 15px;
+            line-height: 1.6;
+        }
+        
+        .thought-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            font-size: 14px;
+        }
+        
+        .meta-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid #333;
+        }
+        
+        .meta-label {
+            color: #888;
+            font-weight: 500;
+        }
+        
+        .meta-value {
+            color: #ffffff;
+        }
+        
+        .confidence-bar {
+            width: 100%;
+            height: 6px;
+            background-color: #333;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+        
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #f44336 0%, #ff9800 50%, #4caf50 100%);
+            transition: width 0.3s ease;
+        }
+        
+        .summary {
+            background-color: #1e3a5f;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 4px solid #2196F3;
+        }
+        
+        .summary h3 {
+            margin: 0 0 10px 0;
+            color: #2196F3;
+        }
+        
+        .summary p {
+            margin: 0;
+            line-height: 1.6;
+        }
+        
+        .no-thoughts {
+            text-align: center;
+            color: #888;
+            font-style: italic;
+            padding: 40px;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #4CAF50;
+            padding: 20px;
+        }
+        
+        .error {
+            text-align: center;
+            color: #f44336;
+            padding: 20px;
+            background-color: #2d1b1b;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        @media (max-width: 768px) {
+            .controls {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .thought-meta {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🧠 AI Thinking Stream</h1>
+            <p>Real-time introspection of the AI's reasoning process</p>
+        </div>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label for="sessionSelect">Session:</label>
+                <select id="sessionSelect">
+                    <option value="">Select a session...</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label for="styleSelect">Style:</label>
+                <select id="styleSelect">
+                    <option value="conversational">Conversational</option>
+                    <option value="technical">Technical</option>
+                    <option value="streaming">Streaming</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label for="limitInput">Limit:</label>
+                <input type="number" id="limitInput" value="50" min="1" max="200">
+            </div>
+            
+            <div class="control-group">
+                <button id="connectBtn" onclick="connect()">Connect</button>
+                <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+                <button id="refreshBtn" onclick="refreshThoughts()">Refresh</button>
+            </div>
+        </div>
+        
+        <div id="status" class="status disconnected">Disconnected</div>
+        
+        <div id="errorContainer"></div>
+        
+        <div id="summaryContainer"></div>
+        
+        <div id="thoughtsContainer" class="thoughts-container">
+            <div class="no-thoughts">No thoughts available. Connect to a session to see the AI's thinking process.</div>
+        </div>
+    </div>
+
+    <script>
+        let currentSession = '';
+        let isConnected = false;
+        let eventSource = null;
+        
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSessions();
+        });
+        
+        // Helper function for fetch requests with UI header
+        window.uiFetch = function(url, options = {}) {
+            const headers = {
+                'X-Request-Source': 'ui',
+                ...options.headers
+            };
+            return fetch(url, { ...options, headers });
+        };
+        
+        // Load available sessions
+        async function loadSessions() {
+            try {
+                const response = await uiFetch('/api/v1/chat/sessions');
+                const data = await response.json();
+                
+                const sessionSelect = document.getElementById('sessionSelect');
+                sessionSelect.innerHTML = '<option value="">Select a session...</option>';
+                
+                if (data.sessions && data.sessions.length > 0) {
+                    data.sessions.forEach(sessionId => {
+                        const option = document.createElement('option');
+                        option.value = sessionId;
+                        option.textContent = sessionId; // Simple display since we only have session IDs
+                        sessionSelect.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to load sessions:', error);
+                showError('Failed to load sessions');
+            }
+        }
+        
+        // Load conversation history for a session
+        async function loadConversationHistory(sessionId) {
+            try {
+                const response = await uiFetch(`/api/v1/chat/sessions/${sessionId}/history`);
+                const data = await response.json();
+                
+                const thoughtsContainer = document.getElementById('thoughtsContainer');
+                thoughtsContainer.innerHTML = '';
+                
+                if (data.history && data.history.length > 0) {
+                    data.history.forEach(entry => {
+                        const thoughtDiv = document.createElement('div');
+                        thoughtDiv.className = 'thought-item';
+                        
+                        const timestamp = new Date(entry.timestamp).toLocaleString();
+                        const userMessage = entry.metadata?.user_message || 'No user message';
+                        const aiResponse = entry.response || 'No AI response';
+                        
+                        thoughtDiv.innerHTML = `
+                            <div class="thought-header">
+                                <span class="thought-time">${timestamp}</span>
+                                <span class="thought-type">Conversation</span>
+                            </div>
+                            <div class="thought-content">
+                                <div class="user-message">
+                                    <strong>User:</strong> ${userMessage}
+                                </div>
+                                <div class="ai-response">
+                                    <strong>AI:</strong> ${aiResponse}
+                                </div>
+                                ${entry.metadata?.intent ? `
+                                    <div class="intent-info">
+                                        <strong>Intent:</strong> ${entry.metadata.intent.intent || 'Unknown'}
+                                        ${entry.metadata.intent.confidence ? ` (${(entry.metadata.intent.confidence * 100).toFixed(1)}%)` : ''}
+                                    </div>
+                                ` : ''}
+                                ${entry.metadata?.action ? `
+                                    <div class="action-info">
+                                        <strong>Action:</strong> ${entry.metadata.action.action || 'Unknown'}
+                                        ${entry.metadata.action.tool ? ` using ${entry.metadata.action.tool}` : ''}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `;
+                        
+                        thoughtsContainer.appendChild(thoughtDiv);
+                    });
+                } else {
+                    thoughtsContainer.innerHTML = '<div class="no-thoughts">No conversation history found for this session.</div>';
+                }
+            } catch (error) {
+                console.error('Failed to load conversation history:', error);
+                showError('Failed to load conversation history');
+            }
+        }
+        
+        // Connect to session and load conversation history
+        function connect() {
+            const sessionSelect = document.getElementById('sessionSelect');
+            const selectedSession = sessionSelect.value;
+            
+            if (!selectedSession) {
+                showError('Please select a session first');
+                return;
+            }
+            
+            currentSession = selectedSession;
+            isConnected = true;
+            
+            updateStatus('connecting', 'Loading conversation history...');
+            updateButtons(true);
+            
+            // Load conversation history instead of streaming
+            loadConversationHistory(selectedSession);
+            updateStatus('connected', 'Conversation history loaded');
+        }
+        
+        // Disconnect from thought stream
+        function disconnect() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+            
+            isConnected = false;
+            updateStatus('disconnected', 'Disconnected');
+            updateButtons(false);
+        }
+        
+        // Load initial thoughts
+        async function loadInitialThoughts() {
+            try {
+                const limit = document.getElementById('limitInput').value;
+                const response = await uiFetch(`/api/v1/chat/sessions/${currentSession}/thoughts?limit=${limit}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayThoughts(data.thoughts);
+                } else {
+                    showError('Failed to load thoughts: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Failed to load initial thoughts:', error);
+                showError('Failed to load initial thoughts');
+            }
+        }
+        
+        // Refresh thoughts
+        async function refreshThoughts() {
+            if (!currentSession) {
+                showError('Please select a session first');
+                return;
+            }
+            
+            await loadInitialThoughts();
+        }
+        
+        // Handle thought events
+        function handleThoughtEvent(data) {
+            if (data.type === 'connected') {
+                updateStatus('connected', 'Connected to thought stream');
+            } else if (data.type === 'thought') {
+                addThought(data.data);
+            } else if (data.type === 'complete') {
+                // Stream complete
+            } else if (data.type === 'error') {
+                showError('Stream error: ' + data.message);
+            }
+        }
+        
+        // Display thoughts
+        function displayThoughts(thoughts) {
+            const container = document.getElementById('thoughtsContainer');
+            
+            if (!thoughts || thoughts.length === 0) {
+                container.innerHTML = '<div class="no-thoughts">No thoughts available for this session.</div>';
+                return;
+            }
+            
+            container.innerHTML = '';
+            thoughts.forEach(thought => {
+                container.appendChild(createThoughtCard(thought));
+            });
+        }
+        
+        // Add a single thought
+        function addThought(thought) {
+            const container = document.getElementById('thoughtsContainer');
+            
+            // Remove "no thoughts" message if present
+            const noThoughts = container.querySelector('.no-thoughts');
+            if (noThoughts) {
+                noThoughts.remove();
+            }
+            
+            // Add new thought at the top
+            const thoughtCard = createThoughtCard(thought);
+            container.insertBefore(thoughtCard, container.firstChild);
+            
+            // Limit to 50 thoughts
+            const thoughts = container.querySelectorAll('.thought-card');
+            if (thoughts.length > 50) {
+                thoughts[thoughts.length - 1].remove();
+            }
+        }
+        
+        // Create thought card
+        function createThoughtCard(thought) {
+            const card = document.createElement('div');
+            card.className = `thought-card ${thought.type}`;
+            
+            const timestamp = new Date(thought.timestamp).toLocaleString();
+            const confidence = Math.round((thought.confidence || 0) * 100);
+            
+            card.innerHTML = `
+                <div class="thought-header">
+                    <span class="thought-type">${thought.type}</span>
+                    <span class="thought-timestamp">${timestamp}</span>
+                </div>
+                <div class="thought-content">${thought.content || thought.thought}</div>
+                <div class="thought-meta">
+                    <div class="meta-item">
+                        <span class="meta-label">State:</span>
+                        <span class="meta-value">${thought.state || 'N/A'}</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Goal:</span>
+                        <span class="meta-value">${thought.goal || 'N/A'}</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Confidence:</span>
+                        <span class="meta-value">${confidence}%</span>
+                    </div>
+                    ${thought.tool_used ? `
+                    <div class="meta-item">
+                        <span class="meta-label">Tool:</span>
+                        <span class="meta-value">${thought.tool_used}</span>
+                    </div>
+                    ` : ''}
+                    ${thought.action ? `
+                    <div class="meta-item">
+                        <span class="meta-label">Action:</span>
+                        <span class="meta-value">${thought.action}</span>
+                    </div>
+                    ` : ''}
+                </div>
+                <div class="confidence-bar">
+                    <div class="confidence-fill" style="width: ${confidence}%"></div>
+                </div>
+            `;
+            
+            return card;
+        }
+        
+        // Update status
+        function updateStatus(status, message) {
+            const statusEl = document.getElementById('status');
+            statusEl.className = `status ${status}`;
+            statusEl.textContent = message;
+        }
+        
+        // Update buttons
+        function updateButtons(connected) {
+            document.getElementById('connectBtn').disabled = connected;
+            document.getElementById('disconnectBtn').disabled = !connected;
+        }
+        
+        // Show error
+        function showError(message) {
+            const errorContainer = document.getElementById('errorContainer');
+            errorContainer.innerHTML = `<div class="error">${message}</div>`;
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                errorContainer.innerHTML = '';
+            }, 5000);
+        }
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (eventSource) {
+                eventSource.close();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,49 @@
+{
+  "methods": [
+    {
+      "task": "RespondToQuery",
+      "preconditions": [],
+      "subtasks": [
+        "GenerateResponse"
+      ],
+      "task_type": "method"
+    },
+    {
+      "task": "HelpUser",
+      "preconditions": [],
+      "subtasks": [
+        "GenerateResponse"
+      ],
+      "task_type": "method"
+    },
+    {
+      "task": "ExplainSystem",
+      "preconditions": [],
+      "subtasks": [
+        "GenerateResponse"
+      ],
+      "task_type": "method"
+    }
+  ],
+  "actions": [
+    {
+      "task": "GenerateResponse",
+      "preconditions": [],
+      "effects": [
+        "response_generated"
+      ],
+      "task_type": "primitive"
+    }
+  ],
+  "config": {
+    "llm_provider": "local",
+    "mcp_endpoint": "mock://localhost:3000/mcp",
+    "settings": {
+      "llm_timeout_seconds": "600",
+      "max_tokens": "1000",
+      "model": "ingu627/Qwen2.5-VL-7B-Instruct-Q5_K_M:latest",
+      "ollama_url": "http://localhost:11434/api/chat",
+      "temperature": "0.7"
+    }
+  }
+}

@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bbc-debug-interactive
+  namespace: agi
+spec:
+  template:
+    spec:
+      containers:
+      - name: news-ingestor
+        image: stevef1uk/data-processor:secure
+        imagePullPolicy: IfNotPresent
+        args: ["-llm", "-debug", "-max", "50", "-batch-size", "10"]
+        env:
+        - name: NATS_URL
+          value: "nats://nats:4222"
+        - name: OLLAMA_URL
+          value: "http://192.168.1.45:11434/api/chat"
+        - name: OLLAMA_MODEL
+          value: "Qwen2.5-VL-7B-Instruct:latest"
+        - name: SECURE_CUSTOMER_PRIVATE_PATH
+          value: "/keys/customer_private.pem"
+        - name: SECURE_VENDOR_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: token
+              name: secure-vendor
+        - name: UNPACK_WORK_DIR
+          value: "/tmp/unpack"
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        volumeMounts:
+        - name: customer-key
+          mountPath: /keys
+          readOnly: true
+      volumes:
+      - name: customer-key
+        secret:
+          secretName: secure-customer-private
+      nodeSelector:
+        kubernetes.io/arch: arm64
+        performance-tier: utility
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000

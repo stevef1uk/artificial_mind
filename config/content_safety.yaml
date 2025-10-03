@@ -1,0 +1,124 @@
+# Content Safety Configuration
+# This file defines safety rules for web content filtering
+
+# Blocked domains (explicitly blocked)
+blocked_domains:
+  # Adult content sites
+  - "pornhub.com"
+  - "xvideos.com"
+  - "xhamster.com"
+  - "redtube.com"
+  - "youporn.com"
+  - "tube8.com"
+  - "porn.com"
+  - "adult.com"
+  - "onlyfans.com"
+  - "chaturbate.com"
+  
+  # Malicious/phishing sites
+  - "malware.com"
+  - "phishing.com"
+  - "scam.com"
+  - "virus.com"
+  - "bitcoin-scam.com"
+  - "fake-bank.com"
+  - "malicious-site.com"
+  
+  # Gambling sites
+  - "bet365.com"
+  - "pokerstars.com"
+  - "casino.com"
+  - "sportsbet.com"
+
+# Allowed domains (whitelist for safety)
+allowed_domains:
+  # Educational institutions
+  - "wikipedia.org"
+  - "mit.edu"
+  - "stanford.edu"
+  - "harvard.edu"
+  - "berkeley.edu"
+  - "coursera.org"
+  - "edx.org"
+  - "khanacademy.org"
+  
+  # Technology documentation
+  - "github.com"
+  - "stackoverflow.com"
+  - "developer.mozilla.org"
+  - "docs.python.org"
+  - "golang.org"
+  - "nodejs.org"
+  - "reactjs.org"
+  - "vuejs.org"
+  - "angular.io"
+  
+  # News sources
+  - "news.bbc.co.uk"
+  - "reuters.com"
+  - "ap.org"
+  - "npr.org"
+  - "cnn.com"
+  - "nytimes.com"
+  - "washingtonpost.com"
+  
+  # Standards organizations
+  - "w3.org"
+  - "ietf.org"
+  - "rfc-editor.org"
+  - "tools.ietf.org"
+  - "iso.org"
+  
+  # Government sites
+  - "gov.uk"
+  - "usa.gov"
+  - "europa.eu"
+
+# Adult content keywords (regex patterns)
+adult_keywords:
+  - "(?i)\\b(porn|xxx|adult|sex|nude|naked|erotic|fetish|bdsm)\\b"
+  - "(?i)\\b(escort|prostitute|hooker|brothel)\\b"
+  - "(?i)\\b(breast|boob|ass|butt|penis|vagina|dick|pussy)\\b"
+  - "(?i)\\b(masturbat|orgasm|climax|cum|sperm)\\b"
+  - "(?i)\\b(incest|pedophil|child.*sex|underage)\\b"
+  - "(?i)\\b(rape|sexual.*assault|molest)\\b"
+
+# Malicious content patterns
+malicious_patterns:
+  - "(?i)\\b(phishing|scam|fraud|steal|hack|malware|virus|trojan)\\b"
+  - "(?i)\\b(bitcoin.*scam|crypto.*fraud|fake.*bank|identity.*theft)\\b"
+  - "(?i)\\b(download.*virus|click.*here.*win|free.*money|get.*rich)\\b"
+  - "(?i)\\b(urgent.*action|verify.*account|suspended.*account)\\b"
+  - "(?i)\\b(win.*prize|congratulations.*winner|claim.*now)\\b"
+
+# Suspicious URL patterns
+suspicious_patterns:
+  - "(?i)\\.tk$|\\.ml$|\\.ga$|\\.cf$"  # Free domains often used maliciously
+  - "(?i)\\d+\\.\\d+\\.\\d+\\.\\d+"    # IP addresses in URLs
+  - "(?i)bit\\.ly|tinyurl|short\\.link" # URL shorteners
+
+# Content size limits
+limits:
+  max_content_length: 10485760  # 10MB in bytes
+  max_url_length: 2048          # 2KB max URL length
+  timeout_seconds: 30           # Request timeout
+
+# Safety levels
+safety_levels:
+  strict:    # Block everything not explicitly allowed
+    use_whitelist: true
+    check_content: true
+    check_keywords: true
+    
+  moderate:  # Block known bad, allow most others
+    use_whitelist: false
+    check_content: true
+    check_keywords: true
+    
+  permissive: # Only block explicit threats
+    use_whitelist: false
+    check_content: false
+    check_keywords: true
+
+# Current safety level
+current_level: "moderate"

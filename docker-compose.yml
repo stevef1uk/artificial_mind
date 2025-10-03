@@ -1,0 +1,80 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: agi-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  weaviate:
+    image: semitechnologies/weaviate:latest
+    container_name: agi-weaviate
+    ports:
+      - "8080:8080"   # HTTP
+    volumes:
+      - ./data/weaviate:/var/lib/weaviate
+    environment:
+      - QUERY_DEFAULTS_LIMIT=25
+      - AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true
+      - PERSISTENCE_DATA_PATH=/var/lib/weaviate
+      - DEFAULT_VECTORIZER_MODULE=none
+      - ENABLE_MODULES=text2vec-cohere,text2vec-huggingface,text2vec-palm,text2vec-openai,generative-openai,generative-cohere,generative-palm,ref2vec-centroid,reranker-cohere,qna-openai
+      - CLUSTER_HOSTNAME=node1
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/v1/meta"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: agi-neo4j
+    environment:
+      - NEO4J_AUTH=neo4j/test1234
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+      - NEO4J_PLUGINS=["apoc"]
+    ports:
+      - "7474:7474"  # HTTP UI
+      - "7687:7687"  # Bolt
+    volumes:
+      - ./data/neo4j/data:/data
+      - ./data/neo4j/logs:/logs
+      - ./data/neo4j/import:/var/lib/neo4j/import
+      - ./data/neo4j/plugins:/plugins
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: agi-nats
+    command: ["--jetstream", "--http_port", "8223", "--port", "4222"]
+    ports:
+      - "4222:4222"  # NATS Core
+      - "8223:8223"  # NATS HTTP Monitoring
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8223/varz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+# NOTE: CrewAI RagTool is expected to run as a separate service that connects to Weaviate.
+# Configure it to use http://weaviate:8080 as its vectordb endpoint.
+# See docs: https://docs.crewai.com/en/tools/ai-ml/ragtool
+
+volumes:
+  redis-data:
+  weaviate-data:
+  neo4j-data:
+
