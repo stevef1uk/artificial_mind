@@ -21,13 +21,15 @@ spec:
           effect: "NoSchedule"
       containers:
         - name: hdn-server
-          image: stevef1uk/hdn-server:secure
+          image: stevef1uk/hdn-server:secure-test3
           imagePullPolicy: Always
           args: ["--domain", "/config/domain.json", "--config", "/config/config.json", "--port", "8080", "--mode", "server"]
           ports:
             - containerPort: 8080
               name: http
           env:
+            - name: QUIET
+              value: "1"
             - name: DRONE_TOKEN
               value: "JnFN2PMNrjlb0r85slGbNWfYFGxD68wd"
             - name: DRONE_REPO
@@ -77,7 +79,7 @@ spec:
             - name: ENABLE_ARM64_TOOLS
               value: "true"
             - name: EXECUTION_METHOD
-              value: "drone"
+              value: "ssh"
             - name: HDN_MAX_CONCURRENT_EXECUTIONS
               value: "8"
             - name: RPI_HOST
