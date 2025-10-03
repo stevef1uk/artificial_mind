@@ -45,7 +45,7 @@ The `.env.example` file contains a comprehensive configuration template with:
 ### 3. Start with Docker Compose
 ```bash
 # Start all services
-docker-compose up -d
+docker compose up -d   # prefer v2 syntax if available; otherwise use docker-compose up -d
 
 # Check status
 docker-compose ps
@@ -61,6 +61,16 @@ curl -X POST http://localhost:8081/api/v1/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello, can you think out loud?", "show_thinking": true}'
 ```
+
+### 5. Start App Services Without Managing Infra (Recommended on macOS)
+
+If your infrastructure is already running via Compose, start only the application servers to avoid interfering with Docker Desktop's port proxies:
+
+```bash
+./scripts/start_servers.sh --skip-infra
+```
+
+This flag prevents attempts to kill listeners on container-mapped ports (like 8080 for Weaviate) that are managed by Docker Desktop, which can otherwise disrupt the Docker daemon.
 
 ## ⚙️ Detailed Configuration
 
@@ -601,6 +611,31 @@ docker-compose logs fsm-server
 docker-compose logs hdn-server
 docker-compose logs principles-server
 ```
+
+##### macOS: Docker Desktop Daemon Unreachable
+- Symptoms: `Cannot connect to the Docker daemon at unix:///Users/<you>/.docker/run/docker.sock`
+- Fix:
+  ```bash
+  # Ensure Docker Desktop is running
+  open -ga Docker
+
+  # Use Desktop context and ensure DOCKER_HOST is not overriding
+  unset DOCKER_HOST
+  docker context use desktop-linux
+  docker version && docker ps
+  ```
+- If `DOCKER_HOST` keeps reappearing, remove it from your shell profiles:
+  ```bash
+  grep -Hn 'DOCKER_HOST' ~/.zshrc ~/.zprofile ~/.bash_profile ~/.profile 2>/dev/null
+  # Edit and remove any export lines, then open a new terminal
+  ```
+
+##### Safer Server Startup
+If Compose is already running infra, prefer:
+```bash
+./scripts/start_servers.sh --skip-infra
+```
+This avoids killing Docker Desktop proxy processes on ports 8080/7474/7687.
 
 #### 3. LLM API Issues
 ```bash

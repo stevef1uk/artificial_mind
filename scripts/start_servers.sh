@@ -18,6 +18,17 @@ fi
 echo "🚀 Starting AGI System (HDN + Principles + Neo4j + Weaviate)"
 echo "=========================================================="
 
+# Parse flags / env (lightweight)
+# Supports: --skip-infra or SKIP_INFRA=true to avoid touching docker infra
+SKIP_INFRA=${SKIP_INFRA:-false}
+for arg in "$@"; do
+    case "$arg" in
+        --skip-infra)
+            SKIP_INFRA=true
+            ;;
+    esac
+done
+
 # Function to check if a port is in use
 check_port() {
     local port=$1
@@ -28,14 +39,22 @@ check_port() {
     fi
 }
 
-# Function to kill processes on a port
+# Function to kill processes on a port (safely)
+# Avoid killing Docker Desktop/vpnkit/lima backend processes which publish container ports on macOS
 kill_port() {
     local port=$1
     local service_name=$2
     if check_port $port; then
         echo "🔄 Stopping existing $service_name on port $port..."
-        lsof -ti:$port | xargs kill -9 2>/dev/null || true
-        sleep 2
+        # Get listening PIDs on the port, exclude Docker Desktop related proxies
+        local pids
+        pids=$(lsof -nP -iTCP:$port -sTCP:LISTEN -t 2>/dev/null | xargs -I{} sh -c 'ps -o pid=,comm= -p {}' | awk 'BEGIN{ok=0} !/com\.docker|Docker|vpnkit|lima|qemu|docker-proxy/ {print $1; ok=1} END{ if (ok==0) exit 0 }')
+        if [ -n "$pids" ]; then
+            echo "$pids" | xargs kill -9 2>/dev/null || true
+            sleep 2
+        else
+            echo "ℹ️  Listener appears to be managed by Docker Desktop or is already gone; skipping kill"
+        fi
     fi
 }
 
@@ -62,15 +81,21 @@ wait_for_service() {
 
 # Clean up any existing processes
 echo "🧹 Cleaning up existing processes..."
-kill_port 8080 "Weaviate"
+# App/service ports (safe to clean up)
 kill_port 8084 "Principles Server"
 kill_port 8081 "HDN Server"
 kill_port 8082 "Monitor UI"
 kill_port 8083 "FSM Server"
 kill_port 8090 "Goal Manager"
-kill_port 7474 "Neo4j"
-kill_port 7687 "Neo4j Bolt"
-kill_port 8080 "Weaviate"
+# Infra ports (potentially managed by Docker Desktop) — only clean up if not skipping infra
+if [ "$SKIP_INFRA" != "true" ]; then
+    kill_port 8080 "Weaviate"
+    kill_port 7474 "Neo4j"
+    kill_port 7687 "Neo4j Bolt"
+    kill_port 8080 "Weaviate"
+else
+    echo "⏭️  SKIP_INFRA=true: not touching ports 8080/7474/7687"
+fi
 
 # Resolve project root from env or current dir
 AGI_PROJECT_ROOT=${AGI_PROJECT_ROOT:-$(pwd)}
@@ -126,48 +151,52 @@ fi
 
 # Start Infrastructure Services (Neo4j + Weaviate + Redis + NATS)
 echo ""
-echo "🏗️  Starting Infrastructure Services (Neo4j + Weaviate + Redis + NATS)..."
-cd "$AGI_PROJECT_ROOT"
-docker-compose up -d neo4j weaviate redis nats
+if [ "$SKIP_INFRA" = "true" ]; then
+    echo "⏭️  SKIP_INFRA=true: skipping docker-compose infra startup and health checks"
+else
+    echo "🏗️  Starting Infrastructure Services (Neo4j + Weaviate + Redis + NATS)..."
+    cd "$AGI_PROJECT_ROOT"
+    docker-compose up -d neo4j weaviate redis nats
 
-# Wait for Neo4j to be ready
-if ! wait_for_service "http://localhost:7474" "Neo4j"; then
-    echo "❌ Failed to start Neo4j"
-    echo "📄 Check logs: docker logs agi-neo4j"
-    exit 1
-fi
-
-# Wait for Weaviate to be ready
-if ! wait_for_service "http://localhost:8080/v1/meta" "Weaviate"; then
-    echo "❌ Failed to start Weaviate"
-    echo "📄 Check logs: docker logs agi-weaviate"
-    exit 1
-fi
-
-# Wait for Redis to be ready
-echo "⏳ Waiting for Redis to be ready..."
-max_attempts=30
-attempt=0
-while [ $attempt -lt $max_attempts ]; do
-    if docker exec agi-redis redis-cli ping >/dev/null 2>&1; then
-        echo "✅ Redis is ready!"
-        break
+    # Wait for Neo4j to be ready
+    if ! wait_for_service "http://localhost:7474" "Neo4j"; then
+        echo "❌ Failed to start Neo4j"
+        echo "📄 Check logs: docker logs agi-neo4j"
+        exit 1
     fi
-    attempt=$((attempt + 1))
-    sleep 1
-done
 
-if [ $attempt -eq $max_attempts ]; then
-    echo "❌ Redis failed to start after $max_attempts seconds"
-    echo "📄 Check logs: docker logs agi-redis"
-    exit 1
-fi
+    # Wait for Weaviate to be ready
+    if ! wait_for_service "http://localhost:8080/v1/meta" "Weaviate"; then
+        echo "❌ Failed to start Weaviate"
+        echo "📄 Check logs: docker logs agi-weaviate"
+        exit 1
+    fi
 
-# Wait for NATS to be ready
-if ! wait_for_service "http://localhost:8223/varz" "NATS"; then
-    echo "❌ Failed to start NATS"
-    echo "📄 Check logs: docker logs agi-nats"
-    exit 1
+    # Wait for Redis to be ready
+    echo "⏳ Waiting for Redis to be ready..."
+    max_attempts=30
+    attempt=0
+    while [ $attempt -lt $max_attempts ]; do
+        if docker exec agi-redis redis-cli ping >/dev/null 2>&1; then
+            echo "✅ Redis is ready!"
+            break
+        fi
+        attempt=$((attempt + 1))
+        sleep 1
+    done
+
+    if [ $attempt -eq $max_attempts ]; then
+        echo "❌ Redis failed to start after $max_attempts seconds"
+        echo "📄 Check logs: docker logs agi-redis"
+        exit 1
+    fi
+
+    # Wait for NATS to be ready
+    if ! wait_for_service "http://localhost:8223/varz" "NATS"; then
+        echo "❌ Failed to start NATS"
+        echo "📄 Check logs: docker logs agi-nats"
+        exit 1
+    fi
 fi
 
 # Helper to run either a local binary or `go run`
@@ -190,10 +219,12 @@ run_service() {
     printenv | grep -E '^(LLM_|OPENAI_|ANTHROPIC_|OLLAMA_|EXECUTION_METHOD|ENABLE_ARM64_TOOLS|DOCKER_|REDIS_|NATS_|NEO4J_|WEAVIATE_|PRINCIPLES_|HDN_|FSM_|GOAL_|MONITOR_)' | sed 's/^/  /' || echo "  (none found)"
 
     if [ -x "$binpath" ]; then
-        nohup env $(printenv | grep -E '^(LLM_|OPENAI_|ANTHROPIC_|OLLAMA_|EXECUTION_METHOD|ENABLE_ARM64_TOOLS|DOCKER_|REDIS_|NATS_|NEO4J_|WEAVIATE_|PRINCIPLES_|HDN_|FSM_|GOAL_|MONITOR_)' | tr '\n' ' ') "$binpath" "${goargs[@]}" > "$logfile" 2>&1 &
+        # Environment is already exported above; run directly
+        nohup "$binpath" "${goargs[@]}" > "$logfile" 2>&1 &
     else
         if command -v go >/dev/null 2>&1; then
-            nohup env $(printenv | grep -E '^(LLM_|OPENAI_|ANTHROPIC_|OLLAMA_|EXECUTION_METHOD|ENABLE_ARM64_TOOLS|DOCKER_|REDIS_|NATS_|NEO4J_|WEAVIATE_|PRINCIPLES_|HDN_|FSM_|GOAL_|MONITOR_)' | tr '\n' ' ') go run . "${goargs[@]}" > "$logfile" 2>&1 &
+            # Environment is already exported above; run directly
+            nohup go run . "${goargs[@]}" > "$logfile" 2>&1 &
         else
             echo "❌ Cannot start $name: neither '$binpath' exists nor 'go' is installed" >&2
             echo "ℹ️  Build binaries (make build) or install Go, then retry." >&2

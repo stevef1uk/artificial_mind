@@ -98,10 +98,13 @@ The Artificial Mind system consists of several interconnected components that wo
 git clone https://github.com/yourusername/agi-project.git
 cd agi-project
 
-# 2. Run the quick start script
-./quick-start.sh
+# 2. Start infrastructure (Redis, Neo4j, Weaviate, NATS)
+docker compose up -d  # or: docker-compose up -d
 
-# 3. Open your browser to http://localhost:8082
+# 3. Start app services without touching infra (safer on macOS)
+./scripts/start_servers.sh --skip-infra
+
+# 4. Open your browser to http://localhost:8082
 ```
 
 ### 📋 Prerequisites
@@ -155,7 +158,7 @@ docker-compose -f docker-compose.x86.yml logs -f
 #### For ARM64 Systems (Raspberry Pi, Apple Silicon)
 ```bash
 # Start all services with ARM64 images
-docker-compose up -d
+docker compose up -d   # prefer v2 syntax if available; otherwise use docker-compose up -d
 
 # Check status
 docker-compose ps
@@ -163,6 +166,16 @@ docker-compose ps
 # View logs
 docker-compose logs -f
 ```
+
+### ▶️ Running App Services Without Managing Infra
+
+If you already started infrastructure with Compose, you can start just the Go services without touching Docker ports using the new flag:
+
+```bash
+./scripts/start_servers.sh --skip-infra
+```
+
+This avoids killing Docker Desktop proxy processes on macOS and prevents daemon disruptions.
 
 #### Multi-Architecture Build
 ```bash
