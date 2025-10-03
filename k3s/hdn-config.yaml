@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hdn-config
+  namespace: agi
+data:
+  config.json: |
+    {
+      "llm_provider": "local",
+      "llm_api_key": "",
+      "mcp_endpoint": "mock://localhost:3000/mcp",
+      "settings": {
+        "model": "Qwen2.5-VL-7B-Instruct:latest",
+        "temperature": "0.7",
+        "max_tokens": "1000",
+        "llm_timeout_seconds": "600",
+        "ollama_url": "http://192.168.1.45:11434/api/chat"
+      },
+      "server": {
+        "port": 8080,
+        "host": "0.0.0.0"
+      }
+    }
+  domain.json: |
+    {
+      "methods": [],
+      "actions": [],
+      "config": {
+        "llm_provider": "local",
+        "mcp_endpoint": "mock://localhost:3000/mcp",
+        "settings": {
+          "model": "Qwen2.5-VL-7B-Instruct:latest",
+          "temperature": "0.7",
+          "max_tokens": "1000",
+          "ollama_url": "http://192.168.1.45:11434/api/chat"
+        }
+      }
+    }
+

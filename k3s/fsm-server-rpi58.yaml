@@ -1,0 +1,149 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fsm-server-rpi58
+  namespace: agi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fsm-server-rpi58
+  template:
+    metadata:
+      labels:
+        app: fsm-server-rpi58
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: rpi58
+      tolerations:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: fsm-server
+          image: stevef1uk/fsm-server:secure
+          imagePullPolicy: Always
+          # Use secure entrypoint which unpacks and executes the binary; pass args only
+          args: ["-config", "/app/config/artificial_mind.yaml"]
+          ports:
+            - containerPort: 8083
+              name: http
+          env:
+            - name: DISABLE_NEWS_POLLER
+              value: "true"
+            - name: AUTONOMY
+              value: "true"
+            # Align LLM configuration with HDN
+            - name: LLM_PROVIDER
+              value: "local"
+            - name: LLM_MODEL
+              value: "Qwen2.5-VL-7B-Instruct:latest"
+            - name: OLLAMA_BASE_URL
+              value: "http://192.168.1.45:11434/api/chat"
+            - name: OLLAMA_URL
+              value: "http://192.168.1.45:11434/api/chat"
+            - name: NEO4J_URI
+              value: "bolt://neo4j.agi.svc.cluster.local:7687"
+            - name: NEO4J_USER
+              value: "neo4j"
+            - name: NEO4J_PASS
+              value: "test1234"
+            - name: REDIS_URL
+              value: "redis://redis.agi.svc.cluster.local:6379"
+            - name: NATS_URL
+              value: "nats://nats.agi.svc.cluster.local:4222"
+            - name: PRINCIPLES_URL
+              value: "http://principles-server.agi.svc.cluster.local:8080"
+            - name: GOAL_MANAGER_URL
+              value: "http://goal-manager.agi.svc.cluster.local:8090"
+            # Docker resource limits for Raspberry Pi
+            - name: DOCKER_MEMORY_LIMIT
+              value: "256m"
+            - name: DOCKER_CPU_LIMIT
+              value: "0.5"
+            - name: DOCKER_PIDS_LIMIT
+              value: "128"
+            - name: DOCKER_TMPFS_SIZE
+              value: "64m"
+            - name: SECURE_CUSTOMER_PRIVATE_PATH
+              value: "/keys/customer_private.pem"
+            - name: SECURE_VENDOR_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: secure-vendor
+                  key: token
+            - name: UNPACK_WORK_DIR
+              value: "/tmp/unpack"
+            - name: HDN_URL
+              value: "http://hdn-server-rpi58.agi.svc.cluster.local:8080"
+            - name: WEAVIATE_URL
+              value: "http://weaviate.agi.svc.cluster.local:8080"
+            # FSM bootstrap tuning for faster Wikipedia growth
+            - name: FSM_BOOTSTRAP_MAX_DEPTH
+              value: "3"
+            - name: FSM_BOOTSTRAP_MAX_NODES
+              value: "200000"
+            - name: FSM_BOOTSTRAP_RPM
+              value: "60"
+            - name: FSM_BOOTSTRAP_SEED_BATCH
+              value: "20"
+            - name: FSM_BOOTSTRAP_COOLDOWN_HOURS
+              value: "0"
+          volumeMounts:
+            - name: customer-key
+              mountPath: /keys
+              readOnly: true
+            - name: fsm-config
+              mountPath: /app/config
+              readOnly: true
+            # No need to mount vendor token as a file; entrypoint reads from env
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      volumes:
+        - name: customer-key
+          secret:
+            secretName: secure-customer-private
+        - name: fsm-config
+          configMap:
+            name: fsm-config
+        # Removed filesystem-based license token; using env SECURE_VENDOR_TOKEN instead
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fsm-server-rpi58
+  namespace: agi
+spec:
+  type: ClusterIP
+  selector:
+    app: fsm-server-rpi58
+  ports:
+    - port: 8083
+      targetPort: http
+      name: http

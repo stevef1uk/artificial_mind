@@ -1,0 +1,665 @@
+# AGI Artificial Mind State Machine Configuration
+name: artificial_mind_v1
+description: "Configurable FSM for artificial cognition with knowledge base integration"
+version: "1.0.0"
+initial_state: idle
+
+# Agent configuration
+agent:
+  id: "agent_1"
+  name: "AGI Cognitive Engine"
+  max_concurrent_hypotheses: 5
+  confidence_threshold: 0.4  # More conservative: up from 0.3
+  risk_threshold: 0.7
+  hypothesis_screen_threshold: 0.6
+
+# Graduated confidence thresholds for different processing tiers
+confidence_tiers:
+  critical_processing: 0.8    # Hypothesis confirmation, code generation, principles
+  standard_processing: 0.7    # Inference rules, concept discovery, belief updates
+  exploratory_processing: 0.6 # Hypothesis screening, intent classification
+  monitoring_only: 0.4        # General agent, debug logging
+  rejected: 0.3               # Below this threshold, items are rejected
+
+# Performance and resource management
+performance:
+  # Sleep times between state transitions (seconds)
+  state_transition_delay: 0.5
+  # Sleep time in event processing loop (milliseconds)
+  event_loop_sleep_ms: 100
+  # Timer tick interval (seconds)
+  timer_interval_seconds: 2
+  # Maximum events processed per cycle
+  max_events_per_cycle: 5
+  # Sleep time after processing events (milliseconds)
+  post_processing_sleep_ms: 50
+  # Sleep time when idle (milliseconds)
+  idle_sleep_ms: 200
+
+# State definitions
+states:
+  - name: idle
+    description: "Wait for input or timer events"
+    timeout_ms: 1000  # Check for events every second
+    on:
+      new_input:
+        next: perceive
+        guard: "input_validation"
+      timer_tick:
+        next: perceive
+        guard: "has_pending_work"
+      curiosity_goals_generated:
+        next: reason_continue
+      belief_new:
+        next: plan
+      goal_selected:
+        next: reason
+      news_relations:
+        next: perceive
+        guard: "input_validation"
+      news_alerts:
+        next: perceive
+        guard: "input_validation"
+      pause:
+        next: paused
+      shutdown:
+        next: shutdown
+
+  - name: perceive
+    description: "Ingest and validate new data using domain knowledge"
+    actions:
+      - type: ingest_input
+        module: "hdn.input_parser"
+        params:
+          validate_with_domain: true
+      - type: categorize_domain
+        module: "knowledge.domain_classifier"
+        params:
+          use_concept_matching: true
+      - type: store_news_events
+        module: "reasoning.news_storage"
+        params:
+          store_relations: true
+          store_alerts: true
+    on:
+      allowed:
+        next: perceive
+      new_input:
+        next: perceive  # Handle new input by restarting perceive
+        guard: "input_validation"
+      news_relations:
+        next: perceive  # Handle news relations as new input
+        guard: "input_validation"
+      news_alerts:
+        next: perceive  # Handle news alerts as new input
+        guard: "input_validation"
+      ingest_ok:
+        next: learn
+      ingest_err:
+        next: fail
+      domain_unknown:
+        next: learn  # Still learn, but with lower confidence
+      timer_tick:
+        next: idle  # Return to idle if no input for too long
+        guard: "no_pending_input"
+
+  - name: learn
+    description: "Extract facts and update domain knowledge - GROW KNOWLEDGE BASE"
+    actions:
+      - type: extract_facts
+        module: "self.knowledge_extractor"
+        params:
+          use_domain_constraints: true
+      - type: embed_episode
+        module: "memory.embedding"
+        params:
+          store_in_weaviate: true
+      - type: update_domain_knowledge
+        module: "knowledge.updater"
+        params:
+          update_concepts: true
+          add_examples: true
+      - type: discover_new_concepts
+        module: "knowledge.concept_discovery"
+        params:
+          auto_create_concepts: true
+          confidence_threshold: 0.7  # More conservative: up from 0.6
+      - type: find_knowledge_gaps
+        module: "knowledge.gap_analyzer"
+        params:
+          identify_missing_relations: true
+          suggest_new_concepts: true
+    on:
+      new_input:
+        next: perceive  # Handle new input by going to perceive
+        guard: "input_validation"
+      facts_extracted:
+        next: hypothesize  # Generate hypotheses from facts
+      low_confidence:
+        next: hypothesize  # Fallback to hypothesis generation
+      new_concepts_discovered:
+        next: hypothesize  # Generate hypotheses from new concepts
+      timer_tick:
+        next: hypothesize  # Timeout learning and move to hypothesis generation
+        guard: "learning_timeout"
+
+  - name: summarize
+    description: "Compress episodes into structured facts"
+    actions:
+      - type: summarize_episodic
+        module: "self.summarizer"
+        params:
+          use_domain_context: true
+      - type: update_beliefs
+        module: "self.belief_store"
+        params:
+          confidence_threshold: 0.7  # More conservative: up from 0.6
+    on:
+      new_input:
+        next: perceive  # Handle new input by going to perceive
+        guard: "input_validation"
+      facts_ready:
+        next: hypothesize
+      timer_tick:
+        next: hypothesize  # Timeout summarization and move to hypothesis generation
+        guard: "summarization_timeout"
+
+  - name: hypothesize
+    description: "Generate hypotheses using domain knowledge and constraints"
+    actions:
+      - type: generate_hypotheses
+        module: "planner.hypothesis_generator"
+        params:
+          beam_size: 5
+          use_domain_relations: true
+          check_constraints: true
+      - type: validate_hypotheses
+        module: "knowledge.constraint_checker"
+        params:
+          check_safety_principles: true
+    on:
+      facts_extracted:
+        next: reason
+      news_relations:
+        next: perceive
+        guard: "input_validation"
+      hypotheses_generated:
+        next: reason
+      no_valid_hypotheses:
+        next: reason  # Continue to reasoning even without hypotheses
+      timer_tick:
+        next: reason  # Timeout hypothesis generation and move to reasoning
+        guard: "hypothesis_timeout"
+
+  - name: reason
+    description: "Apply reasoning and inference to generate new beliefs and insights"
+    actions:
+      - type: query_beliefs
+        module: "reasoning.belief_query"
+        params:
+          query: "all concepts"
+          use_domain_context: true
+      - type: apply_inference
+        module: "reasoning.inference"
+        params:
+          use_transitivity_rules: true
+          confidence_threshold: 0.8  # More conservative: up from 0.7
+      - type: generate_curiosity_goals
+        module: "reasoning.curiosity_goals"
+        params:
+          gap_filling: true
+          contradiction_resolution: true
+          concept_exploration: true
+      - type: log_reasoning_trace
+        module: "reasoning.trace_logger"
+        params:
+          include_steps: true
+          include_evidence: true
+    on:
+      beliefs_queried:
+        next: reason_continue
+      beliefs_inferred:
+        next: reason_continue
+      curiosity_goals_generated:
+        next: reason_continue
+      new_input:
+        next: perceive
+        guard: "input_validation"
+      news_relations:
+        next: reason_continue
+        guard: "input_validation"
+      news_alerts:
+        next: reason_continue
+        guard: "input_validation"
+      hypothesis_testing_requested:
+        next: hypothesis_test
+      timer_tick:
+        next: reason_continue  # Timeout reasoning and continue to next phase
+        guard: "reasoning_timeout"
+
+  - name: hypothesis_test
+    description: "Test a hypothesis by gathering evidence and evaluating it"
+    actions:
+      - type: test_hypothesis
+        module: "reasoning.hypothesis_testing"
+        params:
+          gather_evidence: true
+          evaluate_confidence: true
+    on:
+      hypothesis_tested:
+        next: reason_continue
+      hypothesis_testing_failed:
+        next: reason_continue
+      timer_tick:
+        next: reason_continue  # Continue reasoning on timer tick
+
+  - name: reason_continue
+    description: "Continue reasoning process and generate explanations"
+    actions:
+      - type: generate_explanation
+        module: "reasoning.explanation"
+        params:
+          include_reasoning_steps: true
+          include_confidence_scores: true
+    on:
+      explanation_generated:
+        next: plan
+      beliefs_queried:
+        next: plan
+      beliefs_inferred:
+        next: plan
+      curiosity_goals_generated:
+        next: plan
+      belief_new:
+        next: plan
+      new_input:
+        next: perceive
+        guard: "input_validation"
+      timer_tick:
+        next: plan  # Timeout reasoning continuation and move to planning
+        guard: "reasoning_timeout"
+
+  - name: plan
+    description: "Create hierarchical plans using domain-specific success rates"
+    actions:
+      - type: retrieve_capabilities
+        module: "hdn.retrieve_capabilities"
+        params:
+          top_k: 3
+      - type: plan_test_or_action
+        module: "planner.hierarchical"
+        params:
+          use_domain_success_rates: true
+          check_related_concepts: true
+      - type: rank_plans
+        module: "evaluator.plan_ranker"
+        params:
+          weight_domain_knowledge: 0.4
+          weight_historical_success: 0.3
+          weight_safety: 0.3
+    on:
+      capabilities_retrieved:
+        next: decide
+      plans_ranked:
+        next: decide
+      no_valid_plans:
+        next: archive
+      timer_tick:
+        next: idle
+        guard: "no_pending_input"
+
+  - name: decide
+    description: "Choose action using principles and domain constraints - ALWAYS CHECK PRINCIPLES FIRST"
+    actions:
+      - type: mandatory_principles_check
+        module: "principles.mandatory_checker"
+        params:
+          check_domain_safety: true
+          hardcoded_requirement: true
+          fail_if_no_response: true
+      - type: evaluate_safety_and_value
+        module: "principles.checker"
+        params:
+          check_domain_safety: true
+      - type: score_expected_value
+        module: "evaluator.utility_calculator"
+        params:
+          include_domain_confidence: true
+      - type: apply_domain_constraints
+        module: "knowledge.constraint_enforcer"
+    on:
+      allowed:
+        next: act
+      blocked:
+        next: archive
+      principles_error:
+        next: fail
+      needs_more_info:
+        next: learn
+      timer_tick:
+        next: archive  # Timeout decision making and archive
+        guard: "decision_timeout"
+
+  - name: act
+    description: "Execute planned action with domain-aware monitoring - PRINCIPLES CHECKED BEFORE EXECUTION"
+    actions:
+      - type: pre_execution_principles_check
+        module: "principles.pre_execution_checker"
+        params:
+          hardcoded_requirement: true
+          double_check_safety: true
+      - type: execute_capability
+        module: "hdn.execute_capability"
+        params:
+          monitor_domain_metrics: true
+          apply_domain_safety_checks: true
+    on:
+      execution_finished:
+        next: observe
+      curiosity_goals_generated:
+        next: reason
+      execution_failed:
+        next: fail
+      timer_tick:
+        next: fail
+        guard: "execution_timeout"
+      principles_blocked:
+        next: archive
+      news_relations:
+        next: perceive
+        guard: "input_validation"
+      news_alerts:
+        next: perceive
+        guard: "input_validation"
+
+
+  - name: observe
+    description: "Collect outcomes and validate against domain expectations"
+    actions:
+      - type: collect_outcomes
+        module: "monitor.collector"
+        params:
+          validate_against_domain: true
+      - type: measure_domain_metrics
+        module: "knowledge.metrics_collector"
+    on:
+      results_collected:
+        next: evaluate
+      curiosity_goals_generated:
+        next: reason
+      timer_tick:
+        next: evaluate  # Timeout observation and move to evaluation
+        guard: "observation_timeout"
+
+  - name: evaluate
+    description: "Compare outcomes to domain knowledge and update beliefs - GROW KNOWLEDGE BASE"
+    actions:
+      - type: compare_expectation
+        module: "evaluator.outcome_analyzer"
+        params:
+          use_domain_expectations: true
+      - type: update_domain_knowledge
+        module: "knowledge.learning_updater"
+        params:
+          update_success_rates: true
+          add_new_examples: true
+          refine_constraints: true
+      - type: grow_knowledge_base
+        module: "knowledge.growth_engine"
+        params:
+          create_new_concepts: true
+          add_relationships: true
+          update_properties: true
+          refine_constraints: true
+          add_examples: true
+      - type: validate_knowledge_consistency
+        module: "knowledge.consistency_checker"
+        params:
+          check_contradictions: true
+          resolve_conflicts: true
+      - type: update_belief
+        module: "self.belief_store"
+        params:
+          weight_domain_evidence: 0.7
+    on:
+      new_info_significant:
+        next: learn
+      episode_complete:
+        next: archive
+      knowledge_grown:
+        next: archive
+      curiosity_goals_generated:
+        next: reason
+      timer_tick:
+        next: archive  # Timeout evaluation and archive
+        guard: "evaluation_timeout"
+
+  - name: archive
+    description: "Checkpoint episode and update domain knowledge"
+    actions:
+      - type: checkpoint
+        module: "projects.checkpoint"
+        params:
+          include_domain_insights: true
+      - type: update_episodic_memory
+        module: "memory.episodic_updater"
+        params:
+          store_in_weaviate: true
+          link_to_domain_concepts: true
+    on:
+      checkpoint_saved:
+        next: idle
+      timer_tick:
+        next: idle
+        guard: "archive_timeout"
+
+  - name: fail
+    description: "Handle errors with domain-aware recovery"
+    actions:
+      - type: log_error
+        module: "monitor.logger"
+        params:
+          include_domain_context: true
+      - type: run_recovery
+        module: "system.recovery"
+        params:
+          use_domain_fallbacks: true
+    on:
+      recovered:
+        next: idle
+      critical_failure:
+        next: paused
+      timer_tick:
+        next: idle
+      reset:
+        next: idle
+
+  - name: paused
+    description: "Manual pause state"
+    actions: []
+    on:
+      resume:
+        next: idle
+      shutdown:
+        next: shutdown
+
+  - name: shutdown
+    description: "Clean shutdown with knowledge base preservation"
+    actions:
+      - type: cleanup
+        module: "system.cleanup"
+        params:
+          preserve_domain_knowledge: true
+          finalize_episodes: true
+    on: {}
+
+# Guard definitions
+guards:
+  - name: input_validation
+    module: "knowledge.input_validator"
+    params:
+      check_domain_constraints: true
+      validate_safety_principles: true
+      filter_internal_messages: true
+      exclude_sources: ["api:interpret_execute"]
+
+  - name: has_pending_work
+    module: "fsm.work_checker"
+    params:
+      check_episode_queue: true
+      check_hypothesis_queue: true
+
+  - name: no_pending_input
+    module: "fsm.work_checker"
+    params:
+      check_episode_queue: false
+      check_hypothesis_queue: false
+
+  - name: learning_timeout
+    module: "fsm.timeout_checker"
+    params:
+      state_duration_seconds: 300  # 5 minutes for learning operations
+      max_retries: 2
+
+  - name: summarization_timeout
+    module: "fsm.timeout_checker"
+    params:
+      state_duration_seconds: 180  # 3 minutes for summarization
+      max_retries: 2
+
+  - name: hypothesis_timeout
+    module: "fsm.timeout_checker"
+    params:
+      state_duration_seconds: 240  # 4 minutes for hypothesis generation
+      max_retries: 2
+
+  - name: reasoning_timeout
+    module: "fsm.timeout_checker"
+    params:
+      state_duration_seconds: 600  # 10 minutes for reasoning operations
+      max_retries: 2
+
+  - name: decision_timeout
+    module: "fsm.timeout_checker"
+    params:
+      state_duration_seconds: 120  # 2 minutes for decision making
+      max_retries: 2
+
+  - name: execution_timeout
+    module: "fsm.timeout_checker"
+    params:
+      state_duration_seconds: 300  # 5 minutes for Docker tool execution
+      max_retries: 1
+
+  - name: observation_timeout
+    module: "fsm.timeout_checker"
+    params:
+      state_duration_seconds: 300  # 5 minutes for observation
+      max_retries: 2
+
+  - name: evaluation_timeout
+    module: "fsm.timeout_checker"
+    params:
+      state_duration_seconds: 600  # 10 minutes for evaluation
+      max_retries: 2
+
+  - name: archive_timeout
+    module: "fsm.timeout_checker"
+    params:
+      state_duration_seconds: 300  # 5 minutes for archiving
+      max_retries: 2
+
+# Event mappings
+events:
+  - name: new_input
+    nats_subject: "agi.events.input"
+    payload_schema: "canonical_event"
+
+  - name: timer_tick
+    nats_subject: "agi.events.timer.tick"
+    interval_ms: 1000
+
+  - name: pause
+    nats_subject: "agi.events.control.pause"
+
+  - name: resume
+    nats_subject: "agi.events.control.resume"
+
+  - name: shutdown
+    nats_subject: "agi.events.control.shutdown"
+
+  - name: curiosity_goals_generated
+    nats_subject: "agi.events.autonomy.curiosity_goals_generated"
+
+  - name: belief_new
+    nats_subject: "agi.events.autonomy.belief_new"
+
+  - name: goal_selected
+    nats_subject: "agi.events.goals.selected"
+
+  # External stimuli: news feeds
+  - name: news_relations
+    nats_subject: "agi.events.news.relations"
+
+  - name: news_alerts
+    nats_subject: "agi.events.news.alerts"
+
+# Redis key patterns
+redis_keys:
+  state: "fsm:%s:state"
+  context: "fsm:%s:context"
+  queue: "fsm:%s:queue"
+  beliefs: "beliefs:%s"
+  episodes: "episodes:%s"
+  hypotheses: "hypotheses:%s"
+  domain_insights: "domain_insights:%s"
+
+# Monitoring configuration
+monitoring:
+  metrics:
+    - name: "fsm_transitions_per_second"
+      type: "counter"
+    - name: "hypothesis_creation_rate"
+      type: "gauge"
+    - name: "domain_knowledge_updates"
+      type: "counter"
+    - name: "principles_blocks"
+      type: "counter"
+    - name: "episode_completion_rate"
+      type: "gauge"
+    - name: "beliefs_queried"
+      type: "counter"
+    - name: "beliefs_inferred"
+      type: "counter"
+    - name: "curiosity_goals_generated"
+      type: "counter"
+    - name: "reasoning_traces_logged"
+      type: "counter"
+    - name: "inference_confidence_avg"
+      type: "gauge"
+  
+  ui_panels:
+    - name: "State Timeline"
+      type: "time_series"
+      data_source: "fsm_transitions"
+    - name: "Active Hypotheses"
+      type: "table"
+      data_source: "hypotheses"
+    - name: "Domain Knowledge Updates"
+      type: "log_stream"
+      data_source: "domain_updates"
+    - name: "Recent Episodes"
+      type: "episode_list"
+      data_source: "episodes"
+    - name: "Reasoning Traces"
+      type: "log_stream"
+      data_source: "reasoning_traces"
+    - name: "Beliefs and Inferences"
+      type: "table"
+      data_source: "beliefs"
+    - name: "Curiosity Goals"
+      type: "table"
+      data_source: "curiosity_goals"
+    - name: "Reasoning Explanations"
+      type: "text_display"
+      data_source: "reasoning_explanations"

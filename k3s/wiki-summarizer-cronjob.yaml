@@ -1,0 +1,89 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: wiki-summarizer-cronjob
+  namespace: agi
+spec:
+  # Run every 2 hours to process Wikipedia articles
+  schedule: "0 */2 * * *"
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: wiki-summarizer
+        spec:
+          nodeSelector:
+            kubernetes.io/arch: arm64
+            performance-tier: utility
+          containers:
+            - name: wiki-summarizer
+              image: stevef1uk/wiki-summarizer:secure
+              imagePullPolicy: Always
+              env:
+                - name: WEAVIATE_URL
+                  value: "http://weaviate.agi.svc.cluster.local:8080"
+                - name: REDIS_ADDR
+                  value: "redis.agi.svc.cluster.local:6379"
+                - name: LLM_PROVIDER
+                  value: "ollama"
+                - name: LLM_ENDPOINT
+                  value: "http://192.168.1.45:11434/api/generate"
+                - name: LLM_MODEL
+                  value: "Qwen2.5-VL-7B-Instruct:latest"
+                - name: BATCH_SIZE
+                  value: "5"
+                - name: MAX_WORDS
+                  value: "250"
+                - name: DOMAIN
+                  value: "General"
+                - name: SECURE_CUSTOMER_PRIVATE_PATH
+                  value: "/keys/customer_private.pem"
+                - name: SECURE_VENDOR_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: secure-vendor
+                      key: token
+                - name: UNPACK_WORK_DIR
+                  value: "/tmp/unpack"
+              command: ["/bin/sh"]
+              args:
+                - -c
+                - |
+                  echo "Environment variables:"
+                  echo "WEAVIATE_URL=$WEAVIATE_URL"
+                  echo "REDIS_ADDR=$REDIS_ADDR"
+                  echo "LLM_PROVIDER=$LLM_PROVIDER"
+                  echo "LLM_ENDPOINT=$LLM_ENDPOINT"
+                  echo "LLM_MODEL=$LLM_MODEL"
+                  echo "BATCH_SIZE=$BATCH_SIZE"
+                  echo "MAX_WORDS=$MAX_WORDS"
+                  echo "DOMAIN=$DOMAIN"
+                  echo "Starting wiki-summarizer..."
+                  /app/entrypoint.sh wiki-summarizer \
+                    -weaviate=$WEAVIATE_URL \
+                    -redis=$REDIS_ADDR \
+                    -llm-provider=$LLM_PROVIDER \
+                    -llm-endpoint=$LLM_ENDPOINT \
+                    -llm-model=$LLM_MODEL \
+                    -batch-size=$BATCH_SIZE \
+                    -max-words=$MAX_WORDS \
+                    -domain=$DOMAIN \
+                    -job-id=wiki_summarizer_$(date +%s)
+              resources:
+                requests:
+                  memory: "512Mi"
+                  cpu: "200m"
+                limits:
+                  memory: "1Gi"
+                  cpu: "500m"
+              volumeMounts:
+                - name: secure-keys
+                  mountPath: /keys
+                  readOnly: true
+          volumes:
+            - name: secure-keys
+              secret:
+                secretName: secure-customer-private
+          restartPolicy: OnFailure
+          activeDeadlineSeconds: 1800  # 30 minutes timeout

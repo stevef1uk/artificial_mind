@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nats
+  namespace: agi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nats
+  template:
+    metadata:
+      labels:
+        app: nats
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: arm64
+        performance-tier: main
+      tolerations:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: nats
+          image: nats:2.10-alpine
+          args: ["--jetstream", "--http_port", "8223", "--port", "4222"]
+          ports:
+            - containerPort: 4222
+              name: client
+            - containerPort: 8223
+              name: monitoring
+          livenessProbe:
+            httpGet:
+              path: /varz
+              port: monitoring
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /varz
+              port: monitoring
+            initialDelaySeconds: 2
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: agi
+spec:
+  type: ClusterIP
+  selector:
+    app: nats
+  ports:
+    - port: 4222
+      targetPort: client
+      name: client
+    - port: 8223
+      targetPort: monitoring
+      name: monitoring
+

@@ -1,0 +1,77 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: wiki-bootstrapper-cronjob
+  namespace: agi
+spec:
+  schedule: "*/10 * * * *"   # Every 10 minutes
+  suspend: false            # Enable job to run on schedule
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: wiki-bootstrapper
+            image: stevef1uk/knowledge-builder:secure
+            imagePullPolicy: IfNotPresent
+            args: ["-weaviate", "-max-nodes", "500000", "-max-depth", "4", "-rpm", "60", "-burst", "10", "-jitter-ms", "25"]
+            env:
+            - name: NEO4J_URI
+              value: "bolt://neo4j.agi.svc.cluster.local:7687"
+            - name: NEO4J_USER
+              value: "neo4j"
+            - name: NEO4J_PASS
+              value: "test1234"
+            - name: REDIS_ADDR
+              value: "redis.agi.svc.cluster.local:6379"
+            - name: WEAVIATE_URL
+              value: "http://weaviate.agi.svc.cluster.local:8080"
+            - name: NATS_URL
+              value: "nats://nats.agi.svc.cluster.local:4222"
+            - name: SECURE_CUSTOMER_PRIVATE_PATH
+              value: "/keys/customer_private.pem"
+            - name: SECURE_VENDOR_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  key: token
+                  name: secure-vendor
+            - name: UNPACK_WORK_DIR
+              value: "/tmp/unpack"
+            - name: WIKI_SEEDS
+              value: "Science,Technology,History,Mathematics,Biology,Physics,Chemistry,Computer Science,Artificial Intelligence,Psychology"
+            - name: WIKI_MAX_DEPTH
+              value: "4"
+            - name: WIKI_MAX_NODES
+              value: "500000"
+            - name: WIKI_RPM
+              value: "60"
+            - name: WIKI_DOMAIN
+              value: "General"
+            - name: WIKI_ENABLE_WEAVIATE
+              value: "true"
+            resources:
+              limits:
+                cpu: 500m
+                memory: 512Mi
+              requests:
+                cpu: 100m
+                memory: 256Mi
+            volumeMounts:
+            - name: customer-key
+              mountPath: /keys
+              readOnly: true
+          volumes:
+          - name: customer-key
+            secret:
+              secretName: secure-customer-private
+          nodeSelector:
+            kubernetes.io/arch: arm64
+            performance-tier: utility
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000

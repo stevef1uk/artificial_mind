@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weaviate-health-proxy
+  namespace: agi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: weaviate-health-proxy
+  template:
+    metadata:
+      labels:
+        app: weaviate-health-proxy
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: weaviate-health-proxy-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: weaviate-health-proxy-config
+  namespace: agi
+data:
+  default.conf: |
+    server {
+        listen 80;
+        
+        location /healthz {
+            proxy_pass http://weaviate.agi.svc.cluster.local:8080/v1/meta;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+        
+        location / {
+            return 200 '{"status":"healthy"}';
+            add_header Content-Type application/json;
+        }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weaviate-health-proxy
+  namespace: agi
+spec:
+  type: ClusterIP
+  selector:
+    app: weaviate-health-proxy
+  ports:
+  - port: 8080
+    targetPort: 80
+    name: http
