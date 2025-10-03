@@ -241,6 +241,15 @@ EOF
         fi
     done
 
+    # Ensure required data directories exist (for mounted volumes)
+    print_status "Ensuring data directories exist..."
+    mkdir -p data/redis \
+             data/weaviate \
+             data/neo4j/data \
+             data/neo4j/logs \
+             data/neo4j/import \
+             data/neo4j/plugins || true
+    
     # Start infrastructure services with Docker Compose
     print_status "Starting infrastructure services (Redis, Neo4j, Weaviate, NATS)..."
     docker-compose up -d

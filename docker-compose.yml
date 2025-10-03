@@ -40,8 +40,10 @@ services:
     container_name: agi-neo4j
     environment:
       - NEO4J_AUTH=neo4j/test1234
-      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
-      - NEO4J_PLUGINS=["apoc"]
+      # Disable strict validation to avoid failures if conf parsing encounters unknown/empty settings
+      #- NEO4J_server__config__strict__validation__enabled=false
+      # Disable plugin auto-install to avoid modifying neo4j.conf
+      - NEO4J_PLUGINS=[]
     ports:
       - "7474:7474"  # HTTP UI
       - "7687:7687"  # Bolt
@@ -49,7 +51,7 @@ services:
       - ./data/neo4j/data:/data
       - ./data/neo4j/logs:/logs
       - ./data/neo4j/import:/var/lib/neo4j/import
-      - ./data/neo4j/plugins:/plugins
+      # Remove plugins mount to prevent startup scripts from copying APOC and editing conf
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:7474"]
       interval: 10s
