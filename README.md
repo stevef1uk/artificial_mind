@@ -13,7 +13,7 @@
 This is an advanced Artificial Mind (Artificial Mind) system that represents a unique collaboration between human direction and AI capabilities. The project demonstrates AI designing and building AI, showcasing the potential for recursive intelligence development where AI systems can contribute to their own evolution and the creation of more sophisticated AI architectures.
 
 ### Live Demo
-A short demo video of the rpoject running: [YouTube Demo Video](https://youtu.be/htnKAMptuzw)
+A short demo video of the project running: [YouTube Demo Video](https://youtu.be/htnKAMptuzw)
 
 ### 🌟 Key Philosophy
 
