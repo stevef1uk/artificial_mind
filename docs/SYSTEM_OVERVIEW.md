@@ -9,7 +9,7 @@ graph TB
     end
 
     %% Event Bus
-    NATS[(📡 NATS Event Bus\nagi.events.*)]
+    NATS[(📡 NATS Event Bus<br/>agi.events.*)]
 
     %% Control & Cognition Layer
     subgraph Cognition[🧠 Cognition & Policy]
@@ -30,9 +30,9 @@ graph TB
     %% Data & Infra
     subgraph Data[💾 Data & Infra]
       Redis[(Redis)]
-      Qdrant[(Qdrant\nEpisodic Memory)]
-      Neo4j[(Neo4j\nDomain Knowledge)]
-      Docker[(Docker\nExecution Sandbox)]
+      Qdrant[(Qdrant<br/>Episodic Memory)]
+      Neo4j[(Neo4j<br/>Domain Knowledge)]
+      Docker[(Docker<br/>Execution Sandbox)]
     end
 
     %% Client flows
@@ -60,7 +60,7 @@ graph TB
 
     %% Goal lifecycle
     SMGM -->|agi.goal.*| NATS
-    SMGM <--|agi.perception.fact\nagi.evaluation.result\nagi.user.goal| NATS
+    NATS -->|agi.perception.fact<br/>agi.evaluation.result<br/>agi.user.goal| SMGM
 
     %% Safety checks
     IE -->|Pre-exec check| Principles
@@ -78,6 +78,19 @@ graph TB
     Planner -->|Domain constraints| Neo4j
 
     IE -->|Run code| Docker
+
+    %% Styling
+    classDef clientClass fill:#e1f5fe
+    classDef eventClass fill:#fff3e0
+    classDef cogClass fill:#f3e5f5
+    classDef hdnClass fill:#e8f5e8
+    classDef dataClass fill:#fce4ec
+
+    class User,Monitor clientClass
+    class NATS eventClass
+    class FSM,SMGM,Principles cogClass
+    class HDNAPI,Planner,Orchestrator,IE,CG hdnClass
+    class Redis,Qdrant,Neo4j,Docker dataClass
 ```
 
 ## Tools Overview
