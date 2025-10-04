@@ -5,88 +5,96 @@
 ```mermaid
 graph TB
     %% External Components
-    User[👤 User] --> API[🌐 HDN API Server<br/>Port 8081]
-    User --> Principles[🔒 Principles Server<br/>Port 8080]
+    User[👤 User]
+    API[🌐 HDN API Server<br/>Port 8081]
+    Principles[🔒 Principles Server<br/>Port 8080]
     
     %% HDN Core Components
-    API --> IE[🧠 Intelligent Executor]
-    API --> CG[⚙️ Code Generator]
-    API --> CS[💾 Code Storage<br/>Redis]
-    API --> DA[🐳 Docker API]
+    IE[🧠 Intelligent Executor]
+    CG[⚙️ Code Generator]
+    CS[💾 Code Storage<br/>Redis]
+    DA[🐳 Docker API]
     
-    %% Event Bus (NATS)
+    %% Event Bus
     subgraph Bus[📡 Event Bus]
       NATS[(NATS Core<br/>agi.events.*)]
     end
     
-    %% Producers
-    API --> |Publish Canonical Events| NATS
-    IE --> |Publish Exec Events| NATS
-    
-    %% Consumers
-    SM --> |Subscribe (Beliefs)| NATS
-    Capabilities --> |Subscribe (Catalog Updates)| NATS
-    
     %% Self-Model Integration
-    IE --> SM[🧠 Self-Model Manager<br/>Goal Tracking & Learning]
-    SM --> Redis[💾 Redis<br/>Self-Model & Goals]
+    SM[🧠 Self-Model Manager<br/>Goal Tracking & Learning]
+    Redis[💾 Redis<br/>Self-Model & Goals]
     
-    %% LLM Integration - Safety Analysis
-    IE --> |"1. Safety Analysis"| LLM1[🤖 LLM Client<br/>Safety Categorization]
-    LLM1 --> |"Returns safety context"| IE
-    
-    %% LLM Integration - Code Generation
-    CG --> |"2. Generate Code"| LLM2[🤖 LLM Client<br/>Code Generation]
-    LLM2 --> |"Returns generated code"| CG
-    
-    %% LLM Integration - Code Fixing
-    IE --> |"3. Fix Code"| LLM3[🤖 LLM Client<br/>Code Fixing]
-    LLM3 --> |"Returns fixed code"| IE
+    %% LLM Integration
+    LLM1[🤖 LLM Client<br/>Safety Categorization]
+    LLM2[🤖 LLM Client<br/>Code Generation]
+    LLM3[🤖 LLM Client<br/>Code Fixing]
     
     %% Principles Integration
-    IE --> PC[🔍 Principles Checker]
+    PC[🔍 Principles Checker]
+    
+    %% Execution & Validation
+    Docker[🐳 Docker Container<br/>Code Execution]
+    Validation[✅ Code Validation]
+    
+    %% Capability Management
+    Capabilities[📚 Capability Library]
+    
+    %% Safety & Security
+    Rules[📋 Ethical Rules<br/>principles.json]
+    Block[🚫 Block Harmful Actions]
+    
+    %% Main User Flow
+    User --> |1. Request Task| API
+    API --> |2. Check Principles| PC
     PC --> Principles
+    PC --> |3. Generate Code| CG
+    CG --> |4. Store Code| CS
+    CS --> |5. Execute in Docker| DA
+    DA --> Docker
+    Docker --> |6. Validate Results| Validation
+    Validation --> |7. Learn & Update| SM
+    SM --> |8. Return Results| User
     
-    %% Code Generation Flow
-    CG --> CS
+    %% API Connections
+    API --> IE
+    API --> CG
+    API --> CS
+    API --> DA
+    
+    %% Event Bus Connections
+    API --> |Publish Canonical Events| NATS
+    IE --> |Publish Exec Events| NATS
+    SM --> |Subscribe Beliefs| NATS
+    Capabilities --> |Subscribe Catalog Updates| NATS
+    
+    %% Self-Model Flow
+    IE --> SM
+    SM --> Redis
+    IE --> |Record Episode| SM
+    IE --> |Update Beliefs| SM
+    IE --> |Track Goals| SM
+    
+    %% LLM Integration Flow
+    IE --> |1. Safety Analysis| LLM1
+    LLM1 --> |Returns safety context| IE
+    CG --> |2. Generate Code| LLM2
+    LLM2 --> |Returns generated code| CG
+    IE --> |3. Fix Code| LLM3
+    LLM3 --> |Returns fixed code| IE
+    
+    %% Principles Flow
+    IE --> PC
+    Principles --> Rules
+    Rules --> Block
+    
+    %% Code Execution Flow
     CS --> DA
-    DA --> Docker[🐳 Docker Container<br/>Code Execution]
-    
-    %% Validation Flow
-    Docker --> Validation[✅ Code Validation]
     Validation --> CS
     Validation --> IE
     
-    %% Self-Model Learning Flow
-    IE --> |"4. Record Episode"| SM
-    IE --> |"5. Update Beliefs"| SM
-    IE --> |"6. Track Goals"| SM
-    
     %% Capability Management
-    CS --> Capabilities[📚 Capability Library]
+    CS --> Capabilities
     Capabilities --> API
-    
-    %% Safety & Security
-    Principles --> Rules[📋 Ethical Rules<br/>principles.json]
-    Rules --> Block[🚫 Block Harmful Actions]
-    
-    %% Data Flow
-    User --> |"1. Request Task"| API
-    API --> |"2. Check Principles"| PC
-    PC --> |"3. Generate Code"| CG
-    CG --> |"4. Store Code"| CS
-    CS --> |"5. Execute in Docker"| DA
-    DA --> |"6. Validate Results"| Validation
-    Validation --> |"7. Learn & Update"| SM
-    SM --> |"8. Return Results"| User
-    
-    %% LLM Call Labels
-    LLM1 -.-> |"Safety Analysis<br/>categorizeRequestForSafety()"| IE
-    LLM2 -.-> |"Code Generation<br/>GenerateCode()"| CG
-    LLM3 -.-> |"Code Fixing<br/>fixCodeWithLLM()"| IE
-    
-    %% Self-Model Labels
-    SM -.-> |"Goal Tracking<br/>Episode Recording<br/>Belief Updates"| IE
     
     %% Styling
     classDef userClass fill:#e1f5fe
