@@ -340,7 +340,7 @@ func (s *APIServer) handleDiscoverTools(w http.ResponseWriter, r *http.Request) 
 		found = append(found, dockerTool)
 	}
 
-	// Add Drone executor only when explicitly enabled or on ARM64
+	// Add SSH executor only when explicitly enabled or on ARM64
 	// Conditions:
 	// - EXECUTION_METHOD=drone
 	// - OR ENABLE_ARM64_TOOLS=true
@@ -348,7 +348,7 @@ func (s *APIServer) handleDiscoverTools(w http.ResponseWriter, r *http.Request) 
 	execMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
 	if execMethod == "drone" || os.Getenv("ENABLE_ARM64_TOOLS") == "true" || runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64" {
 		arm64Tools := []Tool{
-			{ID: "tool_drone_executor", Name: "Drone Executor", Description: "Execute code via Drone CI with Docker socket access", InputSchema: map[string]string{"code": "string", "language": "string", "image": "string", "environment": "json", "timeout": "int"}, OutputSchema: map[string]string{"success": "bool", "output": "string", "error": "string", "image": "string", "exit_code": "int", "duration_ms": "int"}, Permissions: []string{"drone:execute", "docker:build"}, SafetyLevel: "high", CreatedBy: "system"},
+			{ID: "tool_ssh_executor", Name: "SSH Executor", Description: "Execute code via SSH on remote host with Docker support", InputSchema: map[string]string{"code": "string", "language": "string", "image": "string", "environment": "json", "timeout": "int"}, OutputSchema: map[string]string{"success": "bool", "output": "string", "error": "string", "image": "string", "exit_code": "int", "duration_ms": "int"}, Permissions: []string{"ssh:execute", "docker:build"}, SafetyLevel: "high", CreatedBy: "system"},
 		}
 		for _, t := range arm64Tools {
 			_ = s.registerTool(ctx, t)
@@ -456,12 +456,12 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 		{ID: "tool_text_search", Name: "Text Search", Description: "Search text", InputSchema: map[string]string{"pattern": "string", "text": "string"}, OutputSchema: map[string]string{"matches": "string[]"}, Permissions: []string{}, SafetyLevel: "low", CreatedBy: "system"},
 	}
 
-	// Add Drone executor only when explicitly enabled or on ARM64
+	// Add SSH executor only when explicitly enabled or on ARM64
 	execMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
 	if execMethod == "drone" || os.Getenv("ENABLE_ARM64_TOOLS") == "true" || runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64" {
 		log.Printf("🔧 [BOOTSTRAP] Registering Drone/ARM64 tools (EXECUTION_METHOD=%s, ENABLE_ARM64_TOOLS=%s, GOARCH=%s)", execMethod, os.Getenv("ENABLE_ARM64_TOOLS"), runtime.GOARCH)
 		arm64Tools := []Tool{
-			{ID: "tool_drone_executor", Name: "Drone Executor", Description: "Execute code via Drone CI with Docker socket access", InputSchema: map[string]string{"code": "string", "language": "string", "image": "string", "environment": "json", "timeout": "int"}, OutputSchema: map[string]string{"success": "bool", "output": "string", "error": "string", "image": "string", "exit_code": "int", "duration_ms": "int"}, Permissions: []string{"drone:execute", "docker:build"}, SafetyLevel: "high", CreatedBy: "system"},
+			{ID: "tool_ssh_executor", Name: "SSH Executor", Description: "Execute code via SSH on remote host with Docker support", InputSchema: map[string]string{"code": "string", "language": "string", "image": "string", "environment": "json", "timeout": "int"}, OutputSchema: map[string]string{"success": "bool", "output": "string", "error": "string", "image": "string", "exit_code": "int", "duration_ms": "int"}, Permissions: []string{"ssh:execute", "docker:build"}, SafetyLevel: "high", CreatedBy: "system"},
 		}
 		for _, t := range arm64Tools {
 			log.Printf("🔧 [BOOTSTRAP] Registering ARM64 tool: %s", t.ID)
@@ -650,15 +650,15 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			"exit_code": exitCode,
 		})
 		return
-	case "tool_drone_executor":
-		log.Printf("🔧 [DRONE-TOOL] Starting Drone executor tool invocation")
-		log.Printf("🔧 [DRONE-TOOL] Platform check: GOARCH=%s, ENABLE_ARM64_TOOLS=%s, EXECUTION_METHOD=%s", runtime.GOARCH, os.Getenv("ENABLE_ARM64_TOOLS"), os.Getenv("EXECUTION_METHOD"))
+	case "tool_ssh_executor":
+		log.Printf("🔧 [SSH-TOOL] Starting SSH executor tool invocation")
+		log.Printf("🔧 [SSH-TOOL] Platform check: GOARCH=%s, ENABLE_ARM64_TOOLS=%s, EXECUTION_METHOD=%s", runtime.GOARCH, os.Getenv("ENABLE_ARM64_TOOLS"), os.Getenv("EXECUTION_METHOD"))
 
-		// Enforce runtime gate: only allow when EXECUTION_METHOD=drone or on ARM64 (or explicitly enabled)
+		// Enforce runtime gate: only allow when EXECUTION_METHOD=ssh or on ARM64 (or explicitly enabled)
 		execMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
-		if !(execMethod == "drone" || os.Getenv("ENABLE_ARM64_TOOLS") == "true" || runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64") {
+		if !(execMethod == "ssh" || os.Getenv("ENABLE_ARM64_TOOLS") == "true" || runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64") {
 			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "Drone executor disabled on this platform", "hint": "Set EXECUTION_METHOD=drone or ENABLE_ARM64_TOOLS=true"})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "SSH executor disabled on this platform", "hint": "Set EXECUTION_METHOD=ssh or ENABLE_ARM64_TOOLS=true"})
 			return
 		}
 
@@ -666,10 +666,10 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 		language, _ := getString(params, "language")
 		image, _ := getString(params, "image")
 
-		log.Printf("🔧 [DRONE-TOOL] Parameters: language=%s, image=%s, code_length=%d", language, image, len(code))
+		log.Printf("🔧 [SSH-TOOL] Parameters: language=%s, image=%s, code_length=%d", language, image, len(code))
 
 		if strings.TrimSpace(code) == "" {
-			log.Printf("❌ [DRONE-TOOL] No code provided")
+			log.Printf("❌ [SSH-TOOL] No code provided")
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "code required"})
 			return
@@ -694,24 +694,24 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 				image = "alpine:latest"
 			}
 		}
-		log.Printf("🔧 [DRONE-TOOL] Using defaults: language=%s, image=%s", language, image)
+		log.Printf("🔧 [SSH-TOOL] Using defaults: language=%s, image=%s", language, image)
 
 		// Submit job to Drone CI (best-effort)
-		log.Printf("🚀 [DRONE-TOOL] Attempting Drone CI submission")
+		log.Printf("🚀 [SSH-TOOL] Attempting Drone CI submission")
 		droneResp, err := s.submitToDroneCI(code, language, image)
 		if err != nil {
-			log.Printf("❌ [DRONE-TOOL] Drone CI submission failed: %v", err)
+			log.Printf("❌ [SSH-TOOL] Drone CI submission failed: %v", err)
 			// Continue to local execution even if submission fails
 			droneResp = map[string]interface{}{"success": false, "error": "Drone CI submission failed: " + err.Error()}
 		} else {
-			log.Printf("✅ [DRONE-TOOL] Drone CI submission successful: %+v", droneResp)
+			log.Printf("✅ [SSH-TOOL] Drone CI submission successful: %+v", droneResp)
 		}
 
 		// Additionally execute locally (SSH) to provide immediate run output
-		log.Printf("🔧 [DRONE-TOOL] Attempting SSH fallback execution")
+		log.Printf("🔧 [SSH-TOOL] Attempting SSH fallback execution")
 		localRun, execErr := s.fallbackSSHExecution(code, language, image)
 		if execErr != nil {
-			log.Printf("❌ [DRONE-TOOL] SSH execution failed: %v", execErr)
+			log.Printf("❌ [SSH-TOOL] SSH execution failed: %v", execErr)
 			w.WriteHeader(http.StatusInternalServerError)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"error":            execErr.Error(),
@@ -720,7 +720,7 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.Printf("✅ [DRONE-TOOL] SSH execution successful: %+v", localRun)
+		log.Printf("✅ [SSH-TOOL] SSH execution successful: %+v", localRun)
 
 		// Combine results: prefer local run output while returning drone submission metadata
 		combined := map[string]interface{}{}
@@ -728,7 +728,7 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			combined[k] = v
 		}
 		combined["drone_submission"] = droneResp
-		log.Printf("🔧 [DRONE-TOOL] Returning combined results: %+v", combined)
+		log.Printf("🔧 [SSH-TOOL] Returning combined results: %+v", combined)
 		_ = json.NewEncoder(w).Encode(combined)
 		return
 	default:
@@ -1197,6 +1197,9 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string) (map[stri
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
+	// Respect quiet mode to suppress noisy environment dumps produced by 'set' in some scripts
+	quietMode := strings.TrimSpace(os.Getenv("QUIET")) == "1"
+
 	// Get RPI host from environment or use default
 	rpiHost := os.Getenv("RPI_HOST")
 	if rpiHost == "" {
@@ -1229,7 +1232,9 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string) (map[stri
 	switch language {
 	case "go":
 		// Execute Go directly on the RPI host without Docker
-		goHostCmd := fmt.Sprintf(`set -euo pipefail
+		var goHostCmd string
+		if quietMode {
+			goHostCmd = fmt.Sprintf(`set -eu
 	WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
 	mkdir -p "$WORK"
 	cp %s "$WORK"/main.go
@@ -1241,6 +1246,20 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string) (map[stri
 	GOFLAGS= go build -o app ./main.go
 	./app
 	`, tempFile)
+		} else {
+			goHostCmd = fmt.Sprintf(`set -euo pipefail
+	WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
+	mkdir -p "$WORK"
+	cp %s "$WORK"/main.go
+	cd "$WORK"
+	# Ensure Go is on PATH for non-interactive SSH shells
+	export PATH="$PATH:/usr/local/go/bin:/home/pi/go/bin:/usr/local/bin:/usr/bin"
+	if ! command -v go >/dev/null 2>&1; then echo 'go not installed on host' >&2; exit 127; fi
+	if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
+	GOFLAGS= go build -o app ./main.go
+	./app
+	`, tempFile)
+		}
 		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
 			"pi@"+rpiHost, "bash", "-lc", goHostCmd)
 
@@ -1251,24 +1270,41 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string) (map[stri
 		if len(pkgs) > 0 {
 			pkgLine = fmt.Sprintf("pip install %s && ", strings.Join(pkgs, " "))
 		}
-		hostCmd := fmt.Sprintf(`set -euo pipefail
+		var hostCmd string
+		if quietMode {
+			hostCmd = fmt.Sprintf(`set -eu
 VENV="/home/pi/.hdn/venv"
 python3 -m venv "$VENV" >/dev/null 2>&1 || true
 . "$VENV"/bin/activate
 python -m pip install --upgrade pip >/dev/null 2>&1 || true
 %spython %s`, pkgLine, tempFile)
+		} else {
+			hostCmd = fmt.Sprintf(`set -euo pipefail
+VENV="/home/pi/.hdn/venv"
+python3 -m venv "$VENV" >/dev/null 2>&1 || true
+. "$VENV"/bin/activate
+python -m pip install --upgrade pip >/dev/null 2>&1 || true
+%spython %s`, pkgLine, tempFile)
+		}
 		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
 			"pi@"+rpiHost, "bash", "-lc", hostCmd)
 
 	case "bash":
 		// Run shell script directly on the host
-		bashHostCmd := fmt.Sprintf("set -euo pipefail\nsh %s\n", tempFile)
+		var bashHostCmd string
+		if quietMode {
+			bashHostCmd = fmt.Sprintf("set -eu\nsh %s\n", tempFile)
+		} else {
+			bashHostCmd = fmt.Sprintf("set -euo pipefail\nsh %s\n", tempFile)
+		}
 		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
 			"pi@"+rpiHost, "bash", "-lc", bashHostCmd)
 
 	case "java":
 		// Execute Java directly on the host using system JDK
-		javaHostCmd := fmt.Sprintf(`set -euo pipefail
+		var javaHostCmd string
+		if quietMode {
+			javaHostCmd = fmt.Sprintf(`set -eu
 WORK="$(mktemp -d /home/pi/.hdn/java_tmp_XXXXXX)"
 mkdir -p "$WORK"
 cp %s "$WORK"/Main.java || cp %s "$WORK"/App.java || true
@@ -1279,13 +1315,32 @@ javac "$SRC"
 MAIN=${SRC%%.java}
 java "$MAIN"
 `, tempFile, tempFile)
+		} else {
+			javaHostCmd = fmt.Sprintf(`set -euo pipefail
+WORK="$(mktemp -d /home/pi/.hdn/java_tmp_XXXXXX)"
+mkdir -p "$WORK"
+cp %s "$WORK"/Main.java || cp %s "$WORK"/App.java || true
+cd "$WORK"
+if ! command -v javac >/dev/null 2>&1; then echo 'javac not installed on host' >&2; exit 127; fi
+SRC=Main.java; [ -f App.java ] && SRC=App.java
+javac "$SRC"
+MAIN=${SRC%%.java}
+java "$MAIN"
+`, tempFile, tempFile)
+		}
 		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
 			"pi@"+rpiHost, "bash", "-lc", javaHostCmd)
 
 	default:
 		// Fallback: run as a shell command directly on host
+		var wrapped string
+		if quietMode {
+			wrapped = fmt.Sprintf("set -eu\n{ %s; }\n", code)
+		} else {
+			wrapped = fmt.Sprintf("set -euo pipefail\n{ %s; }\n", code)
+		}
 		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"pi@"+rpiHost, "bash", "-lc", code)
+			"pi@"+rpiHost, "bash", "-lc", wrapped)
 	}
 
 	log.Printf("🔧 [SSH-FALLBACK] Executing host command via SSH")
@@ -1320,9 +1375,12 @@ java "$MAIN"
 		"pi@"+rpiHost, "rm", "-f", tempFile)
 	cleanupCmd.Run() // Best effort cleanup
 
+	// Output is already clean when using set -eu instead of set -euo pipefail
+	cleanOutput := string(output)
+
 	result := map[string]interface{}{
 		"success":     exitCode == 0,
-		"output":      string(output),
+		"output":      cleanOutput,
 		"error":       stderr,
 		"image":       image,
 		"exit_code":   exitCode,

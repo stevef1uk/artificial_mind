@@ -428,58 +428,54 @@ func main() {
 
 // dashboard renders the main monitoring dashboard (now tabbed)
 func (m *MonitorService) dashboard(c *gin.Context) {
-	// Serve filtered dashboard HTML to avoid Go template processing issues
-	content, err := loadDashboardHTML()
-	if err != nil {
-		c.String(http.StatusNotFound, "dashboard not found")
+	// Fallback: serve raw HTML to avoid html/template context parse issues
+	path := "templates/dashboard_tabs.html"
+	b, err := os.ReadFile(path)
+	if err == nil {
+		// Strip Go template define/end wrappers if present
+		content := string(b)
+		if strings.HasPrefix(content, "{{ define") {
+			if i := strings.Index(content, "}}\n"); i > -1 {
+				content = content[i+3:]
+			}
+			if j := strings.LastIndex(content, "{{ end }}"); j > -1 {
+				content = content[:j]
+			}
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(content))
 		return
 	}
-	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(content))
+	// If read fails, fall back to templating
+	c.HTML(http.StatusOK, "dashboard_tabs.html", gin.H{
+		"title":         "Artificial Mind and Workflow",
+		"hdnURL":        m.hdnURL,
+		"principlesURL": m.principlesURL,
+	})
 }
 
 // dashboardTabs renders the tabbed monitoring dashboard
 func (m *MonitorService) dashboardTabs(c *gin.Context) {
-	content, err := loadDashboardHTML()
-	if err != nil {
-		c.String(http.StatusNotFound, "dashboard not found")
+	// Serve raw HTML (see dashboard handler for details)
+	path := "templates/dashboard_tabs.html"
+	b, err := os.ReadFile(path)
+	if err == nil {
+		content := string(b)
+		if strings.HasPrefix(content, "{{ define") {
+			if i := strings.Index(content, "}}\n"); i > -1 {
+				content = content[i+3:]
+			}
+			if j := strings.LastIndex(content, "{{ end }}"); j > -1 {
+				content = content[:j]
+			}
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(content))
 		return
 	}
-	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(content))
-}
-
-// loadDashboardHTML reads the dashboard file and strips Go template wrappers ({{ define }}, {{ end }})
-func loadDashboardHTML() (string, error) {
-	execPath, _ := os.Executable()
-	execDir := filepath.Dir(execPath)
-	projectRoot := filepath.Dir(execDir)
-	candidates := []string{
-		filepath.Join(projectRoot, "monitor", "templates", "dashboard_tabs.html"),
-		filepath.Join("monitor", "templates", "dashboard_tabs.html"),
-		filepath.Join("templates", "dashboard_tabs.html"),
-	}
-	var b []byte
-	var err error
-	for _, p := range candidates {
-		if _, statErr := os.Stat(p); statErr == nil {
-			b, err = os.ReadFile(p)
-			break
-		}
-	}
-	if b == nil || err != nil {
-		return "", fmt.Errorf("not found")
-	}
-	s := string(b)
-	// Strip leading {{ define ... }}
-	if strings.HasPrefix(strings.TrimSpace(s), "{{ define") {
-		if i := strings.Index(s, "}}"); i > -1 {
-			s = s[i+2:]
-		}
-	}
-	// Strip trailing {{ end }}
-	if idx := strings.LastIndex(s, "{{ end }}"); idx > -1 {
-		s = s[:idx]
-	}
-	return s, nil
+	c.HTML(http.StatusOK, "dashboard_tabs.html", gin.H{
+		"title":         "Artificial Mind and Workflow (Tabbed)",
+		"hdnURL":        m.hdnURL,
+		"principlesURL": m.principlesURL,
+	})
 }
 
 // thinkingPanel renders the AI thinking stream page

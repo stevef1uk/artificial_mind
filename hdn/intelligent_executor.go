@@ -157,9 +157,9 @@ func (ie *IntelligentExecutor) callTool(toolID string, params map[string]interfa
 	return result, nil
 }
 
-// executeWithDroneTool executes code using the Drone executor tool
-func (ie *IntelligentExecutor) executeWithDroneTool(ctx context.Context, code, language string) (*DockerExecutionResponse, error) {
-	// Prepare parameters for the Drone tool
+// executeWithSSHTool executes code using the SSH executor tool
+func (ie *IntelligentExecutor) executeWithSSHTool(ctx context.Context, code, language string) (*DockerExecutionResponse, error) {
+	// Prepare parameters for the SSH tool
 	params := map[string]interface{}{
 		"code":     code,
 		"language": language,
@@ -167,17 +167,17 @@ func (ie *IntelligentExecutor) executeWithDroneTool(ctx context.Context, code, l
 		"timeout":  300, // 5 minutes timeout
 	}
 
-	// Call the Drone executor tool
-	result, err := ie.callTool("tool_drone_executor", params)
+	// Call the SSH executor tool
+	result, err := ie.callTool("tool_ssh_executor", params)
 	if err != nil {
-		msg := fmt.Sprintf("Drone tool call failed: %v", err)
+		msg := fmt.Sprintf("SSH tool call failed: %v", err)
 		// If the tool is missing/not available (e.g., 404), fall back to local Docker executor
 		low := strings.ToLower(msg)
 		missing := strings.Contains(low, "status 404") || strings.Contains(low, "not found") || strings.Contains(low, "tool not available")
 		if missing {
 			// If we are on ARM64 or explicitly enabled ARM64 tools, log a configuration error
 			if runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64" || strings.TrimSpace(os.Getenv("ENABLE_ARM64_TOOLS")) == "true" {
-				log.Printf("❌ [INTELLIGENT] Drone tool expected but missing on this platform (GOARCH=%s, ENABLE_ARM64_TOOLS=%s): %v", runtime.GOARCH, os.Getenv("ENABLE_ARM64_TOOLS"), err)
+				log.Printf("❌ [INTELLIGENT] SSH tool expected but missing on this platform (GOARCH=%s, ENABLE_ARM64_TOOLS=%s): %v", runtime.GOARCH, os.Getenv("ENABLE_ARM64_TOOLS"), err)
 			}
 			log.Printf("🔁 [INTELLIGENT] Falling back to local Docker executor")
 			// Execute using local Docker executor as a fallback
@@ -985,7 +985,7 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 				} else {
 					// Use direct Docker executor for file storage (cached code)
 					log.Printf("🎯 [INTELLIGENT] Final execution using direct Docker executor for file storage (cached code)")
-					if finalResult, derr := ie.executeWithDroneTool(ctx, cachedCode.Code, req.Language); derr != nil {
+					if finalResult, derr := ie.executeWithSSHTool(ctx, cachedCode.Code, req.Language); derr != nil {
 						log.Printf("⚠️ [INTELLIGENT] Final execution failed: %v", derr)
 					} else if finalResult.Success {
 						log.Printf("✅ [INTELLIGENT] Final execution successful, files stored")
@@ -1107,7 +1107,7 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	// Skip tool registration and use direct Docker executor for file storage
 	// This avoids the 404 tool errors and uses the working Docker execution system
 	log.Printf("🎯 [INTELLIGENT] Final execution using direct Docker executor for file storage")
-	if finalResult, derr := ie.executeWithDroneTool(ctx, generatedCode.Code, req.Language); derr != nil {
+	if finalResult, derr := ie.executeWithSSHTool(ctx, generatedCode.Code, req.Language); derr != nil {
 		log.Printf("⚠️ [INTELLIGENT] Final execution failed: %v", derr)
 	} else if finalResult.Success {
 		log.Printf("✅ [INTELLIGENT] Final execution successful, files stored")
@@ -1666,14 +1666,14 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 
 	// Choose execution method based on EXECUTION_METHOD environment variable
 	executionMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
-	useDrone := executionMethod == "drone" || (executionMethod == "" && (runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64" || os.Getenv("ENABLE_ARM64_TOOLS") == "true"))
+	useSSH := executionMethod == "ssh" || (executionMethod == "" && (runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64" || os.Getenv("ENABLE_ARM64_TOOLS") == "true"))
 
 	var result *DockerExecutionResponse
 	var err error
 
-	if useDrone {
-		log.Printf("🧪 [VALIDATION] Using Drone executor for validation")
-		result, err = ie.executeWithDroneTool(ctx, code.Code, code.Language)
+	if useSSH {
+		log.Printf("🧪 [VALIDATION] Using SSH executor for validation")
+		result, err = ie.executeWithSSHTool(ctx, code.Code, code.Language)
 	} else {
 		log.Printf("🧪 [VALIDATION] Using Docker executor for validation")
 		// Use direct Docker execution
