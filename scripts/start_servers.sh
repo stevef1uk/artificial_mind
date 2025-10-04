@@ -2,17 +2,33 @@
 
 # HDN + Principles Server Startup Script
 # This script ensures both servers start in the correct order and directories
+# Platform-aware: Uses Docker for Monitor UI on Mac, native on Linux
 
 set -e  # Exit on any error
 
-# Check for ARM64 architecture and provide helpful message
+# Detect platform
+OS=$(uname -s)
 ARCH=$(uname -m)
+
+echo "ℹ️  Running on $OS $ARCH architecture"
+
+# Platform-specific configuration
+if [ "$OS" = "Darwin" ]; then
+    echo "🍎 Mac detected - will use Docker for Monitor UI"
+    USE_DOCKER_MONITOR=true
+elif [ "$OS" = "Linux" ]; then
+    echo "🐧 Linux detected - will use native Monitor UI"
+    USE_DOCKER_MONITOR=false
+else
+    echo "⚠️  Unknown OS: $OS - defaulting to native Monitor UI"
+    USE_DOCKER_MONITOR=false
+fi
+
+# Check for ARM64 architecture and provide helpful message
 if [ "$ARCH" = "aarch64" ]; then
     echo "⚠️  WARNING: Running on ARM64 architecture"
     echo "This script may not work properly on ARM64. Consider using Docker build system instead."
     echo "Continuing anyway..."
-else
-    echo "ℹ️  Running on $ARCH architecture"
 fi
 
 echo "🚀 Starting AGI System (HDN + Principles + Neo4j + Weaviate)"
@@ -20,11 +36,16 @@ echo "=========================================================="
 
 # Parse flags / env (lightweight)
 # Supports: --skip-infra or SKIP_INFRA=true to avoid touching docker infra
+# Supports: --rebuild-monitor or REBUILD_MONITOR=true to force rebuild Monitor UI
 SKIP_INFRA=${SKIP_INFRA:-false}
+REBUILD_MONITOR=${REBUILD_MONITOR:-false}
 for arg in "$@"; do
     case "$arg" in
         --skip-infra)
             SKIP_INFRA=true
+            ;;
+        --rebuild-monitor)
+            REBUILD_MONITOR=true
             ;;
     esac
 done
@@ -272,60 +293,147 @@ if ! wait_for_service "http://localhost:8081/api/v1/domains" "HDN Server"; then
     exit 1
 fi
 
-# Start Monitor UI
-echo "🔨 Building Monitor UI..."
-cd "$AGI_PROJECT_ROOT/monitor"
-
-# Build the monitor UI and capture the output
-BUILD_OUTPUT=$(go build -o ../bin/monitor-ui . 2>&1)
-BUILD_EXIT_CODE=$?
-
-if [ $BUILD_EXIT_CODE -eq 0 ]; then
-    echo "✅ Monitor UI built successfully"
+# Start Monitor UI (Platform-aware)
+if [ "$USE_DOCKER_MONITOR" = "true" ]; then
+    echo "🐳 Starting Monitor UI using Docker (Mac)..."
     cd "$AGI_PROJECT_ROOT"
     
-    # Check if binary exists
-    if [ -f "$AGI_PROJECT_ROOT/bin/monitor-ui" ]; then
-        echo "✅ Monitor UI binary exists"
+    # Check if Docker is running
+    if ! docker info >/dev/null 2>&1; then
+        echo "❌ Docker is not running. Please start Docker Desktop and try again."
+        echo "⚠️  Monitor UI will be skipped"
+        MONITOR_PID=""
+    else
+        # Stop any existing monitor containers
+        docker stop $(docker ps -q --filter ancestor=monitor-ui-local) >/dev/null 2>&1 || true
         
-        export WEAVIATE_URL="http://localhost:8080"
-        export PRINCIPLES_URL="http://localhost:8084"
-        export HDN_URL="http://localhost:8081"
-        export GOAL_MANAGER_URL="http://localhost:8090"
-        export FSM_URL="http://localhost:8083"
-        export NEO4J_URL="http://localhost:7474"
-        export NATS_URL="nats://localhost:4222"
-        export REDIS_URL="redis://localhost:6379"
-        export NEO4J_USER="neo4j"
-        export NEO4J_PASS="test1234"
-        MONITOR_PID=$(run_service "monitor_ui" \
-            "$AGI_PROJECT_ROOT" \
-            "$AGI_PROJECT_ROOT/bin/monitor-ui") || {
-            echo "⚠️  Monitor UI failed to start, but continuing with main servers"; MONITOR_PID=""; }
-    else
-        echo "❌ Monitor UI binary not found after build"
-        MONITOR_PID=""
+        # Free port 8082
+        lsof -ti:8082 | xargs kill -9 >/dev/null 2>&1 || true
+        
+        # Start Docker services if not running
+        if ! docker ps --filter name=agi- --format "{{.Names}}" | grep -q agi-; then
+            echo "🏗️  Starting Docker services..."
+            docker-compose up -d >/dev/null 2>&1
+            sleep 5
+        fi
+        
+        # Check if Monitor Docker image exists
+        echo "🔍 Checking Monitor UI Docker image..."
+        IMAGE_EXISTS=false
+        
+        if [ "$REBUILD_MONITOR" = "true" ]; then
+            echo "🔄 Force rebuild requested for Monitor UI..."
+        elif docker image inspect monitor-ui-local >/dev/null 2>&1; then
+            echo "✅ Monitor UI Docker image exists (skipping rebuild - use --rebuild-monitor to force rebuild)"
+            IMAGE_EXISTS=true
+        else
+            echo "🔄 Monitor UI Docker image not found, rebuilding..."
+        fi
+        
+        # Build Monitor Docker image only if needed
+        MONITOR_BUILD_SUCCESS=true
+        if [ "$IMAGE_EXISTS" = "false" ]; then
+            echo "🔨 Building Monitor UI Docker image..."
+            echo "📝 Build output:"
+            if docker build -f Dockerfile.monitor-ui.local -t monitor-ui-local .; then
+                echo "✅ Monitor UI Docker image built successfully"
+            else
+                echo "❌ Failed to build Monitor UI Docker image"
+                MONITOR_BUILD_SUCCESS=false
+                echo "⚠️  Monitor UI will be skipped due to build failure"
+            fi
+        fi
+        
+        # Run Monitor container only if build was successful
+        if [ "$MONITOR_BUILD_SUCCESS" = "true" ]; then
+            echo "🚀 Starting Monitor UI container..."
+            docker run --rm --network artificial_mind_default \
+                -p 8082:8082 \
+                -v /tmp:/tmp:ro \
+                -e HDN_URL=http://host.docker.internal:8081 \
+                -e PRINCIPLES_URL=http://host.docker.internal:8084 \
+                -e FSM_URL=http://host.docker.internal:8083 \
+                -e GOAL_MANAGER_URL=http://host.docker.internal:8090 \
+                -e WEAVIATE_URL=http://agi-weaviate:8080 \
+                -e REDIS_URL=agi-redis:6379 \
+                -e NEO4J_URL=http://agi-neo4j:7474 \
+                -e NATS_URL=nats://agi-nats:4222 \
+                -e K8S_NAMESPACE="" \
+                monitor-ui-local > /tmp/monitor_ui.log 2>&1 &
+            
+            MONITOR_PID=$!
+            echo "📝 Monitor UI Container PID: $MONITOR_PID"
+            
+            # Wait for Monitor UI to be ready
+            echo "⏳ Waiting for Monitor UI to be ready..."
+            sleep 5
+            if curl -s "http://localhost:8082/api/status" >/dev/null 2>&1; then
+                echo "✅ Monitor UI is ready!"
+            else
+                echo "⚠️  Monitor UI health check failed, but continuing (it may still work)"
+                echo "📄 Check logs: cat /tmp/monitor_ui.log"
+                MONITOR_PID=""
+            fi
+        else
+            echo "⚠️  Skipping Monitor UI due to build failure"
+            MONITOR_PID=""
+        fi
     fi
 else
-    echo "❌ Failed to build Monitor UI:"
-    echo "$BUILD_OUTPUT"
-    MONITOR_PID=""
-    cd "$AGI_PROJECT_ROOT"
-fi
+    echo "🔨 Building Monitor UI (Linux)..."
+    cd "$AGI_PROJECT_ROOT/monitor"
 
-# Wait for Monitor UI to be ready (only if it was started)
-if [ -n "$MONITOR_PID" ]; then
-    echo "⏳ Waiting for Monitor UI to be ready..."
-    sleep 5  # Give it a moment to start
-    if curl -s "http://localhost:8082/api/status" >/dev/null 2>&1; then
-        echo "✅ Monitor UI is ready!"
+    # Build the monitor UI and capture the output
+    BUILD_OUTPUT=$(go build -o ../bin/monitor-ui . 2>&1)
+    BUILD_EXIT_CODE=$?
+
+    if [ $BUILD_EXIT_CODE -eq 0 ]; then
+        echo "✅ Monitor UI built successfully"
+        cd "$AGI_PROJECT_ROOT"
+        
+        # Check if binary exists
+        if [ -f "$AGI_PROJECT_ROOT/bin/monitor-ui" ]; then
+            echo "✅ Monitor UI binary exists"
+            
+            export WEAVIATE_URL="http://localhost:8080"
+            export PRINCIPLES_URL="http://localhost:8084"
+            export HDN_URL="http://localhost:8081"
+            export GOAL_MANAGER_URL="http://localhost:8090"
+            export FSM_URL="http://localhost:8083"
+            export NEO4J_URL="http://localhost:7474"
+            export NATS_URL="nats://localhost:4222"
+            export REDIS_URL="redis://localhost:6379"
+            export NEO4J_USER="neo4j"
+            export NEO4J_PASS="test1234"
+            MONITOR_PID=$(run_service "monitor_ui" \
+                "$AGI_PROJECT_ROOT" \
+                "$AGI_PROJECT_ROOT/bin/monitor-ui") || {
+                echo "⚠️  Monitor UI failed to start, but continuing with main servers"; MONITOR_PID=""; }
+        else
+            echo "❌ Monitor UI binary not found after build"
+            MONITOR_PID=""
+        fi
     else
-        echo "⚠️  Monitor UI health check failed, but continuing (it may still work)"
-        echo "📄 Check logs: cat /tmp/monitor_ui.log"
+        echo "❌ Failed to build Monitor UI:"
+        echo "$BUILD_OUTPUT"
         MONITOR_PID=""
+        cd "$AGI_PROJECT_ROOT"
     fi
-else
-    echo "⚠️  Monitor UI not started - skipping health check"
+
+    # Wait for Monitor UI to be ready (only if it was started)
+    if [ -n "$MONITOR_PID" ]; then
+        echo "⏳ Waiting for Monitor UI to be ready..."
+        sleep 5  # Give it a moment to start
+        if curl -s "http://localhost:8082/api/status" >/dev/null 2>&1; then
+            echo "✅ Monitor UI is ready!"
+        else
+            echo "⚠️  Monitor UI health check failed, but continuing (it may still work)"
+            echo "📄 Check logs: cat /tmp/monitor_ui.log"
+            MONITOR_PID=""
+        fi
+    else
+        echo "⚠️  Monitor UI not started - skipping health check"
+    fi
 fi
 
 # Start FSM Server

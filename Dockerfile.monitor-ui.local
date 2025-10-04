@@ -1,0 +1,26 @@
+FROM golang:1.25-alpine AS builder
+WORKDIR /app
+
+# Copy all source code first (needed for go mod download to work with local modules)
+COPY . .
+
+# Download dependencies
+RUN go mod download
+
+# Build the monitor binary
+RUN cd monitor && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ../bin/monitor-ui .
+
+FROM alpine:latest
+RUN apk add --no-cache ca-certificates tzdata curl
+WORKDIR /app
+COPY --from=builder /app/bin/monitor-ui /app/monitor-ui
+COPY --from=builder /app/monitor/templates /app/monitor/templates
+COPY --from=builder /app/monitor/static /app/monitor/static
+RUN chmod +x /app/monitor-ui
+# Create symlink so Monitor can find templates at /monitor/templates
+RUN ln -sf /app/monitor /monitor
+# Set working directory to /app so the binary can find templates at /app/monitor/templates
+WORKDIR /app
+EXPOSE 8082
+# Environment variables will be set at runtime
+CMD ["/app/monitor-ui"]

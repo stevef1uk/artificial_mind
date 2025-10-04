@@ -1,10 +1,17 @@
 #!/bin/bash
 
-# HDN + Principles Server Stop Script
-# This script cleanly stops both servers
+# Platform-aware AGI System Stop Script
+# This script detects the platform and stops services appropriately
 
-echo "🛑 Stopping AGI System (HDN + Principles + Infrastructure)"
-echo "========================================================="
+set -e
+
+# Detect platform
+OS=$(uname -s)
+
+echo "🛑 Stopping AGI System"
+echo "====================="
+echo "ℹ️  Platform: $OS"
+echo ""
 
 # Function to stop a service by PID file
 stop_service() {
@@ -23,6 +30,7 @@ stop_service() {
                 echo "⚡ Force stopping $service_name..."
                 kill -9 "$pid" 2>/dev/null || true
             fi
+            
             echo "✅ $service_name stopped"
         else
             echo "ℹ️  $service_name was not running"
@@ -33,36 +41,49 @@ stop_service() {
     fi
 }
 
-# Stop application services
-stop_service "/tmp/principles_server.pid" "Principles Server"
+# Platform-specific Monitor UI stopping
+if [ "$OS" = "Darwin" ]; then
+    echo "🍎 Mac detected - stopping Monitor UI Docker container..."
+    # Stop Monitor UI Docker container
+    if docker ps -q --filter ancestor=monitor-ui-local | grep -q .; then
+        echo "🔄 Stopping Monitor UI Docker container..."
+        docker stop $(docker ps -q --filter ancestor=monitor-ui-local) >/dev/null 2>&1 || true
+        echo "✅ Monitor UI Docker container stopped"
+    else
+        echo "ℹ️  Monitor UI Docker container was not running"
+    fi
+else
+    echo "🐧 Linux detected - stopping Monitor UI native process..."
+    stop_service "/tmp/monitor_ui.pid" "Monitor UI"
+fi
+
+# Stop other services (platform-agnostic)
+echo ""
+echo "🔄 Stopping Other Services..."
 stop_service "/tmp/hdn_server.pid" "HDN Server"
-stop_service "/tmp/monitor_ui.pid" "Monitor UI"
+stop_service "/tmp/principles_server.pid" "Principles Server"
 stop_service "/tmp/fsm_server.pid" "FSM Server"
 stop_service "/tmp/goal_manager.pid" "Goal Manager"
-
-# Resolve project root from env or current dir
-AGI_PROJECT_ROOT=${AGI_PROJECT_ROOT:-$(pwd)}
 
 # Stop infrastructure services
 echo ""
 echo "🏗️  Stopping Infrastructure Services..."
-cd "$AGI_PROJECT_ROOT"
-docker-compose down
+cd "$(dirname "$0")/.."
 
-# Clean up any remaining processes on the ports
-echo ""
-echo "🧹 Cleaning up any remaining processes..."
-lsof -ti:8080 | xargs kill -9 2>/dev/null || true
-lsof -ti:8081 | xargs kill -9 2>/dev/null || true
-lsof -ti:8082 | xargs kill -9 2>/dev/null || true
-lsof -ti:8083 | xargs kill -9 2>/dev/null || true
-lsof -ti:8090 | xargs kill -9 2>/dev/null || true
-lsof -ti:7474 | xargs kill -9 2>/dev/null || true
-lsof -ti:7687 | xargs kill -9 2>/dev/null || true
-lsof -ti:6333 | xargs kill -9 2>/dev/null || true
-lsof -ti:6379 | xargs kill -9 2>/dev/null || true
+if [ "$OS" = "Darwin" ]; then
+    echo "🍎 Mac detected - stopping Docker services..."
+    # Check if Docker is running before trying to stop services
+    if docker info >/dev/null 2>&1; then
+        docker-compose down
+        echo "✅ Docker services stopped"
+    else
+        echo "ℹ️  Docker is not running - skipping Docker service cleanup"
+    fi
+else
+    echo "🐧 Linux detected - stopping Docker services..."
+    docker-compose down
+    echo "✅ Docker services stopped"
+fi
 
 echo ""
-echo "✅ All services stopped!"
-echo "📄 Logs are preserved in /tmp/ for debugging"
-echo "🗄️  Infrastructure data is preserved in ./data/"
+echo "🎉 AGI System stopped successfully!"
