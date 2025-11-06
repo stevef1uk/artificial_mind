@@ -9,92 +9,123 @@ The Artificial Mind (Artificial Mind) project is a comprehensive AI system that 
 ```mermaid
 graph TB
     %% External Components
-    User[👤 User] --> API[🌐 HDN API Server<br/>Port 8081]
-    User --> Principles[🔒 Principles Server<br/>Port 8080]
-    User --> Monitor[📊 Monitor UI<br/>Port 8082]
+    User[👤 User]
+    API[🌐 HDN API Server<br/>Port 8081]
+    Principles[🔒 Principles Server<br/>Port 8080]
+    Monitor[📊 Monitor UI<br/>Port 8082]
     
     %% HDN Core Components
-    API --> IE[🧠 Intelligent Executor]
-    API --> CG[⚙️ Code Generator]
-    API --> CS[💾 Code Storage<br/>Redis]
-    API --> DA[🐳 Docker API]
-    API --> TR[🧰 Tools Registry]
-    API --> PI[🔗 Planner Integration]
+    IE[🧠 Intelligent Executor]
+    CG[⚙️ Code Generator]
+    CS[💾 Code Storage<br/>Redis]
+    DA[🐳 Docker API]
+    TR[🧰 Tools Registry]
+    PI[🔗 Planner Integration]
     
-    %% Event Bus (NATS)
+    %% Event Bus
     subgraph Bus[📡 Event Bus]
       NATS[(NATS Core<br/>agi.events.*)]
     end
     
-    %% Event Producers
+    %% Planner Components
+    HP[🧠 Hierarchical Planner]
+    WO[⚙️ Workflow Orchestrator]
+    BP[📋 Base Planner]
+    
+    %% Self-Model Integration
+    SM[🧠 Self-Model Manager<br/>Goal Tracking & Learning]
+    Redis[💾 Redis<br/>Self-Model Data]
+    
+    %% LLM Integration
+    LLM1[🤖 LLM Client<br/>Safety Categorization]
+    LLM2[🤖 LLM Client<br/>Code Generation]
+    LLM3[🤖 LLM Client<br/>Code Fixing]
+    
+    %% Principles Integration
+    PC[🔍 Principles Checker]
+    
+    %% Execution & Validation
+    Docker[🐳 Docker Container<br/>Code Execution]
+    Validation[✅ Code Validation]
+    
+    %% Capability Management
+    Capabilities[📚 Capability Library]
+    
+    %% Safety & Security
+    Rules[📋 Ethical Rules<br/>principles.json]
+    Block[🚫 Block Harmful Actions]
+    
+    %% User Connections
+    User --> API
+    User --> Principles
+    User --> Monitor
+    
+    %% Main Data Flow
+    User --> |1. Request Task| API
+    API --> |2. Check Principles| PC
+    PC --> |3. Generate Code| CG
+    CG --> |4. Store Code| CS
+    CS --> |5. Execute in Docker| DA
+    DA --> |6. Validate Results| Validation
+    Validation --> |7. Learn & Update| SM
+    SM --> |8. Return Results| User
+    
+    %% API Connections
+    API --> IE
+    API --> CG
+    API --> CS
+    API --> DA
+    API --> TR
+    API --> PI
+    
+    %% Event Bus Producers
     API --> |Publish Canonical Events| NATS
     IE --> |Publish Execution Events| NATS
     PI --> |Publish Plan Events| NATS
     
-    %% Event Consumers
-    HP[🧠 Hierarchical Planner] --> |Subscribe| NATS
-    WO[⚙️ Workflow Orchestrator] --> |Subscribe| NATS
-    Monitor --> |Subscribe (Observability)| NATS
-    SM[🧠 Self-Model Manager] --> |Subscribe (Beliefs)| NATS
+    %% Event Bus Consumers
+    HP --> |Subscribe| NATS
+    WO --> |Subscribe| NATS
+    Monitor --> |Subscribe Observability| NATS
+    SM --> |Subscribe Beliefs| NATS
     
-    %% Planner Evaluator System
-    PI --> HP[🧠 Hierarchical Planner]
-    PI --> WO[⚙️ Workflow Orchestrator]
-    PI --> BP[📋 Base Planner]
+    %% Planner Integration
+    PI --> HP
+    PI --> WO
+    PI --> BP
     
-    %% Self-Model Integration
-    IE --> SM[🧠 Self-Model Manager<br/>Goal Tracking & Learning]
-    SM --> Redis[💾 Redis<br/>Self-Model Data]
+    %% Self-Model Flow
+    IE --> SM
+    SM --> Redis
+    IE --> |Record Episode| SM
+    IE --> |Update Beliefs| SM
+    IE --> |Track Goals| SM
     
-    %% LLM Integration - Safety Analysis
-    IE --> |"1. Safety Analysis"| LLM1[🤖 LLM Client<br/>Safety Categorization]
-    LLM1 --> |"Returns safety context"| IE
+    %% LLM Integration Flow
+    IE --> |1. Safety Analysis| LLM1
+    LLM1 --> |Returns safety context| IE
+    CG --> |2. Generate Code| LLM2
+    LLM2 --> |Returns generated code| CG
+    IE --> |3. Fix Code| LLM3
+    LLM3 --> |Returns fixed code| IE
     
-    %% LLM Integration - Code Generation
-    CG --> |"2. Generate Code"| LLM2[🤖 LLM Client<br/>Code Generation]
-    LLM2 --> |"Returns generated code"| CG
-    
-    %% LLM Integration - Code Fixing
-    IE --> |"3. Fix Code"| LLM3[🤖 LLM Client<br/>Code Fixing]
-    LLM3 --> |"Returns fixed code"| IE
-    
-    %% Principles Integration
-    IE --> PC[🔍 Principles Checker]
+    %% Principles Flow
+    IE --> PC
     PC --> Principles
+    Principles --> Rules
+    Rules --> Block
     
-    %% Code Generation Flow
-    CG --> CS
+    %% Code Execution Flow
     CS --> DA
-    DA --> Docker[🐳 Docker Container<br/>Code Execution]
-    
-    %% Validation Flow
-    Docker --> Validation[✅ Code Validation]
+    DA --> Docker
+    Docker --> Validation
     Validation --> CS
     Validation --> IE
     
-    %% Self-Model Learning Flow
-    IE --> |"4. Record Episode"| SM
-    IE --> |"5. Update Beliefs"| SM
-    IE --> |"6. Track Goals"| SM
-    
     %% Capability Management
-    CS --> Capabilities[📚 Capability Library]
+    CS --> Capabilities
     Capabilities --> API
     TR --> API
-    
-    %% Safety & Security
-    Principles --> Rules[📋 Ethical Rules<br/>principles.json]
-    Rules --> Block[🚫 Block Harmful Actions]
-    
-    %% Data Flow
-    User --> |"1. Request Task"| API
-    API --> |"2. Check Principles"| PC
-    PC --> |"3. Generate Code"| CG
-    CG --> |"4. Store Code"| CS
-    CS --> |"5. Execute in Docker"| DA
-    DA --> |"6. Validate Results"| Validation
-    Validation --> |"7. Learn & Update"| SM
-    SM --> |"8. Return Results"| User
     
     %% Styling
     classDef userClass fill:#e1f5fe
@@ -109,7 +140,7 @@ graph TB
     class User userClass
     class API,IE,CG,DA serverClass
     class PC,HP,WO,BP aiClass
-    class CS,Capabilities,Redis storageClass
+    class CS,Capabilities,Redis,TR storageClass
     class Principles,Rules,Block securityClass
     class LLM1,LLM2,LLM3 llmClass
     class SM selfClass
