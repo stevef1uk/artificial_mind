@@ -272,6 +272,23 @@ Experience real-time AI introspection with our revolutionary thinking mode:
 - **Tool usage monitoring** and execution transparency
 - **Educational interface** for understanding AI reasoning
 
+### 📋 Activity Log (NEW!)
+See what the system is doing in plain English with the activity log:
+
+```bash
+# View recent activities
+curl http://localhost:8083/activity?limit=20
+```
+
+**Features:**
+- **Human-readable activity log** - See state transitions, hypothesis generation, knowledge growth
+- **Real-time monitoring** - Activities logged as they happen
+- **Easy debugging** - Understand why the system made certain decisions
+- **Learning insights** - Track when and how the knowledge base grows
+- **Hypothesis tracking** - Follow hypothesis generation and testing cycles
+
+See [Activity Log Documentation](docs/ACTIVITY_LOG.md) for complete details.
+
 ### ⚖️ Ethical AI
 - **Pre-execution checking** - All actions validated before execution
 - **Dynamic rule loading** - Update ethical rules without restarting
@@ -320,6 +337,15 @@ Experience real-time AI introspection with our revolutionary thinking mode:
 - `POST /api/v1/tools/execute` - Execute specific tools
 - `GET /api/v1/intelligent/capabilities` - AI capabilities
 
+#### 📊 FSM Monitoring & Activity Log
+- `GET /health` - FSM server health check
+- `GET /status` - Full FSM status and metrics
+- `GET /thinking` - Current thinking process and state
+- `GET /activity?limit=50` - **Activity log** - See what the system is doing in plain English
+- `GET /timeline?hours=24` - State transition timeline
+- `GET /hypotheses` - Active hypotheses
+- `GET /episodes?limit=10` - Recent learning episodes
+
 ---
 
 ## 🎨 Usage Examples
@@ -363,6 +389,61 @@ curl -X POST http://localhost:8081/api/v1/docker/execute \
     "language": "python"
   }'
 ```
+
+### View System Activity Log
+
+**See what the system is doing in real-time:**
+
+```bash
+# Get recent activity (last 20 activities)
+curl http://localhost:8083/activity?limit=20
+
+# Watch activity in real-time (updates every 2 seconds)
+watch -n 2 'curl -s http://localhost:8083/activity?limit=5 | jq -r ".activities[] | \"\(.timestamp | split(\".\")[0]) \(.message)\""'
+
+# Get activity for specific agent
+curl http://localhost:8083/activity?agent_id=agent_1&limit=50
+```
+
+**Example Response:**
+```json
+{
+  "activities": [
+    {
+      "timestamp": "2024-01-15T10:30:00Z",
+      "message": "Moved from 'idle' to 'perceive': Ingesting and validating new data",
+      "state": "perceive",
+      "category": "state_change",
+      "details": "Reason: new_input"
+    },
+    {
+      "timestamp": "2024-01-15T10:30:15Z",
+      "message": "🧠 Generating hypotheses from facts and domain knowledge",
+      "state": "hypothesize",
+      "category": "action",
+      "action": "generate_hypotheses"
+    },
+    {
+      "timestamp": "2024-01-15T10:30:30Z",
+      "message": "Generated 3 hypotheses in domain 'programming'",
+      "state": "hypothesize",
+      "category": "hypothesis",
+      "details": "Domain: programming, Count: 3"
+    }
+  ],
+  "count": 3,
+  "agent_id": "agent_1"
+}
+```
+
+**Activity Categories:**
+- `state_change` - System moved to a new state
+- `action` - Important action being executed
+- `hypothesis` - Hypothesis generation or testing
+- `learning` - Knowledge base growth
+- `decision` - Decision-making processes
+
+See [Activity Log Documentation](docs/ACTIVITY_LOG.md) for more details.
 
 ---
 

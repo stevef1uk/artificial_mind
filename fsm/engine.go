@@ -129,6 +129,16 @@ type FSMEngine struct {
 	stateEntryTime       time.Time // Track when current state was entered
 }
 
+// ActivityLogEntry represents a human-readable activity log entry
+type ActivityLogEntry struct {
+	Timestamp time.Time `json:"timestamp"`
+	Message   string    `json:"message"`
+	State     string    `json:"state,omitempty"`
+	Action    string    `json:"action,omitempty"`
+	Details   string    `json:"details,omitempty"`
+	Category  string    `json:"category"` // "state_change", "action", "learning", "hypothesis", "decision"
+}
+
 // CanonicalEvent represents the standard event envelope
 type CanonicalEvent struct {
 	EventID   string                 `json:"event_id"`
@@ -252,7 +262,46 @@ func NewFSMEngine(configPath string, agentID string, nc *nats.Conn, redis *redis
 	engine.context["project_id"] = projectID
 	engine.ensureHDNProject(projectID)
 
+	// Log initial activity
+	engine.logActivity("System started", "state_change", map[string]string{
+		"state":   engine.currentState,
+		"details": "FSM engine initialized and ready",
+	})
+
 	return engine, nil
+}
+
+// logActivity logs a human-readable activity entry to Redis
+func (e *FSMEngine) logActivity(message, category string, extras map[string]string) {
+	entry := ActivityLogEntry{
+		Timestamp: time.Now(),
+		Message:   message,
+		Category:  category,
+		State:     e.currentState,
+	}
+
+	// Add any extra details
+	if state, ok := extras["state"]; ok && state != "" {
+		entry.State = state
+	}
+	if action, ok := extras["action"]; ok && action != "" {
+		entry.Action = action
+	}
+	if details, ok := extras["details"]; ok && details != "" {
+		entry.Details = details
+	}
+
+	// Store in Redis (keep last 200 entries)
+	key := fmt.Sprintf("fsm:%s:activity_log", e.agentID)
+	data, err := json.Marshal(entry)
+	if err == nil {
+		e.redis.LPush(e.ctx, key, data)
+		e.redis.LTrim(e.ctx, key, 0, 199)          // Keep last 200 entries
+		e.redis.Expire(e.ctx, key, 7*24*time.Hour) // Expire after 7 days
+	}
+
+	// Also log to console for immediate visibility
+	log.Printf("📋 [ACTIVITY] %s", message)
 }
 
 // LoadConfig loads FSM configuration from YAML file
@@ -508,6 +557,19 @@ func (e *FSMEngine) transitionTo(newState string, reason string, event map[strin
 	e.currentState = newState
 	e.stateEntryTime = time.Now() // Update state entry time
 
+	// Get human-readable state description
+	stateDesc := e.getStateDescription(newState)
+
+	// Log activity
+	e.logActivity(
+		fmt.Sprintf("Moved from '%s' to '%s': %s", oldState, newState, stateDesc),
+		"state_change",
+		map[string]string{
+			"state":   newState,
+			"details": fmt.Sprintf("Reason: %s", reason),
+		},
+	)
+
 	// Execute actions for new state
 	stateConfig := e.findStateConfig(newState)
 	if stateConfig != nil {
@@ -532,9 +594,53 @@ func (e *FSMEngine) transitionTo(newState string, reason string, event map[strin
 	}
 }
 
+// getStateDescription returns a human-readable description of what happens in a state
+func (e *FSMEngine) getStateDescription(state string) string {
+	descriptions := map[string]string{
+		"idle":            "Waiting for input or timer events",
+		"perceive":        "Ingesting and validating new data using domain knowledge",
+		"learn":           "Extracting facts and updating domain knowledge - GROWING KNOWLEDGE BASE",
+		"summarize":       "Compressing episodes into structured facts",
+		"hypothesize":     "Generating hypotheses using domain knowledge and constraints",
+		"reason":          "Applying reasoning and inference to generate new beliefs",
+		"reason_continue": "Continuing reasoning process and generating explanations",
+		"plan":            "Creating hierarchical plans using domain-specific success rates",
+		"decide":          "Choosing action using principles and domain constraints - CHECKING PRINCIPLES",
+		"act":             "Executing planned action with domain-aware monitoring",
+		"observe":         "Collecting outcomes and validating against domain expectations",
+		"evaluate":        "Comparing outcomes to domain knowledge and updating beliefs - GROWING KNOWLEDGE BASE",
+		"archive":         "Checkpointing episode and updating domain knowledge",
+		"fail":            "Handling errors with domain-aware recovery",
+		"paused":          "Manual pause state",
+		"shutdown":        "Clean shutdown with knowledge base preservation",
+	}
+	if desc, ok := descriptions[state]; ok {
+		return desc
+	}
+	return "Processing in " + state
+}
+
 // executeAction executes a single action
 func (e *FSMEngine) executeAction(action ActionConfig, event map[string]interface{}) {
 	log.Printf("Executing action: %s (module: %s)", action.Type, action.Module)
+
+	// Log activity for important actions
+	actionMessages := map[string]string{
+		"generate_hypotheses":     "🧠 Generating hypotheses from facts and domain knowledge",
+		"test_hypothesis":         "🧪 Testing hypothesis with tools to gather evidence",
+		"grow_knowledge_base":     "🌱 Growing knowledge base: discovering concepts and filling gaps",
+		"discover_new_concepts":   "🔍 Discovering new concepts from episodes",
+		"update_domain_knowledge": "📚 Updating domain knowledge with new information",
+		"plan_test_or_action":     "📋 Creating hierarchical plan using success rates",
+		"check_principles":        "🛡️ Checking principles compliance before action",
+		"execute_action":          "⚡ Executing action with tools",
+	}
+	if msg, ok := actionMessages[action.Type]; ok {
+		e.logActivity(msg, "action", map[string]string{
+			"action": action.Type,
+			"state":  e.currentState,
+		})
+	}
 
 	// Dispatch to appropriate module
 	switch action.Module {
@@ -931,6 +1037,15 @@ func (e *FSMEngine) executeHypothesisGenerator(action ActionConfig, event map[st
 
 		// Create curiosity goals for testing hypotheses
 		e.createHypothesisTestingGoals(hypotheses, domain)
+
+		// Log activity
+		e.logActivity(
+			fmt.Sprintf("Generated %d hypotheses in domain '%s'", len(hypotheses), domain),
+			"hypothesis",
+			map[string]string{
+				"details": fmt.Sprintf("Domain: %s, Count: %d", domain, len(hypotheses)),
+			},
+		)
 	} else {
 		log.Printf("ℹ️ No hypotheses generated")
 		e.context["no_hypotheses_generated"] = true
@@ -1581,6 +1696,15 @@ func (e *FSMEngine) executeGrowthEngine(action ActionConfig, event map[string]in
 	}
 
 	log.Printf("✅ Knowledge base growth completed")
+
+	// Log activity
+	e.logActivity(
+		fmt.Sprintf("Knowledge base grew: processed %d episodes in domain '%s'", len(episodes), domain),
+		"learning",
+		map[string]string{
+			"details": fmt.Sprintf("Domain: %s, Episodes: %d", domain, len(episodes)),
+		},
+	)
 	e.context["knowledge_grown"] = true
 
 	// Generate curiosity goals to trigger transition to reason state
@@ -2277,6 +2401,16 @@ func (e *FSMEngine) executeHypothesisTesting(action ActionConfig, event map[stri
 	// Update hypothesis with results
 	hypothesis["status"] = result.Status
 	hypothesis["testing_completed_at"] = time.Now().Format(time.RFC3339)
+
+	// Log activity
+	desc, _ := hypothesis["description"].(string)
+	e.logActivity(
+		fmt.Sprintf("Hypothesis test result: %s (confidence: %.2f)", result.Status, result.Confidence),
+		"hypothesis",
+		map[string]string{
+			"details": fmt.Sprintf("Hypothesis: %s, Status: %s", desc[:min(100, len(desc))], result.Status),
+		},
+	)
 	hypothesis["evidence"] = evidence
 	hypothesis["evaluation"] = result.Evaluation
 	hypothesis["confidence"] = result.Confidence

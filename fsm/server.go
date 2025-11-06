@@ -199,13 +199,13 @@ func main() {
 	opts.Timeout = 10 * time.Second
 	opts.PingInterval = 30 * time.Second
 	opts.MaxPingsOut = 3
-	
+
 	nc, err := opts.Connect()
 	if err != nil {
 		log.Fatalf("Failed to connect to NATS: %v", err)
 	}
 	defer nc.Close()
-	
+
 	// Set up connection event handlers
 	nc.SetDisconnectHandler(func(nc *nats.Conn) {
 		log.Printf("⚠️  NATS disconnected")
@@ -637,6 +637,51 @@ func startMonitoringServer(monitor *FSMMonitor, agentID string) {
 		json.NewEncoder(w).Encode(episodes)
 	})
 
+	// Activity log endpoint - shows what the system is doing in plain English
+	http.HandleFunc("/activity", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// Get limit from query param (default 50)
+		limitStr := r.URL.Query().Get("limit")
+		limit := 50
+		if limitStr != "" {
+			if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 && parsed <= 200 {
+				limit = parsed
+			}
+		}
+
+		// Get agent ID from context or query param
+		agent := agentID
+		if agentParam := r.URL.Query().Get("agent_id"); agentParam != "" {
+			agent = agentParam
+		}
+
+		// Retrieve activity log from Redis
+		ctx := context.Background()
+		key := fmt.Sprintf("fsm:%s:activity_log", agent)
+		entries, err := monitor.redis.LRange(ctx, key, 0, int64(limit-1)).Result()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to get activity log: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Parse entries
+		activities := []map[string]interface{}{}
+		for _, entry := range entries {
+			var activity map[string]interface{}
+			if err := json.Unmarshal([]byte(entry), &activity); err == nil {
+				activities = append(activities, activity)
+			}
+		}
+
+		// Return as JSON
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"activities": activities,
+			"count":      len(activities),
+			"agent_id":   agent,
+		})
+	})
+
 	// Reset FSM state to idle
 	http.HandleFunc("/reset", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
@@ -677,6 +722,7 @@ func startMonitoringServer(monitor *FSMMonitor, agentID string) {
 	log.Printf("  GET /knowledge-growth?hours=24 - Knowledge growth timeline")
 	log.Printf("  GET /hypotheses - Active hypotheses")
 	log.Printf("  GET /episodes?limit=10 - Recent episodes")
+	log.Printf("  GET /activity?limit=50 - Recent activity log (what the system is doing)")
 
 	if err := http.ListenAndServe(port, nil); err != nil {
 		log.Printf("Monitoring server error: %v", err)
