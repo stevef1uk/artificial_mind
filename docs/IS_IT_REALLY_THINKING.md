@@ -215,6 +215,7 @@ Whether it's "really thinking" in a philosophical sense may be less important th
 
 ## Further Reading
 
+- **[Reasoning Explanation Examples](REASONING_EXPLANATION_EXAMPLES.md)** - **See concrete examples of how the system explains its reasoning** ⭐
 - [Reasoning and Inference](REASONING_AND_INFERENCE.md) - Technical details of reasoning capabilities
 - [Reasoning Layer](REASONING_LAYER.md) - Architecture of reasoning system
 - [Thinking Mode](THINKING_MODE_README.md) - Introspection and transparency features
