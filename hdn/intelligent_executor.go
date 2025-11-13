@@ -157,6 +157,98 @@ func (ie *IntelligentExecutor) callTool(toolID string, params map[string]interfa
 	return result, nil
 }
 
+// getAvailableTools fetches available tools from the HDN API
+func (ie *IntelligentExecutor) getAvailableTools(ctx context.Context) ([]Tool, error) {
+	if ie.hdnBaseURL == "" {
+		return []Tool{}, nil
+	}
+
+	url := fmt.Sprintf("%s/api/v1/tools", ie.hdnBaseURL)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get tools: status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Tools []Tool `json:"tools"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return result.Tools, nil
+}
+
+// filterRelevantTools filters tools relevant to the task
+func (ie *IntelligentExecutor) filterRelevantTools(tools []Tool, req *ExecutionRequest) []Tool {
+	var relevant []Tool
+	descLower := strings.ToLower(req.Description)
+	taskLower := strings.ToLower(req.TaskName)
+	combined := descLower + " " + taskLower
+
+	// Keywords that suggest tool usage
+	toolKeywords := map[string][]string{
+		"tool_html_scraper": {"scrape", "html", "web", "fetch", "url", "website", "article", "news", "page", "content"},
+		"tool_http_get":     {"http", "url", "fetch", "get", "request", "api", "endpoint", "download"},
+		"tool_file_read":    {"read", "file", "load", "open", "readfile", "read file"},
+		"tool_file_write":   {"write", "file", "save", "store", "output", "write file", "save file"},
+		"tool_ls":           {"list", "directory", "dir", "files", "ls", "list files"},
+	}
+
+	seen := make(map[string]bool) // Track tools we've already added
+
+	for _, tool := range tools {
+		if seen[tool.ID] {
+			continue
+		}
+
+		// Check if tool matches keywords
+		matched := false
+		for toolID, keywords := range toolKeywords {
+			if tool.ID == toolID {
+				for _, keyword := range keywords {
+					if strings.Contains(combined, keyword) {
+						relevant = append(relevant, tool)
+						seen[tool.ID] = true
+						matched = true
+						break
+					}
+				}
+				if matched {
+					break
+				}
+			}
+		}
+
+		if matched {
+			continue
+		}
+
+		// Also check tool description/name
+		toolDesc := strings.ToLower(tool.Description + " " + tool.Name)
+		for _, keyword := range []string{"scrape", "http", "fetch", "url", "web", "file", "read", "write"} {
+			if strings.Contains(combined, keyword) && strings.Contains(toolDesc, keyword) {
+				relevant = append(relevant, tool)
+				seen[tool.ID] = true
+				break
+			}
+		}
+	}
+
+	return relevant
+}
+
 // executeWithSSHTool executes code using the SSH executor tool
 func (ie *IntelligentExecutor) executeWithSSHTool(ctx context.Context, code, language string) (*DockerExecutionResponse, error) {
 	// Determine if the SSH executor is enabled on this platform
@@ -1166,6 +1258,24 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 
 	// Step 3: Generate new code using LLM
 	log.Printf("🤖 [INTELLIGENT] Generating new code using LLM")
+
+	// Get available tools
+	tools, err := ie.getAvailableTools(ctx)
+	if err != nil {
+		log.Printf("⚠️ [INTELLIGENT] Failed to get tools: %v (continuing without tools)", err)
+		tools = []Tool{}
+	}
+
+	// Filter relevant tools
+	relevantTools := ie.filterRelevantTools(tools, req)
+	if len(relevantTools) > 0 {
+		toolNames := make([]string, len(relevantTools))
+		for i, t := range relevantTools {
+			toolNames[i] = t.ID
+		}
+		log.Printf("🔧 [INTELLIGENT] Found %d relevant tools for task: %v", len(relevantTools), toolNames)
+	}
+
 	// Filter non-functional context keys before sending to codegen
 	filteredCtx := filterCodegenContext(req.Context)
 	codeGenReq := &CodeGenerationRequest{
@@ -1175,6 +1285,8 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		Context:     filteredCtx,
 		Tags:        []string{"intelligent_execution", "auto_generated"},
 		Executable:  true,
+		Tools:       relevantTools,
+		ToolAPIURL:  ie.hdnBaseURL,
 	}
 
 	codeGenResult, err := ie.codeGenerator.GenerateCode(codeGenReq)

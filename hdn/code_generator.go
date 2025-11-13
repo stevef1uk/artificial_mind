@@ -21,6 +21,8 @@ type CodeGenerationRequest struct {
 	Context     map[string]string `json:"context"`
 	Tags        []string          `json:"tags"`
 	Executable  bool              `json:"executable"`
+	Tools       []Tool            `json:"tools,omitempty"`        // Available tools to use
+	ToolAPIURL  string            `json:"tool_api_url,omitempty"` // Base URL for tool API
 }
 
 // CodeGenerationResponse represents the response from code generation
@@ -161,6 +163,62 @@ Code:`
 		tagsStr = fmt.Sprintf("\nTags: %s\n", strings.Join(req.Tags, ", "))
 	}
 
+	// Build tool information section
+	toolsSection := ""
+	if len(req.Tools) > 0 && req.ToolAPIURL != "" {
+		toolsSection = "\n\n🔧 AVAILABLE TOOLS - USE THESE INSTEAD OF DUMMY DATA:\n"
+		toolsSection += "CRITICAL: If the task requires functionality that matches these tools, you MUST use the tools instead of generating dummy implementations.\n"
+		toolsSection += fmt.Sprintf("Tool API Base URL: %s\n\n", req.ToolAPIURL)
+
+		for _, tool := range req.Tools {
+			toolsSection += fmt.Sprintf("Tool: %s (%s)\n", tool.ID, tool.Name)
+			toolsSection += fmt.Sprintf("Description: %s\n", tool.Description)
+			if len(tool.InputSchema) > 0 {
+				toolsSection += "Parameters:\n"
+				for param, paramType := range tool.InputSchema {
+					toolsSection += fmt.Sprintf("  - %s (%s)\n", param, paramType)
+				}
+			}
+			toolsSection += fmt.Sprintf("Call: POST %s/api/v1/tools/%s/invoke\n", req.ToolAPIURL, tool.ID)
+			toolsSection += "Request Body: JSON object with parameters\n\n"
+		}
+
+		// Add examples for common languages
+		toolsSection += "EXAMPLES:\n\n"
+
+		// Python example
+		toolsSection += "Python - Call HTML Scraper:\n"
+		toolsSection += "```python\n"
+		toolsSection += "import requests\n"
+		toolsSection += "import json\n"
+		toolsSection += "url = 'https://example.com'\n"
+		toolsSection += fmt.Sprintf("response = requests.post('%s/api/v1/tools/tool_html_scraper/invoke',\n", req.ToolAPIURL)
+		toolsSection += "    json={'url': url})\n"
+		toolsSection += "data = response.json()\n"
+		toolsSection += "# Process data['items'] or data['output']\n"
+		toolsSection += "print(json.dumps(data, indent=2))\n"
+		toolsSection += "```\n\n"
+
+		// Go example
+		toolsSection += "Go - Call HTTP GET:\n"
+		toolsSection += "```go\n"
+		toolsSection += "import (\n"
+		toolsSection += "    \"bytes\"\n"
+		toolsSection += "    \"encoding/json\"\n"
+		toolsSection += "    \"net/http\"\n"
+		toolsSection += "    \"io\"\n"
+		toolsSection += ")\n"
+		toolsSection += "url := \"https://example.com\"\n"
+		toolsSection += "jsonData, _ := json.Marshal(map[string]string{\"url\": url})\n"
+		toolsSection += fmt.Sprintf("resp, _ := http.Post(\"%s/api/v1/tools/tool_http_get/invoke\",\n", req.ToolAPIURL)
+		toolsSection += "    \"application/json\", bytes.NewBuffer(jsonData))\n"
+		toolsSection += "defer resp.Body.Close()\n"
+		toolsSection += "body, _ := io.ReadAll(resp.Body)\n"
+		toolsSection += "var result map[string]interface{}\n"
+		toolsSection += "json.Unmarshal(body, &result)\n"
+		toolsSection += "```\n\n"
+	}
+
 	return fmt.Sprintf(`🚫 CRITICAL RESTRICTION - MUST FOLLOW:
 - NEVER use Docker commands (docker run, docker build, docker exec, etc.) - Docker is NOT available
 - NEVER use subprocess.run with docker commands - this will cause FileNotFoundError
@@ -184,7 +242,11 @@ IMPORTANT:
 - The program must compile cleanly with the language's standard compiler (for Go: `+"`go build`"+`) with no unused variables or imports
 - Use ONLY the standard library unless explicitly requested otherwise
 - Use ASCII identifiers only (no non-ASCII names)
-- Do NOT perform any network or external API calls unless explicitly requested
+- If tools are available above, you MUST use them instead of dummy data
+- Do NOT create hardcoded dummy data when tools can fetch real data
+- For web scraping: use tool_html_scraper or tool_http_get if available
+- For file operations: use tool_file_read or tool_file_write if available
+- Only perform direct network calls if no tool is available
 - The code must include a print statement to output the result
 - Use the correct file paths for any data files (see IMPORTANT notes above)
 - For mathematical tasks, create appropriate functions and print the results
@@ -211,7 +273,7 @@ DO NOT include:
 
 The code should run once and print only the expected result. Ensure it compiles without errors before returning.
 
-Code:`, req.Language, req.TaskName, req.Description, contextStr, filePathInfo, tagsStr, req.TaskName, time.Now().UnixNano())
+%sCode:`, req.Language, req.TaskName, req.Description, contextStr, filePathInfo, tagsStr, req.TaskName, time.Now().UnixNano(), toolsSection)
 }
 
 // extractCodeFromResponse extracts code from the LLM response
