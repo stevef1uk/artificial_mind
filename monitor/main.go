@@ -370,6 +370,9 @@ func main() {
 	r.GET("/api/reasoning/explanations", monitor.getRecentExplanations)
 	r.GET("/api/reasoning/domains", monitor.getReasoningDomains)
 
+	// Reflection endpoint - comprehensive introspection of system's mental state
+	r.GET("/api/reflect", monitor.getReflection)
+
 	// FSM proxy (embed FSM UI/API under the monitor)
 	r.Any("/api/fsm/*path", monitor.proxyFSM)
 
@@ -5161,6 +5164,144 @@ func (m *MonitorService) getReasoningDomains(c *gin.Context) {
 	union = unique(union)
 
 	c.JSON(http.StatusOK, result{Domains: union, BeliefDomains: beliefs, CuriosityDomains: curiosity})
+}
+
+// getReflection provides comprehensive introspection of the system's current mental state
+func (m *MonitorService) getReflection(c *gin.Context) {
+	ctx := context.Background()
+	domain := c.DefaultQuery("domain", "General")
+	limit := 10 // Default limit for each section
+
+	reflection := map[string]interface{}{
+		"timestamp": time.Now().Format(time.RFC3339),
+		"domain":    domain,
+	}
+
+	// 1. FSM Current State and Thinking
+	fsmThinking := map[string]interface{}{}
+	if resp, err := http.Get(m.fsmURL + "/thinking"); err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == 200 {
+			var thinking map[string]interface{}
+			if json.NewDecoder(resp.Body).Decode(&thinking) == nil {
+				fsmThinking = thinking
+			}
+		}
+	}
+	reflection["fsm_thinking"] = fsmThinking
+
+	// 2. Recent Reasoning Traces
+	tracesKey := fmt.Sprintf("reasoning:traces:%s", domain)
+	traces, _ := m.redisClient.LRange(ctx, tracesKey, 0, int64(limit-1)).Result()
+	var reasoningTraces []map[string]interface{}
+	for _, traceData := range traces {
+		var trace map[string]interface{}
+		if json.Unmarshal([]byte(traceData), &trace) == nil {
+			reasoningTraces = append(reasoningTraces, trace)
+		}
+	}
+	reflection["reasoning_traces"] = reasoningTraces
+
+	// 3. Current Beliefs
+	beliefsKey := fmt.Sprintf("reasoning:beliefs:%s", domain)
+	beliefs, _ := m.redisClient.LRange(ctx, beliefsKey, 0, int64(limit-1)).Result()
+	var beliefList []map[string]interface{}
+	for _, beliefData := range beliefs {
+		var belief map[string]interface{}
+		if json.Unmarshal([]byte(beliefData), &belief) == nil {
+			beliefList = append(beliefList, belief)
+		}
+	}
+	reflection["beliefs"] = beliefList
+
+	// 4. Active Curiosity Goals
+	curiosityKey := fmt.Sprintf("reasoning:curiosity_goals:%s", domain)
+	goals, _ := m.redisClient.LRange(ctx, curiosityKey, 0, int64(limit-1)).Result()
+	var goalList []map[string]interface{}
+	for _, goalData := range goals {
+		var goal map[string]interface{}
+		if json.Unmarshal([]byte(goalData), &goal) == nil {
+			goalList = append(goalList, goal)
+		}
+	}
+	reflection["curiosity_goals"] = goalList
+
+	// 5. Recent Hypotheses
+	hypothesesKey := "fsm:agent_1:hypotheses"
+	hypotheses, _ := m.redisClient.HGetAll(ctx, hypothesesKey).Result()
+	var hypothesisList []map[string]interface{}
+	count := 0
+	for _, hypothesisData := range hypotheses {
+		if count >= limit {
+			break
+		}
+		var hypothesis map[string]interface{}
+		if json.Unmarshal([]byte(hypothesisData), &hypothesis) == nil {
+			if domain == "General" || hypothesis["domain"] == domain {
+				hypothesisList = append(hypothesisList, hypothesis)
+				count++
+			}
+		}
+	}
+	reflection["hypotheses"] = hypothesisList
+
+	// 6. Recent Tool Calls
+	if resp, err := http.Get(m.hdnURL + "/api/v1/tools/calls/recent?limit=" + fmt.Sprintf("%d", limit)); err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == 200 {
+			var toolCalls map[string]interface{}
+			if json.NewDecoder(resp.Body).Decode(&toolCalls) == nil {
+				reflection["recent_tool_calls"] = toolCalls["calls"]
+			}
+		}
+	}
+
+	// 7. Working Memory Summary (if available)
+	if resp, err := http.Get(m.hdnURL + "/api/v1/memory/summary"); err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == 200 {
+			var summary map[string]interface{}
+			if json.NewDecoder(resp.Body).Decode(&summary) == nil {
+				reflection["working_memory"] = summary
+			}
+		}
+	}
+
+	// 8. Active Goals (from Goal Manager if available)
+	if resp, err := http.Get(m.goalMgrURL + "/goals/agent_1/active"); err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == 200 {
+			var goals map[string]interface{}
+			if json.NewDecoder(resp.Body).Decode(&goals) == nil {
+				reflection["active_goals"] = goals
+			}
+		}
+	}
+
+	// 9. Recent Explanations
+	explanationsKey := "reasoning:explanations"
+	explanations, _ := m.redisClient.LRange(ctx, explanationsKey, 0, int64(limit-1)).Result()
+	var explanationList []map[string]interface{}
+	for _, expData := range explanations {
+		var exp map[string]interface{}
+		if json.Unmarshal([]byte(expData), &exp) == nil {
+			explanationList = append(explanationList, exp)
+		}
+	}
+	reflection["explanations"] = explanationList
+
+	// 10. System Status Summary
+	reflection["summary"] = map[string]interface{}{
+		"reasoning_traces_count": len(reasoningTraces),
+		"beliefs_count":          len(beliefList),
+		"curiosity_goals_count":  len(goalList),
+		"hypotheses_count":       len(hypothesisList),
+		"explanations_count":     len(explanationList),
+		"fsm_state":              fsmThinking["current_state"],
+		"fsm_thinking_focus":     fsmThinking["thinking_focus"],
+	}
+
+	c.JSON(http.StatusOK, reflection)
 }
 
 // getRecentExplanations retrieves recent explanations across all goals

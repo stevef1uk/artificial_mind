@@ -7,6 +7,8 @@ This document provides comprehensive API reference for the Artificial Mind syste
 - [Principles API (Port 8080)](#principles-api-port-8080)
 - [HDN API (Port 8081)](#hdn-api-port-8081)
 - [Monitor UI (Port 8082)](#monitor-ui-port-8082)
+  - [Reasoning Layer APIs](#reasoning-layer-apis)
+  - [Reflection Endpoint](#reflection-endpoint)
 - [Available Tools](#available-tools)
 - [Response Formats](#response-formats)
 - [Error Handling](#error-handling)
@@ -400,6 +402,262 @@ Natural language interpretation.
 POST /api/interpret/execute
 ```
 Natural language interpretation and execution.
+
+### Reasoning Layer APIs
+
+#### Get Reasoning Traces
+```
+GET /api/reasoning/traces/:domain
+```
+Get reasoning traces for a specific domain.
+
+**Parameters:**
+- `domain` (path) - Domain name (e.g., "General", "Science")
+
+**Response:**
+```json
+{
+  "traces": [
+    {
+      "goal": "Understand quantum mechanics",
+      "conclusion": "Quantum mechanics involves wave-particle duality",
+      "confidence": 0.85,
+      "steps": [...]
+    }
+  ]
+}
+```
+
+#### Get Beliefs
+```
+GET /api/reasoning/beliefs/:domain
+```
+Get current beliefs for a domain.
+
+**Parameters:**
+- `domain` (path) - Domain name
+
+**Response:**
+```json
+{
+  "beliefs": [
+    {
+      "statement": "Quantum mechanics is a fundamental theory",
+      "confidence": 0.9,
+      "source": "knowledge_base",
+      "domain": "Science"
+    }
+  ]
+}
+```
+
+#### Get Curiosity Goals
+```
+GET /api/reasoning/curiosity-goals/:domain
+```
+Get active curiosity-driven exploration goals.
+
+**Parameters:**
+- `domain` (path) - Domain name
+
+**Response:**
+```json
+{
+  "goals": [
+    {
+      "id": "curiosity_001",
+      "description": "Explore quantum entanglement",
+      "type": "exploration",
+      "priority": 5,
+      "status": "active"
+    }
+  ]
+}
+```
+
+#### Get Hypotheses
+```
+GET /api/reasoning/hypotheses/:domain
+```
+Get generated and tested hypotheses.
+
+**Parameters:**
+- `domain` (path) - Domain name
+
+**Response:**
+```json
+{
+  "hypotheses": [
+    {
+      "id": "hyp_001",
+      "description": "Quantum entanglement affects measurement outcomes",
+      "status": "tested",
+      "confidence": 0.75,
+      "domain": "Science"
+    }
+  ]
+}
+```
+
+#### Get Reasoning Explanations
+```
+GET /api/reasoning/explanations/:goal
+```
+Get human-readable explanations for a specific goal.
+
+**Parameters:**
+- `goal` (path) - Goal identifier
+
+**Response:**
+```json
+{
+  "explanations": [
+    {
+      "goal": "Understand quantum mechanics",
+      "explanation": "The system reasoned about quantum mechanics by...",
+      "generated_at": "2025-11-13T16:20:00Z"
+    }
+  ]
+}
+```
+
+#### Get Recent Explanations
+```
+GET /api/reasoning/explanations
+```
+Get recent explanations across all goals.
+
+**Response:**
+```json
+{
+  "explanations": [...]
+}
+```
+
+#### Get Reasoning Domains
+```
+GET /api/reasoning/domains
+```
+Get list of all domains with reasoning data.
+
+**Response:**
+```json
+{
+  "domains": ["General", "Science", "Maths"],
+  "belief_domains": ["General", "Science"],
+  "curiosity_domains": ["General", "Science", "Maths"]
+}
+```
+
+### Reflection Endpoint
+
+#### Get System Reflection
+```
+GET /api/reflect
+```
+**NEW** - Comprehensive introspection endpoint that aggregates the system's current mental state. This provides a unified view of what the AI is thinking, believing, curious about, and doing.
+
+**Query Parameters:**
+- `domain` (optional) - Filter by reasoning domain (default: "General")
+
+**Response:**
+```json
+{
+  "timestamp": "2025-11-13T16:20:35+01:00",
+  "domain": "General",
+  "fsm_thinking": {
+    "current_state": "act",
+    "thinking_focus": "Executing actions with safety monitoring",
+    "confidence_level": 0.8,
+    "next_actions": [...]
+  },
+  "reasoning_traces": [
+    {
+      "goal": "Understand quantum mechanics",
+      "conclusion": "...",
+      "confidence": 0.85,
+      "steps": [...]
+    }
+  ],
+  "beliefs": [
+    {
+      "statement": "Quantum mechanics involves wave-particle duality",
+      "confidence": 0.9,
+      "source": "knowledge_base",
+      "domain": "Science"
+    }
+  ],
+  "curiosity_goals": [
+    {
+      "id": "curiosity_001",
+      "description": "Explore quantum entanglement",
+      "type": "exploration",
+      "priority": 5
+    }
+  ],
+  "hypotheses": [
+    {
+      "id": "hyp_001",
+      "description": "Quantum entanglement affects measurement outcomes",
+      "status": "tested",
+      "confidence": 0.75
+    }
+  ],
+  "recent_tool_calls": [
+    {
+      "id": "tool_call_123",
+      "tool_id": "tool_http_get",
+      "status": "success",
+      "timestamp": "2025-11-13T16:19:00Z"
+    }
+  ],
+  "working_memory": {
+    "recent_episodes": [...],
+    "active_context": "..."
+  },
+  "active_goals": [
+    {
+      "id": "goal_001",
+      "description": "Learn about quantum mechanics",
+      "status": "in_progress"
+    }
+  ],
+  "explanations": [
+    {
+      "goal": "Understand quantum mechanics",
+      "explanation": "The system reasoned that...",
+      "generated_at": "2025-11-13T16:20:00Z"
+    }
+  ],
+  "summary": {
+    "reasoning_traces_count": 10,
+    "beliefs_count": 12,
+    "curiosity_goals_count": 3,
+    "hypotheses_count": 10,
+    "explanations_count": 5,
+    "fsm_state": "act",
+    "fsm_thinking_focus": "Executing actions with safety monitoring"
+  }
+}
+```
+
+**Use Cases:**
+- **Debugging**: See what the system is currently thinking and why
+- **Monitoring**: Track the system's mental state over time
+- **Transparency**: Understand AI decision-making processes
+- **Development**: Inspect reasoning traces and beliefs during development
+
+**Example Usage:**
+```bash
+# Get full reflection
+curl http://localhost:8082/api/reflect
+
+# Filter by domain
+curl http://localhost:8082/api/reflect?domain=Science
+
+# Get just the summary
+curl http://localhost:8082/api/reflect | jq '.summary'
+```
 
 ## Available Tools
 
