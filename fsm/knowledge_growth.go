@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -86,9 +87,9 @@ func (kge *KnowledgeGrowthEngine) DiscoverNewConcepts(episodes []map[string]inte
 		discoveries = append(discoveries, concepts...)
 	}
 
-	// Remove duplicates and filter by confidence
+	// Remove duplicates and filter by HIGHER confidence threshold (0.75 instead of 0.6)
 	discoveries = kge.deduplicateConcepts(discoveries)
-	discoveries = kge.filterByConfidence(discoveries, 0.6)
+	discoveries = kge.filterByConfidence(discoveries, 0.75)
 
 	log.Printf("📚 Discovered %d new concepts", len(discoveries))
 	return discoveries, nil
@@ -124,22 +125,43 @@ func (kge *KnowledgeGrowthEngine) FindKnowledgeGaps(domain string) ([]KnowledgeG
 
 // GrowKnowledgeBase actively grows the knowledge base
 func (kge *KnowledgeGrowthEngine) GrowKnowledgeBase(episodes []map[string]interface{}, domain string) error {
-	log.Printf("🌱 Growing knowledge base for domain: %s", domain)
+	log.Printf("🌱 Growing knowledge base for domain: %s (with %d episodes)", domain, len(episodes))
 
-	// 1. Discover new concepts
+	// 1. Discover new concepts with higher confidence threshold
 	discoveries, err := kge.DiscoverNewConcepts(episodes, domain)
 	if err != nil {
 		return fmt.Errorf("failed to discover concepts: %w", err)
 	}
+	log.Printf("🔍 Initial discoveries: %d concepts before filtering", len(discoveries))
 
-	// 2. Create new concepts in the knowledge base
+	// 2. Create new concepts in the knowledge base (with enhanced quality gate)
+	var createdCount, skippedCount int
 	for _, discovery := range discoveries {
+		// Additional quality check: require minimum definition length
+		if len(strings.TrimSpace(discovery.Definition)) < 20 {
+			log.Printf("⚠️ Skipping concept %s: definition too short (%d chars)",
+				discovery.Name, len(discovery.Definition))
+			skippedCount++
+			continue
+		}
+
+		// Avoid generic/meaningless concept names
+		if kge.isGenericConceptName(discovery.Name) {
+			log.Printf("⚠️ Skipping concept %s: name too generic", discovery.Name)
+			skippedCount++
+			continue
+		}
+
 		if err := kge.createConcept(discovery); err != nil {
 			log.Printf("Warning: Failed to create concept %s: %v", discovery.Name, err)
 			continue
 		}
-		log.Printf("✅ Created new concept: %s (confidence: %.2f)", discovery.Name, discovery.Confidence)
+		log.Printf("✅ Created new concept: %s (confidence: %.2f, source: %s)",
+			discovery.Name, discovery.Confidence, discovery.Source)
+		createdCount++
 	}
+	log.Printf("📊 Knowledge growth stats: %d concepts created, %d skipped due to quality checks",
+		createdCount, skippedCount)
 
 	// 3. Find and fill knowledge gaps
 	gaps, err := kge.FindKnowledgeGaps(domain)
@@ -200,6 +222,9 @@ func (kge *KnowledgeGrowthEngine) ValidateKnowledgeConsistency(domain string) er
 			}
 		}
 	}
+
+	// Store validation metrics
+	kge.storeValidationMetrics(domain, len(contradictions), len(missingRelations))
 
 	log.Printf("✅ Knowledge consistency validation completed")
 	return nil
@@ -276,14 +301,29 @@ func (kge *KnowledgeGrowthEngine) deduplicateConcepts(discoveries []ConceptDisco
 
 func (kge *KnowledgeGrowthEngine) filterByConfidence(discoveries []ConceptDiscovery, threshold float64) []ConceptDiscovery {
 	var filtered []ConceptDiscovery
+	var lowConfCount, mediumConfCount, highConfCount int
 
 	for _, discovery := range discoveries {
 		if discovery.Confidence >= threshold {
+			// Categorize by confidence level
+			if discovery.Confidence >= 0.85 {
+				highConfCount++
+			} else if discovery.Confidence >= 0.75 {
+				mediumConfCount++
+			}
 			filtered = append(filtered, discovery)
 		} else {
-			// Log rejected discoveries for monitoring
-			log.Printf("🛑 Concept discovery rejected (confidence %.2f < %.2f): %s", discovery.Confidence, threshold, discovery.Name)
+			lowConfCount++
+			// Log rejected discoveries for monitoring with more context
+			log.Printf("🛑 Concept discovery rejected (confidence %.2f < %.2f): %s [Source: %s]",
+				discovery.Confidence, threshold, discovery.Name, discovery.Source)
 		}
+	}
+
+	// Summary log for quality metrics
+	if len(discoveries) > 0 {
+		log.Printf("📊 Confidence filtering: %d high (≥0.85), %d medium (≥0.75), %d rejected (<%.2f) out of %d total",
+			highConfCount, mediumConfCount, lowConfCount, threshold, len(discoveries))
 	}
 
 	return filtered
@@ -520,4 +560,58 @@ func (kge *KnowledgeGrowthEngine) suggestRelationship(relation KnowledgeGap) err
 	// Suggest relationships between concepts
 	log.Printf("💡 Suggesting relationship for: %s", relation.Description)
 	return nil
+}
+
+// isGenericConceptName checks if a concept name is too generic to be useful
+func (kge *KnowledgeGrowthEngine) isGenericConceptName(name string) bool {
+	genericNames := []string{
+		"concept", "thing", "stuff", "item", "object", "entity",
+		"element", "component", "part", "piece", "unit",
+		"idea", "notion", "thought", "unknown",
+	}
+
+	lowerName := strings.ToLower(strings.TrimSpace(name))
+
+	// Check exact matches
+	for _, generic := range genericNames {
+		if lowerName == generic {
+			return true
+		}
+	}
+
+	// Check if name is just a timestamp or ID pattern
+	if strings.Contains(lowerName, "_2006") || strings.Contains(lowerName, "_20") {
+		return true
+	}
+
+	// Name too short (likely meaningless)
+	if len(lowerName) < 3 {
+		return true
+	}
+
+	return false
+}
+
+// storeValidationMetrics stores validation metrics in Redis for monitoring
+func (kge *KnowledgeGrowthEngine) storeValidationMetrics(domain string, contradictions, missingRelations int) {
+	key := fmt.Sprintf("knowledge:validation:metrics:%s", domain)
+	metrics := map[string]interface{}{
+		"contradictions":    contradictions,
+		"missing_relations": missingRelations,
+		"timestamp":         time.Now().UTC().Format(time.RFC3339),
+		"last_validation":   time.Now().Unix(),
+	}
+
+	data, err := json.Marshal(metrics)
+	if err != nil {
+		log.Printf("Warning: Failed to marshal validation metrics: %v", err)
+		return
+	}
+
+	if err := kge.redis.Set(kge.ctx, key, data, 7*24*time.Hour).Err(); err != nil {
+		log.Printf("Warning: Failed to store validation metrics: %v", err)
+	} else {
+		log.Printf("📊 Stored validation metrics: %d contradictions, %d missing relations",
+			contradictions, missingRelations)
+	}
 }

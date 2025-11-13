@@ -13,6 +13,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -241,26 +242,37 @@ func main() {
 
 		// Expand via related endpoint
 		related, err := fetchRelated(ctx, httpClient, name)
-		if err == nil {
-			for _, rel := range related {
-				relNorm := strings.ToLower(rel)
-				if relNorm == norm {
-					continue
-				}
-				// enqueue next depth
-				if it.Depth < cfg.MaxDepth {
-					_ = rdb.RPush(ctx, queueKey, fmt.Sprintf("%s|%d", rel, it.Depth+1)).Err()
-				}
-				// create weak RELATED_TO edge
-				_ = dk.SaveConcept(ctx, &mempkg.Concept{Name: rel, Domain: cfg.Domain, Definition: ""})
-				_ = dk.RelateConcepts(ctx, name, "RELATED_TO", rel, map[string]any{
-					"confidence":     0.5,
-					"source":         "wikipedia",
-					"extracted_from": name,
-					"url":            url,
-					"created_at":     time.Now().Format(time.RFC3339),
-				})
+		if err != nil || len(related) == 0 {
+			if err != nil {
+				log.Printf("warn: fetch related for %q failed (fallback to links): %v", name, err)
+			} else {
+				log.Printf("warn: fetch related for %q returned 0 items (fallback to links)", name)
 			}
+			if links, linkErr := fetchLinks(ctx, httpClient, name, 50); linkErr == nil {
+				related = links
+			} else {
+				log.Printf("warn: fallback links for %q failed: %v", name, linkErr)
+				related = nil
+			}
+		}
+		for _, rel := range related {
+			relNorm := strings.ToLower(rel)
+			if relNorm == norm || strings.TrimSpace(rel) == "" {
+				continue
+			}
+			// enqueue next depth
+			if it.Depth < cfg.MaxDepth {
+				_ = rdb.RPush(ctx, queueKey, fmt.Sprintf("%s|%d", rel, it.Depth+1)).Err()
+			}
+			// create weak RELATED_TO edge
+			_ = dk.SaveConcept(ctx, &mempkg.Concept{Name: rel, Domain: cfg.Domain, Definition: ""})
+			_ = dk.RelateConcepts(ctx, name, "RELATED_TO", rel, map[string]any{
+				"confidence":     0.5,
+				"source":         "wikipedia",
+				"extracted_from": name,
+				"url":            url,
+				"created_at":     time.Now().Format(time.RFC3339),
+			})
 		}
 
 		if vectorDB != nil {
@@ -413,6 +425,87 @@ func fetchRelated(ctx context.Context, httpClient *http.Client, title string) ([
 		}
 	}
 	return out, nil
+}
+
+// fetchLinks uses the MediaWiki action API to retrieve outgoing links as a fallback
+func fetchLinks(ctx context.Context, httpClient *http.Client, title string, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	apiURL, _ := url.Parse("https://en.wikipedia.org/w/api.php")
+	query := url.Values{
+		"action":        {"query"},
+		"format":        {"json"},
+		"formatversion": {"2"},
+		"prop":          {"links"},
+		"pllimit":       {"max"},
+		"redirects":     {""},
+		"titles":        {title},
+	}
+
+	collected := make([]string, 0, limit)
+	plContinue := ""
+
+	for len(collected) < limit {
+		if plContinue != "" {
+			query.Set("plcontinue", plContinue)
+		} else {
+			query.Del("plcontinue")
+		}
+		apiURL.RawQuery = query.Encode()
+
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, apiURL.String(), nil)
+		req.Header.Set("User-Agent", "agi-wiki-bootstrapper/1.0 (+contact: dev@example.com)")
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			return collected, err
+		}
+		if resp.StatusCode >= 300 {
+			resp.Body.Close()
+			return collected, fmt.Errorf("http %s", resp.Status)
+		}
+
+		var data struct {
+			Continue struct {
+				PlContinue string `json:"plcontinue"`
+			} `json:"continue"`
+			Query struct {
+				Pages []struct {
+					Links []struct {
+						Title string `json:"title"`
+					} `json:"links"`
+				} `json:"pages"`
+			} `json:"query"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+			resp.Body.Close()
+			return collected, err
+		}
+		resp.Body.Close()
+
+		for _, page := range data.Query.Pages {
+			for _, l := range page.Links {
+				if strings.TrimSpace(l.Title) == "" {
+					continue
+				}
+				collected = append(collected, l.Title)
+				if len(collected) >= limit {
+					break
+				}
+			}
+			if len(collected) >= limit {
+				break
+			}
+		}
+
+		if data.Continue.PlContinue == "" {
+			break
+		}
+		plContinue = data.Continue.PlContinue
+	}
+
+	return collected, nil
 }
 
 func escapeTitle(t string) string {

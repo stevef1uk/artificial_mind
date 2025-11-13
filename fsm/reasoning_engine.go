@@ -116,12 +116,20 @@ func (re *ReasoningEngine) QueryBeliefs(query string, domain string) ([]Belief, 
 			fallback := fmt.Sprintf("MATCH (c:Concept) WHERE c.domain = '%s' AND (toLower(c.name) CONTAINS toLower('%s') OR toLower(c.definition) CONTAINS toLower('%s')) RETURN c LIMIT 25", domain, terms, terms)
 			fbBeliefs, fbErr := re.executeCypherQuery(fallback)
 			if fbErr == nil && len(fbBeliefs) > 0 {
-				// Lower confidence for fallback hits
-				for i := range fbBeliefs {
-					if fbBeliefs[i].Confidence > 0.65 {
-						fbBeliefs[i].Confidence = 0.65
-					}
+							// Lower confidence for fallback hits (increased from 0.65 to 0.7)
+			for i := range fbBeliefs {
+				if fbBeliefs[i].Confidence > 0.7 {
+					fbBeliefs[i].Confidence = 0.7
 				}
+			}
+			// Filter fallback beliefs below threshold
+			var filteredFallback []Belief
+			for _, fb := range fbBeliefs {
+				if fb.Confidence >= 0.7 {
+					filteredFallback = append(filteredFallback, fb)
+				}
+			}
+			fbBeliefs = filteredFallback
 				beliefs = fbBeliefs
 			}
 		}
@@ -390,13 +398,24 @@ func (re *ReasoningEngine) executeCypherQuery(cypherQuery string) ([]Belief, err
 		return nil, err
 	}
 
-	// Convert results to beliefs
+		// Convert results to beliefs with quality-based confidence
 	var beliefs []Belief
 	for i, res := range result.Results {
+		statement := re.extractStatementFromResult(res)
+		
+		// Calculate confidence based on data quality
+		confidence := re.calculateBeliefConfidence(res, statement)
+		
+		// Skip low-confidence beliefs (filter at 0.7 threshold)
+		if confidence < 0.7 {
+			log.Printf("🛑 Skipping low-confidence belief: %s (confidence: %.2f)", statement, confidence)
+			continue
+		}
+		
 		belief := Belief{
 			ID:          fmt.Sprintf("belief_%d_%d", time.Now().UnixNano(), i),
-			Statement:   re.extractStatementFromResult(res),
-			Confidence:  0.8, // Default confidence
+			Statement:   statement,
+			Confidence:  confidence,
 			Source:      "knowledge_query",
 			Domain:      re.extractDomainFromResult(res),
 			CreatedAt:   time.Now(),
@@ -404,6 +423,9 @@ func (re *ReasoningEngine) executeCypherQuery(cypherQuery string) ([]Belief, err
 		}
 		beliefs = append(beliefs, belief)
 	}
+	
+	log.Printf("📊 Belief quality: %d beliefs extracted (%d filtered for low confidence)", 
+		len(beliefs), len(result.Results)-len(beliefs))
 
 	return beliefs, nil
 }
@@ -476,7 +498,7 @@ func (re *ReasoningEngine) getDefaultInferenceRules(domain string) []InferenceRu
 			Name:        "Academic Field Classification",
 			Pattern:     "MATCH (a:Concept) WHERE a.domain = $domain AND (a.definition CONTAINS 'study' OR a.definition CONTAINS 'science' OR a.definition CONTAINS 'field' OR a.definition CONTAINS 'discipline') RETURN a",
 			Conclusion:  "ACADEMIC_FIELD",
-			Confidence:  0.8,
+			Confidence:  0.85, // Increased from 0.8
 			Domain:      domain,
 			Description: "Identify academic fields based on definition keywords",
 			Examples:    []string{"Concepts with 'study', 'science', 'field', or 'discipline' in definition are academic fields"},
@@ -486,7 +508,7 @@ func (re *ReasoningEngine) getDefaultInferenceRules(domain string) []InferenceRu
 			Name:        "Technology Classification",
 			Pattern:     "MATCH (a:Concept) WHERE a.domain = $domain AND (a.definition CONTAINS 'technology' OR a.definition CONTAINS 'machine' OR a.definition CONTAINS 'system' OR a.definition CONTAINS 'device') RETURN a",
 			Conclusion:  "TECHNOLOGY",
-			Confidence:  0.8,
+			Confidence:  0.85, // Increased from 0.8
 			Domain:      domain,
 			Description: "Identify technology-related concepts",
 			Examples:    []string{"Concepts with 'technology', 'machine', 'system', or 'device' in definition are technologies"},
@@ -516,7 +538,7 @@ func (re *ReasoningEngine) getDefaultInferenceRules(domain string) []InferenceRu
 			Name:        "Practical Application",
 			Pattern:     "MATCH (a:Concept) WHERE a.domain = $domain AND (a.definition CONTAINS 'practice' OR a.definition CONTAINS 'application' OR a.definition CONTAINS 'use' OR a.definition CONTAINS 'implement') RETURN a",
 			Conclusion:  "PRACTICAL_APPLICATION",
-			Confidence:  0.7,
+			Confidence:  0.75, // Increased from 0.7
 			Domain:      domain,
 			Description: "Identify concepts with practical applications",
 			Examples:    []string{"Concepts with 'practice', 'application', 'use', or 'implement' in definition are practical"},
@@ -847,4 +869,52 @@ func (re *ReasoningEngine) isGenericGoal(goal CuriosityGoal) bool {
 	}
 
 	return false
+}
+
+// calculateBeliefConfidence calculates confidence based on data quality
+func (re *ReasoningEngine) calculateBeliefConfidence(result map[string]interface{}, statement string) float64 {
+	baseConfidence := 0.8
+	
+	// Penalty for "Unknown concept" (no real data)
+	if statement == "Unknown concept" || strings.TrimSpace(statement) == "" {
+		return 0.3
+	}
+	
+	// Bonus for having a proper definition
+	hasDefinition := false
+	for _, k := range []string{"n", "c", "a", "b", "related"} {
+		if node, ok := result[k].(map[string]interface{}); ok {
+			if props, ok := node["Props"].(map[string]interface{}); ok {
+				if def, ok := props["definition"].(string); ok && len(strings.TrimSpace(def)) > 20 {
+					hasDefinition = true
+					break
+				}
+			}
+		}
+	}
+	if hasDefinition {
+		baseConfidence += 0.1
+	} else {
+		baseConfidence -= 0.2
+	}
+	
+	// Penalty for very short statements (likely incomplete)
+	if len(statement) < 10 {
+		baseConfidence -= 0.15
+	}
+	
+	// Bonus for longer, more detailed statements
+	if len(statement) > 50 {
+		baseConfidence += 0.05
+	}
+	
+	// Ensure confidence stays in valid range [0, 1]
+	if baseConfidence > 1.0 {
+		baseConfidence = 1.0
+	}
+	if baseConfidence < 0.0 {
+		baseConfidence = 0.0
+	}
+	
+	return baseConfidence
 }

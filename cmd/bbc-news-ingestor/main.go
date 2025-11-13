@@ -88,8 +88,8 @@ func main() {
 	debug := flag.Bool("debug", false, "verbose discovery debug output")
 	useLLM := flag.Bool("llm", false, "use LLM to classify headlines in batches")
 	batchSize := flag.Int("batch-size", 10, "LLM batch size")
-	llmModel := flag.String("llm-model", getenv("OLLAMA_MODEL", "llama3.1"), "LLM model name (Ollama)")
-	ollamaURL := flag.String("ollama-url", getenv("OLLAMA_URL", "http://localhost:11434/api/chat"), "Ollama chat API URL")
+	llmModel := flag.String("llm-model", getenvFirst([]string{"LLM_MODEL", "OLLAMA_MODEL"}, "llama3.1"), "LLM model name (LLM_MODEL or OLLAMA_MODEL)")
+	ollamaURL := flag.String("ollama-url", getenvFirst([]string{"LLM_ENDPOINT", "LLM_URL", "OLLAMA_URL"}, "http://localhost:11434/api/chat"), "LLM endpoint / Ollama chat API URL")
 	flag.Parse()
 
 	stories, err := discoverStories(*base, *max)
@@ -171,44 +171,8 @@ func main() {
 	for _, s := range filteredStories {
 		title := normalizeHeadline(s.Title)
 		decision := classifyStory(title)
-		if *debug {
-			switch decision.kind {
-			case "alert":
-				fmt.Fprintf(os.Stderr, "ALERT  :: %s | impact=%s\n", title, decision.impact)
-			case "relation":
-				fmt.Fprintf(os.Stderr, "REL    :: %s | %s %s %s\n", title, decision.head, decision.relation, decision.tail)
-			default:
-				fmt.Fprintf(os.Stderr, "SKIP   :: %s | reason=%s\n", title, decision.reason)
-			}
-		}
-		switch decision.kind {
-		case "alert":
-			// Calculate confidence for heuristic-based alerts
-			confidence := calculateAlertConfidence(decision.impact, false, title)
-			evt := wrapAlert("bbc", title, "", decision.impact, confidence)
-			if *dry {
-				printEvent("agi.events.news.alerts", evt)
-				continue
-			}
-			_ = alertBus.Publish(ctx, evt)
-		case "relation":
-			if !looksLikeActor(decision.head) {
-				if *debug {
-					fmt.Fprintf(os.Stderr, "SKIP   :: %s | reason=actor_check_failed head=%q\n", title, decision.head)
-				}
-				continue
-			}
-			// Calculate confidence for heuristic-based relations
-			confidence := calculateRelationConfidence(decision.head, decision.relation, decision.tail, title)
-			evt := wrapRelation("bbc", decision.head, decision.relation, decision.tail, title, s.URL, confidence)
-			if *dry {
-				printEvent("agi.events.news.relations", evt)
-				continue
-			}
-			_ = relBus.Publish(ctx, evt)
-		default:
-			// skip
-		}
+		debugLogDecision(decision, title, *debug, "")
+		_ = publishHeuristicDecision(decision, title, s, *dry, *debug, alertBus, relBus, ctx)
 	}
 }
 
@@ -227,7 +191,19 @@ func processWithLLM(stories []Article, batch int, model string, apiURL string, d
 		}
 		chunk := stories[i:end]
 		var b strings.Builder
-		b.WriteString("Classify each news headline as either \"alert\" or \"relation\". For alerts, assess impact as \"low\", \"medium\", or \"high\". For relations, extract head, relation, and tail.\n\nHeadlines:\n")
+		b.WriteString("You are classifying BBC news headlines. For each headline respond with ONE JSON object.\n")
+		b.WriteString("Allowed values:\n")
+		b.WriteString("- type: \"alert\", \"relation\", or \"skip\"\n")
+		b.WriteString("- impact: \"low\", \"medium\", \"high\" (only when type=\"alert\")\n")
+		b.WriteString("- head, relation, tail: ONLY when type=\"relation\". Copy phrases verbatim from the headline.\n")
+		b.WriteString("- reason: brief justification (required for all three types).\n\n")
+		b.WriteString("ABSOLUTE RULES:\n")
+		b.WriteString("1. Never invent words. Every head / relation / tail must be contiguous text exactly as it appears in the headline.\n")
+		b.WriteString("2. If you cannot find a clear actor + verb + object in the headline, output type=\"skip\".\n")
+		b.WriteString("3. Quotes, colons, or section prefixes do NOT create actors by themselves. If unsure, skip.\n")
+		b.WriteString("4. Output exactly ")
+		b.WriteString(fmt.Sprintf("%d", len(chunk)))
+		b.WriteString(" lines of JSONL. No markdown, no numbering, no commentary.\n\nHeadlines:\n")
 		for idx, a := range chunk {
 			b.WriteString(fmt.Sprintf("%d. %s\n", idx+1, normalizeHeadline(a.Title)))
 		}
@@ -235,16 +211,15 @@ func processWithLLM(stories []Article, batch int, model string, apiURL string, d
 		b.WriteString("{\"type\":\"alert\",\"impact\":\"high\",\"reason\":\"urgent breaking news\"}\n")
 		b.WriteString("{\"type\":\"relation\",\"head\":\"Actor\",\"relation\":\"action\",\"tail\":\"target\",\"reason\":\"clear subject-verb-object structure\"}\n")
 		b.WriteString("{\"type\":\"skip\",\"reason\":\"not newsworthy or unclear\"}\n\n")
-		b.WriteString("Rules:\n")
-		b.WriteString("- Alert: breaking news, emergencies, major policy changes, significant events, scientific breakthroughs, major political developments\n")
-		b.WriteString("- Relation: clear subject-verb-object structure with identifiable actors\n")
-		b.WriteString("- Skip: entertainment, sports scores, opinion pieces, unclear headlines, section/hub pages\n\n")
+		b.WriteString("Additional guidance:\n")
+		b.WriteString("- Alert: breaking news, emergencies, major policy changes, major legal rulings, major scientific breakthroughs.\n")
+		b.WriteString("- Relation: there must be a clearly named actor performing an action on a target, all in the headline text.\n")
+		b.WriteString("- Skip: entertainment / opinion / interviews / feature pieces / unclear wording. Prefer skip when uncertain.\n\n")
 		b.WriteString("Examples:\n")
 		b.WriteString("\"Trump demands inquiry over UN 'triple sabotage'\" -> {\"type\":\"alert\",\"impact\":\"medium\",\"reason\":\"political demand\"}\n")
-		b.WriteString("\"Scientists make embryos from human skin DNA for first time\" -> {\"type\":\"alert\",\"impact\":\"high\",\"reason\":\"major scientific breakthrough\"}\n")
 		b.WriteString("\"South Korea legalises tattooing by non-medical professionals\" -> {\"type\":\"relation\",\"head\":\"South Korea\",\"relation\":\"legalises\",\"tail\":\"tattooing by non-medical professionals\",\"reason\":\"clear policy change\"}\n")
-		b.WriteString("\"Sonic the Hedgehog boss on how the series keeps up to speed\" -> {\"type\":\"skip\",\"reason\":\"entertainment/gaming\"}\n\n")
-		b.WriteString(fmt.Sprintf("IMPORTANT: Output exactly %d lines of valid JSONL. No markdown, no code fences, no explanations.", len(chunk)))
+		b.WriteString("\"Sonic the Hedgehog boss on how the series keeps up to speed\" -> {\"type\":\"skip\",\"reason\":\"feature interview\"}\n\n")
+		b.WriteString(fmt.Sprintf("REMINDER: respond with %d raw JSON lines only. If a headline does not obviously match alert or relation, respond with skip.", len(chunk)))
 		t0 := time.Now()
 		resp, err := llmChatWithURL(apiURL, model, b.String())
 		if err != nil {
@@ -260,13 +235,19 @@ func processWithLLM(stories []Article, batch int, model string, apiURL string, d
 		sanitized := strings.ReplaceAll(resp, "\r", "")
 		sanitized = strings.ReplaceAll(sanitized, "```json", "")
 		sanitized = strings.ReplaceAll(sanitized, "```", "")
+		if debug {
+			fmt.Fprintf(os.Stderr, "LLM response %d-%d:\n%s\n", i+1, end, strings.TrimSpace(sanitized))
+		}
 		lines := strings.Split(strings.TrimSpace(sanitized), "\n")
 		for j, line := range lines {
 			if j >= len(chunk) {
 				break
 			}
 			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "//") {
+			if line == "" || strings.HasPrefix(line, "//") || !strings.HasPrefix(line, "{") {
+				if debug && line != "" {
+					fmt.Fprintf(os.Stderr, "discard non-json line: %s\n", line)
+				}
 				continue
 			}
 			var obj struct{ Type, Head, Relation, Tail, Impact, Reason string }
@@ -277,15 +258,22 @@ func processWithLLM(stories []Article, batch int, model string, apiURL string, d
 				continue
 			}
 			title := normalizeHeadline(chunk[j].Title)
+			titleLower := strings.ToLower(title)
 
-			switch strings.ToLower(obj.Type) {
+			switch strings.ToLower(strings.TrimSpace(obj.Type)) {
 			case "alert":
 				// Alert gating: more conservative filtering with confidence scoring
-				impact := strings.ToLower(obj.Impact)
-				isUrgent := strings.Contains(strings.ToLower(title), "breaking") ||
-					strings.Contains(strings.ToLower(title), "urgent") ||
-					strings.Contains(strings.ToLower(title), "emergency") ||
-					strings.Contains(strings.ToLower(title), "crisis")
+				impact := strings.ToLower(strings.TrimSpace(obj.Impact))
+				dec := decision{kind: "alert", impact: impact, reason: obj.Reason}
+				debugLogDecision(dec, title, debug, "LLM")
+				if impact == "" {
+					attemptFallback(title, chunk[j], dry, debug, alertBus, relBus, ctx)
+					continue
+				}
+				isUrgent := strings.Contains(titleLower, "breaking") ||
+					strings.Contains(titleLower, "urgent") ||
+					strings.Contains(titleLower, "emergency") ||
+					strings.Contains(titleLower, "crisis")
 
 				// Calculate confidence based on impact and urgency
 				confidence := calculateAlertConfidence(impact, isUrgent, title)
@@ -295,6 +283,7 @@ func processWithLLM(stories []Article, batch int, model string, apiURL string, d
 					if debug {
 						fmt.Fprintf(os.Stderr, "skip alert (low impact + low confidence): %s (impact: %s, confidence: %.2f)\n", title, impact, confidence)
 					}
+					attemptFallback(title, chunk[j], dry, debug, alertBus, relBus, ctx)
 					continue
 				}
 
@@ -303,6 +292,7 @@ func processWithLLM(stories []Article, batch int, model string, apiURL string, d
 					if debug {
 						fmt.Fprintf(os.Stderr, "skip alert (medium impact + low confidence): %s (impact: %s, confidence: %.2f)\n", title, impact, confidence)
 					}
+					attemptFallback(title, chunk[j], dry, debug, alertBus, relBus, ctx)
 					continue
 				}
 
@@ -311,11 +301,19 @@ func processWithLLM(stories []Article, batch int, model string, apiURL string, d
 					printEvent("agi.events.news.alerts", evt)
 					continue
 				}
-				_ = alertBus.Publish(ctx, evt)
+				if err := alertBus.Publish(ctx, evt); err != nil {
+					if debug {
+						fmt.Fprintf(os.Stderr, "publish alert failed: %v\n", err)
+					}
+					attemptFallback(title, chunk[j], dry, debug, alertBus, relBus, ctx)
+					continue
+				}
 			case "relation":
 				head := strings.TrimSpace(obj.Head)
 				rel := strings.TrimSpace(obj.Relation)
 				tail := strings.TrimSpace(obj.Tail)
+				dec := decision{kind: "relation", head: head, relation: rel, tail: tail, reason: obj.Reason}
+				debugLogDecision(dec, title, debug, "LLM")
 				if head == "" || rel == "" || tail == "" {
 					// Fallback: try heuristic extraction from the title
 					if trip := extractRelation(title); trip != nil {
@@ -324,8 +322,18 @@ func processWithLLM(stories []Article, batch int, model string, apiURL string, d
 						if debug {
 							fmt.Fprintf(os.Stderr, "incomplete relation: %s\n", line)
 						}
+						attemptFallback(title, chunk[j], dry, debug, alertBus, relBus, ctx)
 						continue
 					}
+				}
+
+				// Ensure phrases appear in the headline text
+				if !containsPhrase(titleLower, head) || !containsPhrase(titleLower, tail) || !containsPhrase(titleLower, rel) {
+					if debug {
+						fmt.Fprintf(os.Stderr, "skip relation (phrases not in headline): head=%q rel=%q tail=%q title=%q\n", head, rel, tail, title)
+					}
+					attemptFallback(title, chunk[j], dry, debug, alertBus, relBus, ctx)
+					continue
 				}
 
 				// Section name filtering
@@ -333,6 +341,7 @@ func processWithLLM(stories []Article, batch int, model string, apiURL string, d
 					if debug {
 						fmt.Fprintf(os.Stderr, "skip section name: %s\n", head)
 					}
+					attemptFallback(title, chunk[j], dry, debug, alertBus, relBus, ctx)
 					continue
 				}
 
@@ -340,6 +349,7 @@ func processWithLLM(stories []Article, batch int, model string, apiURL string, d
 					if debug {
 						fmt.Fprintf(os.Stderr, "actor check failed: %q\n", head)
 					}
+					attemptFallback(title, chunk[j], dry, debug, alertBus, relBus, ctx)
 					continue
 				}
 				// Calculate confidence for relations based on content quality
@@ -350,6 +360,7 @@ func processWithLLM(stories []Article, batch int, model string, apiURL string, d
 					if debug {
 						fmt.Fprintf(os.Stderr, "skip relation (low confidence): %s %s %s (confidence: %.2f)\n", head, rel, tail, relationConfidence)
 					}
+					attemptFallback(title, chunk[j], dry, debug, alertBus, relBus, ctx)
 					continue
 				}
 
@@ -358,11 +369,18 @@ func processWithLLM(stories []Article, batch int, model string, apiURL string, d
 					printEvent("agi.events.news.relations", evt)
 					continue
 				}
-				_ = relBus.Publish(ctx, evt)
+				if err := relBus.Publish(ctx, evt); err != nil {
+					if debug {
+						fmt.Fprintf(os.Stderr, "publish relation failed: %v\n", err)
+					}
+					attemptFallback(title, chunk[j], dry, debug, alertBus, relBus, ctx)
+					continue
+				}
 			default:
 				if debug {
 					fmt.Fprintf(os.Stderr, "skip by llm: %s\n", title)
 				}
+				attemptFallback(title, chunk[j], dry, debug, alertBus, relBus, ctx)
 			}
 		}
 	}
@@ -553,6 +571,74 @@ func classifyStory(headline string) decision {
 		return decision{kind: "relation", head: trip[0], relation: trip[1], tail: trip[2], reason: "pattern_match"}
 	}
 	return decision{kind: "skip", reason: "no_pattern_match"}
+}
+
+func debugLogDecision(dec decision, title string, debug bool, source string) {
+	if !debug {
+		return
+	}
+	prefix := ""
+	if source != "" {
+		prefix = fmt.Sprintf("[%s] ", source)
+	}
+	switch dec.kind {
+	case "alert":
+		fmt.Fprintf(os.Stderr, "%sALERT  :: %s | impact=%s reason=%s\n", prefix, title, dec.impact, dec.reason)
+	case "relation":
+		fmt.Fprintf(os.Stderr, "%sREL    :: %s | %s %s %s (reason=%s)\n", prefix, title, dec.head, dec.relation, dec.tail, dec.reason)
+	default:
+		fmt.Fprintf(os.Stderr, "%sSKIP   :: %s | reason=%s\n", prefix, title, dec.reason)
+	}
+}
+
+func publishHeuristicDecision(dec decision, title string, story Article, dry, debug bool, alertBus, relBus *eventbus.NATSBus, ctx context.Context) bool {
+	switch dec.kind {
+	case "alert":
+		confidence := calculateAlertConfidence(dec.impact, false, title)
+		evt := wrapAlert("bbc", title, strings.TrimSpace(dec.topic), dec.impact, confidence)
+		if dry {
+			printEvent("agi.events.news.alerts", evt)
+			return true
+		}
+		if err := alertBus.Publish(ctx, evt); err != nil {
+			if debug {
+				fmt.Fprintf(os.Stderr, "publish alert failed: %v\n", err)
+			}
+			return false
+		}
+		return true
+	case "relation":
+		if !looksLikeActor(dec.head) {
+			if debug {
+				fmt.Fprintf(os.Stderr, "SKIP   :: %s | reason=actor_check_failed head=%q\n", title, dec.head)
+			}
+			return false
+		}
+		confidence := calculateRelationConfidence(dec.head, dec.relation, dec.tail, title)
+		evt := wrapRelation("bbc", dec.head, dec.relation, dec.tail, title, story.URL, confidence)
+		if dry {
+			printEvent("agi.events.news.relations", evt)
+			return true
+		}
+		if err := relBus.Publish(ctx, evt); err != nil {
+			if debug {
+				fmt.Fprintf(os.Stderr, "publish relation failed: %v\n", err)
+			}
+			return false
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func attemptFallback(title string, story Article, dry, debug bool, alertBus, relBus *eventbus.NATSBus, ctx context.Context) bool {
+	decision := classifyStory(title)
+	debugLogDecision(decision, title, debug, "FALLBACK")
+	if decision.kind == "skip" {
+		return false
+	}
+	return publishHeuristicDecision(decision, title, story, dry, debug, alertBus, relBus, ctx)
 }
 
 func impactFromHeadline(hl string) string {
@@ -882,6 +968,25 @@ func getenv(k, def string) string {
 		return v
 	}
 	return def
+}
+
+func getenvFirst(keys []string, def string) string {
+	for _, k := range keys {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+	}
+	return def
+}
+
+func containsPhrase(haystackLower string, phrase string) bool {
+	needle := strings.ToLower(strings.TrimSpace(phrase))
+	if needle == "" {
+		return false
+	}
+	// ensure the phrase exists exactly; collapse multiple spaces
+	needle = strings.Join(strings.Fields(needle), " ")
+	return strings.Contains(haystackLower, needle)
 }
 
 // isSectionName checks if a string looks like a section name rather than an actor

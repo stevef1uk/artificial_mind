@@ -159,6 +159,73 @@ func (ie *IntelligentExecutor) callTool(toolID string, params map[string]interfa
 
 // executeWithSSHTool executes code using the SSH executor tool
 func (ie *IntelligentExecutor) executeWithSSHTool(ctx context.Context, code, language string) (*DockerExecutionResponse, error) {
+	// Determine if the SSH executor is enabled on this platform
+	execMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
+	sshEnabled := execMethod == "ssh" ||
+		strings.TrimSpace(os.Getenv("ENABLE_ARM64_TOOLS")) == "true" ||
+		runtime.GOARCH == "arm64" ||
+		runtime.GOARCH == "aarch64"
+
+	if !sshEnabled {
+		log.Printf("🔁 [INTELLIGENT] SSH executor disabled (EXECUTION_METHOD=%s, ENABLE_ARM64_TOOLS=%s, GOARCH=%s) — falling back to local Docker executor",
+			execMethod, os.Getenv("ENABLE_ARM64_TOOLS"), runtime.GOARCH)
+
+		if ie.dockerExecutor == nil {
+			err := fmt.Errorf("docker executor unavailable for SSH fallback")
+			return &DockerExecutionResponse{Success: false, Error: err.Error(), ExitCode: 1}, err
+		}
+
+		req := &DockerExecutionRequest{
+			Language:     language,
+			Code:         code,
+			Timeout:      300,
+			Environment:  map[string]string{"QUIET": "0"},
+			IsValidation: true,
+		}
+
+		startTime := time.Now()
+		resp, err := ie.dockerExecutor.ExecuteCode(ctx, req)
+		duration := time.Since(startTime).Milliseconds()
+
+		// Log the Docker fallback execution as a tool call for metrics
+		if ie.toolMetrics != nil {
+			status := "success"
+			errorMsg := ""
+			if err != nil || !resp.Success {
+				status = "failure"
+				if err != nil {
+					errorMsg = err.Error()
+				} else if resp.Error != "" {
+					errorMsg = resp.Error
+				}
+			}
+			callLog := &ToolCallLog{
+				ToolID:   "tool_docker_exec",
+				ToolName: "Docker Exec",
+				Parameters: map[string]interface{}{
+					"language": language,
+					"code":     code,
+					"timeout":  300,
+				},
+				Status:    status,
+				Error:     errorMsg,
+				Duration:  duration,
+				Timestamp: time.Now(),
+				Response: map[string]interface{}{
+					"success":   resp.Success,
+					"output":    resp.Output,
+					"exit_code": resp.ExitCode,
+				},
+			}
+			_ = ie.toolMetrics.LogToolCall(ctx, callLog)
+		}
+
+		if err != nil {
+			return resp, err
+		}
+		return resp, nil
+	}
+
 	// Prepare parameters for the SSH tool
 	params := map[string]interface{}{
 		"code":     code,
@@ -174,6 +241,7 @@ func (ie *IntelligentExecutor) executeWithSSHTool(ctx context.Context, code, lan
 		// If the tool is missing/not available (e.g., 404), fall back to local Docker executor
 		low := strings.ToLower(msg)
 		missing := strings.Contains(low, "status 404") || strings.Contains(low, "not found") || strings.Contains(low, "tool not available")
+		disabled := strings.Contains(low, "ssh executor disabled")
 		if missing {
 			// If we are on ARM64 or explicitly enabled ARM64 tools, log a configuration error
 			if runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64" || strings.TrimSpace(os.Getenv("ENABLE_ARM64_TOOLS")) == "true" {
@@ -191,7 +259,96 @@ func (ie *IntelligentExecutor) executeWithSSHTool(ctx context.Context, code, lan
 				Environment:  map[string]string{"QUIET": "0"},
 				IsValidation: true,
 			}
+			startTime := time.Now()
 			resp, derr := ie.dockerExecutor.ExecuteCode(ctx, req)
+			duration := time.Since(startTime).Milliseconds()
+
+			// Log the Docker fallback execution as a tool call for metrics
+			if ie.toolMetrics != nil {
+				status := "success"
+				errorMsg := ""
+				if derr != nil || !resp.Success {
+					status = "failure"
+					if derr != nil {
+						errorMsg = derr.Error()
+					} else if resp.Error != "" {
+						errorMsg = resp.Error
+					}
+				}
+				callLog := &ToolCallLog{
+					ToolID:   "tool_docker_exec",
+					ToolName: "Docker Exec",
+					Parameters: map[string]interface{}{
+						"language": language,
+						"code":     code,
+						"timeout":  300,
+					},
+					Status:    status,
+					Error:     errorMsg,
+					Duration:  duration,
+					Timestamp: time.Now(),
+					Response: map[string]interface{}{
+						"success":   resp.Success,
+						"output":    resp.Output,
+						"exit_code": resp.ExitCode,
+					},
+				}
+				_ = ie.toolMetrics.LogToolCall(ctx, callLog)
+			}
+
+			if derr != nil {
+				return &DockerExecutionResponse{Success: false, Error: derr.Error(), ExitCode: 1}, derr
+			}
+			return resp, nil
+		} else if disabled {
+			log.Printf("🔁 [INTELLIGENT] SSH tool disabled according to API response — falling back to local Docker executor")
+			if ie.dockerExecutor == nil {
+				return &DockerExecutionResponse{Success: false, Error: "docker executor unavailable", ExitCode: 1}, fmt.Errorf("docker executor unavailable")
+			}
+			req := &DockerExecutionRequest{
+				Language:     language,
+				Code:         code,
+				Timeout:      300,
+				Environment:  map[string]string{"QUIET": "0"},
+				IsValidation: true,
+			}
+			startTime := time.Now()
+			resp, derr := ie.dockerExecutor.ExecuteCode(ctx, req)
+			duration := time.Since(startTime).Milliseconds()
+
+			// Log the Docker fallback execution as a tool call for metrics
+			if ie.toolMetrics != nil {
+				status := "success"
+				errorMsg := ""
+				if derr != nil || !resp.Success {
+					status = "failure"
+					if derr != nil {
+						errorMsg = derr.Error()
+					} else if resp.Error != "" {
+						errorMsg = resp.Error
+					}
+				}
+				callLog := &ToolCallLog{
+					ToolID:   "tool_docker_exec",
+					ToolName: "Docker Exec",
+					Parameters: map[string]interface{}{
+						"language": language,
+						"code":     code,
+						"timeout":  300,
+					},
+					Status:    status,
+					Error:     errorMsg,
+					Duration:  duration,
+					Timestamp: time.Now(),
+					Response: map[string]interface{}{
+						"success":   resp.Success,
+						"output":    resp.Output,
+						"exit_code": resp.ExitCode,
+					},
+				}
+				_ = ie.toolMetrics.LogToolCall(ctx, callLog)
+			}
+
 			if derr != nil {
 				return &DockerExecutionResponse{Success: false, Error: derr.Error(), ExitCode: 1}, derr
 			}

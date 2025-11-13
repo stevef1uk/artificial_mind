@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -310,7 +311,7 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 				"rpm":            rpm,
 				"domain":         domain,
 				"jitter_ms":      250,
-				"min_confidence": 0.5,
+				"min_confidence": 0.7, // Increased from 0.5 to reduce low-quality bootstrapping
 			}
 			data, _ := json.Marshal(payload)
 			toolURL := strings.TrimRight(e.reasoning.hdnURL, "/") + "/api/v1/tools/tool_wiki_bootstrapper/invoke"
@@ -392,7 +393,8 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 				_ = e.redis.LTrim(e.ctx, key, 0, 199).Err()
 			}
 			// Watermark and trigger follow-up analysis for new, high-confidence beliefs
-			if bel.Confidence >= 0.6 {
+			// Increased threshold from 0.6 to 0.75 to reduce noise
+			if bel.Confidence >= 0.75 {
 				wmKey := fmt.Sprintf("autonomy:beliefs:seen:%s", strings.ToLower(domain))
 				marker := bel.Statement
 				if strings.TrimSpace(marker) == "" {
@@ -435,9 +437,10 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 		}
 		// If none found, persist a minimal placeholder so UI shows progress
 		if len(beliefs) == 0 {
-			conf := 0.4
+			// Increased baseline from 0.4 to 0.5, successful bootstrap from 0.6 to 0.7
+			conf := 0.5
 			if val, ok := e.context["last_bootstrap_ok"].(bool); ok && val {
-				conf = 0.6
+				conf = 0.7
 			}
 			minimal := Belief{
 				ID:          fmt.Sprintf("belief_%d", time.Now().UnixNano()),
@@ -511,44 +514,190 @@ func (e *FSMEngine) updateGoalStatus(goal CuriosityGoal) {
 	}
 }
 
+// scoredCuriosityGoal keeps track of heuristic scoring for a goal
+type scoredCuriosityGoal struct {
+	Goal  CuriosityGoal
+	Score float64
+}
+
 // selectBestGoal intelligently selects the most important goal to process
 func (e *FSMEngine) selectBestGoal(goals []CuriosityGoal, domain string) CuriosityGoal {
 	if len(goals) == 0 {
 		return CuriosityGoal{}
 	}
 
-	// Score each goal based on multiple factors
-	type scoredGoal struct {
-		goal  CuriosityGoal
-		score float64
-	}
-
-	var scoredGoals []scoredGoal
+	var scoredGoals []scoredCuriosityGoal
 	for _, goal := range goals {
 		score := e.calculateGoalScore(goal, domain)
-		scoredGoals = append(scoredGoals, scoredGoal{goal: goal, score: score})
+		scoredGoals = append(scoredGoals, scoredCuriosityGoal{Goal: goal, Score: score})
 	}
 
-	// Sort by score (highest first)
-	for i := 0; i < len(scoredGoals)-1; i++ {
-		for j := i + 1; j < len(scoredGoals); j++ {
-			if scoredGoals[i].score < scoredGoals[j].score {
-				scoredGoals[i], scoredGoals[j] = scoredGoals[j], scoredGoals[i]
-			}
-		}
-	}
+	sort.Slice(scoredGoals, func(i, j int) bool {
+		return scoredGoals[i].Score > scoredGoals[j].Score
+	})
 
-	// Select the highest scoring goal that passes cooldown checks
+	// Prepare LLM ranking on top candidates that pass eligibility checks
+	candidates := make([]scoredCuriosityGoal, 0, minInt(5, len(scoredGoals)))
 	for _, sg := range scoredGoals {
-		if e.isGoalEligible(sg.goal, domain) {
-			log.Printf("[Autonomy] Selected goal '%s' with score %.2f", sg.goal.Description, sg.score)
-			return sg.goal
+		if !e.isGoalEligible(sg.Goal, domain) {
+			continue
+		}
+		candidates = append(candidates, sg)
+		if len(candidates) >= 5 {
+			break
 		}
 	}
 
-	// Fallback to first goal if none pass eligibility checks
-	log.Printf("[Autonomy] No eligible goals found, using fallback")
-	return goals[0]
+	if len(candidates) == 0 {
+		log.Printf("[Autonomy] No eligible goals found, using fallback")
+		return goals[0]
+	}
+
+	if selected, reason, ok := e.rankGoalsWithLLM(candidates, domain); ok {
+		e.context["goal_selection_reason"] = reason
+		log.Printf("[Autonomy] LLM selected goal '%s' (%s)", selected.Description, reason)
+		return selected
+	}
+
+	// Fallback to top heuristic candidate
+	top := candidates[0].Goal
+	log.Printf("[Autonomy] LLM ranking unavailable; using heuristic goal '%s'", top.Description)
+	return top
+}
+
+func (e *FSMEngine) rankGoalsWithLLM(candidates []scoredCuriosityGoal, domain string) (CuriosityGoal, string, bool) {
+	if len(candidates) == 0 {
+		return CuriosityGoal{}, "", false
+	}
+	if len(candidates) == 1 {
+		return candidates[0].Goal, "single candidate fallback", true
+	}
+
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("FSM_DISABLE_LLM_GOAL_SELECTION")), "1") {
+		return CuriosityGoal{}, "", false
+	}
+
+	base := strings.TrimSpace(os.Getenv("HDN_URL"))
+	if base == "" {
+		base = "http://localhost:8080"
+	}
+	url := fmt.Sprintf("%s/api/v1/interpret", strings.TrimRight(base, "/"))
+
+	type candidatePayload struct {
+		ID           string   `json:"id"`
+		Type         string   `json:"type"`
+		Description  string   `json:"description"`
+		Priority     int      `json:"priority"`
+		Heuristic    float64  `json:"heuristic_score"`
+		Targets      []string `json:"targets"`
+		AgeMinutes   float64  `json:"age_minutes"`
+		RecentRepeat bool     `json:"recent_repeat"`
+	}
+
+	payloadCandidates := make([]candidatePayload, 0, len(candidates))
+	for _, cand := range candidates {
+		age := time.Since(cand.Goal.CreatedAt).Minutes()
+		if age < 0 {
+			age = 0
+		}
+		payloadCandidates = append(payloadCandidates, candidatePayload{
+			ID:           cand.Goal.ID,
+			Type:         cand.Goal.Type,
+			Description:  cand.Goal.Description,
+			Priority:     cand.Goal.Priority,
+			Heuristic:    cand.Score,
+			Targets:      cand.Goal.Targets,
+			AgeMinutes:   age,
+			RecentRepeat: e.hasGoalBeenTriedRecently(cand.Goal, domain),
+		})
+	}
+
+	candidatesJSON, err := json.Marshal(payloadCandidates)
+	if err != nil {
+		log.Printf("⚠️ [Autonomy] Failed to marshal candidates for LLM ranking: %v", err)
+		return CuriosityGoal{}, "", false
+	}
+
+	prompt := fmt.Sprintf(`You are an autonomous research planner for the domain "%s". Pick the single best curiosity goal to pursue next.
+Consider the candidate goals provided as JSON.
+You must balance novelty, impact, feasibility, and avoid repeating recent attempts unless necessary.
+Return ONLY strict JSON with this shape:
+{"selected_goal_id":"<id>","reason":"<short rationale>","scores":[{"id":"<id>","score":<0-1>,"rationale":"<why>"}]}
+Candidates JSON: %s`, domain, string(candidatesJSON))
+
+	bodyRequest, _ := json.Marshal(map[string]string{"text": prompt})
+	req, _ := http.NewRequest("POST", url, bytes.NewReader(bodyRequest))
+	req.Header.Set("Content-Type", "application/json")
+	if pid, ok := e.context["project_id"].(string); ok && pid != "" {
+		req.Header.Set("X-Project-ID", pid)
+	}
+
+	client := &http.Client{Timeout: 35 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("⚠️ [Autonomy] LLM goal ranking request failed: %v", err)
+		return CuriosityGoal{}, "", false
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("⚠️ [Autonomy] LLM goal ranking status %d: %s", resp.StatusCode, string(body))
+		return CuriosityGoal{}, "", false
+	}
+
+	bodyText := strings.TrimSpace(string(body))
+	start := strings.Index(bodyText, "{")
+	end := strings.LastIndex(bodyText, "}")
+	if start >= 0 && end > start {
+		bodyText = bodyText[start : end+1]
+	}
+
+	var out struct {
+		SelectedGoalID string `json:"selected_goal_id"`
+		Reason         string `json:"reason"`
+		Scores         []struct {
+			ID        string  `json:"id"`
+			Score     float64 `json:"score"`
+			Rationale string  `json:"rationale"`
+		} `json:"scores"`
+	}
+
+	if err := json.Unmarshal([]byte(bodyText), &out); err != nil {
+		log.Printf("⚠️ [Autonomy] Failed to parse LLM goal ranking response: %v body=%s", err, string(body))
+		return CuriosityGoal{}, "", false
+	}
+	if strings.TrimSpace(out.SelectedGoalID) == "" {
+		log.Printf("⚠️ [Autonomy] LLM goal ranking did not provide selected_goal_id")
+		return CuriosityGoal{}, "", false
+	}
+
+	for _, cand := range candidates {
+		if cand.Goal.ID == out.SelectedGoalID {
+			if len(out.Scores) > 0 {
+				scoreSummaries := make([]map[string]interface{}, 0, len(out.Scores))
+				for _, s := range out.Scores {
+					scoreSummaries = append(scoreSummaries, map[string]interface{}{
+						"id":        s.ID,
+						"score":     s.Score,
+						"rationale": s.Rationale,
+					})
+				}
+				e.context["goal_selection_scores"] = scoreSummaries
+			}
+			return cand.Goal, out.Reason, true
+		}
+	}
+
+	log.Printf("⚠️ [Autonomy] LLM selected goal %s which is not in candidate list", out.SelectedGoalID)
+	return CuriosityGoal{}, "", false
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // calculateGoalScore calculates a priority score for a goal

@@ -1979,7 +1979,7 @@
                 const prettyTs = (ts) => ts ? (isNaN(+ts) ? new Date(ts).toLocaleString() : new Date(+ts*1000).toLocaleString()) : '';
                 const renderCards = (items, get) => {
                     const cards = items.map((x) => {
-                        const { title, text, ts, url } = get(x) || {};
+                        const { title, text, ts, url, meta } = get(x) || {};
                         const cleanTitle = (title || '').toString().trim();
                         const cleanText = (text || '').toString().trim();
                         // Skip items with no meaningful title and no text
@@ -1990,6 +1990,7 @@
                                     <span class="step-name">${safe(cleanTitle)}</span>
                                     <span class="item-ts">${prettyTs(ts)}</span>
                                 </div>
+                                ${meta ? `<div class="step-meta">${safe(meta)}</div>` : ''}
                                 ${cleanText ? `<div class=\"step-description\">${trunc(safe(cleanText), 240)}</div>` : ''}
                                 ${url ? `<div style=\"margin-top:6px;\"><a class=\"btn\" href=\"${url}\" target=\"_blank\" rel=\"noopener\">Open</a></div>` : ''}
                             </div>`;
@@ -1997,19 +1998,86 @@
                     return cards.join('');
                 };
                 if (trC) {
-                    const html = renderCards(traces.slice(0, 50), x => ({ title: x.title || x.event || x.state || '', text: x.text || x.message || x.detail || '', ts: x.timestamp || x.time }));
+                    const html = renderCards(traces.slice(0, 50), x => {
+                        const title = x.goal || x.title || x.event || x.state || '';
+                        const text = x.conclusion || x.text || x.message || x.detail || '';
+                        const ts = x.created_at || x.timestamp || x.time;
+                        const domain = x.domain || x.reasoning_domain;
+                        const confidence = typeof x.confidence === 'number'
+                            ? `Confidence ${(x.confidence * 100).toFixed(0)}%`
+                            : (x.confidence || '');
+                        const parts = [];
+                        if (domain) parts.push(`Domain: ${domain}`);
+                        if (confidence) parts.push(confidence);
+                        return {
+                            title,
+                            text,
+                            ts,
+                            meta: parts.join(' • ')
+                        };
+                    });
                     trC.innerHTML = html || '<div class="loading">No reasoning traces</div>';
                 }
                 if (exC) {
-                    const html = renderCards(explanations.slice(0, 50), x => ({ title: x.title || x.goal || x.id || '', text: x.text || x.summary || x.explanation || '', ts: x.timestamp || x.created_at }));
+                    const html = renderCards(explanations.slice(0, 50), x => {
+                        const title = x.goal || x.title || x.id || '';
+                        const text = x.explanation || x.summary || x.text || x.content || '';
+                        const ts = x.generated_at || x.created_at || x.timestamp;
+                        const parts = [];
+                        if (x.session_id) parts.push(`Session: ${x.session_id}`);
+                        if (x.workflow_id) parts.push(`Workflow: ${x.workflow_id}`);
+                        if (x.project_id) parts.push(`Project: ${x.project_id}`);
+                        return {
+                            title,
+                            text,
+                            ts,
+                            meta: parts.join(' • ')
+                        };
+                    });
                     exC.innerHTML = html || '<div class="loading">No explanations</div>';
                 }
                 if (beC) {
-                    const html = renderCards(beliefs.slice(0, 50), x => ({ title: x.title || x.concept || x.id || '', text: x.text || x.statement || x.value || '', ts: x.timestamp || x.created_at }));
+                    const html = renderCards(beliefs.slice(0, 50), x => {
+                        const title = x.statement || x.title || x.concept || x.id || '';
+                        const props = x.properties || {};
+                        const text = x.reason || x.text || props.summary || props.description || x.value || '';
+                        const ts = x.last_updated || x.created_at || x.timestamp;
+                        const source = x.source || props.source;
+                        const confidence = typeof x.confidence === 'number'
+                            ? `Confidence ${(x.confidence * 100).toFixed(0)}%`
+                            : (x.confidence || '');
+                        const domain = x.domain || x.reasoning_domain;
+                        const parts = [];
+                        if (source) parts.push(`Source: ${source}`);
+                        if (domain) parts.push(`Domain: ${domain}`);
+                        if (confidence) parts.push(confidence);
+                        return {
+                            title,
+                            text,
+                            ts,
+                            meta: parts.join(' • ')
+                        };
+                    });
                     beC.innerHTML = html || '<div class="loading">No beliefs</div>';
                 }
                 if (cgC) {
-                    const html = renderCards(goals.slice(0, 50), x => ({ title: x.title || x.name || x.id || '', text: x.text || x.description || x.reason || '', ts: x.timestamp || x.created_at, url: x.url }));
+                    const html = renderCards(goals.slice(0, 50), x => {
+                        const title = x.description || x.title || x.name || x.id || '';
+                        const text = x.reason || x.text || (Array.isArray(x.targets) ? `Targets: ${x.targets.join(', ')}` : '');
+                        const ts = x.created_at || x.timestamp;
+                        const parts = [];
+                        if (x.type) parts.push(`Type: ${x.type}`);
+                        if (typeof x.priority !== 'undefined') parts.push(`Priority ${x.priority}`);
+                        if (x.status) parts.push(`Status: ${x.status}`);
+                        if (x.domain) parts.push(`Domain: ${x.domain}`);
+                        return {
+                            title,
+                            text,
+                            ts,
+                            url: x.url,
+                            meta: parts.join(' • ')
+                        };
+                    });
                     cgC.innerHTML = html || '<div class="loading">No curiosity goals</div>';
                 }
                 if (hyC) {
