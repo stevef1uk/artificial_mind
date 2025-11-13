@@ -200,13 +200,15 @@ Code:`
 		toolsSection += "```\n\n"
 
 		// Go example
-		toolsSection += "Go - Call HTTP GET:\n"
+		toolsSection += "Go - Call Tool API:\n"
 		toolsSection += "```go\n"
+		toolsSection += "package main\n"
 		toolsSection += "import (\n"
 		toolsSection += "    \"bytes\"\n"
 		toolsSection += "    \"encoding/json\"\n"
-		toolsSection += "    \"net/http\"\n"
+		toolsSection += "    \"fmt\"\n"
 		toolsSection += "    \"io\"\n"
+		toolsSection += "    \"net/http\"\n"
 		toolsSection += ")\n"
 		toolsSection += "url := \"https://example.com\"\n"
 		toolsSection += "jsonData, _ := json.Marshal(map[string]string{\"url\": url})\n"
@@ -248,6 +250,9 @@ IMPORTANT:
 - For file operations: use tool_file_read or tool_file_write if available
 - Only perform direct network calls if no tool is available
 - The code must include a print statement to output the result
+  * For Go: use fmt.Print() or fmt.Println() (NOT the built-in print() function). Ensure you import "fmt" and "io" packages if using io.ReadAll()
+  * For Python: use print()
+  * For JavaScript: use console.log()
 - Use the correct file paths for any data files (see IMPORTANT notes above)
 - For mathematical tasks, create appropriate functions and print the results
 - For data processing tasks, create functions that process the data and print the results

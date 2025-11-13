@@ -2888,10 +2888,34 @@
             html += '<span class="step-status status-completed">COMPLETED</span>';
             html += '</div>';
 
-            // Show the result
+            // Show the result - check multiple sources
+            let outputText = null;
             if (data.result) {
-                html += `<div class="step-description">Result:</div>`;
-                html += `<div class="code-block"><pre>${data.result}</pre></div>`;
+                outputText = String(data.result);
+            } else if (data.validation_steps && data.validation_steps.length > 0) {
+                // If no result but we have validation steps, show the last step's output
+                const lastStep = data.validation_steps[data.validation_steps.length - 1];
+                if (lastStep.output !== undefined && lastStep.output !== null) {
+                    outputText = String(lastStep.output);
+                }
+            }
+            
+            if (outputText !== null) {
+                const trimmed = outputText.trim();
+                if (trimmed) {
+                    html += `<div class="step-description"><strong>Result:</strong></div>`;
+                    html += `<div class="code-block" style="background: #f0f9ff; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9; margin: 10px 0;"><pre style="margin: 0; font-size: 14px;">${trimmed}</pre></div>`;
+                } else {
+                    html += `<div class="step-description">Result: (empty output)</div>`;
+                }
+            } else {
+                // Debug: show what we have
+                html += `<div class="step-description"><strong>Debug Info:</strong></div>`;
+                html += `<div class="code-block" style="background: #fff3cd; padding: 15px; border-radius: 8px; border-left: 4px solid #ffc107; margin: 10px 0;"><pre style="margin: 0; font-size: 12px;">data.result: ${JSON.stringify(data.result)}
+data.result type: ${typeof data.result}
+data.result truthy: ${!!data.result}
+validation_steps: ${data.validation_steps ? data.validation_steps.length : 0} steps
+last step output: ${data.validation_steps && data.validation_steps.length > 0 ? JSON.stringify(data.validation_steps[data.validation_steps.length - 1].output) : 'N/A'}</pre></div>`;
             }
 
             // Show generated code info
@@ -2910,9 +2934,14 @@
                     if (step.message) {
                         html += `<div class="step-message">${step.message}</div>`;
                     }
-                    if (step.output) {
-                        html += `<div class="step-description">Program Output:</div>`;
-                        html += `<div class="code-block"><pre>${step.output}</pre></div>`;
+                    if (step.output !== undefined && step.output !== null) {
+                        const outputText = String(step.output).trim();
+                        if (outputText) {
+                            html += `<div class="step-description">Program Output:</div>`;
+                            html += `<div class="code-block"><pre>${outputText}</pre></div>`;
+                        } else {
+                            html += `<div class="step-description">Program Output: (empty)</div>`;
+                        }
                     }
                     html += '</div>';
                 });

@@ -235,9 +235,16 @@ func (ie *IntelligentExecutor) filterRelevantTools(tools []Tool, req *ExecutionR
 			continue
 		}
 
-		// Also check tool description/name
-		toolDesc := strings.ToLower(tool.Description + " " + tool.Name)
-		for _, keyword := range []string{"scrape", "http", "fetch", "url", "web", "file", "read", "write"} {
+		// Check if tool ID is explicitly mentioned in the description
+		if strings.Contains(combined, strings.ToLower(tool.ID)) {
+			relevant = append(relevant, tool)
+			seen[tool.ID] = true
+			continue
+		}
+
+		// Also check tool description/name for keyword matches
+		toolDesc := strings.ToLower(tool.Description + " " + tool.Name + " " + tool.ID)
+		for _, keyword := range []string{"scrape", "http", "fetch", "url", "web", "file", "read", "write", "calculator", "calculate", "add", "subtract", "multiply", "divide", "math"} {
 			if strings.Contains(combined, keyword) && strings.Contains(toolDesc, keyword) {
 				relevant = append(relevant, tool)
 				seen[tool.ID] = true
@@ -1418,7 +1425,13 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	// Step 6: Return successful result
 	result.Success = true
 	result.GeneratedCode = generatedCode
-	result.Result = result.ValidationSteps[len(result.ValidationSteps)-1].Output
+	if len(result.ValidationSteps) > 0 {
+		lastStep := result.ValidationSteps[len(result.ValidationSteps)-1]
+		result.Result = lastStep.Output
+		log.Printf("📊 [INTELLIGENT] Setting result.Result from validation step output: %q (length: %d)", lastStep.Output, len(lastStep.Output))
+	} else {
+		log.Printf("⚠️ [INTELLIGENT] No validation steps to extract output from")
+	}
 	result.ExecutionTime = time.Since(start)
 
 	// Record episode in self-model
