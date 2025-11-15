@@ -382,7 +382,9 @@ func jitterSleep(ms int) {
 func fetchSummary(ctx context.Context, httpClient *http.Client, title string) (*wikiSummary, error) {
 	url := fmt.Sprintf("https://en.wikipedia.org/api/rest_v1/page/summary/%s", escapeTitle(title))
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	req.Header.Set("User-Agent", "agi-wiki-bootstrapper/1.0 (+contact: dev@example.com)")
+	// Use a more compliant User-Agent - Wikipedia requires a valid contact email
+	contactEmail := getenvDefault("WIKI_CONTACT_EMAIL", "stevef@example.com")
+	req.Header.Set("User-Agent", fmt.Sprintf("agi-wiki-bootstrapper/1.0 (https://github.com/your-org/artificial_mind; +mailto:%s)", contactEmail))
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -401,7 +403,9 @@ func fetchSummary(ctx context.Context, httpClient *http.Client, title string) (*
 func fetchRelated(ctx context.Context, httpClient *http.Client, title string) ([]string, error) {
 	url := fmt.Sprintf("https://en.wikipedia.org/api/rest_v1/page/related/%s", escapeTitle(title))
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	req.Header.Set("User-Agent", "agi-wiki-bootstrapper/1.0 (+contact: dev@example.com)")
+	// Use a more compliant User-Agent - Wikipedia requires a valid contact email
+	contactEmail := getenvDefault("WIKI_CONTACT_EMAIL", "stevef@example.com")
+	req.Header.Set("User-Agent", fmt.Sprintf("agi-wiki-bootstrapper/1.0 (https://github.com/your-org/artificial_mind; +mailto:%s)", contactEmail))
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -455,7 +459,9 @@ func fetchLinks(ctx context.Context, httpClient *http.Client, title string, limi
 		apiURL.RawQuery = query.Encode()
 
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, apiURL.String(), nil)
-		req.Header.Set("User-Agent", "agi-wiki-bootstrapper/1.0 (+contact: dev@example.com)")
+		// Use a more compliant User-Agent - Wikipedia requires a valid contact email
+		contactEmail := getenvDefault("WIKI_CONTACT_EMAIL", "stevef@example.com")
+		req.Header.Set("User-Agent", fmt.Sprintf("agi-wiki-bootstrapper/1.0 (https://github.com/your-org/artificial_mind; +mailto:%s)", contactEmail))
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			return collected, err

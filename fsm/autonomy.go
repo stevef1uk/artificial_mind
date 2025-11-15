@@ -896,3 +896,32 @@ func (e *FSMEngine) createDedupKey(goal CuriosityGoal) string {
 	// For other goals, use type + description
 	return fmt.Sprintf("%s:%s", goal.Type, goal.Description)
 }
+
+// isGenericHypothesisGoal checks if a hypothesis testing goal is generic/useless
+func (e *FSMEngine) isGenericHypothesisGoal(goal CuriosityGoal) bool {
+	if goal.Type != "hypothesis_testing" {
+		return false
+	}
+	
+	desc := strings.ToLower(goal.Description)
+	// Generic patterns that indicate useless goals
+	genericPatterns := []string{
+		"apply insights from system state",
+		"improve our general approach",
+		"improve general performance",
+		"optimize the ai capability control system",
+		"if we apply insights",
+		"we can improve",
+	}
+	for _, pattern := range genericPatterns {
+		if strings.Contains(desc, pattern) {
+			return true
+		}
+	}
+	// Check if description is too vague (less than 30 chars)
+	if len(goal.Description) < 30 {
+		return true
+	}
+	
+	return false
+}

@@ -474,6 +474,9 @@ func (sde *SimpleDockerExecutor) buildDockerCommand(image, cmd, codeFile, contai
 		"--tmpfs", fmt.Sprintf("/tmp:rw,nosuid,size=%s", DockerTmpfsSize),
 		// Enable default network for dependency installs (pip/go mod) used in demos
 		"--network", "bridge",
+		// Add host.docker.internal for container-to-host communication (works on Mac/Windows, Linux 20.10+)
+		// Note: This may fail on very old Docker versions, but the error is non-fatal
+		"--add-host", "host.docker.internal:host-gateway",
 		"-v", fmt.Sprintf("%s:/app/code.%s", codeFile, sde.getFileExtensionFromFile(codeFile)),
 		"-v", fmt.Sprintf("%s:/app/output", outputDir),
 	}

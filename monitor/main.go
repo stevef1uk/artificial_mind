@@ -5158,12 +5158,75 @@ func (m *MonitorService) getReasoningDomains(c *gin.Context) {
 	beliefs := scanDomains("reasoning:beliefs:*", "reasoning:beliefs:")
 	curiosity := scanDomains("reasoning:curiosity_goals:*", "reasoning:curiosity_goals:")
 
-	// Union for convenience
+	// Also check Neo4j for domains from concepts (if available)
+	neo4jDomains := []string{}
+	if m.hdnURL != "" {
+		// Query HDN knowledge API to get concepts and extract unique domains
+		// Use a large limit to get a good sample of concepts
+		searchURL := fmt.Sprintf("%s/api/v1/knowledge/concepts?limit=1000", m.hdnURL)
+		if resp, err := http.Get(searchURL); err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				var conceptResult struct {
+					Concepts []struct {
+						Domain string `json:"domain"`
+					} `json:"concepts"`
+				}
+				if err := json.NewDecoder(resp.Body).Decode(&conceptResult); err == nil {
+					domainSet := make(map[string]bool)
+					for _, concept := range conceptResult.Concepts {
+						domain := strings.TrimSpace(concept.Domain)
+						// Filter out source identifiers (news:, wiki:, etc.) - these are not domains
+						if domain != "" && domain != "General" && !isSourceIdentifier(domain) {
+							domainSet[domain] = true
+						}
+					}
+					for domain := range domainSet {
+						neo4jDomains = append(neo4jDomains, domain)
+					}
+				}
+			}
+		}
+	}
+
+	// Union all domains, filtering out source identifiers
 	union := append([]string{}, beliefs...)
 	union = append(union, curiosity...)
-	union = unique(union)
+	union = append(union, neo4jDomains...)
+	// Filter out source identifiers from all domains
+	filtered := make([]string, 0, len(union))
+	for _, d := range union {
+		if !isSourceIdentifier(d) {
+			filtered = append(filtered, d)
+		}
+	}
+	union = unique(filtered)
 
 	c.JSON(http.StatusOK, result{Domains: union, BeliefDomains: beliefs, CuriosityDomains: curiosity})
+}
+
+// isSourceIdentifier checks if a string is a source identifier (like "news:bbc", "wikipedia") rather than a semantic domain
+func isSourceIdentifier(s string) bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	// Source identifiers typically have patterns like:
+	// - "news:" prefix (news:bbc, news:fsm)
+	// - "wiki" (wikipedia, wiki)
+	// - "source:" prefix
+	// - Common source names
+	sourcePatterns := []string{
+		"news:",
+		"wiki",
+		"source:",
+		"bbc",
+		"reuters",
+		"ap news",
+	}
+	for _, pattern := range sourcePatterns {
+		if strings.Contains(s, pattern) {
+			return true
+		}
+	}
+	return false
 }
 
 // getReflection provides comprehensive introspection of the system's current mental state

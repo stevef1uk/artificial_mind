@@ -3094,9 +3094,19 @@ func (ie *IntelligentExecutor) executeProgramDirectly(ctx context.Context, req *
 
 	// Execute the generated code using the existing docker executor
 	// Ensure TOOL_API_URL is available in the container environment
+	// IMPORTANT: Containers can't use localhost - need to use host address
 	env := make(map[string]string)
 	if ie.hdnBaseURL != "" {
-		env["TOOL_API_URL"] = ie.hdnBaseURL
+		// Convert localhost URLs to host.docker.internal for Docker containers
+		// host.docker.internal works on Mac/Windows and modern Linux Docker (20.10+)
+		// On older Linux systems, this may need Docker configured with --add-host=host.docker.internal:host-gateway
+		toolURL := ie.hdnBaseURL
+		if strings.Contains(toolURL, "localhost") || strings.Contains(toolURL, "127.0.0.1") {
+			// Replace localhost/127.0.0.1 with host.docker.internal
+			toolURL = strings.Replace(toolURL, "localhost", "host.docker.internal", -1)
+			toolURL = strings.Replace(toolURL, "127.0.0.1", "host.docker.internal", -1)
+		}
+		env["TOOL_API_URL"] = toolURL
 	}
 	// Copy context variables to environment
 	if req.Context != nil {

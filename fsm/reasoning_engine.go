@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -251,11 +252,41 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 		goals = append(goals, newsGoals...)
 	}
 
+	// Filter out generic/useless goals before returning
+	var filteredGoals []CuriosityGoal
+	seenDescriptions := make(map[string]bool)
+	for _, goal := range goals {
+		// Skip generic goals
+		if re.isGenericGoal(goal) {
+			log.Printf("🚫 Filtered out generic goal: %s", goal.Description)
+			continue
+		}
+		// Skip duplicate descriptions (normalized)
+		descKey := strings.ToLower(strings.TrimSpace(goal.Description))
+		if seenDescriptions[descKey] {
+			log.Printf("🚫 Filtered out duplicate goal: %s", goal.Description)
+			continue
+		}
+		seenDescriptions[descKey] = true
+		filteredGoals = append(filteredGoals, goal)
+	}
+
+	// Limit the number of goals returned to prevent overwhelming the system
+	maxGoals := 10
+	if len(filteredGoals) > maxGoals {
+		// Keep the highest priority goals
+		sort.Slice(filteredGoals, func(i, j int) bool {
+			return filteredGoals[i].Priority > filteredGoals[j].Priority
+		})
+		filteredGoals = filteredGoals[:maxGoals]
+		log.Printf("📊 Limited goals to top %d by priority", maxGoals)
+	}
+
 	// Clean up old and completed goals before adding new ones
 	re.cleanupOldGoals(domain)
 
-	log.Printf("🎯 Generated %d curiosity goals", len(goals))
-	return goals, nil
+	log.Printf("🎯 Generated %d curiosity goals (filtered from %d raw goals)", len(filteredGoals), len(goals))
+	return filteredGoals, nil
 }
 
 // LogReasoningTrace creates a trace of reasoning steps
@@ -866,6 +897,29 @@ func (re *ReasoningEngine) isGenericGoal(goal CuriosityGoal) bool {
 	// Check for generic contradiction goals
 	if goal.Type == "contradiction_resolution" && goal.Description == "Resolve any contradictions in the knowledge base" {
 		return true
+	}
+
+	// Check for generic hypothesis testing goals with vague descriptions
+	if goal.Type == "hypothesis_testing" {
+		desc := strings.ToLower(goal.Description)
+		// Generic patterns that indicate useless goals
+		genericPatterns := []string{
+			"apply insights from system state",
+			"improve our general approach",
+			"improve general performance",
+			"optimize the ai capability control system",
+			"if we apply insights",
+			"we can improve",
+		}
+		for _, pattern := range genericPatterns {
+			if strings.Contains(desc, pattern) {
+				return true
+			}
+		}
+		// Check if description is too vague (less than 30 chars or very repetitive)
+		if len(goal.Description) < 30 {
+			return true
+		}
 	}
 
 	return false

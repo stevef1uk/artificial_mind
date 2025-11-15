@@ -758,6 +758,62 @@ func (e *FSMEngine) executeInputParser(action ActionConfig, event map[string]int
 func (e *FSMEngine) executeDomainClassifier(action ActionConfig, event map[string]interface{}) {
 	// Use knowledge base to classify domain
 	log.Printf("Classifying domain using concept matching")
+	
+	// Extract text to classify from event
+	var textToClassify string
+	
+	// For news events, extract headline or relation text
+	if eventType, ok := event["type"].(string); ok {
+		if eventType == "relations" || eventType == "alerts" {
+			if payload, ok := event["payload"].(map[string]interface{}); ok {
+				if metadata, ok := payload["metadata"].(map[string]interface{}); ok {
+					// Try headline first
+					if headline, ok := metadata["headline"].(string); ok && headline != "" {
+						textToClassify = headline
+					} else if text, ok := payload["text"].(string); ok && text != "" {
+						textToClassify = text
+					} else {
+						// Build text from relation components
+						if head, ok := metadata["head"].(string); ok {
+							textToClassify = head
+							if rel, ok := metadata["relation"].(string); ok {
+								textToClassify += " " + rel
+							}
+							if tail, ok := metadata["tail"].(string); ok {
+								textToClassify += " " + tail
+							}
+						}
+					}
+				} else if text, ok := payload["text"].(string); ok && text != "" {
+					textToClassify = text
+				}
+			}
+		} else {
+			// For other events, try to get text from payload
+			if payload, ok := event["payload"].(map[string]interface{}); ok {
+				if text, ok := payload["text"].(string); ok && text != "" {
+					textToClassify = text
+				}
+			}
+		}
+	}
+	
+	// If we have text to classify, use knowledge integration
+	if textToClassify != "" && e.knowledgeIntegration != nil {
+		result, err := e.knowledgeIntegration.ClassifyDomain(textToClassify)
+		if err == nil && result != nil && result.Domain != "" {
+			// Set the domain in context
+			e.context["current_domain"] = result.Domain
+			log.Printf("✅ Classified domain: %s (confidence: %.2f)", result.Domain, result.Confidence)
+			
+			// Save context to persist domain
+			e.saveState()
+		} else if err != nil {
+			log.Printf("⚠️ Domain classification failed: %v", err)
+		}
+	} else {
+		log.Printf("⚠️ No text available for domain classification")
+	}
 }
 
 func (e *FSMEngine) executeKnowledgeExtractor(action ActionConfig, event map[string]interface{}) {
@@ -2981,6 +3037,7 @@ func (e *FSMEngine) createHypothesisTestingGoals(hypotheses []Hypothesis, domain
 
 	// Create curiosity goals for testing each approved hypothesis, deduplicated
 	newGoals := 0
+	filteredCount := 0
 	for _, hypothesis := range uniqueApproved {
 		goal := CuriosityGoal{
 			ID:          fmt.Sprintf("hyp_test_%s", hypothesis.ID),
@@ -2992,6 +3049,14 @@ func (e *FSMEngine) createHypothesisTestingGoals(hypotheses []Hypothesis, domain
 			Domain:      domain,
 			CreatedAt:   time.Now(),
 		}
+		
+		// Filter out generic/useless goals before adding
+		if e.isGenericHypothesisGoal(goal) {
+			filteredCount++
+			log.Printf("🚫 Filtered out generic hypothesis goal: %s", goal.Description)
+			continue
+		}
+		
 		k := e.createDedupKey(goal)
 		if _, exists := existing[k]; exists {
 			continue
@@ -3004,7 +3069,7 @@ func (e *FSMEngine) createHypothesisTestingGoals(hypotheses []Hypothesis, domain
 		}
 	}
 
-	log.Printf("🎯 Created %d hypothesis testing goals (after LLM screening, deduped)", newGoals)
+	log.Printf("🎯 Created %d hypothesis testing goals (after LLM screening, deduped, filtered %d generic)", newGoals, filteredCount)
 }
 
 // screenHypothesesWithLLM calls the HDN interpreter to rate hypotheses and filters by threshold

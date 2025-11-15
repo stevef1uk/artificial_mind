@@ -539,9 +539,13 @@ func (s *APIServer) processEvent(evt eventbus.CanonicalEvent) {
 					name = "Event"
 				}
 				conceptName := fmt.Sprintf("%s_%s", name, evt.EventID)
+				// Use "General" domain instead of source - source (like "news:bbc") is not a semantic domain
+				domain := "General"
+				// If we have domain classification available, we could use it here
+				// For now, use "General" to avoid polluting domains with source identifiers
 				concept := &mempkg.Concept{
 					Name:       conceptName,
-					Domain:     strings.TrimSpace(evt.Source),
+					Domain:     domain,
 					Definition: text,
 					CreatedAt:  time.Now().UTC(),
 					UpdatedAt:  time.Now().UTC(),
