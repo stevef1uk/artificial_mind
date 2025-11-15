@@ -1,5 +1,5 @@
 module agi/tools/html_scraper
 
-go 1.25.1
+go 1.24.0
 
-require golang.org/x/net v0.44.0
+require golang.org/x/net v0.47.0

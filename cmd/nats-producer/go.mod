@@ -1,6 +1,6 @@
 module cmd/nats-producer
 
-go 1.25.1
+go 1.21
 
 require eventbus v0.0.0
 

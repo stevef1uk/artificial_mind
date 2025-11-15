@@ -1,3 +1,3 @@
 module agi/tools/file_read
 
-go 1.25.1
+go 1.21

@@ -260,10 +260,13 @@ func (ie *IntelligentExecutor) filterRelevantTools(tools []Tool, req *ExecutionR
 func (ie *IntelligentExecutor) executeWithSSHTool(ctx context.Context, code, language string) (*DockerExecutionResponse, error) {
 	// Determine if the SSH executor is enabled on this platform
 	execMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
+	isARM64 := runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64"
+
+	// On ARM64, if EXECUTION_METHOD=docker is explicitly set, disable SSH to force Docker execution
+	// This allows Mac users to force Docker execution
 	sshEnabled := execMethod == "ssh" ||
 		strings.TrimSpace(os.Getenv("ENABLE_ARM64_TOOLS")) == "true" ||
-		runtime.GOARCH == "arm64" ||
-		runtime.GOARCH == "aarch64"
+		(isARM64 && execMethod != "docker")
 
 	if !sshEnabled {
 		log.Printf("🔁 [INTELLIGENT] SSH executor disabled (EXECUTION_METHOD=%s, ENABLE_ARM64_TOOLS=%s, GOARCH=%s) — falling back to local Docker executor",
