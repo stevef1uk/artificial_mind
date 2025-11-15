@@ -83,8 +83,9 @@ api_request() {
     local execution_time=$(echo "$response" | jq -r '.execution_time_ms // 0')
     local result=$(echo "$response" | jq -r '.result // ""')
     # Fallback: if result is empty but validation captured stdout, use that
+    # Check the last validation step (most recent) first, then fall back to first
     if [ -z "$result" ]; then
-        result=$(echo "$response" | jq -r '.validation_steps[0].output // ""')
+        result=$(echo "$response" | jq -r '.validation_steps[-1].output // .validation_steps[0].output // ""')
     fi
     local error=$(echo "$response" | jq -r '.error // ""')
     
@@ -92,20 +93,26 @@ api_request() {
     echo "📊 Result: $success | Task: $task_name | Language: $language | Cached: $used_cached | Time: ${execution_time}ms"
     
     # Show the actual code output or error
-    if [ "$success" = "true" ] && [ -n "$result" ]; then
-        echo "📋 Output: $result"
-        
-		# Validate results if expected pattern provided
-		if [ -n "$expected_pattern" ]; then
-			# Normalize newlines to spaces so patterns like ".*" can match across lines
-			local search_text
-			search_text=$(printf "%s" "$result" | tr '\n' ' ')
-			if printf "%s" "$search_text" | grep -E -q "$expected_pattern"; then
-				print_success "✅ Validation PASSED"
-			else
-				print_warning "⚠️  Validation FAILED - Expected: $expected_pattern"
-			fi
-		fi
+    if [ "$success" = "true" ]; then
+        if [ -n "$result" ]; then
+            echo "📋 Output: $result"
+            
+            # Validate results if expected pattern provided
+            if [ -n "$expected_pattern" ]; then
+                # Normalize newlines to spaces so patterns like ".*" can match across lines
+                local search_text
+                search_text=$(printf "%s" "$result" | tr '\n' ' ')
+                if printf "%s" "$search_text" | grep -E -q "$expected_pattern"; then
+                    print_success "✅ Validation PASSED"
+                else
+                    print_warning "⚠️  Validation FAILED - Expected: $expected_pattern"
+                    print_warning "⚠️  Got: $result"
+                fi
+            fi
+        else
+            # Success but no result - this might be okay for some tasks
+            print_warning "⚠️  Execution succeeded but no output returned"
+        fi
     elif [ "$success" = "false" ] && [ -n "$error" ]; then
         echo "📋 Error: $error"
         
@@ -116,7 +123,7 @@ api_request() {
             print_warning "⚠️  Validation FAILED - Expected: $expected_pattern"
         fi
     else
-        print_warning "❌ Execution failed"
+        print_warning "❌ Execution failed (success=false, no error message)"
     fi
     
     echo

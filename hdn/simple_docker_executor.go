@@ -126,8 +126,8 @@ func (sde *SimpleDockerExecutor) ExecuteCode(ctx context.Context, req *DockerExe
 	_ = os.Chmod(outputDir, 0777)
 	defer os.RemoveAll(outputDir)
 
-	// Build Docker command with output volume
-	dockerCmd := sde.buildDockerCommand(image, cmd, tempFile, containerName, outputDir, req.Timeout, req.Environment)
+	// Build Docker command with output volume (pass hasInput flag)
+	dockerCmd := sde.buildDockerCommand(image, cmd, tempFile, containerName, outputDir, req.Timeout, req.Environment, req.Input != "")
 
 	// Start with a clean output directory
 	_ = os.RemoveAll(outputDir)
@@ -139,6 +139,23 @@ func (sde *SimpleDockerExecutor) ExecuteCode(ctx context.Context, req *DockerExe
 	var stdoutBuf, stderrBuf bytes.Buffer
 	execCmd.Stdout = &stdoutBuf
 	execCmd.Stderr = &stderrBuf
+
+	// If input is provided, pipe it to stdin
+	// Note: We only set stdin if input is non-empty
+	// The -i flag is already added in buildDockerCommand when hasInput is true
+	if req.Input != "" && strings.TrimSpace(req.Input) != "" {
+		inputLen := len(req.Input)
+		previewLen := 50
+		if inputLen < previewLen {
+			previewLen = inputLen
+		}
+		execCmd.Stdin = strings.NewReader(req.Input)
+		log.Printf("📥 [DOCKER] Providing input to program (%d bytes): %s", inputLen, req.Input[:previewLen])
+	} else if req.Input != "" {
+		// Empty or whitespace-only input - don't set stdin
+		log.Printf("⚠️ [DOCKER] Input provided but is empty/whitespace, not setting stdin")
+	}
+
 	runErr := execCmd.Run()
 
 	executionTime := time.Since(start).Milliseconds()
@@ -160,9 +177,17 @@ func (sde *SimpleDockerExecutor) ExecuteCode(ctx context.Context, req *DockerExe
 	// Prepare stdout string only (keep stderr for logs, not artifacts)
 	outputStr := stdoutBuf.String()
 	errStr := stderrBuf.String()
+
+	// Always log stderr if present, even if execution succeeded (might contain warnings)
+	if strings.TrimSpace(errStr) != "" {
+		log.Printf("📋 [DOCKER] stderr output: %s", errStr)
+	}
+
 	if trimmed := strings.TrimSpace(outputStr); trimmed != "" {
 		files["output.txt"] = []byte(trimmed)
 		log.Printf("📄 [DOCKER] Captured stdout as output.txt (%d bytes)", len(trimmed))
+	} else {
+		log.Printf("⚠️ [DOCKER] No stdout output captured (empty)")
 	}
 
 	// Check if command execution failed
@@ -170,11 +195,56 @@ func (sde *SimpleDockerExecutor) ExecuteCode(ctx context.Context, req *DockerExe
 		if strings.TrimSpace(errStr) != "" {
 			log.Printf("⚠️ [DOCKER] stderr: %s", errStr)
 		}
+		if strings.TrimSpace(outputStr) != "" {
+			log.Printf("⚠️ [DOCKER] stdout (may contain errors): %s", outputStr)
+		}
 		log.Printf("❌ [DOCKER] Command execution failed: %v", runErr)
+
+		// For compilation errors (especially Go), include stderr AND stdout in the error message
+		// Go compilation errors often go to stdout, not stderr
+		// This gives the LLM the actual compilation error to fix
+		errorMsg := runErr.Error()
+		errorDetails := ""
+
+		// For Go, check both stdout and stderr for compilation errors
+		if req.Language == "go" {
+			// Go compilation errors typically appear in stdout
+			if strings.TrimSpace(outputStr) != "" {
+				// Check if stdout contains Go compilation errors
+				if strings.Contains(outputStr, "imported and not used") ||
+					strings.Contains(outputStr, "declared but not used") ||
+					strings.Contains(outputStr, "undefined:") ||
+					strings.Contains(outputStr, "cannot use") ||
+					strings.Contains(outputStr, "syntax error") ||
+					strings.Contains(outputStr, "./code.go:") {
+					errorDetails = outputStr
+				}
+			}
+			// Also check stderr
+			if strings.TrimSpace(errStr) != "" {
+				if errorDetails != "" {
+					errorDetails += "\n" + errStr
+				} else {
+					errorDetails = errStr
+				}
+			}
+		} else {
+			// For other languages, prefer stderr
+			if strings.TrimSpace(errStr) != "" {
+				errorDetails = errStr
+			} else if strings.TrimSpace(outputStr) != "" {
+				errorDetails = outputStr
+			}
+		}
+
+		if errorDetails != "" {
+			errorMsg = fmt.Sprintf("%s\n\nCompilation/Execution Error Details:\n%s", errorMsg, errorDetails)
+		}
+
 		return &DockerExecutionResponse{
 			Success:       false,
 			Output:        outputStr,
-			Error:         runErr.Error(),
+			Error:         errorMsg,
 			ExitCode:      1,
 			ExecutionTime: executionTime,
 			ContainerID:   containerName,
@@ -388,7 +458,7 @@ func (sde *SimpleDockerExecutor) addDataFileMounts(args []string, context map[st
 }
 
 // buildDockerCommand builds the Docker command to execute
-func (sde *SimpleDockerExecutor) buildDockerCommand(image, cmd, codeFile, containerName, outputDir string, timeout int, context map[string]string) []string {
+func (sde *SimpleDockerExecutor) buildDockerCommand(image, cmd, codeFile, containerName, outputDir string, timeout int, context map[string]string, hasInput bool) []string {
 	// For simple execution, we'll use docker run with volume mount
 	args := []string{
 		"docker", "run",
@@ -406,6 +476,23 @@ func (sde *SimpleDockerExecutor) buildDockerCommand(image, cmd, codeFile, contai
 		"--network", "bridge",
 		"-v", fmt.Sprintf("%s:/app/code.%s", codeFile, sde.getFileExtensionFromFile(codeFile)),
 		"-v", fmt.Sprintf("%s:/app/output", outputDir),
+	}
+
+	// Add -i flag if input is provided to keep stdin open
+	if hasInput {
+		args = append(args, "-i")
+		log.Printf("📥 [DOCKER] Adding -i flag for stdin input")
+	}
+
+	// Pass environment variables
+	if context != nil {
+		for key, value := range context {
+			key = strings.TrimSpace(key)
+			if key == "" {
+				continue
+			}
+			args = append(args, "-e", fmt.Sprintf("%s=%s", key, value))
+		}
 	}
 
 	// Mount local input_files directory into the container at /app/input_files (read-only) if it exists
@@ -440,25 +527,26 @@ func (sde *SimpleDockerExecutor) buildDockerCommand(image, cmd, codeFile, contai
 		// Prepare writable dirs and build a binary explicitly to avoid /tmp noexec and go run issues
 		if quiet {
 			args = append(args, "sh", "-c", fmt.Sprintf(`
-			set -eu
+			set -e
 			cd /app && 
 			mkdir -p /app/.cache /app/tmp && 
 			export GOCACHE=/app/.cache 
 			if [ ! -f go.mod ]; then go mod init test-module >/dev/null 2>&1; fi && 
 			go mod tidy >/dev/null 2>&1 && 
-			go build -o /app/tmp/app code.%s && 
+			go build -o /app/tmp/app code.%s 2>&1 || (go build -o /app/tmp/app code.%s 2>&1; exit 1) && 
 			/app/tmp/app
-		`, sde.getFileExtensionFromFile(codeFile)))
+		`, sde.getFileExtensionFromFile(codeFile), sde.getFileExtensionFromFile(codeFile)))
 		} else {
 			args = append(args, "sh", "-c", fmt.Sprintf(`
-			set -eu
+			set -e
 			cd /app && 
 			mkdir -p /app/.cache /app/tmp && 
 			export GOCACHE=/app/.cache 
 			# Initialize go.mod only if missing
 			if [ ! -f go.mod ]; then go mod init test-module >/dev/null 2>&1; fi && 
 			go mod tidy >/dev/null 2>&1 && 
-			go build -o /app/tmp/app code.%s && 
+			# Build with -e flag to continue on unused variable/import warnings (they're non-fatal)
+			go build -o /app/tmp/app code.%s 2>&1 || exit 1 && 
 			/app/tmp/app &&
 			cp *.go *.mod *.sum *.pdf *.png *.jpg *.jpeg *.csv *.txt *.json /app/output/ 2>/dev/null || true
 		`, sde.getFileExtensionFromFile(codeFile)))

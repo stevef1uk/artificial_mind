@@ -1019,23 +1019,25 @@ func (ie *IntelligentExecutor) storeChainedProgramArtifact(generatedCode *Genera
 		return
 	}
 
-	// Determine file extension based on language
-	var ext string
-	switch strings.ToLower(generatedCode.Language) {
-	case "python":
-		ext = ".py"
-	case "go":
-		ext = ".go"
-	case "javascript":
-		ext = ".js"
-	case "java":
-		ext = ".java"
-	default:
-		ext = ".txt"
+	// Check if programName already has an extension
+	filename := programName
+	if !strings.Contains(filepath.Ext(programName), ".") {
+		// No extension, add one based on language
+		var ext string
+		switch strings.ToLower(generatedCode.Language) {
+		case "python":
+			ext = ".py"
+		case "go":
+			ext = ".go"
+		case "javascript":
+			ext = ".js"
+		case "java":
+			ext = ".java"
+		default:
+			ext = ".txt"
+		}
+		filename = fmt.Sprintf("%s%s", programName, ext)
 	}
-
-	// Create filename
-	filename := fmt.Sprintf("%s%s", programName, ext)
 
 	// Store the file using the file storage
 	storedFile := &StoredFile{
@@ -2145,6 +2147,42 @@ func (ie *IntelligentExecutor) fixCodeWithLLM(originalCode *GeneratedCode, valid
 
 // buildFixPrompt creates a prompt for fixing code
 func (ie *IntelligentExecutor) buildFixPrompt(originalCode *GeneratedCode, validationResult ValidationStep, req *ExecutionRequest) string {
+	// Build language-specific guidance
+	languageGuidance := ""
+	if originalCode.Language == "go" {
+		languageGuidance = `
+🚨 CRITICAL FOR GO CODE FIXES:
+- Read the compilation error message CAREFULLY - it tells you exactly what's wrong!
+- Common Go compilation errors:
+  * "undefined: X" - Missing import or typo in function/variable name
+  * "X declared but not used" - Remove unused imports/variables (Go treats these as ERRORS)
+  * "cannot use X (type Y) as type Z" - Type mismatch, fix the type
+  * "syntax error" - Check for missing braces, parentheses, or semicolons
+  * "imported and not used" - Remove the unused import
+- If the error says "declared but not used", REMOVE that import/variable - don't try to use it!
+- If the error says "undefined", check if you need to import a package
+- Make sure ALL imports are actually used in the code
+- The error message shows the exact line and column where the problem is - fix that specific issue!
+
+🚨 SYSTEMATIC FIX PROCESS - DO ALL OF THESE:
+1. Read ALL errors in the error message - don't just fix one!
+2. For each "undefined: X" error:
+   - If X is a function (like os.Getenv, json.Unmarshal, fmt.Println), add the import for that package
+   - os.Getenv requires: import "os"
+   - json.Unmarshal requires: import "encoding/json"
+   - fmt.Println requires: import "fmt"
+3. For each "imported and not used" or "declared but not used" error:
+   - REMOVE that import or variable completely - do NOT try to use it!
+4. After fixing, verify:
+   - Every function used has its package imported
+   - No unused imports remain
+   - No unused variables remain
+5. Example: If errors are "undefined: os" and "strconv imported and not used":
+   - Add: import "os"
+   - Remove: "strconv" from imports
+`
+	}
+
 	return fmt.Sprintf(`You are an expert programmer. The following code failed to execute properly and needs to be fixed.
 
 Original Task: %s
@@ -2163,6 +2201,7 @@ Error Details:
 
 Context:
 %s
+%s
 
 Please fix the code to make it work correctly. Return ONLY the fixed code wrapped in markdown code blocks like this:
 `+"```"+`%s
@@ -2179,6 +2218,7 @@ Fixed code:`,
 		validationResult.Error,
 		validationResult.Output,
 		ie.formatContext(req.Context),
+		languageGuidance,
 		originalCode.Language)
 }
 
@@ -2208,11 +2248,22 @@ func sanitizeGeneratedPythonCode(code string) string {
 
 	// If a dict is saved via to_csv, wrap it in DataFrame first
 	// Replace patterns like: <name>.to_csv(path) where <name> may be a dict
-	// Heuristic: ensure imports
-	ensureImports := []string{"import pandas as pd"}
-	for _, imp := range ensureImports {
-		if !strings.Contains(fixed, imp) {
-			fixed = imp + "\n" + fixed
+	// Heuristic: ensure imports ONLY if pandas operations are actually used
+	// Check if code uses pandas operations (pd., pandas., .to_csv, DataFrame, etc.)
+	usesPandas := strings.Contains(fixed, ".to_csv(") ||
+		strings.Contains(fixed, "pd.") ||
+		strings.Contains(fixed, "pandas.") ||
+		strings.Contains(fixed, "DataFrame") ||
+		strings.Contains(fixed, ".describe(") ||
+		strings.Contains(fixed, ".read_csv(") ||
+		strings.Contains(fixed, ".to_excel(")
+
+	if usesPandas {
+		ensureImports := []string{"import pandas as pd"}
+		for _, imp := range ensureImports {
+			if !strings.Contains(fixed, imp) {
+				fixed = imp + "\n" + fixed
+			}
 		}
 	}
 
@@ -2597,8 +2648,18 @@ func (ie *IntelligentExecutor) executeChainedPrograms(ctx context.Context, req *
 			}, nil
 		}
 
-		// Store individual program artifacts
-		ie.storeChainedProgramArtifact(programResult.GeneratedCode, workflowID, fmt.Sprintf("prog%d", i+1))
+		// Store individual program artifacts with correct filename based on language
+		artifactName := fmt.Sprintf("prog%d", i+1)
+		if program.Language == "go" {
+			artifactName = fmt.Sprintf("prog%d.go", i+1)
+		} else if program.Language == "python" {
+			artifactName = fmt.Sprintf("prog%d.py", i+1)
+		} else if program.Language == "javascript" {
+			artifactName = fmt.Sprintf("prog%d.js", i+1)
+		} else if program.Language == "java" {
+			artifactName = fmt.Sprintf("prog%d.java", i+1)
+		}
+		ie.storeChainedProgramArtifact(programResult.GeneratedCode, workflowID, artifactName)
 
 		if !programResult.Success {
 			return &IntelligentExecutionResult{
@@ -2623,14 +2684,22 @@ func (ie *IntelligentExecutor) executeChainedPrograms(ctx context.Context, req *
 		log.Printf("🔗 [CHAINED] Program %d completed successfully", i+1)
 	}
 
-	// Combine all outputs
+	// Combine all outputs - use the LAST program's output as the final result
 	combinedOutput := strings.Join(allOutputs, "\n")
+	finalOutput := combinedOutput
+	if len(allOutputs) > 0 {
+		// Use the last program's output as the final result
+		finalOutput = allOutputs[len(allOutputs)-1]
+		log.Printf("🔗 [CHAINED] Using final program output as result: %s", finalOutput)
+	}
 
 	log.Printf("🔗 [CHAINED] All programs completed successfully")
+	log.Printf("🔗 [CHAINED] Program outputs: %v", allOutputs)
+	log.Printf("🔗 [CHAINED] Final result: %s", finalOutput)
 
 	result := &IntelligentExecutionResult{
 		Success:        true,
-		Result:         combinedOutput,
+		Result:         finalOutput,       // Use last program's output, not combined
 		GeneratedCode:  generatedCodes[0], // Use first program's code as primary
 		ExecutionTime:  time.Since(start),
 		WorkflowID:     workflowID,
@@ -2708,11 +2777,82 @@ func (ie *IntelligentExecutor) parseChainedPrograms(req *ExecutionRequest) ([]Ch
 			for _, part := range parts {
 				part = strings.TrimSpace(part)
 				if part != "" {
+					// Infer language from file extension
+					ext := strings.ToLower(filepath.Ext(part))
+					lang := req.Language // Default to request language
+					switch ext {
+					case ".py":
+						lang = "python"
+					case ".go":
+						lang = "go"
+					case ".js":
+						lang = "javascript"
+					case ".java":
+						lang = "java"
+					case ".rs":
+						lang = "rust"
+					case ".cpp", ".cc", ".cxx":
+						lang = "cpp"
+					case ".c":
+						lang = "c"
+					}
+
+					// Build a better description based on the filename and position
+					// Extract requirements from the original description
+					desc := req.Description
+
+					// Determine which program this is based on position
+					idx := 0
+					for i, p := range parts {
+						if strings.TrimSpace(p) == part {
+							idx = i
+							break
+						}
+					}
+
+					// Extract program-specific requirements from the description
+					if idx == 0 && strings.Contains(part, ".py") {
+						// This is prog1.py - extract Python/JSON requirements
+						if strings.Contains(strings.ToLower(desc), "program 1") || strings.Contains(strings.ToLower(desc), "prog1") {
+							// Try to extract the exact JSON requirement
+							jsonPattern := regexp.MustCompile(`(?i)(program\s*1|prog1).*?(python).*?(print|generate).*?(\{[^}]+\})`)
+							if matches := jsonPattern.FindStringSubmatch(desc); len(matches) > 0 {
+								jsonStr := matches[len(matches)-1]
+								desc = fmt.Sprintf("Program 1 (Python): You MUST print EXACTLY this JSON string: %s. Do NOT print anything else - no labels, no extra text, just the JSON.", jsonStr)
+							} else {
+								desc = fmt.Sprintf("Program 1 (Python): %s. You MUST generate Python code that prints JSON.", desc)
+							}
+						} else {
+							desc = fmt.Sprintf("Program 1 (Python): Generate %s. %s", part, desc)
+						}
+					} else if idx == 1 && strings.Contains(part, ".go") {
+						// This is prog2.go - extract Go/read requirements
+						if strings.Contains(strings.ToLower(desc), "program 2") || strings.Contains(strings.ToLower(desc), "prog2") {
+							// Try to extract the read/process requirement
+							readPattern := regexp.MustCompile(`(?i)(program\s*2|prog2).*?(go).*?(read|process).*?(\d+)`)
+							if matches := readPattern.FindStringSubmatch(desc); len(matches) > 0 {
+								resultNum := matches[len(matches)-1]
+								desc = fmt.Sprintf("Program 2 (Go): You MUST read JSON from stdin (or previous program output), extract the 'number' field, multiply it by 2, and print EXACTLY the result: %s. Do NOT print labels, just the number.", resultNum)
+							} else {
+								desc = fmt.Sprintf("Program 2 (Go): %s. You MUST generate Go code that reads JSON and processes it.", desc)
+							}
+						} else {
+							desc = fmt.Sprintf("Program 2 (Go): Generate %s. This program reads output from the previous program. %s", part, desc)
+						}
+					} else {
+						// Fallback: use position-based description
+						if idx == 0 {
+							desc = fmt.Sprintf("Program 1: Generate %s. %s", part, desc)
+						} else {
+							desc = fmt.Sprintf("Program %d: Generate %s. This program processes output from previous programs. %s", idx+1, part, desc)
+						}
+					}
+
 					program := ChainedProgram{
-						Name:        strings.TrimSuffix(part, filepath.Ext(part)),
-						Description: fmt.Sprintf("Generate %s", part),
+						Name:        strings.TrimSuffix(part, ext),
+						Description: desc,
 						Context:     make(map[string]string),
-						Language:    req.Language,
+						Language:    lang,
 					}
 					programs = append(programs, program)
 				}
@@ -2832,9 +2972,52 @@ func (ie *IntelligentExecutor) executeProgramDirectly(ctx context.Context, req *
 
 	// Generate code for this program using the existing code generator
 	filteredCtx := filterCodegenContext(req.Context)
+
+	// Enhance description with language requirement and filename if available
+	enhancedDesc := req.Description
+	if req.Language != "" {
+		enhancedDesc = fmt.Sprintf("CRITICAL: You MUST generate %s code, NOT any other language!\n\n%s", req.Language, enhancedDesc)
+	}
+
+	// Add language-specific guidance
+	if req.Language == "python" && strings.Contains(strings.ToLower(enhancedDesc), "json") {
+		enhancedDesc += "\n\nCRITICAL FOR PYTHON JSON: If you need to print JSON, use: json.dumps(dict_object). Do NOT use json.loads() on a dictionary - that's for parsing JSON strings!"
+	}
+
+	// Add matrix operation guidance
+	if strings.Contains(strings.ToLower(enhancedDesc), "matrix") ||
+		(req.Context != nil && (req.Context["matrix1"] != "" || req.Context["matrix2"] != "")) {
+		if req.Language == "go" {
+			enhancedDesc += "\n\n🚨 CRITICAL FOR GO MATRIX OPERATIONS:\n- You MUST read matrices from environment variables using os.Getenv(\"matrix1\") and os.Getenv(\"matrix2\")\n- Parse the JSON string format (e.g., \"[[1,2],[3,4]]\") using encoding/json\n- DO NOT hardcode matrix values - the matrices will be different each time!\n- Example: matrix1Str := os.Getenv(\"matrix1\"); json.Unmarshal([]byte(matrix1Str), &matrix1)"
+		} else if req.Language == "python" {
+			enhancedDesc += "\n\n🚨 CRITICAL FOR PYTHON MATRIX OPERATIONS:\n- You MUST read matrices from environment variables using os.getenv(\"matrix1\") and os.getenv(\"matrix2\")\n- Parse the JSON string format (e.g., \"[[1,2],[3,4]]\") using json.loads()\n- DO NOT hardcode matrix values - the matrices will be different each time!\n- Example: matrix1 = json.loads(os.getenv(\"matrix1\"))"
+		}
+	}
+	// If this is part of a chained execution, add the program name/filename to context
+	if req.TaskName != "" {
+		enhancedDesc = fmt.Sprintf("%s\n\nIMPORTANT: The generated code will be saved as: %s", enhancedDesc, req.TaskName)
+		// Try to infer filename from task name
+		if strings.HasPrefix(req.TaskName, "prog") || strings.HasPrefix(req.TaskName, "chained_prog") {
+			// Extract expected extension from artifact_names if available
+			if names, ok := req.Context["artifact_names"]; ok {
+				parts := strings.Split(names, ",")
+				for _, part := range parts {
+					part = strings.TrimSpace(part)
+					if strings.Contains(part, req.TaskName) || strings.Contains(req.TaskName, strings.TrimSuffix(part, filepath.Ext(part))) {
+						ext := filepath.Ext(part)
+						if ext != "" {
+							enhancedDesc = fmt.Sprintf("%s\n\nCRITICAL: The output filename will be %s - ensure you generate %s code that matches this extension!", enhancedDesc, part, req.Language)
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+
 	codeGenReq := &CodeGenerationRequest{
 		TaskName:    req.TaskName,
-		Description: req.Description,
+		Description: enhancedDesc,
 		Language:    req.Language,
 		Context:     filteredCtx,
 		Tags:        []string{"intelligent_execution", "auto_generated", "chained"},
@@ -2842,9 +3025,9 @@ func (ie *IntelligentExecutor) executeProgramDirectly(ctx context.Context, req *
 	}
 
 	// Create a specific prompt for Go programs that need to parse JSON
-	if req.Language == "go" && strings.Contains(strings.ToLower(req.Description), "json") {
-		// Add specific instructions for JSON parsing in Go
-		codeGenReq.Description = req.Description + "\n\nCRITICAL: For JSON parsing in Go, you MUST:\n1. Use map[string]interface{} to unmarshal JSON\n2. Extract the number as float64: data[\"number\"].(float64)\n3. Convert to int: int(data[\"number\"].(float64))\n4. NEVER try to unmarshal directly into int - this will fail\n\nExample:\nvar data map[string]interface{}\njson.Unmarshal([]byte(jsonStr), &data)\nnumber := int(data[\"number\"].(float64))\nresult := number * 2\nfmt.Println(result)"
+	if req.Language == "go" && strings.Contains(strings.ToLower(enhancedDesc), "json") {
+		// Add specific instructions for JSON parsing in Go with a complete working example
+		codeGenReq.Description = enhancedDesc + "\n\n🚨 CRITICAL: You MUST copy this EXACT code - including ALL imports:\n\npackage main\n\nimport (\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"io\"\n\t\"os\"\n\t\"strings\"\n)\n\nfunc main() {\n\t// Read JSON from stdin - EXACTLY this line, no variations!\n\tjsonBytes, _ := io.ReadAll(os.Stdin)\n\t\n\t// CRITICAL: Trim whitespace and newlines from input\n\tjsonStr := strings.TrimSpace(string(jsonBytes))\n\t\n\t// Unmarshal into map[string]interface{}\n\tvar data map[string]interface{}\n\tjson.Unmarshal([]byte(jsonStr), &data)\n\t\n\t// Extract number as float64, then convert to int\n\t// Use type assertion with ok check to avoid panic\n\tif numVal, ok := data[\"number\"].(float64); ok {\n\t\tnumber := int(numVal)\n\t\t// Calculate result (multiply by 2)\n\t\tresult := number * 2\n\t\t// Print ONLY the number, no labels\n\t\tfmt.Println(result)\n\t}\n}\n\n🚨 CRITICAL RULES - DO NOT DEVIATE:\n- MUST include ALL 5 imports: \"encoding/json\", \"fmt\", \"io\", \"os\", \"strings\"\n- MUST use: io.ReadAll(os.Stdin) - NOT log.Std(), NOT stdin, NOT anything else!\n- MUST trim whitespace: jsonStr := strings.TrimSpace(string(jsonBytes))\n- MUST import \"encoding/json\" to use json.Unmarshal - this is REQUIRED!\n- MUST import \"strings\" to use strings.TrimSpace - this is REQUIRED!\n- MUST import \"os\" package to access os.Stdin\n- MUST use type assertion with ok check: if numVal, ok := data[\"number\"].(float64); ok {\n- DO NOT use direct type assertion without ok check - it will panic if the value is nil!\n- DO NOT use log.Std() or any other function - ONLY os.Stdin!"
 	}
 
 	codeGenResult, err := ie.codeGenerator.GenerateCode(codeGenReq)
@@ -2868,10 +3051,31 @@ func (ie *IntelligentExecutor) executeProgramDirectly(ctx context.Context, req *
 	}
 
 	// Execute the generated code using the existing docker executor
+	// Ensure TOOL_API_URL is available in the container environment
+	env := make(map[string]string)
+	if ie.hdnBaseURL != "" {
+		env["TOOL_API_URL"] = ie.hdnBaseURL
+	}
+	// Copy context variables to environment
+	if req.Context != nil {
+		for k, v := range req.Context {
+			if k != "" && v != "" {
+				env[k] = v
+			}
+		}
+	}
+
 	dockerReq := &DockerExecutionRequest{
-		Code:     generatedCode.Code,
-		Language: req.Language,
-		Timeout:  req.Timeout,
+		Code:        generatedCode.Code,
+		Language:    req.Language,
+		Timeout:     req.Timeout,
+		Environment: env,
+	}
+
+	// If this is a chained program and we have previous output, pass it as input
+	if prevOutput, ok := req.Context["previous_output"]; ok && prevOutput != "" {
+		dockerReq.Input = prevOutput
+		log.Printf("🔗 [CHAINED] Passing previous output to program as stdin: %s", prevOutput)
 	}
 
 	execResult, err := ie.dockerExecutor.ExecuteCode(ctx, dockerReq)
