@@ -84,8 +84,12 @@ api_request() {
     local result=$(echo "$response" | jq -r '.result // ""')
     # Fallback: if result is empty but validation captured stdout, use that
     # Check the last validation step (most recent) first, then fall back to first
-    if [ -z "$result" ]; then
+    if [ -z "$result" ] || [ "$result" = "null" ]; then
         result=$(echo "$response" | jq -r '.validation_steps[-1].output // .validation_steps[0].output // ""')
+    fi
+    # Remove null string if result is literally "null"
+    if [ "$result" = "null" ]; then
+        result=""
     fi
     local error=$(echo "$response" | jq -r '.error // ""')
     
@@ -94,7 +98,7 @@ api_request() {
     
     # Show the actual code output or error
     if [ "$success" = "true" ]; then
-        if [ -n "$result" ]; then
+        if [ -n "$result" ] && [ "$result" != "null" ]; then
             echo "📋 Output: $result"
             
             # Validate results if expected pattern provided

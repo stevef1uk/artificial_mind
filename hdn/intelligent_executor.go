@@ -337,9 +337,13 @@ func (ie *IntelligentExecutor) executeWithSSHTool(ctx context.Context, code, lan
 	result, err := ie.callTool("tool_ssh_executor", params)
 	if err != nil {
 		msg := fmt.Sprintf("SSH tool call failed: %v", err)
-		// If the tool is missing/not available (e.g., 404), fall back to local Docker executor
+		// If the tool is missing/not available (e.g., 404, 501), fall back to local Docker executor
 		low := strings.ToLower(msg)
-		missing := strings.Contains(low, "status 404") || strings.Contains(low, "not found") || strings.Contains(low, "tool not available")
+		missing := strings.Contains(low, "status 404") ||
+			strings.Contains(low, "status 501") ||
+			strings.Contains(low, "not found") ||
+			strings.Contains(low, "tool not available") ||
+			strings.Contains(low, "tool not implemented")
 		disabled := strings.Contains(low, "ssh executor disabled")
 		if missing {
 			// If we are on ARM64 or explicitly enabled ARM64 tools, log a configuration error
@@ -1287,9 +1291,44 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 
 	// Filter non-functional context keys before sending to codegen
 	filteredCtx := filterCodegenContext(req.Context)
+
+	// Enhance description with matrix operation guidance if needed
+	enhancedDesc := req.Description
+	if strings.Contains(strings.ToLower(enhancedDesc), "matrix") ||
+		(req.Context != nil && (req.Context["matrix1"] != "" || req.Context["matrix2"] != "")) {
+		if req.Language == "go" {
+			enhancedDesc += "\n\n🚨 CRITICAL FOR GO MATRIX OPERATIONS:\n- You MUST read matrices from environment variables using os.Getenv(\"matrix1\") and os.Getenv(\"matrix2\")\n- Parse the JSON string format (e.g., \"[[1,2],[3,4]]\") using encoding/json\n- DO NOT hardcode matrix values - the matrices will be different each time!\n- CRITICAL: Matrix type in Go is [][]int (slice of slices), NOT [][][]int (3D array)!\n- Example: var matrix1 [][]int; matrix1Str := os.Getenv(\"matrix1\"); json.Unmarshal([]byte(matrix1Str), &matrix1)\n- Function signature for matrix multiplication: func multiplyMatrices(matrix1 [][]int, matrix2 [][]int) [][]int\n- You MUST import \"os\" for os.Getenv() and \"encoding/json\" for json.Unmarshal()\n- DO NOT import \"strconv\" unless you actually use it - unused imports cause compilation errors!"
+		} else if req.Language == "python" {
+			enhancedDesc += "\n\n🚨 CRITICAL FOR PYTHON MATRIX OPERATIONS:\n- You MUST read matrices from environment variables using os.getenv(\"matrix1\") and os.getenv(\"matrix2\")\n- Parse the JSON string format (e.g., \"[[1,2],[3,4]]\") using json.loads()\n- DO NOT hardcode matrix values - the matrices will be different each time!\n- Example: matrix1 = json.loads(os.getenv(\"matrix1\"))"
+		}
+	}
+
+	// Add guidance for reading context parameters from environment variables (for Python)
+	if req.Language == "python" && req.Context != nil && len(req.Context) > 0 {
+		// Check if there are numeric or string parameters that should be read from environment
+		hasParams := false
+		for k, v := range req.Context {
+			if k != "input" && k != "artifact_names" && v != "" {
+				hasParams = true
+				break
+			}
+		}
+		if hasParams {
+			enhancedDesc += "\n\n🚨 CRITICAL FOR PYTHON - READING CONTEXT PARAMETERS:\n- You MUST read ALL context parameters from environment variables using os.getenv()\n- DO NOT hardcode values - the parameters will be different each time!\n- Example: count = int(os.getenv('count', '10'))  # Read 'count' from environment, default to '10' if not set\n- Example: number = int(os.getenv('number', '0'))  # Read 'number' from environment\n- You MUST import 'os' to use os.getenv()\n- Convert string values to appropriate types (int() for numbers, etc.)\n- The context provides these parameters: " + func() string {
+				params := []string{}
+				for k := range req.Context {
+					if k != "input" && k != "artifact_names" {
+						params = append(params, k)
+					}
+				}
+				return strings.Join(params, ", ")
+			}() + "\n- DO NOT hardcode these values - read them from environment variables!"
+		}
+	}
+
 	codeGenReq := &CodeGenerationRequest{
 		TaskName:    req.TaskName,
-		Description: req.Description,
+		Description: enhancedDesc,
 		Language:    req.Language,
 		Context:     filteredCtx,
 		Tags:        []string{"intelligent_execution", "auto_generated"},

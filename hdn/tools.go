@@ -344,9 +344,14 @@ func (s *APIServer) handleDiscoverTools(w http.ResponseWriter, r *http.Request) 
 	// Conditions:
 	// - EXECUTION_METHOD=drone
 	// - OR ENABLE_ARM64_TOOLS=true
-	// - OR running on ARM64
+	// - OR running on ARM64 (but NOT when EXECUTION_METHOD=docker on ARM64)
 	execMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
-	if execMethod == "drone" || os.Getenv("ENABLE_ARM64_TOOLS") == "true" || runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64" {
+	isARM64 := runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64"
+	// On ARM64, if EXECUTION_METHOD=docker is explicitly set, don't register SSH executor
+	// This allows Mac users to force Docker execution
+	if isARM64 && execMethod == "docker" {
+		log.Printf("🔧 [TOOLS] Skipping SSH executor registration on ARM64 (EXECUTION_METHOD=docker set)")
+	} else if execMethod == "drone" || os.Getenv("ENABLE_ARM64_TOOLS") == "true" || isARM64 {
 		arm64Tools := []Tool{
 			{ID: "tool_ssh_executor", Name: "SSH Executor", Description: "Execute code via SSH on remote host with Docker support", InputSchema: map[string]string{"code": "string", "language": "string", "image": "string", "environment": "json", "timeout": "int"}, OutputSchema: map[string]string{"success": "bool", "output": "string", "error": "string", "image": "string", "exit_code": "int", "duration_ms": "int"}, Permissions: []string{"ssh:execute", "docker:build"}, SafetyLevel: "high", CreatedBy: "system"},
 		}
@@ -458,7 +463,12 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 
 	// Add SSH executor only when explicitly enabled or on ARM64
 	execMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
-	if execMethod == "drone" || os.Getenv("ENABLE_ARM64_TOOLS") == "true" || runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64" {
+	isARM64 := runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64"
+	// On ARM64, if EXECUTION_METHOD=docker is explicitly set, don't register SSH executor
+	// This allows Mac users to force Docker execution
+	if isARM64 && execMethod == "docker" {
+		log.Printf("🔧 [BOOTSTRAP] Skipping SSH executor registration on ARM64 (EXECUTION_METHOD=docker set)")
+	} else if execMethod == "drone" || os.Getenv("ENABLE_ARM64_TOOLS") == "true" || isARM64 {
 		log.Printf("🔧 [BOOTSTRAP] Registering Drone/ARM64 tools (EXECUTION_METHOD=%s, ENABLE_ARM64_TOOLS=%s, GOARCH=%s)", execMethod, os.Getenv("ENABLE_ARM64_TOOLS"), runtime.GOARCH)
 		arm64Tools := []Tool{
 			{ID: "tool_ssh_executor", Name: "SSH Executor", Description: "Execute code via SSH on remote host with Docker support", InputSchema: map[string]string{"code": "string", "language": "string", "image": "string", "environment": "json", "timeout": "int"}, OutputSchema: map[string]string{"success": "bool", "output": "string", "error": "string", "image": "string", "exit_code": "int", "duration_ms": "int"}, Permissions: []string{"ssh:execute", "docker:build"}, SafetyLevel: "high", CreatedBy: "system"},
