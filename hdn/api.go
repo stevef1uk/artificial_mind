@@ -4125,6 +4125,15 @@ func (s *APIServer) handleInterpretAndExecute(w http.ResponseWriter, r *http.Req
 		req.SessionID = fmt.Sprintf("session_%d", time.Now().UnixNano())
 	}
 
+	// Check if this is an informational query about capabilities/tools/knowledge
+	if s.isInformationalQuery(req.Input) {
+		log.Printf("ℹ️ [API] Detected informational query, providing capability information")
+		infoResponse := s.handleInformationalQuery(r.Context(), req.Input)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(infoResponse)
+		return
+	}
+
 	// Emit input event on the bus (best-effort)
 	if s.eventBus != nil {
 		_ = s.eventBus.Publish(r.Context(), eventbus.CanonicalEvent{
@@ -4309,6 +4318,139 @@ func (s *APIServer) handleInterpretAndExecute(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// isInformationalQuery checks if the input is asking about capabilities, tools, or knowledge
+func (s *APIServer) isInformationalQuery(input string) bool {
+	inputLower := strings.ToLower(strings.TrimSpace(input))
+	
+	// Keywords that suggest informational queries
+	infoKeywords := []string{
+		"what do you know",
+		"what can you do",
+		"what are your capabilities",
+		"what tools do you have",
+		"list your capabilities",
+		"show me what you can do",
+		"what do you know how to do",
+		"what are you capable of",
+		"tell me about your capabilities",
+		"what tools are available",
+		"list available tools",
+		"what can you help with",
+	}
+	
+	for _, keyword := range infoKeywords {
+		if strings.Contains(inputLower, keyword) {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// handleInformationalQuery provides formatted information about system capabilities
+func (s *APIServer) handleInformationalQuery(ctx context.Context, query string) interpreter.InterpretAndExecuteResponse {
+	var responseText strings.Builder
+	
+	// Get capabilities
+	executor := NewIntelligentExecutor(
+		s.domainManager,
+		s.codeStorage,
+		s.codeGenerator,
+		s.dockerExecutor,
+		s.llmClient,
+		s.actionManager,
+		s.plannerIntegration,
+		s.selfModelManager,
+		s.toolMetrics,
+		s.fileStorage,
+		s.hdnBaseURL,
+	)
+	
+	capabilities, err := executor.ListCachedCapabilities()
+	stats := executor.GetExecutionStats()
+	
+	responseText.WriteString("Here's what I know how to do:\n\n")
+	
+	// Add capabilities summary
+	if err == nil && len(capabilities) > 0 {
+		totalCapabilities := len(capabilities)
+		if totalCap, ok := stats["total_cached_capabilities"].(int); ok && totalCap > 0 {
+			totalCapabilities = totalCap
+		}
+		responseText.WriteString(fmt.Sprintf("📚 **Capabilities**: I have learned %d capabilities that I can execute.\n\n", totalCapabilities))
+		
+		// Show sample capabilities (up to 10)
+		sampleCount := 10
+		if len(capabilities) < sampleCount {
+			sampleCount = len(capabilities)
+		}
+		responseText.WriteString("**Sample capabilities:**\n")
+		shown := 0
+		for i := 0; i < len(capabilities) && shown < sampleCount; i++ {
+			cap := capabilities[i]
+			desc := cap.Description
+			if desc == "" {
+				desc = cap.TaskName
+			}
+			// Skip generic/unhelpful descriptions
+			descTrimmed := strings.TrimSpace(desc)
+			if strings.HasPrefix(descTrimmed, "Execute capability:") || 
+			   strings.HasPrefix(descTrimmed, "🚨 CRITICAL") ||
+			   strings.HasPrefix(descTrimmed, "{") || // Skip JSON strings
+			   strings.HasPrefix(descTrimmed, "\"interpreted_at\"") ||
+			   len(descTrimmed) < 15 {
+				continue
+			}
+			// Clean up description - remove markdown formatting if present
+			desc = strings.TrimSpace(desc)
+			desc = strings.TrimPrefix(desc, "🚨")
+			desc = strings.TrimSpace(desc)
+			// Remove any leading JSON-like patterns
+			if strings.HasPrefix(desc, "{") {
+				continue
+			}
+			if len(desc) > 80 {
+				desc = desc[:80] + "..."
+			}
+			responseText.WriteString(fmt.Sprintf("  • %s (%s)\n", desc, cap.Language))
+			shown++
+		}
+		if len(capabilities) > sampleCount {
+			responseText.WriteString(fmt.Sprintf("  ... and %d more\n", len(capabilities)-sampleCount))
+		}
+		responseText.WriteString("\n")
+	} else {
+		responseText.WriteString("📚 **Capabilities**: No cached capabilities found.\n\n")
+	}
+	
+	// Get tools
+	tools, err := s.listTools(ctx)
+	if err == nil && len(tools) > 0 {
+		responseText.WriteString(fmt.Sprintf("🔧 **Tools**: I have access to %d tools:\n", len(tools)))
+		for _, tool := range tools {
+			responseText.WriteString(fmt.Sprintf("  • %s: %s\n", tool.ID, tool.Name))
+		}
+		responseText.WriteString("\n")
+	} else {
+		responseText.WriteString("🔧 **Tools**: No tools available.\n\n")
+	}
+	
+	responseText.WriteString("You can ask me to execute tasks, and I'll generate code to accomplish them. I can also use the available tools to help with various operations.\n")
+	
+	return interpreter.InterpretAndExecuteResponse{
+		Success: true,
+		Interpretation: &interpreter.InterpretationResult{
+			Success:       true,
+			Tasks:         []interpreter.InterpretedTask{},
+			Message:       responseText.String(),
+			SessionID:     fmt.Sprintf("session_%d", time.Now().UnixNano()),
+			InterpretedAt: time.Now(),
+		},
+		ExecutionPlan: []interpreter.TaskExecutionResult{},
+		Message:       "Informational query answered",
+	}
 }
 
 // --------- Domain Knowledge Handlers ---------

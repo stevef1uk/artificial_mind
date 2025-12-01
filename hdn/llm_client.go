@@ -555,7 +555,13 @@ func normalizeOllamaURL(base string) string {
 }
 
 func (c *LLMClient) getMockResponse(prompt string) (string, error) {
-	// Simple mock responses based on prompt content
+	// Mock responses for testing only - should not be used in production
+	// If you're seeing this, the LLM provider is set to "mock" instead of "local", "openai", or "anthropic"
+	log.Printf("⚠️ [LLM] Using MOCK LLM - this should only be used for testing!")
+	log.Printf("⚠️ [LLM] To use a real LLM, set LLM_PROVIDER environment variable or configure config.json")
+	log.Printf("⚠️ [LLM] Valid providers: 'local' (Ollama), 'openai', 'anthropic'")
+	
+	// Simple mock responses based on prompt content for task planning
 	if containsString(prompt, "WriteEmail") {
 		return `{
   "task": "WriteEmail",
@@ -572,7 +578,7 @@ func (c *LLMClient) getMockResponse(prompt string) (string, error) {
 }`, nil
 	}
 
-	// Default response
+	// Default response for task planning
 	return `{
   "task": "GenericTask",
   "preconditions": ["not task_completed"],

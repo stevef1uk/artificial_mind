@@ -2022,6 +2022,12 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 			IsValidation: true,
 		}
 
+		// If previous_output is in context, pass it as stdin (for JSON reading tasks)
+		if prevOutput, ok := req.Context["previous_output"]; ok && prevOutput != "" {
+			dockerReq.Input = prevOutput
+			log.Printf("📥 [VALIDATION] Passing previous_output as stdin: %s", prevOutput)
+		}
+
 		result, err = ie.dockerExecutor.ExecuteCode(ctx, dockerReq)
 		if err != nil {
 			result = &DockerExecutionResponse{Success: false, Error: err.Error(), ExitCode: 1}
@@ -2045,7 +2051,10 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 	if !result.Success {
 		validationStep.Error = result.Error
 		validationStep.Message = "Code execution failed"
+		// Set Output even on failure - it contains compilation errors for Go
+		validationStep.Output = result.Output
 		log.Printf("❌ [VALIDATION] Code execution failed: %s", result.Error)
+		log.Printf("📊 [VALIDATION] Output (may contain compilation errors): %s", result.Output)
 		return validationStep
 	}
 
@@ -2201,10 +2210,37 @@ func (ie *IntelligentExecutor) buildFixPrompt(originalCode *GeneratedCode, valid
   * "cannot use X (type Y) as type Z" - Type mismatch, fix the type
   * "syntax error" - Check for missing braces, parentheses, or semicolons
   * "imported and not used" - Remove the unused import
+  * "assignment mismatch: 2 variables but X returns 1 value" - Function returns only 1 value, not 2!
 - If the error says "declared but not used", REMOVE that import/variable - don't try to use it!
 - If the error says "undefined", check if you need to import a package
 - Make sure ALL imports are actually used in the code
 - The error message shows the exact line and column where the problem is - fix that specific issue!
+
+🚨 CRITICAL: json.Unmarshal USAGE - COMMON MISTAKE!
+- json.Unmarshal returns ONLY 1 value (error), NOT 2 values!
+- WRONG: jsonBytes, _ := json.Unmarshal([]byte(...), &data)  ❌
+- CORRECT: err := json.Unmarshal([]byte(...), &data)  ✅
+- If you need to read from stdin first:
+  - Step 1: jsonBytes, _ := io.ReadAll(os.Stdin)  (returns []byte, error)
+  - Step 2: err := json.Unmarshal(jsonBytes, &data)  (returns only error)
+- Do NOT confuse json.Unmarshal (returns 1 value) with io.ReadAll (returns 2 values)!
+
+🚨 CRITICAL: READING FROM STDIN - DO NOT HARDCODE!
+- If the task says "read JSON from stdin" or "read from stdin", you MUST use io.ReadAll(os.Stdin)
+- WRONG: Hardcoding JSON like json.Unmarshal([]byte("{\"key\": \"value\"}"), &data)  ❌
+- CORRECT: jsonBytes, _ := io.ReadAll(os.Stdin) then json.Unmarshal(jsonBytes, &data)  ✅
+- The input will be provided via stdin at runtime - do NOT hardcode test data!
+- You MUST import "io" and "os" to use io.ReadAll(os.Stdin)
+
+🚨 RUNTIME ERRORS - JSON TYPE CASTING:
+- If you see errors like "Error: 'number' field is not an int64" or "field is not an int64":
+  - JSON numbers in Go are ALWAYS parsed as float64, NOT int64!
+  - You MUST use: data["number"].(float64) NOT data["number"].(int64)
+  - Then convert to int if needed: number := int(numVal)
+  - Example fix:
+    OLD (WRONG): number, ok := data["number"].(int64)
+    NEW (CORRECT): if numVal, ok := data["number"].(float64); ok { number := int(numVal) }
+- Always use type assertion with ok check to avoid panics: if val, ok := data["key"].(float64); ok { ... }
 
 🚨 SYSTEMATIC FIX PROCESS - DO ALL OF THESE:
 1. Read ALL errors in the error message - don't just fix one!
@@ -2213,15 +2249,33 @@ func (ie *IntelligentExecutor) buildFixPrompt(originalCode *GeneratedCode, valid
    - os.Getenv requires: import "os"
    - json.Unmarshal requires: import "encoding/json"
    - fmt.Println requires: import "fmt"
-3. For each "imported and not used" or "declared but not used" error:
+   - io.ReadAll requires: import "io" AND "os" (for os.Stdin)
+3. For "assignment mismatch: 2 variables but X returns 1 value" errors:
+   - This means you're trying to assign 2 values from a function that returns only 1!
+   - json.Unmarshal returns ONLY error: err := json.Unmarshal(bytes, &data)
+   - io.ReadAll returns ([]byte, error): bytes, err := io.ReadAll(os.Stdin)
+   - Do NOT mix them up!
+4. For each "imported and not used" or "declared but not used" error:
    - REMOVE that import or variable completely - do NOT try to use it!
-4. After fixing, verify:
+5. For runtime errors about type casting (especially JSON numbers):
+   - JSON numbers are float64, not int64 - fix the type assertion!
+6. After fixing, verify:
    - Every function used has its package imported
    - No unused imports remain
    - No unused variables remain
-5. Example: If errors are "undefined: os" and "strconv imported and not used":
+   - JSON number type assertions use float64, not int64
+   - json.Unmarshal is called correctly (returns only error, not 2 values)
+7. Example: If errors are "undefined: os" and "strconv imported and not used":
    - Add: import "os"
    - Remove: "strconv" from imports
+8. Example: If error is "assignment mismatch: 2 variables but json.Unmarshal returns 1 value":
+   - WRONG: jsonBytes, _ := json.Unmarshal([]byte(str), &data)
+   - CORRECT: err := json.Unmarshal([]byte(str), &data)
+   - If you need bytes from stdin: jsonBytes, _ := io.ReadAll(os.Stdin) THEN err := json.Unmarshal(jsonBytes, &data)
+9. If task says "read from stdin" but code hardcodes JSON:
+   - WRONG: json.Unmarshal([]byte("{\"key\": \"value\"}"), &data)  (hardcoded!)
+   - CORRECT: jsonBytes, _ := io.ReadAll(os.Stdin); err := json.Unmarshal(jsonBytes, &data)
+   - MUST import "io" and "os" for stdin reading
 `
 	}
 
@@ -2318,7 +2372,17 @@ func sanitizeGeneratedPythonCode(code string) string {
 
 // sanitizeGeneratedGoCode ensures only required imports are present and adds missing ones
 // It does NOT add unused imports. It scans identifiers used in code to decide.
-func sanitizeGeneratedGoCode(code string) string { return code }
+func sanitizeGeneratedGoCode(code string) string {
+	fixed := code
+	
+	// Fix common JSON type assertion errors: JSON numbers are float64, not int64
+	// Pattern: data["key"].(int64) -> data["key"].(float64)
+	// This handles both simple assertions and ones with ok checks
+	reInt64Assertion := regexp.MustCompile(`(\w+)\["([^"]+)"\]\.\(int64\)`)
+	fixed = reInt64Assertion.ReplaceAllString(fixed, `${1}["${2}"].(float64)`)
+	
+	return fixed
+}
 
 // inferLanguageFromRequest tries to determine the intended programming language
 // from the task name, description, and context. Returns empty string if unknown.
@@ -3092,65 +3156,65 @@ func (ie *IntelligentExecutor) executeProgramDirectly(ctx context.Context, req *
 		return result, nil
 	}
 
-	// Execute the generated code using the existing docker executor
-	// Ensure TOOL_API_URL is available in the container environment
-	// IMPORTANT: Containers can't use localhost - need to use host address
-	env := make(map[string]string)
-	if ie.hdnBaseURL != "" {
-		// Convert localhost URLs to host.docker.internal for Docker containers
-		// host.docker.internal works on Mac/Windows and modern Linux Docker (20.10+)
-		// On older Linux systems, this may need Docker configured with --add-host=host.docker.internal:host-gateway
-		toolURL := ie.hdnBaseURL
-		if strings.Contains(toolURL, "localhost") || strings.Contains(toolURL, "127.0.0.1") {
-			// Replace localhost/127.0.0.1 with host.docker.internal
-			toolURL = strings.Replace(toolURL, "localhost", "host.docker.internal", -1)
-			toolURL = strings.Replace(toolURL, "127.0.0.1", "host.docker.internal", -1)
-		}
-		env["TOOL_API_URL"] = toolURL
+	// Language-specific code sanitization
+	if strings.EqualFold(req.Language, "python") {
+		generatedCode.Code = sanitizeGeneratedPythonCode(generatedCode.Code)
+	} else if strings.EqualFold(req.Language, "go") {
+		generatedCode.Code = sanitizeGeneratedGoCode(generatedCode.Code)
 	}
-	// Copy context variables to environment
-	if req.Context != nil {
-		for k, v := range req.Context {
-			if k != "" && v != "" {
-				env[k] = v
+
+	// Validate and iterate on the generated code (retry loop for chained programs)
+	for attempt := 0; attempt < req.MaxRetries; attempt++ {
+		log.Printf("🔄 [CHAINED] Validation attempt %d/%d for program: %s", attempt+1, req.MaxRetries, req.TaskName)
+
+		validationResult := ie.validateCode(ctx, generatedCode, req, workflowID)
+		result.ValidationSteps = append(result.ValidationSteps, validationResult)
+		result.RetryCount = attempt + 1
+
+		if validationResult.Success {
+			log.Printf("✅ [CHAINED] Code validation successful on attempt %d", attempt+1)
+			result.Success = true
+			result.Result = validationResult.Output
+			result.GeneratedCode = generatedCode
+			result.ExecutionTime = time.Since(start)
+			return result, nil
+		} else {
+			log.Printf("❌ [CHAINED] Code validation failed on attempt %d: %s", attempt+1, validationResult.Error)
+
+			// Try to fix the code using LLM feedback
+			if attempt < req.MaxRetries-1 {
+				log.Printf("🔧 [CHAINED] Attempting to fix code using LLM feedback")
+				fixedCode, fixErr := ie.fixCodeWithLLM(generatedCode, validationResult, req)
+				if fixErr != nil {
+					log.Printf("❌ [CHAINED] Code fixing failed: %v", fixErr)
+					continue
+				}
+				generatedCode = fixedCode
+				log.Printf("✅ [CHAINED] Code fixed, retrying validation")
 			}
 		}
 	}
 
-	dockerReq := &DockerExecutionRequest{
-		Code:        generatedCode.Code,
-		Language:    req.Language,
-		Timeout:     req.Timeout,
-		Environment: env,
+	// If we get here, all retries failed
+	result.Success = false
+	if len(result.ValidationSteps) > 0 {
+		lastStep := result.ValidationSteps[len(result.ValidationSteps)-1]
+		if lastStep.Error != "" {
+			result.Error = lastStep.Error
+		} else if lastStep.Output != "" {
+			result.Error = fmt.Sprintf("Execution failed: %s", lastStep.Output)
+		} else {
+			result.Error = "Code validation failed after all retry attempts"
+		}
+		result.Result = lastStep.Output
+	} else {
+		result.Error = "Code validation failed after all retry attempts"
 	}
-
-	// If this is a chained program and we have previous output, pass it as input
-	if prevOutput, ok := req.Context["previous_output"]; ok && prevOutput != "" {
-		dockerReq.Input = prevOutput
-		log.Printf("🔗 [CHAINED] Passing previous output to program as stdin: %s", prevOutput)
-	}
-
-	execResult, err := ie.dockerExecutor.ExecuteCode(ctx, dockerReq)
-	if err != nil {
-		result.Error = fmt.Sprintf("Code execution failed: %v", err)
-		result.ExecutionTime = time.Since(start)
-		return result, nil
-	}
-
-	// Set results
-	result.Success = execResult.Success
-	result.Result = execResult.Output
 	result.GeneratedCode = generatedCode
 	result.ExecutionTime = time.Since(start)
-	result.ValidationSteps = []ValidationStep{{
-		Step:    "direct_execution",
-		Success: execResult.Success,
-		Message: "Program executed directly",
-		Output:  execResult.Output,
-	}}
-
+	
 	// Log tool metrics for intelligent execution
 	ie.logIntelligentExecutionMetrics(ctx, req, result)
-
+	
 	return result, nil
 }

@@ -284,7 +284,7 @@ make build-hdn >/dev/null 2>&1 || { echo "❌ Failed to build HDN"; exit 1; }
 HDN_PID=$(run_service "hdn_server" \
     "$AGI_PROJECT_ROOT/hdn" \
     "$AGI_PROJECT_ROOT/bin/hdn-server" \
-    -mode=server -port=8081) || { echo "❌ Failed to start HDN Server"; exit 1; }
+    -mode=server -port=8081 -config="$AGI_PROJECT_ROOT/hdn/config.json") || { echo "❌ Failed to start HDN Server"; exit 1; }
 
 # Wait for HDN Server to be ready
 if ! wait_for_service "http://localhost:8081/api/v1/domains" "HDN Server"; then

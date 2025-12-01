@@ -513,9 +513,13 @@ The code should run once and print only the expected result. Ensure it compiles 
 🚨🚨🚨 FINAL REMINDER: Generate ONLY %s code - NO other languages! 🚨🚨🚨
 If you include any code from another language (Python when asked for Go, Go when asked for Python, etc.), the system will FAIL!
 
+🚨 CRITICAL: You MUST return CODE, NOT JSON! Do NOT return task planning JSON!
+🚨 CRITICAL: Your response MUST start with a code block marker (three backticks followed by the language)
+🚨 CRITICAL: Do NOT return JSON like {"task": "...", "subtasks": [...]} - return CODE!
+
 %s
 
-Code (ONLY %s code, nothing else):`, req.Language, req.TaskName, req.Description, contextStr, filePathInfo, tagsStr, req.TaskName, time.Now().UnixNano(), toolsSection, req.Language, req.Language)
+Code (ONLY %s code wrapped in markdown code blocks, nothing else):`, req.Language, req.TaskName, req.Description, contextStr, filePathInfo, tagsStr, req.TaskName, time.Now().UnixNano(), toolsSection, req.Language)
 }
 
 // extractCodeFromResponse extracts code from the LLM response
