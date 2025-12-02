@@ -2862,9 +2862,42 @@ func (e *FSMEngine) cleanGoalDescription(desc string) string {
 		parts := strings.SplitN(desc, "\n", 2)
 		if len(parts) > 0 {
 			capPart := strings.TrimSpace(parts[0])
-			// If it's just "Execute capability: code_xxx", keep it simple
+			// If it's just "Execute capability: code_xxx", try to look up the capability's actual task name
 			if !strings.Contains(capPart, "CRITICAL") && !strings.Contains(capPart, "🚨") {
-				desc = capPart
+				// Extract capability ID (e.g., "code_1764702253158836960")
+				if strings.HasPrefix(capPart, "Execute capability: ") {
+					capabilityID := strings.TrimPrefix(capPart, "Execute capability: ")
+					capabilityID = strings.TrimSpace(capabilityID)
+					
+					// Try to look up the capability in Redis to get its actual task name/description
+					if e.redis != nil && capabilityID != "" {
+						codeKey := fmt.Sprintf("code:%s", capabilityID)
+						if codeData, err := e.redis.Get(e.ctx, codeKey).Result(); err == nil {
+							var capability struct {
+								TaskName    string `json:"task_name"`
+								Description string `json:"description"`
+							}
+							if err := json.Unmarshal([]byte(codeData), &capability); err == nil {
+								// Use task_name if available, otherwise description, otherwise fall back to original
+								if capability.TaskName != "" {
+									desc = fmt.Sprintf("Execute: %s", capability.TaskName)
+								} else if capability.Description != "" {
+									desc = capability.Description
+								} else {
+									desc = capPart
+								}
+							} else {
+								desc = capPart
+							}
+						} else {
+							desc = capPart
+						}
+					} else {
+						desc = capPart
+					}
+				} else {
+					desc = capPart
+				}
 			}
 		}
 	}
