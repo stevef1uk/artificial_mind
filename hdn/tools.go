@@ -105,7 +105,13 @@ func (s *APIServer) logToolCallResult(ctx context.Context, toolCallLog *ToolCall
 
 	// Log the tool call
 	if s.toolMetrics != nil {
-		_ = s.toolMetrics.LogToolCall(ctx, toolCallLog)
+		if err := s.toolMetrics.LogToolCall(ctx, toolCallLog); err != nil {
+			log.Printf("⚠️ [HDN] Failed to log tool metrics for %s: %v", toolCallLog.ToolID, err)
+		} else {
+			log.Printf("✅ [HDN] Logged tool metrics for %s (status: %s)", toolCallLog.ToolID, toolCallLog.Status)
+		}
+	} else {
+		log.Printf("⚠️ [HDN] Tool metrics manager is nil - metrics not logged for %s", toolCallLog.ToolID)
 	}
 }
 

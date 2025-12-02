@@ -306,6 +306,8 @@ states:
         next: decide
       no_valid_plans:
         next: archive
+      curiosity_goals_generated:
+        next: reason  # Process new curiosity goals
       timer_tick:
         next: idle
         guard: "no_pending_input"

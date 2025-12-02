@@ -2003,6 +2003,43 @@ func (e *FSMEngine) executeCuriosityGoals(action ActionConfig, event map[string]
 	e.context["curiosity_goals"] = goals
 	e.context["curiosity_goal_count"] = len(goals)
 
+	// Persist curiosity goals to Redis for Monitor UI with deduplication
+	if e.redis != nil {
+		key := fmt.Sprintf("reasoning:curiosity_goals:%s", domain)
+
+		// Get existing goals for deduplication
+		existingGoalsData, err := e.redis.LRange(e.ctx, key, 0, 199).Result()
+		if err != nil {
+			log.Printf("Warning: Failed to get existing goals for deduplication: %v", err)
+		}
+
+		// Parse existing goals
+		existingGoals := make(map[string]CuriosityGoal)
+		for _, goalData := range existingGoalsData {
+			var goal CuriosityGoal
+			if err := json.Unmarshal([]byte(goalData), &goal); err == nil {
+				// Create a key for deduplication based on type and target
+				dedupKey := e.createDedupKey(goal)
+				existingGoals[dedupKey] = goal
+			}
+		}
+
+		// Add only new goals (deduplicated)
+		newGoalsCount := 0
+		for _, g := range goals {
+			dedupKey := e.createDedupKey(g)
+			if _, exists := existingGoals[dedupKey]; !exists {
+				b, _ := json.Marshal(g)
+				_ = e.redis.LPush(e.ctx, key, b).Err()
+				existingGoals[dedupKey] = g
+				newGoalsCount++
+			}
+		}
+
+		_ = e.redis.LTrim(e.ctx, key, 0, 199)
+		log.Printf("Added %d new goals (deduplicated from %d generated)", newGoalsCount, len(goals))
+	}
+
 	// Set a current goal if none exists and we have goals
 	if e.getCurrentGoal() == "Unknown goal" && len(goals) > 0 {
 		// Select the highest priority goal

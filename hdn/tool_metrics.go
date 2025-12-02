@@ -101,7 +101,10 @@ func (tmm *ToolMetricsManager) LogToolCall(ctx context.Context, call *ToolCallLo
 
 	// Store in Redis for real-time metrics
 	if err := tmm.updateRedisMetrics(ctx, call); err != nil {
-		log.Printf("Warning: failed to update Redis metrics: %v", err)
+		log.Printf("⚠️ [METRICS] Failed to update Redis metrics for tool %s: %v", call.ToolID, err)
+		log.Printf("⚠️ [METRICS] Redis client status: %+v", tmm.redisClient)
+	} else {
+		log.Printf("✅ [METRICS] Successfully updated Redis metrics for tool %s", call.ToolID)
 	}
 
 	return nil
@@ -138,6 +141,10 @@ func (tmm *ToolMetricsManager) updateRedisMetrics(ctx context.Context, call *Too
 	case "blocked":
 		metrics.BlockedCalls++
 	}
+	
+	// Log metrics update for debugging
+	log.Printf("📊 [METRICS] Updated metrics for tool %s: total=%d, success=%d, failure=%d, blocked=%d", 
+		call.ToolID, metrics.TotalCalls, metrics.SuccessCalls, metrics.FailureCalls, metrics.BlockedCalls)
 
 	// Update average duration
 	if call.Duration > 0 {
@@ -157,8 +164,11 @@ func (tmm *ToolMetricsManager) updateRedisMetrics(ctx context.Context, call *Too
 
 	err = tmm.redisClient.Set(ctx, metricsKey, metricsBytes, 0).Err()
 	if err != nil {
+		log.Printf("⚠️ [METRICS] Redis Set failed for key %s: %v", metricsKey, err)
+		log.Printf("⚠️ [METRICS] Redis client options: Addr=%v", tmm.redisClient.Options().Addr)
 		return fmt.Errorf("failed to store metrics in Redis: %v", err)
 	}
+	log.Printf("✅ [METRICS] Stored metrics in Redis key: %s", metricsKey)
 
 	// Store individual call log in Redis (with TTL for cleanup)
 	callKey := fmt.Sprintf("tool_call:%s", call.ID)

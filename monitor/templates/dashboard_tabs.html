@@ -812,6 +812,14 @@
     </div>
 
     <script>
+        // Utility function to escape HTML
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
         let currentTab = 'overview';
         let autoRefreshInterval = null;
         let reasoningInterval = null;
@@ -2248,14 +2256,75 @@
 
                 // Tools list with individual stats
                 const [toolsRes, allMetricsRes] = await Promise.all([
-                    axios.get('/api/tools', { timeout: 5000 }).catch(() => ({ data: { tools: [] } })),
-                    axios.get('/api/tools/metrics', { timeout: 5000 }).catch(() => ({ data: { metrics: [] } }))
+                    axios.get('/api/tools', { timeout: 5000 }).catch((e) => {
+                        console.error('[Tools UI] Failed to fetch tools:', e);
+                        return { data: { tools: [] } };
+                    }),
+                    axios.get('/api/tools/metrics', { timeout: 5000 }).catch((e) => {
+                        console.error('[Tools UI] Failed to fetch metrics:', e);
+                        return { data: { metrics: [] } };
+                    })
                 ]);
+                
+                // Debug: Log raw API responses
+                console.log('[Tools UI] Tools API response:', toolsRes.data);
+                console.log('[Tools UI] Metrics API response:', allMetricsRes.data);
+                
                 let tools = (toolsRes.data && toolsRes.data.tools) ? toolsRes.data.tools : [];
                 const allMetricsRaw = Array.isArray(allMetricsRes.data?.metrics) ? allMetricsRes.data.metrics : [];
                 const allMetrics = allMetricsRaw.filter(it => !excludeIds.includes(it.tool_id));
+                
+                console.log('[Tools UI] Found', tools.length, 'tools and', allMetrics.length, 'metrics');
+                console.log('[Tools UI] Tool IDs:', tools.map(t => ({ id: t.id, name: t.name })));
+                console.log('[Tools UI] Metric tool_ids (full details):', allMetrics.map(m => ({
+                    tool_id: m.tool_id,
+                    tool_id_type: typeof m.tool_id,
+                    tool_id_length: m.tool_id ? m.tool_id.length : 0,
+                    tool_id_quoted: `"${m.tool_id}"`,
+                    tool_name: m.tool_name,
+                    total_calls: m.total_calls
+                })));
+                console.log('[Tools UI] Raw metrics array:', JSON.stringify(allMetrics, null, 2));
+                
+                // Warn if no metrics found but tools exist
+                if (tools.length > 0 && allMetrics.length === 0) {
+                    console.warn('[Tools UI] ⚠️ No metrics found in Redis. This could mean:');
+                    console.warn('  1. Tools have not been invoked yet');
+                    console.warn('  2. Tool metrics manager is not initialized');
+                    console.warn('  3. Redis connection issue');
+                    console.warn('  Check HDN server logs for tool metrics initialization.');
+                }
+                
                 const idToMetrics = Object.create(null);
-                for (const m of allMetrics) idToMetrics[m.tool_id] = m;
+                for (const m of allMetrics) {
+                    if (!m.tool_id) continue;
+                    
+                    // Normalize tool_id for matching (handle case sensitivity and whitespace)
+                    const normalizedId = String(m.tool_id).trim().toLowerCase();
+                    
+                    // Store with multiple key variations for flexible matching
+                    idToMetrics[normalizedId] = m;
+                    idToMetrics[m.tool_id] = m; // Original case
+                    
+                    // Also try without "tool_" prefix if present
+                    if (normalizedId.startsWith('tool_')) {
+                        const withoutPrefix = normalizedId.substring(5);
+                        idToMetrics[withoutPrefix] = m;
+                        idToMetrics['tool_' + withoutPrefix] = m;
+                    } else {
+                        // Try with "tool_" prefix if not present
+                        idToMetrics['tool_' + normalizedId] = m;
+                    }
+                }
+                
+                // Debug: Show what we're matching against
+                console.log('[Tools UI] Built idToMetrics map with keys:', Object.keys(idToMetrics));
+                console.log('[Tools UI] Metrics details:', allMetrics.map(m => ({
+                    tool_id: m.tool_id,
+                    tool_name: m.tool_name,
+                    total_calls: m.total_calls,
+                    normalized: String(m.tool_id || '').trim().toLowerCase()
+                })));
 
                 // Apply client-side filters
                 const originSel = document.getElementById('tools-origin-filter');
@@ -2280,27 +2349,99 @@
                         toolsListDiv.innerHTML = '<div class="loading">No tools registered</div>';
                     } else {
                         toolsListDiv.innerHTML = tools.map(t => {
-                            const m = idToMetrics[t.id] || {};
+                            // Try exact match first, then normalized match
+                            const toolId = String(t.id || '').trim();
+                            const normalizedId = toolId.toLowerCase();
+                            let m = idToMetrics[toolId] || idToMetrics[normalizedId];
+                            
+                            // Fallback: try matching by tool name if ID doesn't match
+                            if (!m && t.name) {
+                                const toolName = String(t.name).trim().toLowerCase();
+                                for (const metric of allMetrics) {
+                                    const metricName = String(metric.tool_name || '').trim().toLowerCase();
+                                    if (metricName === toolName) {
+                                        m = metric;
+                                        console.log(`[Tools UI] Matched tool "${t.name}" by name instead of ID`);
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            // Default to empty object if no match
+                            if (!m) {
+                                m = {};
+                            }
                             const total = Number(m.total_calls || 0);
                             const succ = Number(m.success_calls || 0);
                             const fail = Number(m.failure_calls || 0);
                             const blocked = Number(m.blocked_calls || 0);
                             const rate = total > 0 ? ((succ / total) * 100).toFixed(1) + '%' : '0%';
+                            const hasMetrics = total > 0;
+                            
+                            // Debug: log matching details (only for tools with metrics or mismatches)
+                            const matched = !!(idToMetrics[toolId] || idToMetrics[normalizedId]);
+                            if (hasMetrics) {
+                                console.log(`[Tools UI] ✓ Tool "${t.name}" (ID: "${toolId}") has ${total} calls`);
+                            }
+                            
                             return `
-                            <div class=\"workflow-item\">\n` +
+                            <div class=\"workflow-item\" style=\"${hasMetrics ? 'border-left: 3px solid #28a745; background: #f8fff9;' : ''}\">\n` +
                                    `<div class=\"step-header\">\n` +
-                                   `<span class=\"step-name\">${t.name || t.id}</span>\n` +
+                                   `<span class=\"step-name\">${escapeHtml(t.name || t.id)}</span>\n` +
                                    `<span class=\"step-status status-completed\">${rate}</span>\n` +
+                                   `${hasMetrics ? '<span style="margin-left:8px; font-size:11px; color:#28a745; font-weight:bold;">● IN USE</span>' : ''}\n` +
                                    `</div>\n` +
-                                   `<div class=\"step-description\">${t.description || ''}</div>\n` +
+                                   `<div class=\"step-description\">${escapeHtml(t.description || '')}</div>\n` +
+                                   `<div style=\"font-size:11px; color:#666; margin-top:4px;\">ID: <code style=\"background:#f0f0f0; padding:2px 4px; border-radius:2px;\">${escapeHtml(toolId)}</code></div>\n` +
                                    `<div class=\"grid\" style=\"margin-top:6px; grid-template-columns: repeat(4, minmax(0,1fr)); gap:8px;\">\n` +
-                                   `<div class=\"stat-item\"><div class=\"stat-value\">${total}</div><div class=\"stat-label\">Total</div></div>\n` +
-                                   `<div class=\"stat-item\"><div class=\"stat-value\">${succ}</div><div class=\"stat-label\">Success</div></div>\n` +
-                                   `<div class=\"stat-item\"><div class=\"stat-value\">${fail}</div><div class=\"stat-label\">Failed</div></div>\n` +
-                                   `<div class=\"stat-item\"><div class=\"stat-value\">${blocked}</div><div class=\"stat-label\">Blocked</div></div>\n` +
+                                   `<div class=\"stat-item\"><div class=\"stat-value\" style=\"${hasMetrics ? 'font-weight:bold; color:#007bff;' : ''}\">${total}</div><div class=\"stat-label\">Total</div></div>\n` +
+                                   `<div class=\"stat-item\"><div class=\"stat-value\" style=\"color:${succ > 0 ? '#28a745' : '#999'};\">${succ}</div><div class=\"stat-label\">Success</div></div>\n` +
+                                   `<div class=\"stat-item\"><div class=\"stat-value\" style=\"color:${fail > 0 ? '#dc3545' : '#999'};\">${fail}</div><div class=\"stat-label\">Failed</div></div>\n` +
+                                   `<div class=\"stat-item\"><div class=\"stat-value\" style=\"color:${blocked > 0 ? '#ffc107' : '#999'};\">${blocked}</div><div class=\"stat-label\">Blocked</div></div>\n` +
                                    `</div>\n` +
+                                   `${hasMetrics && m.last_called ? `<div style=\"font-size:10px; color:#666; margin-top:4px;\">Last used: ${new Date(m.last_called).toLocaleString()}</div>` : ''}\n` +
                                    `</div>`;
                         }).join('');
+                        
+                        // Also show metrics for tools that aren't in the registered tools list
+                        const unregisteredMetrics = allMetrics.filter(m => {
+                            const metricToolId = String(m.tool_id || '').trim();
+                            return !tools.some(t => String(t.id || '').trim() === metricToolId);
+                        });
+                        
+                        if (unregisteredMetrics.length > 0) {
+                            const unregisteredHtml = `
+                                <div style="margin-top:30px; padding-top:20px; border-top:2px solid #ddd;">
+                                    <h3 style="font-size:14px; color:#ff9800; margin-bottom:10px;">⚠️ Internal Tools (Not in Registry)</h3>
+                                    <p style="font-size:12px; color:#666; margin-bottom:10px;">These tools have usage metrics but aren't in the registered tools list:</p>
+                                    ${unregisteredMetrics.map(m => {
+                                        const total = Number(m.total_calls || 0);
+                                        const succ = Number(m.success_calls || 0);
+                                        const fail = Number(m.failure_calls || 0);
+                                        const blocked = Number(m.blocked_calls || 0);
+                                        const rate = total > 0 ? ((succ / total) * 100).toFixed(1) + '%' : '0%';
+                                        return `
+                                        <div class="workflow-item" style="border-left: 3px solid #ff9800; background: #fff8e1; margin-bottom:10px;">
+                                            <div class="step-header">
+                                                <span class="step-name">${escapeHtml(m.tool_name || m.tool_id || 'Unknown')}</span>
+                                                <span class="step-status status-completed">${rate}</span>
+                                                <span style="margin-left:8px; font-size:11px; color:#ff9800; font-weight:bold;">● INTERNAL</span>
+                                            </div>
+                                            <div class="step-description">Internal tool used by the system</div>
+                                            <div style="font-size:11px; color:#666; margin-top:4px;">ID: <code style="background:#f0f0f0; padding:2px 4px; border-radius:2px;">${escapeHtml(m.tool_id || 'unknown')}</code></div>
+                                            <div class="grid" style="margin-top:6px; grid-template-columns: repeat(4, minmax(0,1fr)); gap:8px;">
+                                                <div class="stat-item"><div class="stat-value" style="font-weight:bold; color:#007bff;">${total}</div><div class="stat-label">Total</div></div>
+                                                <div class="stat-item"><div class="stat-value" style="color:#28a745;">${succ}</div><div class="stat-label">Success</div></div>
+                                                <div class="stat-item"><div class="stat-value" style="color:#dc3545;">${fail}</div><div class="stat-label">Failed</div></div>
+                                                <div class="stat-item"><div class="stat-value" style="color:#ffc107;">${blocked}</div><div class="stat-label">Blocked</div></div>
+                                            </div>
+                                            ${m.last_called ? `<div style="font-size:10px; color:#666; margin-top:4px;">Last used: ${new Date(m.last_called).toLocaleString()}</div>` : ''}
+                                        </div>`;
+                                    }).join('')}
+                                </div>
+                            `;
+                            toolsListDiv.innerHTML += unregisteredHtml;
+                        }
                     }
                 }
                 
