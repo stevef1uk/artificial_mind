@@ -88,11 +88,19 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 				}
 
 				// Build hierarchical execute payload
-				// Use goal description/name as the user_request; pass identifiers in context
+				// Use goal description/name as the task_name and user_request; pass identifiers in context
+				goalDesc := firstNonEmpty(g.Description, g.Name, "Execute goal")
+				// Use goal description as task_name instead of generic "Goal Execution"
+				// This gives the planner better context about what to actually do
+				taskName := goalDesc
+				if len(taskName) > 100 {
+					// Truncate very long descriptions for task_name
+					taskName = taskName[:97] + "..."
+				}
 				req := map[string]interface{}{
-					"task_name":    "Goal Execution",
-					"description":  firstNonEmpty(g.Description, g.Name, "Execute goal"),
-					"user_request": firstNonEmpty(g.Description, g.Name),
+					"task_name":    taskName,
+					"description":  goalDesc,
+					"user_request": goalDesc,
 					"context": map[string]string{
 						"session_id": fmt.Sprintf("goal_%s", g.ID),
 						"goal_id":    g.ID,

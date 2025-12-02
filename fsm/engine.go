@@ -2819,6 +2819,9 @@ func (e *FSMEngine) publishUserGoal(event CanonicalEvent) {
 		return
 	}
 
+	// Clean up goal description - remove verbose warning messages
+	userRequest = e.cleanGoalDescription(userRequest)
+
 	// Create user goal event for Goals server
 	userGoalEvent := map[string]interface{}{
 		"agent_id":    e.agentID,
@@ -2835,6 +2838,46 @@ func (e *FSMEngine) publishUserGoal(event CanonicalEvent) {
 	data, _ := json.Marshal(userGoalEvent)
 	e.nc.Publish("agi.user.goal", data)
 	log.Printf("📤 Published user goal to Goals server: %s", userRequest)
+}
+
+// cleanGoalDescription removes verbose warning messages and technical instructions from goal descriptions
+func (e *FSMEngine) cleanGoalDescription(desc string) string {
+	// Remove the CRITICAL FOR PYTHON warning block
+	// Find where the warning starts
+	warningStart := strings.Index(desc, "🚨 CRITICAL FOR PYTHON - READING CONTEXT PARAMETERS:")
+	if warningStart == -1 {
+		// Try without emoji
+		warningStart = strings.Index(desc, "CRITICAL FOR PYTHON - READING CONTEXT PARAMETERS:")
+	}
+	
+	if warningStart > 0 {
+		// Keep everything before the warning
+		desc = desc[:warningStart]
+		desc = strings.TrimSpace(desc)
+	}
+	
+	// Also clean up if description starts with "Execute capability:" and has the warning
+	if strings.HasPrefix(desc, "Execute capability:") {
+		// Extract just the capability ID part
+		parts := strings.SplitN(desc, "\n", 2)
+		if len(parts) > 0 {
+			capPart := strings.TrimSpace(parts[0])
+			// If it's just "Execute capability: code_xxx", keep it simple
+			if !strings.Contains(capPart, "CRITICAL") && !strings.Contains(capPart, "🚨") {
+				desc = capPart
+			}
+		}
+	}
+	
+	// Remove any trailing newlines and clean up
+	desc = strings.TrimSpace(desc)
+	
+	// Limit description length to prevent overly verbose goals
+	if len(desc) > 500 {
+		desc = desc[:497] + "..."
+	}
+	
+	return desc
 }
 
 // GetCurrentState returns the current state

@@ -641,20 +641,42 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 		log.Printf("📝 [INTELLIGENT] Using direct LLM summarization path for %s", req.TaskName)
 		// Build a concise prompt with tight constraints
 		format := "Paragraph: <text>\nBullets:\n- <b1>\n- <b2>\n- <b3>\nQuestions:\n1) <q1>\n2) <q2>\n3) <q3>\n\n"
-		prompt := "You are a concise summarizer. Output ONLY the requested sections and nothing else.\n" +
+		prompt := "You are a concise knowledge summarizer. Analyze the bootstrapped knowledge and provide a factual summary.\n" +
+			"Output ONLY the requested sections and nothing else.\n" +
 			"Constraints: paragraph <= 80 words; exactly 3 bullets; exactly 3 short follow-up questions.\n" +
+			"Focus on the actual concepts and knowledge that were bootstrapped, not educational approaches or project management.\n" +
 			"Format:\n" + format
 		if strings.TrimSpace(req.Description) != "" {
-			prompt += "Description:\n" + req.Description + "\n\n"
+			// Extract the seed/topic from description
+			desc := req.Description
+			if strings.Contains(desc, "around") {
+				parts := strings.Split(desc, "around")
+				if len(parts) > 1 {
+					seed := strings.TrimSpace(parts[1])
+					prompt += fmt.Sprintf("Task: Summarize the knowledge concepts that were bootstrapped about: %s\n\n", seed)
+				} else {
+					prompt += "Description:\n" + desc + "\n\n"
+				}
+			} else {
+				prompt += "Description:\n" + desc + "\n\n"
+			}
 		}
+		// Only include relevant context (exclude project_id, session_id, prefer_traditional)
 		if len(req.Context) > 0 {
-			prompt += "Context:\n"
+			relevantCtx := false
 			for k, v := range req.Context {
-				if strings.TrimSpace(k) != "" && strings.TrimSpace(v) != "" {
+				// Skip administrative context fields
+				if k != "session_id" && k != "project_id" && k != "prefer_traditional" && strings.TrimSpace(k) != "" && strings.TrimSpace(v) != "" {
+					if !relevantCtx {
+						prompt += "Context:\n"
+						relevantCtx = true
+					}
 					prompt += "- " + k + ": " + v + "\n"
 				}
 			}
-			prompt += "\n"
+			if relevantCtx {
+				prompt += "\n"
+			}
 		}
 
 		// Call LLM directly to avoid verbose wrappers

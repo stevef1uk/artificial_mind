@@ -258,8 +258,8 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 		targetQuery = fmt.Sprintf("related to %s", selected.Targets[0])
 	}
 
-	// Attempt autonomous Wikipedia bootstrap for gap-filling / exploration
-	if selected.Type == "gap_filling" || selected.Type == "concept_exploration" {
+	// Attempt autonomous Wikipedia bootstrap for gap-filling / exploration / knowledge building
+	if selected.Type == "gap_filling" || selected.Type == "concept_exploration" || selected.Type == "exploration" || selected.Type == "knowledge_building" {
 		// Env-driven overrides to make bootstrap configurable
 		// FSM_BOOTSTRAP_SEEDS: CSV list; if empty, derive from selected goal
 		// FSM_BOOTSTRAP_MAX_DEPTH: integer
@@ -278,11 +278,22 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 			if len(selected.Targets) > 0 && strings.TrimSpace(selected.Targets[0]) != "" {
 				seed = selected.Targets[0]
 			} else {
-				// crude parse: expect "concept: X" in description
-				lower := strings.ToLower(selected.Description)
-				idx := strings.Index(lower, "concept:")
-				if idx >= 0 {
-					seed = strings.TrimSpace(selected.Description[idx+len("concept:"):])
+				// For exploration/knowledge_building goals, extract domain or use a generic seed
+				if selected.Type == "exploration" || selected.Type == "knowledge_building" {
+					// If domain is too generic, use a common exploration seed
+					if strings.ToLower(strings.TrimSpace(domain)) == "general" {
+						seed = "artificial intelligence" // Default seed for General domain exploration
+					} else {
+						// Use domain name as seed for specific domains
+						seed = domain
+					}
+				} else {
+					// crude parse: expect "concept: X" in description
+					lower := strings.ToLower(selected.Description)
+					idx := strings.Index(lower, "concept:")
+					if idx >= 0 {
+						seed = strings.TrimSpace(selected.Description[idx+len("concept:"):])
+					}
 				}
 			}
 			if strings.TrimSpace(seed) != "" {

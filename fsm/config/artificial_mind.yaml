@@ -185,6 +185,8 @@ states:
         guard: "input_validation"
       hypotheses_generated:
         next: reason
+      goal_selected:
+        next: reason
       no_valid_hypotheses:
         next: reason  # Continue to reasoning even without hypotheses
       timer_tick:
