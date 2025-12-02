@@ -758,10 +758,10 @@ func (e *FSMEngine) executeInputParser(action ActionConfig, event map[string]int
 func (e *FSMEngine) executeDomainClassifier(action ActionConfig, event map[string]interface{}) {
 	// Use knowledge base to classify domain
 	log.Printf("Classifying domain using concept matching")
-	
+
 	// Extract text to classify from event
 	var textToClassify string
-	
+
 	// For news events, extract headline or relation text
 	if eventType, ok := event["type"].(string); ok {
 		if eventType == "relations" || eventType == "alerts" {
@@ -797,7 +797,7 @@ func (e *FSMEngine) executeDomainClassifier(action ActionConfig, event map[strin
 			}
 		}
 	}
-	
+
 	// If we have text to classify, use knowledge integration
 	if textToClassify != "" && e.knowledgeIntegration != nil {
 		result, err := e.knowledgeIntegration.ClassifyDomain(textToClassify)
@@ -805,7 +805,7 @@ func (e *FSMEngine) executeDomainClassifier(action ActionConfig, event map[strin
 			// Set the domain in context
 			e.context["current_domain"] = result.Domain
 			log.Printf("✅ Classified domain: %s (confidence: %.2f)", result.Domain, result.Confidence)
-			
+
 			// Save context to persist domain
 			e.saveState()
 		} else if err != nil {
@@ -2849,13 +2849,13 @@ func (e *FSMEngine) cleanGoalDescription(desc string) string {
 		// Try without emoji
 		warningStart = strings.Index(desc, "CRITICAL FOR PYTHON - READING CONTEXT PARAMETERS:")
 	}
-	
+
 	if warningStart > 0 {
 		// Keep everything before the warning
 		desc = desc[:warningStart]
 		desc = strings.TrimSpace(desc)
 	}
-	
+
 	// Also clean up if description starts with "Execute capability:" and has the warning
 	if strings.HasPrefix(desc, "Execute capability:") {
 		// Extract just the capability ID part
@@ -2868,7 +2868,7 @@ func (e *FSMEngine) cleanGoalDescription(desc string) string {
 				if strings.HasPrefix(capPart, "Execute capability: ") {
 					capabilityID := strings.TrimPrefix(capPart, "Execute capability: ")
 					capabilityID = strings.TrimSpace(capabilityID)
-					
+
 					// Try to look up the capability in Redis to get its actual task name/description
 					if e.redis != nil && capabilityID != "" {
 						codeKey := fmt.Sprintf("code:%s", capabilityID)
@@ -2882,7 +2882,13 @@ func (e *FSMEngine) cleanGoalDescription(desc string) string {
 								if capability.TaskName != "" {
 									desc = fmt.Sprintf("Execute: %s", capability.TaskName)
 								} else if capability.Description != "" {
-									desc = capability.Description
+									// Remove "Execute capability:" prefix if it already exists to avoid duplication
+									capDesc := strings.TrimSpace(capability.Description)
+									if strings.HasPrefix(capDesc, "Execute capability:") {
+										capDesc = strings.TrimPrefix(capDesc, "Execute capability:")
+										capDesc = strings.TrimSpace(capDesc)
+									}
+									desc = capDesc
 								} else {
 									desc = capPart
 								}
@@ -2901,15 +2907,15 @@ func (e *FSMEngine) cleanGoalDescription(desc string) string {
 			}
 		}
 	}
-	
+
 	// Remove any trailing newlines and clean up
 	desc = strings.TrimSpace(desc)
-	
+
 	// Limit description length to prevent overly verbose goals
 	if len(desc) > 500 {
 		desc = desc[:497] + "..."
 	}
-	
+
 	return desc
 }
 
@@ -3125,14 +3131,14 @@ func (e *FSMEngine) createHypothesisTestingGoals(hypotheses []Hypothesis, domain
 			Domain:      domain,
 			CreatedAt:   time.Now(),
 		}
-		
+
 		// Filter out generic/useless goals before adding
 		if e.isGenericHypothesisGoal(goal) {
 			filteredCount++
 			log.Printf("🚫 Filtered out generic hypothesis goal: %s", goal.Description)
 			continue
 		}
-		
+
 		k := e.createDedupKey(goal)
 		if _, exists := existing[k]; exists {
 			continue
