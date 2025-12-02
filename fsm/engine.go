@@ -2856,53 +2856,57 @@ func (e *FSMEngine) cleanGoalDescription(desc string) string {
 		desc = strings.TrimSpace(desc)
 	}
 
-	// Also clean up if description starts with "Execute capability:" and has the warning
-	if strings.HasPrefix(desc, "Execute capability:") {
-		// Extract just the capability ID part
-		parts := strings.SplitN(desc, "\n", 2)
-		if len(parts) > 0 {
-			capPart := strings.TrimSpace(parts[0])
-			// If it's just "Execute capability: code_xxx", try to look up the capability's actual task name
-			if !strings.Contains(capPart, "CRITICAL") && !strings.Contains(capPart, "🚨") {
-				// Extract capability ID (e.g., "code_1764702253158836960")
-				if strings.HasPrefix(capPart, "Execute capability: ") {
-					capabilityID := strings.TrimPrefix(capPart, "Execute capability: ")
-					capabilityID = strings.TrimSpace(capabilityID)
+	// Also clean up if description starts with "Execute capability:"
+	// Handle cases where there are multiple "Execute capability:" prefixes
+	// We need to find the one that's followed by a capability ID (code_xxx)
+	descTrimmed := strings.TrimSpace(desc)
+	if strings.HasPrefix(descTrimmed, "Execute capability:") {
+		// Extract just the first line (before any newlines)
+		parts := strings.SplitN(descTrimmed, "\n", 2)
+		capPart := strings.TrimSpace(parts[0])
 
-					// Try to look up the capability in Redis to get its actual task name/description
-					if e.redis != nil && capabilityID != "" {
-						codeKey := fmt.Sprintf("code:%s", capabilityID)
-						if codeData, err := e.redis.Get(e.ctx, codeKey).Result(); err == nil {
-							var capability struct {
-								TaskName    string `json:"task_name"`
-								Description string `json:"description"`
-							}
-							if err := json.Unmarshal([]byte(codeData), &capability); err == nil {
-								// Use task_name if available, otherwise description, otherwise fall back to original
-								if capability.TaskName != "" {
-									desc = fmt.Sprintf("Execute: %s", capability.TaskName)
-								} else if capability.Description != "" {
-									// Remove "Execute capability:" prefix if it already exists to avoid duplication
-									capDesc := strings.TrimSpace(capability.Description)
-									if strings.HasPrefix(capDesc, "Execute capability:") {
-										capDesc = strings.TrimPrefix(capDesc, "Execute capability:")
-										capDesc = strings.TrimSpace(capDesc)
-									}
-									desc = capDesc
-								} else {
-									desc = capPart
-								}
-							} else {
-								desc = capPart
-							}
-						} else {
-							desc = capPart
+		// Remove duplicate "Execute capability:" prefixes until we find one with a capability ID
+		// Pattern should be: "Execute capability: code_xxx" (not "Execute capability: Execute capability: ...")
+		for strings.HasPrefix(capPart, "Execute capability: Execute capability:") {
+			capPart = strings.TrimPrefix(capPart, "Execute capability: ")
+			capPart = strings.TrimSpace(capPart)
+		}
+
+		// Now check if we have "Execute capability: code_xxx" pattern
+		if strings.HasPrefix(capPart, "Execute capability:") && !strings.Contains(capPart, "CRITICAL") && !strings.Contains(capPart, "🚨") {
+			// Extract capability ID (e.g., "code_1764702253158836960")
+			capabilityID := strings.TrimPrefix(capPart, "Execute capability:")
+			capabilityID = strings.TrimSpace(capabilityID)
+
+			// Check if it looks like a capability ID (starts with "code_")
+			if strings.HasPrefix(capabilityID, "code_") {
+				// Try to look up the capability in Redis to get its actual task name/description
+				if e.redis != nil {
+					codeKey := fmt.Sprintf("code:%s", capabilityID)
+					if codeData, err := e.redis.Get(e.ctx, codeKey).Result(); err == nil {
+						var capability struct {
+							TaskName    string `json:"task_name"`
+							Description string `json:"description"`
 						}
-					} else {
-						desc = capPart
+						if err := json.Unmarshal([]byte(codeData), &capability); err == nil {
+							// Use task_name if available, otherwise description, otherwise fall back to original
+							if capability.TaskName != "" {
+								desc = fmt.Sprintf("Execute: %s", capability.TaskName)
+							} else if capability.Description != "" {
+								// Remove ALL "Execute capability:" prefixes if they exist to avoid duplication
+								capDesc := strings.TrimSpace(capability.Description)
+								// Keep removing the prefix until it's gone (handles multiple instances)
+								for strings.HasPrefix(capDesc, "Execute capability:") {
+									capDesc = strings.TrimPrefix(capDesc, "Execute capability:")
+									capDesc = strings.TrimSpace(capDesc)
+								}
+								desc = capDesc
+							} else {
+								// Fallback: use just the capability ID without prefix
+								desc = capabilityID
+							}
+						}
 					}
-				} else {
-					desc = capPart
 				}
 			}
 		}
