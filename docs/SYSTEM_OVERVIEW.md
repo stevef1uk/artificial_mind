@@ -99,3 +99,15 @@ graph TB
 - FSM selects tools; HDN gates via Principles before execution.
 - Events: `agi.tool.*` emitted for discovery, creation, invocation, results, failures.
 - See `Tools.md` for catalog, schemas, and usage examples.
+
+## Learning & Knowledge Growth
+
+The system includes advanced learning capabilities:
+
+- **Goal Outcome Learning**: Tracks which goals succeed/fail and learns from outcomes
+- **Focused Learning Strategy**: Identifies promising areas and focuses learning there (70% focused, 30% exploration)
+- **Meta-Learning**: System learns about its own learning process to continuously improve
+- **Semantic Concept Discovery**: Uses LLM-based analysis instead of pattern matching for better concept extraction
+- **Hypothesis Value Pre-Evaluation**: Filters low-value hypotheses before testing to reduce wasted effort
+
+See `docs/LEARNING_FOCUS_IMPROVEMENTS.md` for detailed information about these improvements.

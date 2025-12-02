@@ -43,6 +43,9 @@ The Artificial Mind system consists of several interconnected components that wo
 - **Natural Language Interface** - Conversational AI with full transparency
 - **Tool Integration** - Extensible framework for AI capabilities
 - **Knowledge Growth** - Continuous learning and adaptation
+- **Focused Learning** - System focuses on promising areas and learns from outcomes
+- **Meta-Learning** - System learns about its own learning process
+- **Semantic Concept Discovery** - LLM-based concept extraction with understanding
 
 ---
 
@@ -511,6 +514,18 @@ Multi-level planning and execution capabilities that can handle complex, multi-s
 
 ### Continuous Learning
 The system grows and adapts through experience, demonstrating true learning capabilities.
+
+### Focused and Successful Learning (NEW!)
+The system now includes six major improvements for more focused and successful learning:
+
+1. **Goal Outcome Learning**: Tracks which goals succeed/fail and learns from outcomes
+2. **Enhanced Goal Scoring**: Uses historical success data to prioritize goals
+3. **Hypothesis Value Pre-Evaluation**: Filters low-value hypotheses before testing
+4. **Focused Learning Strategy**: Focuses on promising areas (70% focused, 30% exploration)
+5. **Meta-Learning System**: Learns about its own learning process
+6. **Improved Concept Discovery**: Uses LLM-based semantic analysis instead of pattern matching
+
+See `docs/LEARNING_FOCUS_IMPROVEMENTS.md` for detailed information.
 
 ---
 

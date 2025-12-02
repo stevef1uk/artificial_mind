@@ -4,6 +4,21 @@
 
 The Artificial Mind FSM actively grows and improves the knowledge base through continuous learning, concept discovery, and gap analysis. This creates a self-improving AI system that becomes more knowledgeable over time.
 
+## Recent Improvements (2025)
+
+### Enhanced Learning Focus and Success
+
+The system now includes six major improvements to make learning more focused and successful:
+
+1. **Goal Outcome Learning System**: Tracks which goals succeed/fail and learns from outcomes
+2. **Enhanced Goal Scoring**: Uses historical success data to prioritize goals
+3. **Hypothesis Value Pre-Evaluation**: Filters low-value hypotheses before testing
+4. **Focused Learning Strategy**: Focuses on promising areas (70% focused, 30% exploration)
+5. **Meta-Learning System**: Learns about its own learning process
+6. **Improved Concept Discovery**: Uses LLM-based semantic analysis instead of pattern matching
+
+See `LEARNING_FOCUS_IMPROVEMENTS.md` for detailed information about these improvements.
+
 ## Knowledge Growth Flow
 
 ```

@@ -167,12 +167,19 @@ graph TB
   - Smart re-exploration when new facts are available
   - Data-driven hypothesis generation from actual concept relationships and patterns
   - Fact-based and pattern-based hypothesis creation
+  - **Hypothesis Value Pre-Evaluation**: Filters low-value hypotheses (< 0.3 threshold) before generation
+  - **Value-Based Confidence Scaling**: Scales hypothesis confidence by potential value
+  - **Concept Depth Assessment**: Evaluates concept completeness before hypothesis generation
+  - **Actionable Properties Detection**: Identifies concepts with actionable characteristics
 
 - **Knowledge Growth Engine** (`fsm/knowledge_growth.go`):
-  - Automatic concept discovery from domain knowledge
+  - **LLM-Based Semantic Concept Discovery**: Uses HDN API for semantic analysis instead of pattern matching
+  - Automatic concept discovery from domain knowledge with meaningful names
   - Knowledge gap identification and filling
   - Concept relationship analysis and enhancement
   - Dynamic knowledge base expansion
+  - Quality filtering to prevent generic/low-quality concepts
+  - Fallback mechanism when LLM unavailable
 
 - **Build-time**: HDN enables direct Cypher execution with `-tags neo4j`
 
@@ -258,6 +265,10 @@ For a deeper, HDN-specific architecture diagram and narrative, see `hdn_architec
   - **Dynamic Inference**: Data-driven inference rules that adapt to concept patterns
   - **Intelligent Exploration**: Smart exploration tracking with deduplication and cooldown
   - **Hypothesis Screening**: LLM-based evaluation of hypotheses for impact and tractability
+  - **Goal Outcome Learning**: Tracks goal execution outcomes and learns from success/failure
+  - **Enhanced Goal Scoring**: Incorporates historical success rates and values into goal prioritization
+  - **Focused Learning Strategy**: Identifies promising areas and focuses learning there (70% focused, 30% exploration)
+  - **Meta-Learning System**: Learns about its own learning process to continuously improve strategies
 - **New Actions**:
   - `reasoning.belief_query` - Query beliefs from knowledge base
   - `reasoning.inference` - Apply inference rules to generate new beliefs
@@ -806,6 +817,59 @@ make help
   - `GET /api/daily_summary/{date}` (YYYY-MM-DD, UTC)
 - Monitor UI Panel: Dashboard Daily Summary card with a date picker, Load/Latest actions, current summary view, and recent history preview.
 
+### Learning Focus and Success Improvements (Latest)
+- **✅ Priority 1: Goal Outcome Learning System**: Tracks goal execution outcomes, success rates, and average values by goal type/domain
+  - `GoalOutcome` struct tracks success/failure, value scores, and outcomes
+  - Automatic outcome recording when goals complete/fail
+  - Success rate tracking: `goal_success_rate:{type}:{domain}`
+  - Average value tracking: `goal_avg_value:{type}:{domain}`
+  - Statistics stored in Redis for quick access during goal scoring
+
+- **✅ Priority 2: Enhanced Goal Scoring**: Incorporates historical success data into goal prioritization
+  - Historical success rate bonus: up to +3.0 for goal types that succeed often
+  - Historical value bonus: up to +2.0 for goal types that yield high value
+  - Recent failure penalty: -2.0 for goal types with repeated failures
+  - Goals with better historical performance automatically prioritized
+
+- **✅ Priority 3: Hypothesis Value Pre-Evaluation**: Filters low-value hypotheses before testing
+  - Evaluates hypothesis potential before generation (threshold: 0.3)
+  - Considers: similar hypothesis success rate (30%), concept depth (20%), actionable properties (20%)
+  - Filters out generic/low-value hypotheses to reduce wasted effort
+  - Scales hypothesis confidence by potential value
+
+- **✅ Priority 4: Focused Learning Strategy**: Identifies promising areas and focuses learning there
+  - `LearningProgress` struct tracks success rate, value, and recent progress
+  - `identifyFocusAreas()` identifies areas with focus score > 0.5
+  - Focus score = (success_rate × 0.4) + (avg_value × 0.4) + (recent_progress × 0.2)
+  - `adjustGoalGeneration()` prioritizes focused goals (70% focused, 30% unfocused)
+  - Focused goals get 20% priority boost
+  - Integrated into `TriggerAutonomyCycle()` for automatic focusing
+
+- **✅ Priority 5: Meta-Learning System**: Learns about its own learning process
+  - `MetaLearning` struct tracks goal type values, domain productivity, and success patterns
+  - `SuccessPattern` tracking identifies patterns that lead to success
+  - Updates automatically after each goal outcome
+  - Tracks which goal types are most valuable
+  - Tracks which domains are most productive
+  - Identifies success patterns for strategy optimization
+  - Stored in Redis: `meta_learning:all`
+
+- **✅ Priority 6: Improved Concept Discovery**: Uses semantic analysis instead of pattern matching
+  - `extractConceptsWithLLM()` uses HDN API for semantic concept extraction
+  - LLM analyzes text and extracts concepts with understanding
+  - Generates meaningful concept names (not timestamps)
+  - Extracts properties and constraints automatically
+  - Quality filtering prevents generic/low-quality concepts
+  - Fallback mechanism when LLM unavailable
+
+**Benefits**:
+- Higher success rate: Goals from successful areas prioritized
+- Better focus: System focuses on promising learning areas
+- Reduced waste: Low-value hypotheses filtered out
+- Continuous improvement: Meta-learning improves strategies over time
+- Better concepts: Semantic analysis produces higher quality concepts
+- Efficient learning: Learning efficiency improves over time
+
 ## 🔮 Future Enhancements
 
 ### Planned Features
@@ -832,9 +896,21 @@ make help
 
 This architecture document should be updated whenever tools lifecycle, registry schema, or executor policy changes. See `Tools.md` for the canonical tool catalog format and usage.
 
-**Last Updated**: September 24, 2025
-**Version**: 1.1
+**Last Updated**: January 2025
+**Version**: 1.2
 **Maintainer**: Development Team
+
+### Learning Focus Improvements (v1.2)
+
+All six learning focus improvements have been implemented:
+- ✅ Goal Outcome Learning System
+- ✅ Enhanced Goal Scoring with Historical Success
+- ✅ Hypothesis Value Pre-Evaluation
+- ✅ Focused Learning Strategy
+- ✅ Meta-Learning System
+- ✅ Improved Concept Discovery (LLM-based semantic analysis)
+
+See `docs/LEARNING_FOCUS_IMPROVEMENTS.md` and `docs/ALL_LEARNING_IMPROVEMENTS_SUMMARY.md` for complete details.
 
 ## 🔌 Ports and Endpoints Reference
 

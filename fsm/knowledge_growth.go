@@ -246,37 +246,231 @@ func (kge *KnowledgeGrowthEngine) extractTextFromEpisode(episode map[string]inte
 }
 
 func (kge *KnowledgeGrowthEngine) extractConceptsFromText(text, domain string) []ConceptDiscovery {
-	// This is a simplified implementation
-	// In a real system, this would use NLP techniques to extract concepts
+	// Use semantic analysis via LLM instead of simple pattern matching
+	return kge.extractConceptsWithLLM(text, domain)
+}
 
-	var discoveries []ConceptDiscovery
-
-	// Look for domain-specific patterns
-	patterns := map[string][]string{
-		"Math":        {"algorithm", "formula", "equation", "theorem", "proof", "calculation"},
-		"Programming": {"function", "class", "method", "variable", "loop", "condition"},
-		"System":      {"process", "service", "daemon", "thread", "memory", "disk"},
+// extractConceptsWithLLM uses LLM to extract concepts with semantic understanding
+func (kge *KnowledgeGrowthEngine) extractConceptsWithLLM(text, domain string) []ConceptDiscovery {
+	if len(strings.TrimSpace(text)) == 0 {
+		return []ConceptDiscovery{}
 	}
 
-	domainPatterns, exists := patterns[domain]
-	if !exists {
-		domainPatterns = []string{"concept", "idea", "principle", "rule"}
+	// Use HDN API to extract concepts via LLM
+	// First, try to use HDN's interpret endpoint for concept extraction
+	hdnURL := strings.TrimSuffix(kge.hdnURL, "/")
+	if hdnURL == "" {
+		hdnURL = "http://localhost:8081"
 	}
 
-	for _, pattern := range domainPatterns {
-		if kge.textContainsPattern(text, pattern) {
-			discovery := ConceptDiscovery{
-				Name:       fmt.Sprintf("%s_%s", pattern, time.Now().Format("20060102_150405")),
-				Domain:     domain,
-				Definition: fmt.Sprintf("A %s related to %s", pattern, domain),
-				Confidence: 0.7,
-				Source:     "episode_analysis",
-				CreatedAt:  time.Now(),
-			}
-			discoveries = append(discoveries, discovery)
+	// Create prompt for concept extraction
+	prompt := fmt.Sprintf(`Analyze the following text from the %s domain and extract key concepts.
+
+Text: %s
+
+For each concept you identify, provide:
+1. A clear, meaningful name (not generic like "concept" or "thing")
+2. A definition explaining what it is
+3. Confidence level (0.0-1.0) based on how clearly the concept is described
+4. Properties or characteristics if mentioned
+5. Constraints or limitations if mentioned
+
+Return as JSON array with format:
+[
+  {
+    "name": "ConceptName",
+    "definition": "Clear definition...",
+    "confidence": 0.85,
+    "properties": ["property1", "property2"],
+    "constraints": ["constraint1"]
+  }
+]
+
+Only extract concepts that are:
+- Clearly defined or described in the text
+- Domain-relevant
+- Not too generic or vague
+- Have meaningful names (not timestamps or IDs)
+
+If no clear concepts are found, return empty array [].`, domain, text)
+
+	// Call HDN interpret endpoint
+	interpretURL := fmt.Sprintf("%s/api/v1/interpret", hdnURL)
+	reqData := map[string]interface{}{
+		"text": prompt,
+	}
+	
+	reqJSON, err := json.Marshal(reqData)
+	if err != nil {
+		log.Printf("⚠️ Failed to marshal concept extraction request: %v", err)
+		return kge.extractConceptsFallback(text, domain)
+	}
+
+	resp, err := kge.httpClient.Post(interpretURL, "application/json", bytes.NewReader(reqJSON))
+	if err != nil {
+		log.Printf("⚠️ Concept extraction LLM call failed: %v, using fallback", err)
+		return kge.extractConceptsFallback(text, domain)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("⚠️ Concept extraction returned status %d, using fallback", resp.StatusCode)
+		return kge.extractConceptsFallback(text, domain)
+	}
+
+	var interpretResp map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&interpretResp); err != nil {
+		log.Printf("⚠️ Failed to decode concept extraction response: %v, using fallback", err)
+		return kge.extractConceptsFallback(text, domain)
+	}
+
+	// Extract concepts from response
+	conceptsJSON, ok := interpretResp["result"].(string)
+	if !ok {
+		if result, ok := interpretResp["output"].(string); ok {
+			conceptsJSON = result
+		} else {
+			log.Printf("⚠️ No result in concept extraction response, using fallback")
+			return kge.extractConceptsFallback(text, domain)
 		}
 	}
 
+	// Parse concepts from JSON
+	var concepts []map[string]interface{}
+	if err := json.Unmarshal([]byte(conceptsJSON), &concepts); err != nil {
+		// Try to extract JSON array from text response
+		start := strings.Index(conceptsJSON, "[")
+		end := strings.LastIndex(conceptsJSON, "]")
+		if start >= 0 && end > start {
+			conceptsJSON = conceptsJSON[start : end+1]
+			if err := json.Unmarshal([]byte(conceptsJSON), &concepts); err != nil {
+				log.Printf("⚠️ Failed to parse concepts JSON: %v, using fallback", err)
+				return kge.extractConceptsFallback(text, domain)
+			}
+		} else {
+			log.Printf("⚠️ No JSON array found in response, using fallback")
+			return kge.extractConceptsFallback(text, domain)
+		}
+	}
+
+	// Convert to ConceptDiscovery
+	var discoveries []ConceptDiscovery
+	for _, concept := range concepts {
+		name, _ := concept["name"].(string)
+		def, _ := concept["definition"].(string)
+		conf, _ := concept["confidence"].(float64)
+		
+		if name == "" || def == "" {
+			continue
+		}
+		
+		// Filter out generic names
+		if kge.isGenericConceptName(name) {
+			continue
+		}
+		
+		// Ensure confidence is valid
+		if conf < 0.0 {
+			conf = 0.0
+		}
+		if conf > 1.0 {
+			conf = 1.0
+		}
+		
+		// Extract properties
+		var properties []string
+		if props, ok := concept["properties"].([]interface{}); ok {
+			for _, p := range props {
+				if propStr, ok := p.(string); ok {
+					properties = append(properties, propStr)
+				}
+			}
+		}
+		
+		// Extract constraints
+		var constraints []string
+		if constrs, ok := concept["constraints"].([]interface{}); ok {
+			for _, c := range constrs {
+				if constrStr, ok := c.(string); ok {
+					constraints = append(constraints, constrStr)
+				}
+			}
+		}
+		
+		discovery := ConceptDiscovery{
+			Name:        name,
+			Domain:      domain,
+			Definition:  def,
+			Confidence:  conf,
+			Source:      "llm_semantic_analysis",
+			Properties:  properties,
+			Constraints: constraints,
+			CreatedAt:   time.Now(),
+		}
+		
+		discoveries = append(discoveries, discovery)
+		log.Printf("✨ Extracted concept via LLM: %s (confidence: %.2f)", name, conf)
+	}
+
+	if len(discoveries) > 0 {
+		log.Printf("📚 Extracted %d concepts via semantic analysis", len(discoveries))
+	}
+	
+	return discoveries
+}
+
+// extractConceptsFallback provides fallback concept extraction when LLM is unavailable
+func (kge *KnowledgeGrowthEngine) extractConceptsFallback(text, domain string) []ConceptDiscovery {
+	log.Printf("⚠️ Using fallback concept extraction (LLM unavailable)")
+	
+	// Fallback: simple keyword extraction for important terms
+	var discoveries []ConceptDiscovery
+	
+	// Look for capitalized words (potential concept names)
+	words := strings.Fields(text)
+	seen := make(map[string]bool)
+	
+	for _, word := range words {
+		// Remove punctuation
+		cleanWord := strings.Trim(word, ".,!?;:()[]{}")
+		if len(cleanWord) < 3 {
+			continue
+		}
+		
+		// Check if it's capitalized (potential concept name)
+		if strings.ToUpper(cleanWord[:1]) == cleanWord[:1] && !seen[cleanWord] {
+			seen[cleanWord] = true
+			
+			// Skip common words
+			commonWords := []string{"The", "This", "That", "These", "Those", "A", "An", "And", "Or", "But", "If", "Then", "When", "Where", "Why", "How"}
+			isCommon := false
+			for _, common := range commonWords {
+				if cleanWord == common {
+					isCommon = true
+					break
+				}
+			}
+			if isCommon {
+				continue
+			}
+			
+			// Create discovery with low confidence (fallback)
+			discovery := ConceptDiscovery{
+				Name:       cleanWord,
+				Domain:     domain,
+				Definition: fmt.Sprintf("A concept mentioned in %s context", domain),
+				Confidence: 0.4, // Lower confidence for fallback
+				Source:     "fallback_extraction",
+				CreatedAt:  time.Now(),
+			}
+			
+			// Filter generic names
+			if !kge.isGenericConceptName(cleanWord) {
+				discoveries = append(discoveries, discovery)
+			}
+		}
+	}
+	
 	return discoveries
 }
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -420,6 +421,15 @@ func (ki *KnowledgeIntegration) GenerateHypotheses(facts []Fact, domain string) 
 	for i, fact := range facts {
 		factHypothesis := ki.generateFactBasedHypothesis(fact, concepts, domain, i)
 		if factHypothesis != nil {
+			// Pre-evaluate hypothesis value before adding
+			potentialValue := ki.evaluateFactHypothesisPotential(fact, domain)
+			if potentialValue < 0.3 {
+				log.Printf("⏭️ Skipping low-value fact-based hypothesis: %s (value: %.2f < 0.3)", factHypothesis.Description, potentialValue)
+				continue
+			}
+			// Scale confidence by potential value
+			factHypothesis.Confidence = factHypothesis.Confidence * potentialValue
+			
 			// Check for duplicates before adding
 			if !ki.isDuplicateHypothesis(*factHypothesis, existingHypotheses) {
 				hypotheses = append(hypotheses, *factHypothesis)
@@ -451,6 +461,15 @@ func (ki *KnowledgeIntegration) GenerateHypotheses(facts []Fact, domain string) 
 
 // generateConceptBasedHypothesis creates hypotheses based on individual concept analysis
 func (ki *KnowledgeIntegration) generateConceptBasedHypothesis(conceptName, conceptDef, domain string, index int) *Hypothesis {
+	// First, evaluate potential value before generating hypothesis
+	potentialValue := ki.evaluateHypothesisPotential(conceptName, conceptDef, domain)
+	
+	// Skip low-value hypotheses (threshold: 0.3)
+	if potentialValue < 0.3 {
+		log.Printf("⏭️ Skipping low-value hypothesis for concept: %s (value: %.2f < 0.3)", conceptName, potentialValue)
+		return nil
+	}
+
 	// Analyze concept definition for hypothesis opportunities
 	lowerDef := strings.ToLower(conceptDef)
 
@@ -476,6 +495,9 @@ func (ki *KnowledgeIntegration) generateConceptBasedHypothesis(conceptName, conc
 		confidence = 0.4
 	}
 
+	// Scale confidence by potential value
+	confidence = confidence * potentialValue
+
 	return &Hypothesis{
 		ID:          fmt.Sprintf("hyp_concept_%d_%d", time.Now().UnixNano(), index),
 		Description: hypothesisDesc,
@@ -486,6 +508,161 @@ func (ki *KnowledgeIntegration) generateConceptBasedHypothesis(conceptName, conc
 		Constraints: []string{},
 		CreatedAt:   time.Now(),
 	}
+}
+
+// evaluateHypothesisPotential evaluates the potential value of a hypothesis before generating it
+func (ki *KnowledgeIntegration) evaluateHypothesisPotential(conceptName, conceptDef, domain string) float64 {
+	value := 0.5 // Base value
+
+	// Check if similar hypotheses succeeded
+	similarSuccessRate := ki.getSimilarHypothesisSuccessRate(conceptName, domain)
+	value += similarSuccessRate * 0.3
+
+	// Check concept depth/completeness
+	conceptDepth := ki.assessConceptDepth(conceptName, domain)
+	value += conceptDepth * 0.2
+
+	// Check if concept has actionable properties
+	if ki.hasActionableProperties(conceptName, domain) {
+		value += 0.2
+	}
+
+	// Penalize very generic concepts
+	lowerDef := strings.ToLower(conceptDef)
+	genericTerms := []string{"thing", "stuff", "item", "object", "concept", "idea", "notion"}
+	for _, term := range genericTerms {
+		if strings.Contains(lowerDef, term) && len(conceptDef) < 50 {
+			value -= 0.2
+			break
+		}
+	}
+
+	// Ensure value stays in valid range [0, 1]
+	if value > 1.0 {
+		value = 1.0
+	}
+	if value < 0.0 {
+		value = 0.0
+	}
+
+	return value
+}
+
+// getSimilarHypothesisSuccessRate retrieves success rate for similar hypotheses
+func (ki *KnowledgeIntegration) getSimilarHypothesisSuccessRate(conceptName, domain string) float64 {
+	// Check Redis for hypothesis success rates by concept
+	key := fmt.Sprintf("hypothesis_success_rate:%s:%s", domain, conceptName)
+	rateStr, err := ki.redis.Get(ki.ctx, key).Result()
+	if err != nil {
+		// Check for domain-level success rate
+		domainKey := fmt.Sprintf("hypothesis_success_rate:%s", domain)
+		domainRateStr, err := ki.redis.Get(ki.ctx, domainKey).Result()
+		if err != nil {
+			return 0.0 // No data available
+		}
+		if rate, err := strconv.ParseFloat(domainRateStr, 64); err == nil {
+			return rate
+		}
+		return 0.0
+	}
+	if rate, err := strconv.ParseFloat(rateStr, 64); err == nil {
+		return rate
+	}
+	return 0.0
+}
+
+// assessConceptDepth assesses how deep/complete a concept is
+func (ki *KnowledgeIntegration) assessConceptDepth(conceptName, domain string) float64 {
+	depth := 0.0
+
+	// Get concept details from knowledge base
+	concepts, err := ki.getDomainConcepts(domain)
+	if err != nil {
+		return 0.0
+	}
+
+	for _, concept := range concepts {
+		name, _ := concept["name"].(string)
+		if name == conceptName {
+			// Check for definition length (longer = more complete)
+			if def, ok := concept["definition"].(string); ok {
+				if len(def) > 100 {
+					depth += 0.3
+				} else if len(def) > 50 {
+					depth += 0.2
+				} else if len(def) > 20 {
+					depth += 0.1
+				}
+			}
+
+			// Check for properties
+			if props, ok := concept["properties"].([]interface{}); ok && len(props) > 0 {
+				depth += 0.2
+			}
+
+			// Check for constraints
+			if constraints, ok := concept["constraints"].([]interface{}); ok && len(constraints) > 0 {
+				depth += 0.2
+			}
+
+			// Check for examples
+			if examples, ok := concept["examples"].([]interface{}); ok && len(examples) > 0 {
+				depth += 0.2
+			}
+
+			// Check for relationships
+			if relations, ok := concept["relations"].([]interface{}); ok && len(relations) > 0 {
+				depth += 0.1
+			}
+
+			break
+		}
+	}
+
+	// Ensure depth stays in valid range [0, 1]
+	if depth > 1.0 {
+		depth = 1.0
+	}
+	return depth
+}
+
+// hasActionableProperties checks if a concept has actionable properties
+func (ki *KnowledgeIntegration) hasActionableProperties(conceptName, domain string) bool {
+	concepts, err := ki.getDomainConcepts(domain)
+	if err != nil {
+		return false
+	}
+
+	for _, concept := range concepts {
+		name, _ := concept["name"].(string)
+		if name == conceptName {
+			// Check definition for actionable keywords
+			if def, ok := concept["definition"].(string); ok {
+				lowerDef := strings.ToLower(def)
+				actionableTerms := []string{"can", "able", "capable", "enable", "allow", "support", "provide", "implement", "execute", "perform"}
+				for _, term := range actionableTerms {
+					if strings.Contains(lowerDef, term) {
+						return true
+					}
+				}
+			}
+
+			// Check for properties that suggest actionability
+			if props, ok := concept["properties"].([]interface{}); ok {
+				for _, prop := range props {
+					if propStr, ok := prop.(string); ok {
+						lowerProp := strings.ToLower(propStr)
+						if strings.Contains(lowerProp, "action") || strings.Contains(lowerProp, "function") {
+							return true
+						}
+					}
+				}
+			}
+			break
+		}
+	}
+
+	return false
 }
 
 // generateRelationshipHypotheses creates hypotheses based on concept relationships
@@ -754,4 +931,36 @@ func (ki *KnowledgeIntegration) extractConstraintsFromMap(concepts []map[string]
 	}
 
 	return constraints
+}
+
+// evaluateFactHypothesisPotential evaluates the potential value of a fact-based hypothesis
+func (ki *KnowledgeIntegration) evaluateFactHypothesisPotential(fact Fact, domain string) float64 {
+	value := 0.5 // Base value
+
+	// Higher confidence facts lead to higher value hypotheses
+	value += fact.Confidence * 0.3
+
+	// Check if similar fact-based hypotheses succeeded
+	similarSuccessRate := ki.getSimilarHypothesisSuccessRate("fact", domain)
+	value += similarSuccessRate * 0.2
+
+	// Check fact content for actionable keywords
+	lowerContent := strings.ToLower(fact.Content)
+	actionableTerms := []string{"working", "functioning", "improve", "enhance", "optimize", "implement"}
+	for _, term := range actionableTerms {
+		if strings.Contains(lowerContent, term) {
+			value += 0.1
+			break
+		}
+	}
+
+	// Ensure value stays in valid range [0, 1]
+	if value > 1.0 {
+		value = 1.0
+	}
+	if value < 0.0 {
+		value = 0.0
+	}
+
+	return value
 }

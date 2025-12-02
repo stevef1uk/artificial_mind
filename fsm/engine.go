@@ -189,8 +189,8 @@ func NewFSMEngine(configPath string, agentID string, nc *nats.Conn, redis *redis
 	// Create principles integration
 	principles := NewPrinciplesIntegration(principlesURL)
 
-	// Create knowledge growth engine
-	knowledgeGrowth := NewKnowledgeGrowthEngine(principlesURL, redis)
+	// Create knowledge growth engine (needs HDN URL for LLM-based concept extraction)
+	knowledgeGrowth := NewKnowledgeGrowthEngine(hdnURL, redis)
 
 	// Create knowledge integration engine
 	knowledgeIntegration := NewKnowledgeIntegration(hdnURL, principlesURL, redis)
