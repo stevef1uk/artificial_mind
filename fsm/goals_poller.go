@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -51,13 +52,46 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 				log.Printf("[FSM][Goals] fetch active goals error: %v", err)
 				continue
 			}
-			var payload any
-			if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+			// Check response status before trying to decode
+			if resp.StatusCode != http.StatusOK {
+				bodyBytes, _ := io.ReadAll(resp.Body)
 				resp.Body.Close()
-				log.Printf("[FSM][Goals] decode goals error: %v", err)
+				log.Printf("[FSM][Goals] goals fetch returned status %d: %s", resp.StatusCode, string(bodyBytes))
 				continue
 			}
+			// Read body first to check if it's valid JSON
+			bodyBytes, err := io.ReadAll(resp.Body)
 			resp.Body.Close()
+			if err != nil {
+				log.Printf("[FSM][Goals] failed to read goals response body: %v", err)
+				continue
+			}
+			// Check if response is empty or not JSON
+			bodyStr := strings.TrimSpace(string(bodyBytes))
+			if bodyStr == "" {
+				continue
+			}
+			if !strings.HasPrefix(bodyStr, "{") && !strings.HasPrefix(bodyStr, "[") {
+				previewLen := 20
+				if len(bodyStr) < previewLen {
+					previewLen = len(bodyStr)
+				}
+				fullLen := 100
+				if len(bodyStr) < fullLen {
+					fullLen = len(bodyStr)
+				}
+				log.Printf("[FSM][Goals] goals response is not JSON (starts with: %s): %s", bodyStr[:previewLen], bodyStr[:fullLen])
+				continue
+			}
+			var payload any
+			if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+				errorLen := 200
+				if len(bodyStr) < errorLen {
+					errorLen = len(bodyStr)
+				}
+				log.Printf("[FSM][Goals] decode goals error: %v (response: %s)", err, bodyStr[:errorLen])
+				continue
+			}
 
 			var goals []GoalItem
 			switch v := payload.(type) {
