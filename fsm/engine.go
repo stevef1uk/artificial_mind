@@ -3080,9 +3080,9 @@ func (e *FSMEngine) screenHypothesesWithLLM(hypotheses []Hypothesis, domain stri
 
 	base := os.Getenv("HDN_URL")
 	if base == "" {
-		base = "http://localhost:8080"
+		base = "http://localhost:8081" // Fixed: use correct HDN port
 	}
-	url := fmt.Sprintf("%s/api/v1/interpret", base)
+	url := fmt.Sprintf("%s/api/v1/interpret", strings.TrimRight(base, "/"))
 
 	var approved []Hypothesis
 	threshold := e.config.Agent.HypothesisScreenThreshold
@@ -3093,10 +3093,12 @@ func (e *FSMEngine) screenHypothesesWithLLM(hypotheses []Hypothesis, domain stri
 	for _, h := range hypotheses {
 		prompt := fmt.Sprintf("You are an expert research assistant. Rate the following hypothesis for impact and tractability in domain '%s' on a 0.0-1.0 scale. Respond as JSON: {\"score\": <0-1>, \"reason\": \"...\"}. Hypothesis: %s", domain, h.Description)
 
-		payload := map[string]interface{}{"text": prompt}
+		// HDN /api/v1/interpret expects "input" field, not "text"
+		payload := map[string]interface{}{"input": prompt}
 		data, _ := json.Marshal(payload)
 
 		req, _ := http.NewRequest("POST", url, bytes.NewReader(data))
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Content-Type", "application/json")
 		if pid, ok := e.context["project_id"].(string); ok && pid != "" {
 			req.Header.Set("X-Project-ID", pid)

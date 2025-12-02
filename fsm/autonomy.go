@@ -971,6 +971,16 @@ func (e *FSMEngine) getAverageValue(goalType, domain string) float64 {
 	return value
 }
 
+// getOutcomeCount returns the number of outcomes recorded for a goal type/domain
+func (e *FSMEngine) getOutcomeCount(goalType, domain string) int {
+	outcomeKey := fmt.Sprintf("goal_outcomes:%s:%s", goalType, domain)
+	count, err := e.redis.LLen(e.ctx, outcomeKey).Result()
+	if err != nil {
+		return 0
+	}
+	return int(count)
+}
+
 // hasRecentFailures checks if similar goals have failed recently
 func (e *FSMEngine) hasRecentFailures(goal CuriosityGoal, domain string) bool {
 	// Check outcomes from last 24 hours
@@ -1025,8 +1035,17 @@ func (e *FSMEngine) identifyFocusAreas(domain string) []LearningProgress {
 		// Higher scores = more promising areas
 		focusScore := (successRate * 0.4) + (avgValue * 0.4) + (recentProgress * 0.2)
 		
-		// Only include areas showing promise (focus score > 0.5)
-		if focusScore > 0.5 {
+		// Add exploration bonus for goal types with few outcomes (encourage trying new types)
+		outcomeCount := e.getOutcomeCount(goalType, domain)
+		if outcomeCount < 5 && outcomeCount > 0 {
+			focusScore += 0.1 // Small exploration bonus for types we've tried but don't have much data
+		}
+		
+		log.Printf("🔍 Focus check: %s/%s: success=%.2f, value=%.2f, progress=%.2f, count=%d, focus=%.2f", 
+			goalType, domain, successRate, avgValue, recentProgress, outcomeCount, focusScore)
+		
+		// Only include areas showing promise (focus score >= 0.5, changed from > 0.5)
+		if focusScore >= 0.5 {
 			focusAreas = append(focusAreas, LearningProgress{
 				Domain:         domain,
 				GoalType:       goalType,
@@ -1209,7 +1228,7 @@ func (e *FSMEngine) rankGoalsWithLLM(candidates []scoredCuriosityGoal, domain st
 
 	base := strings.TrimSpace(os.Getenv("HDN_URL"))
 	if base == "" {
-		base = "http://localhost:8080"
+		base = "http://localhost:8081" // Fixed: use correct HDN port (8081, not 8080)
 	}
 	url := fmt.Sprintf("%s/api/v1/interpret", strings.TrimRight(base, "/"))
 
@@ -1255,7 +1274,8 @@ Return ONLY strict JSON with this shape:
 {"selected_goal_id":"<id>","reason":"<short rationale>","scores":[{"id":"<id>","score":<0-1>,"rationale":"<why>"}]}
 Candidates JSON: %s`, domain, string(candidatesJSON))
 
-	bodyRequest, _ := json.Marshal(map[string]string{"text": prompt})
+	// HDN /api/v1/interpret expects "input" field, not "text"
+	bodyRequest, _ := json.Marshal(map[string]string{"input": prompt})
 	req, _ := http.NewRequest("POST", url, bytes.NewReader(bodyRequest))
 	req.Header.Set("Content-Type", "application/json")
 	if pid, ok := e.context["project_id"].(string); ok && pid != "" {
@@ -1336,22 +1356,30 @@ func (e *FSMEngine) calculateGoalScore(goal CuriosityGoal, domain string) float6
 
 	// Historical success bonus - goals of types that succeed more often get bonus
 	successRate := e.getSuccessRate(goal.Type, domain)
+	log.Printf("🔍 Scoring goal %s (type=%s): base=%d, successRate=%.2f", goal.ID, goal.Type, goal.Priority, successRate)
+	
 	if successRate > 0.5 {
 		// Goals of types that succeed more than 50% get bonus
 		// Scale: 0.5 -> 0 bonus, 1.0 -> +3.0 bonus
 		successBonus := (successRate - 0.5) * 6.0
 		score += successBonus
 		log.Printf("📊 Goal %s: success rate bonus +%.2f (rate=%.2f)", goal.ID, successBonus, successRate)
+	} else if successRate < 0.5 {
+		log.Printf("🔍 Goal %s: success rate %.2f < 0.5, no bonus", goal.ID, successRate)
 	}
 
 	// Historical value bonus - goals of types that yield high value get bonus
 	avgValue := e.getAverageValue(goal.Type, domain)
+	log.Printf("🔍 Scoring goal %s: avgValue=%.2f", goal.ID, avgValue)
+	
 	if avgValue > 0.5 {
 		// Goals of types that yield more than 0.5 value get bonus
 		// Scale: 0.5 -> 0 bonus, 1.0 -> +2.0 bonus
 		valueBonus := (avgValue - 0.5) * 4.0
 		score += valueBonus
 		log.Printf("💰 Goal %s: value bonus +%.2f (avg=%.2f)", goal.ID, valueBonus, avgValue)
+	} else if avgValue < 0.5 {
+		log.Printf("🔍 Goal %s: avg value %.2f < 0.5, no bonus", goal.ID, avgValue)
 	}
 
 	// Failure penalty for similar goals that have failed recently
