@@ -430,12 +430,25 @@ Code:`
 - For Go: You MUST include ALL required imports - if you use io.ReadAll, you MUST import "io"
 - For Go: You MUST include ALL required imports - if you use fmt.Println, you MUST import "fmt"
 - For Go: You MUST include ALL required imports - if you use os.Stdin, you MUST import "os"
+- For Go: You MUST include ALL required imports - if you use log.Fatal or log.Println, you MUST import "log"
 - For Go: The code MUST compile with "go build" - missing imports will cause compilation errors!
+- For Go: 🚨 CRITICAL: You MUST NOT include any unused imports! Go compiler treats unused imports as ERRORS!
+- For Go: Before adding an import, verify you actually USE a function from that package in your code!
+- For Go: Import checklist - only import what you use:
+  * "encoding/json" - ONLY if you use json.Unmarshal, json.Marshal, or json.* functions
+  * "io" - ONLY if you use io.ReadAll, io.WriteString, or other io.* functions
+  * "fmt" - ONLY if you use fmt.Println, fmt.Printf, fmt.Print, or other fmt.* functions
+  * "os" - ONLY if you use os.Stdin, os.Getenv, os.Exit, or other os.* functions
+  * "log" - ONLY if you use log.Fatal, log.Println, log.Printf, or other log.* functions
 - For Go: Use proper Go syntax - NO nested function calls like strings.ReplaceAll(strings.ReplaceAll(...))
 - For Go: Use standard library functions correctly: json.Unmarshal, io.ReadAll, fmt.Println
 - For Go: Keep code simple and readable - avoid deeply nested calls
 - For Go: If reading JSON, use: jsonBytes, _ := io.ReadAll(os.Stdin) then json.Unmarshal(jsonBytes, &data)
-- For Go: Before returning code, verify ALL functions used have their corresponding imports included!
+- For Go: Before returning code, verify:
+  1. Every function used has its package imported
+  2. Every import is actually used in the code
+  3. No unused imports remain
+  4. No unused variables remain
 
 🚨🚨🚨 YOU ARE GENERATING %s CODE - NOTHING ELSE! 🚨🚨🚨
 Generate clean, executable %s code for this task.

@@ -429,7 +429,7 @@ func (ki *KnowledgeIntegration) GenerateHypotheses(facts []Fact, domain string) 
 			}
 			// Scale confidence by potential value
 			factHypothesis.Confidence = factHypothesis.Confidence * potentialValue
-			
+
 			// Check for duplicates before adding
 			if !ki.isDuplicateHypothesis(*factHypothesis, existingHypotheses) {
 				hypotheses = append(hypotheses, *factHypothesis)
@@ -463,7 +463,7 @@ func (ki *KnowledgeIntegration) GenerateHypotheses(facts []Fact, domain string) 
 func (ki *KnowledgeIntegration) generateConceptBasedHypothesis(conceptName, conceptDef, domain string, index int) *Hypothesis {
 	// First, evaluate potential value before generating hypothesis
 	potentialValue := ki.evaluateHypothesisPotential(conceptName, conceptDef, domain)
-	
+
 	// Skip low-value hypotheses (threshold: 0.3)
 	if potentialValue < 0.3 {
 		log.Printf("⏭️ Skipping low-value hypothesis for concept: %s (value: %.2f < 0.3)", conceptName, potentialValue)

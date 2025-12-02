@@ -20,16 +20,16 @@ import (
 type MetaLearning struct {
 	// Which goal types are most valuable?
 	GoalTypeValue map[string]float64 `json:"goal_type_value"`
-	
+
 	// Which domains are most productive?
 	DomainProductivity map[string]float64 `json:"domain_productivity"`
-	
+
 	// What strategies work best?
 	StrategySuccess map[string]float64 `json:"strategy_success"`
-	
+
 	// What patterns lead to success?
 	SuccessPatterns []SuccessPattern `json:"success_patterns"`
-	
+
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
@@ -88,23 +88,23 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 		return
 	}
 	domain := e.getCurrentDomain()
-	
+
 	// Identify focus areas (promising domains/goal types)
 	focusAreas := e.identifyFocusAreas(domain)
 	if len(focusAreas) > 0 {
 		log.Printf("🎯 Identified %d focus areas for domain %s", len(focusAreas), domain)
 		for _, area := range focusAreas {
-			log.Printf("   - %s/%s: success=%.2f, value=%.2f, focus_score=%.2f", 
+			log.Printf("   - %s/%s: success=%.2f, value=%.2f, focus_score=%.2f",
 				area.Domain, area.GoalType, area.SuccessRate, area.AvgValue, area.FocusScore)
 		}
 	}
-	
+
 	goals, err := e.reasoning.GenerateCuriosityGoals(domain)
 	if err != nil {
 		log.Printf("[Autonomy] Failed to generate curiosity goals: %v", err)
 		return
 	}
-	
+
 	// Adjust goal generation based on focus areas
 	if len(focusAreas) > 0 {
 		goals = e.adjustGoalGeneration(goals, focusAreas, domain)
@@ -598,26 +598,26 @@ func (e *FSMEngine) updateMetaLearning(outcome GoalOutcome) {
 	// Load current meta-learning data
 	metaKey := "meta_learning:all"
 	metaData, err := e.redis.Get(e.ctx, metaKey).Result()
-	
+
 	var meta MetaLearning
 	if err == nil && metaData != "" {
 		if err := json.Unmarshal([]byte(metaData), &meta); err != nil {
 			meta = MetaLearning{
-				GoalTypeValue:    make(map[string]float64),
+				GoalTypeValue:      make(map[string]float64),
 				DomainProductivity: make(map[string]float64),
-				StrategySuccess:   make(map[string]float64),
-				SuccessPatterns:   []SuccessPattern{},
+				StrategySuccess:    make(map[string]float64),
+				SuccessPatterns:    []SuccessPattern{},
 			}
 		}
 	} else {
 		meta = MetaLearning{
-			GoalTypeValue:    make(map[string]float64),
+			GoalTypeValue:      make(map[string]float64),
 			DomainProductivity: make(map[string]float64),
-			StrategySuccess:   make(map[string]float64),
-			SuccessPatterns:   []SuccessPattern{},
+			StrategySuccess:    make(map[string]float64),
+			SuccessPatterns:    []SuccessPattern{},
 		}
 	}
-	
+
 	// Update goal type value
 	if outcome.Success {
 		currentValue := meta.GoalTypeValue[outcome.GoalType]
@@ -625,7 +625,7 @@ func (e *FSMEngine) updateMetaLearning(outcome GoalOutcome) {
 		newValue := (currentValue * 0.7) + (outcome.Value * 0.3)
 		meta.GoalTypeValue[outcome.GoalType] = newValue
 	}
-	
+
 	// Update domain productivity
 	if outcome.Success {
 		currentProd := meta.DomainProductivity[outcome.Domain]
@@ -636,18 +636,18 @@ func (e *FSMEngine) updateMetaLearning(outcome GoalOutcome) {
 		newProd := (currentProd * 0.7) + (productivity * 0.3)
 		meta.DomainProductivity[outcome.Domain] = newProd
 	}
-	
+
 	// Update success patterns
 	e.updateSuccessPatterns(&meta, outcome)
-	
+
 	// Update timestamp
 	meta.UpdatedAt = time.Now()
-	
+
 	// Save meta-learning data
 	metaJSON, err := json.Marshal(meta)
 	if err == nil {
 		e.redis.Set(e.ctx, metaKey, metaJSON, 0)
-		log.Printf("🧠 Updated meta-learning: goal_type_value=%v, domain_productivity=%v", 
+		log.Printf("🧠 Updated meta-learning: goal_type_value=%v, domain_productivity=%v",
 			meta.GoalTypeValue, meta.DomainProductivity)
 	}
 }
@@ -656,7 +656,7 @@ func (e *FSMEngine) updateMetaLearning(outcome GoalOutcome) {
 func (e *FSMEngine) updateSuccessPatterns(meta *MetaLearning, outcome GoalOutcome) {
 	// Create pattern key from goal type and domain
 	patternKey := fmt.Sprintf("%s:%s", outcome.GoalType, outcome.Domain)
-	
+
 	// Find existing pattern or create new one
 	var pattern *SuccessPattern
 	for i := range meta.SuccessPatterns {
@@ -665,7 +665,7 @@ func (e *FSMEngine) updateSuccessPatterns(meta *MetaLearning, outcome GoalOutcom
 			break
 		}
 	}
-	
+
 	if pattern == nil {
 		// Create new pattern
 		pattern = &SuccessPattern{
@@ -677,21 +677,21 @@ func (e *FSMEngine) updateSuccessPatterns(meta *MetaLearning, outcome GoalOutcom
 		meta.SuccessPatterns = append(meta.SuccessPatterns, *pattern)
 		pattern = &meta.SuccessPatterns[len(meta.SuccessPatterns)-1]
 	}
-	
+
 	// Update pattern statistics
 	pattern.Count++
 	pattern.LastSeen = time.Now()
-	
+
 	// Update success rate (exponential moving average)
 	if outcome.Success {
 		pattern.SuccessRate = (pattern.SuccessRate * 0.7) + (1.0 * 0.3)
 	} else {
 		pattern.SuccessRate = (pattern.SuccessRate * 0.7) + (0.0 * 0.3)
 	}
-	
+
 	// Update value (exponential moving average)
 	pattern.Value = (pattern.Value * 0.7) + (outcome.Value * 0.3)
-	
+
 	// Keep only top 20 patterns
 	if len(meta.SuccessPatterns) > 20 {
 		// Sort by success rate * value
@@ -708,60 +708,60 @@ func (e *FSMEngine) updateSuccessPatterns(meta *MetaLearning, outcome GoalOutcom
 func (e *FSMEngine) getMetaLearning() *MetaLearning {
 	metaKey := "meta_learning:all"
 	metaData, err := e.redis.Get(e.ctx, metaKey).Result()
-	
+
 	if err != nil {
 		return &MetaLearning{
-			GoalTypeValue:    make(map[string]float64),
+			GoalTypeValue:      make(map[string]float64),
 			DomainProductivity: make(map[string]float64),
-			StrategySuccess:   make(map[string]float64),
-			SuccessPatterns:   []SuccessPattern{},
+			StrategySuccess:    make(map[string]float64),
+			SuccessPatterns:    []SuccessPattern{},
 		}
 	}
-	
+
 	var meta MetaLearning
 	if err := json.Unmarshal([]byte(metaData), &meta); err != nil {
 		return &MetaLearning{
-			GoalTypeValue:    make(map[string]float64),
+			GoalTypeValue:      make(map[string]float64),
 			DomainProductivity: make(map[string]float64),
-			StrategySuccess:   make(map[string]float64),
-			SuccessPatterns:   []SuccessPattern{},
+			StrategySuccess:    make(map[string]float64),
+			SuccessPatterns:    []SuccessPattern{},
 		}
 	}
-	
+
 	return &meta
 }
 
 // getBestGoalType returns the goal type with highest value according to meta-learning
 func (e *FSMEngine) getBestGoalType() string {
 	meta := e.getMetaLearning()
-	
+
 	bestType := ""
 	bestValue := 0.0
-	
+
 	for goalType, value := range meta.GoalTypeValue {
 		if value > bestValue {
 			bestValue = value
 			bestType = goalType
 		}
 	}
-	
+
 	return bestType
 }
 
 // getMostProductiveDomain returns the domain with highest productivity
 func (e *FSMEngine) getMostProductiveDomain() string {
 	meta := e.getMetaLearning()
-	
+
 	bestDomain := ""
 	bestProd := 0.0
-	
+
 	for domain, prod := range meta.DomainProductivity {
 		if prod > bestProd {
 			bestProd = prod
 			bestDomain = domain
 		}
 	}
-	
+
 	return bestDomain
 }
 
@@ -771,13 +771,13 @@ func (e *FSMEngine) recordGoalOutcome(goal CuriosityGoal, success bool, value fl
 	outcome := GoalOutcome{
 		GoalID:        goal.ID,
 		GoalType:      goal.Type,
-		Domain:         domain,
-		Status:         goal.Status,
-		Success:        success,
-		Value:          value,
-		ExecutionTime:  0, // Could be tracked if execution time is available
-		Outcomes:       outcomes,
-		CreatedAt:      time.Now(),
+		Domain:        domain,
+		Status:        goal.Status,
+		Success:       success,
+		Value:         value,
+		ExecutionTime: 0, // Could be tracked if execution time is available
+		Outcomes:      outcomes,
+		CreatedAt:     time.Now(),
 	}
 
 	// Store outcome in Redis
@@ -804,7 +804,7 @@ func (e *FSMEngine) recordGoalOutcome(goal CuriosityGoal, success bool, value fl
 
 	// Update average value statistics
 	e.updateAverageValue(goal.Type, domain, value)
-	
+
 	// Update meta-learning (reuse existing outcome variable)
 	e.updateMetaLearning(outcome)
 }
@@ -880,7 +880,7 @@ func (e *FSMEngine) updateSuccessRate(goalType, domain string, success bool) {
 	// Get current statistics
 	statsKey := fmt.Sprintf("goal_stats:%s:%s", goalType, domain)
 	statsData, err := e.redis.Get(e.ctx, statsKey).Result()
-	
+
 	var successes, total int
 	var stats map[string]interface{}
 	if err == nil && statsData != "" {
@@ -905,10 +905,10 @@ func (e *FSMEngine) updateSuccessRate(goalType, domain string, success bool) {
 
 	// Store updated statistics
 	stats = map[string]interface{}{
-		"successes":   successes,
-		"total":       total,
+		"successes":    successes,
+		"total":        total,
 		"success_rate": successRate,
-		"updated_at":  time.Now().Unix(),
+		"updated_at":   time.Now().Unix(),
 	}
 	statsJSON, _ := json.Marshal(stats)
 	e.redis.Set(e.ctx, statsKey, statsJSON, 0)
@@ -926,7 +926,7 @@ func (e *FSMEngine) updateAverageValue(goalType, domain string, value float64) {
 	// Get current statistics
 	statsKey := fmt.Sprintf("goal_value_stats:%s:%s", goalType, domain)
 	statsData, err := e.redis.Get(e.ctx, statsKey).Result()
-	
+
 	var totalValue float64
 	var count int
 	var stats map[string]interface{}
@@ -997,7 +997,7 @@ func (e *FSMEngine) hasRecentFailures(goal CuriosityGoal, domain string) bool {
 	// Check outcomes from last 24 hours
 	cutoff := time.Now().Add(-24 * time.Hour)
 	outcomeKey := fmt.Sprintf("goal_outcomes:%s:%s", goal.Type, domain)
-	
+
 	outcomesData, err := e.redis.LRange(e.ctx, outcomeKey, 0, 49).Result() // Check last 50 outcomes
 	if err != nil {
 		return false
@@ -1025,36 +1025,36 @@ type LearningProgress struct {
 	SuccessRate    float64 `json:"success_rate"`
 	AvgValue       float64 `json:"avg_value"`
 	RecentProgress float64 `json:"recent_progress"` // Progress in last N goals
-	FocusScore     float64 `json:"focus_score"`      // Should we focus here?
+	FocusScore     float64 `json:"focus_score"`     // Should we focus here?
 }
 
 // identifyFocusAreas identifies promising areas to focus learning on
 func (e *FSMEngine) identifyFocusAreas(domain string) []LearningProgress {
 	var focusAreas []LearningProgress
-	
+
 	// Get all goal types we've tracked
 	goalTypes := []string{"gap_filling", "concept_exploration", "contradiction_resolution", "news_analysis"}
-	
+
 	for _, goalType := range goalTypes {
 		successRate := e.getSuccessRate(goalType, domain)
 		avgValue := e.getAverageValue(goalType, domain)
-		
+
 		// Calculate recent progress (success rate improvement in last 10 goals)
 		recentProgress := e.calculateRecentProgress(goalType, domain)
-		
+
 		// Calculate focus score: combination of success rate, value, and recent progress
 		// Higher scores = more promising areas
 		focusScore := (successRate * 0.4) + (avgValue * 0.4) + (recentProgress * 0.2)
-		
+
 		// Add exploration bonus for goal types with few outcomes (encourage trying new types)
 		outcomeCount := e.getOutcomeCount(goalType, domain)
 		if outcomeCount < 5 && outcomeCount > 0 {
 			focusScore += 0.1 // Small exploration bonus for types we've tried but don't have much data
 		}
-		
-		log.Printf("🔍 Focus check: %s/%s: success=%.2f, value=%.2f, progress=%.2f, count=%d, focus=%.2f", 
+
+		log.Printf("🔍 Focus check: %s/%s: success=%.2f, value=%.2f, progress=%.2f, count=%d, focus=%.2f",
 			goalType, domain, successRate, avgValue, recentProgress, outcomeCount, focusScore)
-		
+
 		// Only include areas showing promise (focus score >= 0.5, changed from > 0.5)
 		if focusScore >= 0.5 {
 			focusAreas = append(focusAreas, LearningProgress{
@@ -1067,12 +1067,12 @@ func (e *FSMEngine) identifyFocusAreas(domain string) []LearningProgress {
 			})
 		}
 	}
-	
+
 	// Sort by focus score (highest first)
 	sort.Slice(focusAreas, func(i, j int) bool {
 		return focusAreas[i].FocusScore > focusAreas[j].FocusScore
 	})
-	
+
 	return focusAreas
 }
 
@@ -1083,7 +1083,7 @@ func (e *FSMEngine) calculateRecentProgress(goalType, domain string) float64 {
 	if err != nil || len(outcomesData) < 5 {
 		return 0.5 // Neutral if not enough data
 	}
-	
+
 	successCount := 0
 	for _, outcomeData := range outcomesData {
 		var outcome GoalOutcome
@@ -1093,16 +1093,16 @@ func (e *FSMEngine) calculateRecentProgress(goalType, domain string) float64 {
 			}
 		}
 	}
-	
+
 	recentRate := float64(successCount) / float64(len(outcomesData))
 	overallRate := e.getSuccessRate(goalType, domain)
-	
+
 	// Progress = improvement over baseline (positive if improving)
 	progress := recentRate - overallRate
 	if progress < 0 {
 		progress = 0 // No negative progress
 	}
-	
+
 	return progress
 }
 
@@ -1111,17 +1111,17 @@ func (e *FSMEngine) adjustGoalGeneration(goals []CuriosityGoal, focusAreas []Lea
 	if len(focusAreas) == 0 {
 		return goals
 	}
-	
+
 	// Create a map of focus scores by goal type
 	focusScores := make(map[string]float64)
 	for _, area := range focusAreas {
 		focusScores[area.GoalType] = area.FocusScore
 	}
-	
+
 	// Separate goals into focused and unfocused
 	var focusedGoals []CuriosityGoal
 	var unfocusedGoals []CuriosityGoal
-	
+
 	for _, goal := range goals {
 		if score, ok := focusScores[goal.Type]; ok && score > 0.6 {
 			// High-focus goal types get priority boost
@@ -1134,19 +1134,19 @@ func (e *FSMEngine) adjustGoalGeneration(goals []CuriosityGoal, focusAreas []Lea
 			unfocusedGoals = append(unfocusedGoals, goal)
 		}
 	}
-	
+
 	// Prioritize focused goals: 70% focused, 30% unfocused
 	targetFocused := int(float64(len(goals)) * 0.7)
 	if len(focusedGoals) > targetFocused {
 		focusedGoals = focusedGoals[:targetFocused]
 	}
-	
+
 	// Combine: focused goals first, then unfocused
 	result := append(focusedGoals, unfocusedGoals...)
-	
-	log.Printf("🎯 Goal adjustment: %d focused goals (from promising areas), %d unfocused goals", 
+
+	log.Printf("🎯 Goal adjustment: %d focused goals (from promising areas), %d unfocused goals",
 		len(focusedGoals), len(unfocusedGoals))
-	
+
 	return result
 }
 
@@ -1368,7 +1368,7 @@ func (e *FSMEngine) calculateGoalScore(goal CuriosityGoal, domain string) float6
 	// Historical success bonus - goals of types that succeed more often get bonus
 	successRate := e.getSuccessRate(goal.Type, domain)
 	log.Printf("🔍 Scoring goal %s (type=%s): base=%d, successRate=%.2f", goal.ID, goal.Type, goal.Priority, successRate)
-	
+
 	if successRate > 0.5 {
 		// Goals of types that succeed more than 50% get bonus
 		// Scale: 0.5 -> 0 bonus, 1.0 -> +3.0 bonus
@@ -1382,7 +1382,7 @@ func (e *FSMEngine) calculateGoalScore(goal CuriosityGoal, domain string) float6
 	// Historical value bonus - goals of types that yield high value get bonus
 	avgValue := e.getAverageValue(goal.Type, domain)
 	log.Printf("🔍 Scoring goal %s: avgValue=%.2f", goal.ID, avgValue)
-	
+
 	if avgValue > 0.5 {
 		// Goals of types that yield more than 0.5 value get bonus
 		// Scale: 0.5 -> 0 bonus, 1.0 -> +2.0 bonus
@@ -1597,7 +1597,7 @@ func (e *FSMEngine) isGenericHypothesisGoal(goal CuriosityGoal) bool {
 	if goal.Type != "hypothesis_testing" {
 		return false
 	}
-	
+
 	desc := strings.ToLower(goal.Description)
 	// Generic patterns that indicate useless goals
 	genericPatterns := []string{
@@ -1617,6 +1617,6 @@ func (e *FSMEngine) isGenericHypothesisGoal(goal CuriosityGoal) bool {
 	if len(goal.Description) < 30 {
 		return true
 	}
-	
+
 	return false
 }

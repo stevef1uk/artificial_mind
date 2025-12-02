@@ -299,7 +299,7 @@ If no clear concepts are found, return empty array [].`, domain, text)
 	reqData := map[string]interface{}{
 		"text": prompt,
 	}
-	
+
 	reqJSON, err := json.Marshal(reqData)
 	if err != nil {
 		log.Printf("⚠️ Failed to marshal concept extraction request: %v", err)
@@ -359,16 +359,16 @@ If no clear concepts are found, return empty array [].`, domain, text)
 		name, _ := concept["name"].(string)
 		def, _ := concept["definition"].(string)
 		conf, _ := concept["confidence"].(float64)
-		
+
 		if name == "" || def == "" {
 			continue
 		}
-		
+
 		// Filter out generic names
 		if kge.isGenericConceptName(name) {
 			continue
 		}
-		
+
 		// Ensure confidence is valid
 		if conf < 0.0 {
 			conf = 0.0
@@ -376,7 +376,7 @@ If no clear concepts are found, return empty array [].`, domain, text)
 		if conf > 1.0 {
 			conf = 1.0
 		}
-		
+
 		// Extract properties
 		var properties []string
 		if props, ok := concept["properties"].([]interface{}); ok {
@@ -386,7 +386,7 @@ If no clear concepts are found, return empty array [].`, domain, text)
 				}
 			}
 		}
-		
+
 		// Extract constraints
 		var constraints []string
 		if constrs, ok := concept["constraints"].([]interface{}); ok {
@@ -396,7 +396,7 @@ If no clear concepts are found, return empty array [].`, domain, text)
 				}
 			}
 		}
-		
+
 		discovery := ConceptDiscovery{
 			Name:        name,
 			Domain:      domain,
@@ -407,7 +407,7 @@ If no clear concepts are found, return empty array [].`, domain, text)
 			Constraints: constraints,
 			CreatedAt:   time.Now(),
 		}
-		
+
 		discoveries = append(discoveries, discovery)
 		log.Printf("✨ Extracted concept via LLM: %s (confidence: %.2f)", name, conf)
 	}
@@ -415,32 +415,32 @@ If no clear concepts are found, return empty array [].`, domain, text)
 	if len(discoveries) > 0 {
 		log.Printf("📚 Extracted %d concepts via semantic analysis", len(discoveries))
 	}
-	
+
 	return discoveries
 }
 
 // extractConceptsFallback provides fallback concept extraction when LLM is unavailable
 func (kge *KnowledgeGrowthEngine) extractConceptsFallback(text, domain string) []ConceptDiscovery {
 	log.Printf("⚠️ Using fallback concept extraction (LLM unavailable)")
-	
+
 	// Fallback: simple keyword extraction for important terms
 	var discoveries []ConceptDiscovery
-	
+
 	// Look for capitalized words (potential concept names)
 	words := strings.Fields(text)
 	seen := make(map[string]bool)
-	
+
 	for _, word := range words {
 		// Remove punctuation
 		cleanWord := strings.Trim(word, ".,!?;:()[]{}")
 		if len(cleanWord) < 3 {
 			continue
 		}
-		
+
 		// Check if it's capitalized (potential concept name)
 		if strings.ToUpper(cleanWord[:1]) == cleanWord[:1] && !seen[cleanWord] {
 			seen[cleanWord] = true
-			
+
 			// Skip common words
 			commonWords := []string{"The", "This", "That", "These", "Those", "A", "An", "And", "Or", "But", "If", "Then", "When", "Where", "Why", "How"}
 			isCommon := false
@@ -453,7 +453,7 @@ func (kge *KnowledgeGrowthEngine) extractConceptsFallback(text, domain string) [
 			if isCommon {
 				continue
 			}
-			
+
 			// Create discovery with low confidence (fallback)
 			discovery := ConceptDiscovery{
 				Name:       cleanWord,
@@ -463,14 +463,14 @@ func (kge *KnowledgeGrowthEngine) extractConceptsFallback(text, domain string) [
 				Source:     "fallback_extraction",
 				CreatedAt:  time.Now(),
 			}
-			
+
 			// Filter generic names
 			if !kge.isGenericConceptName(cleanWord) {
 				discoveries = append(discoveries, discovery)
 			}
 		}
 	}
-	
+
 	return discoveries
 }
 

@@ -2264,40 +2264,62 @@ func (ie *IntelligentExecutor) buildFixPrompt(originalCode *GeneratedCode, valid
     NEW (CORRECT): if numVal, ok := data["number"].(float64); ok { number := int(numVal) }
 - Always use type assertion with ok check to avoid panics: if val, ok := data["key"].(float64); ok { ... }
 
-🚨 SYSTEMATIC FIX PROCESS - DO ALL OF THESE:
-1. Read ALL errors in the error message - don't just fix one!
-2. For each "undefined: X" error:
+🚨 SYSTEMATIC FIX PROCESS - DO ALL OF THESE IN ONE PASS:
+1. Read ALL errors in the error message - don't just fix one! Fix ALL errors at once!
+2. Create a checklist of ALL errors before fixing:
+   - List every "undefined: X" error
+   - List every "imported and not used" error
+   - List every "declared but not used" error
+   - List every "assignment mismatch" error
+3. For each "undefined: X" error:
    - If X is a function (like os.Getenv, json.Unmarshal, fmt.Println), add the import for that package
    - os.Getenv requires: import "os"
    - json.Unmarshal requires: import "encoding/json"
    - fmt.Println requires: import "fmt"
    - io.ReadAll requires: import "io" AND "os" (for os.Stdin)
-3. For "assignment mismatch: 2 variables but X returns 1 value" errors:
+   - os.Stdin requires: import "os"
+   - log.Fatal requires: import "log"
+4. For "assignment mismatch: 2 variables but X returns 1 value" errors:
    - This means you're trying to assign 2 values from a function that returns only 1!
    - json.Unmarshal returns ONLY error: err := json.Unmarshal(bytes, &data)
    - io.ReadAll returns ([]byte, error): bytes, err := io.ReadAll(os.Stdin)
    - Do NOT mix them up!
-4. For each "imported and not used" or "declared but not used" error:
+5. For each "imported and not used" or "declared but not used" error:
    - REMOVE that import or variable completely - do NOT try to use it!
-5. For runtime errors about type casting (especially JSON numbers):
+   - BUT: Before removing, check if you need to ADD a different import that was missing!
+   - Example: If you see "io imported and not used" AND "undefined: json", you need to:
+     * Remove "io" if it's truly unused
+     * ADD "encoding/json" for json.Unmarshal
+6. CRITICAL: When removing unused imports, make sure you're not removing imports that are needed!
+   - If code uses json.Unmarshal, you MUST have "encoding/json"
+   - If code uses io.ReadAll, you MUST have "io" and "os"
+   - If code uses fmt.Println, you MUST have "fmt"
+   - Check the code body to see what functions are actually used!
+7. For runtime errors about type casting (especially JSON numbers):
    - JSON numbers are float64, not int64 - fix the type assertion!
-6. After fixing, verify:
-   - Every function used has its package imported
-   - No unused imports remain
-   - No unused variables remain
-   - JSON number type assertions use float64, not int64
-   - json.Unmarshal is called correctly (returns only error, not 2 values)
-7. Example: If errors are "undefined: os" and "strconv imported and not used":
-   - Add: import "os"
-   - Remove: "strconv" from imports
-8. Example: If error is "assignment mismatch: 2 variables but json.Unmarshal returns 1 value":
+8. After fixing, verify your checklist:
+   - ✅ Every function used has its package imported
+   - ✅ No unused imports remain
+   - ✅ No unused variables remain
+   - ✅ JSON number type assertions use float64, not int64
+   - ✅ json.Unmarshal is called correctly (returns only error, not 2 values)
+   - ✅ All "undefined" errors are fixed
+   - ✅ All "imported and not used" errors are fixed
+9. Example: If errors are "io imported and not used", "log imported and not used", AND "undefined: json":
+   - Step 1: Check what functions are used in the code body
+   - Step 2: If json.Unmarshal is used, ADD import "encoding/json"
+   - Step 3: Remove "io" if io.ReadAll is not used
+   - Step 4: Remove "log" if log functions are not used
+   - Step 5: Verify: json.Unmarshal needs "encoding/json" ✓
+10. Example: If error is "assignment mismatch: 2 variables but json.Unmarshal returns 1 value":
    - WRONG: jsonBytes, _ := json.Unmarshal([]byte(str), &data)
    - CORRECT: err := json.Unmarshal([]byte(str), &data)
    - If you need bytes from stdin: jsonBytes, _ := io.ReadAll(os.Stdin) THEN err := json.Unmarshal(jsonBytes, &data)
-9. If task says "read from stdin" but code hardcodes JSON:
+11. If task says "read from stdin" but code hardcodes JSON:
    - WRONG: json.Unmarshal([]byte("{\"key\": \"value\"}"), &data)  (hardcoded!)
    - CORRECT: jsonBytes, _ := io.ReadAll(os.Stdin); err := json.Unmarshal(jsonBytes, &data)
    - MUST import "io" and "os" for stdin reading
+12. 🚨 CRITICAL: Fix ALL errors in ONE code revision - don't fix one error at a time!
 `
 	}
 
@@ -2320,6 +2342,14 @@ Error Details:
 Context:
 %s
 %s
+
+🚨 CRITICAL FIXING INSTRUCTIONS:
+1. Read ALL errors in the error message above - fix ALL of them in ONE revision!
+2. If you see compilation errors, fix ALL of them before returning code!
+3. If you see "imported and not used" errors, remove those imports BUT also check if you need to ADD other imports!
+4. If you see "undefined" errors, add the missing imports!
+5. After fixing, verify the code will compile and run successfully!
+6. Make sure the code actually produces output - if the task requires reading JSON and printing a field, ensure the code reads from stdin and prints the result!
 
 Please fix the code to make it work correctly. Return ONLY the fixed code wrapped in markdown code blocks like this:
 `+"```"+`%s
@@ -2392,17 +2422,17 @@ func sanitizeGeneratedPythonCode(code string) string {
 	return fixed
 }
 
-// sanitizeGeneratedGoCode ensures only required imports are present and adds missing ones
-// It does NOT add unused imports. It scans identifiers used in code to decide.
+// sanitizeGeneratedGoCode fixes common issues in generated Go code
+// It does NOT add missing imports - the LLM retry mechanism should handle that
 func sanitizeGeneratedGoCode(code string) string {
 	fixed := code
-	
+
 	// Fix common JSON type assertion errors: JSON numbers are float64, not int64
 	// Pattern: data["key"].(int64) -> data["key"].(float64)
 	// This handles both simple assertions and ones with ok checks
 	reInt64Assertion := regexp.MustCompile(`(\w+)\["([^"]+)"\]\.\(int64\)`)
 	fixed = reInt64Assertion.ReplaceAllString(fixed, `${1}["${2}"].(float64)`)
-	
+
 	return fixed
 }
 
@@ -3234,9 +3264,9 @@ func (ie *IntelligentExecutor) executeProgramDirectly(ctx context.Context, req *
 	}
 	result.GeneratedCode = generatedCode
 	result.ExecutionTime = time.Since(start)
-	
+
 	// Log tool metrics for intelligent execution
 	ie.logIntelligentExecutionMetrics(ctx, req, result)
-	
+
 	return result, nil
 }
