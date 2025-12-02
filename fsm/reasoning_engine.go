@@ -94,6 +94,19 @@ type CuriosityGoal struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+// GoalOutcome represents the outcome of a goal execution for learning
+type GoalOutcome struct {
+	GoalID        string    `json:"goal_id"`
+	GoalType      string    `json:"goal_type"`
+	Domain        string    `json:"domain"`
+	Status        string    `json:"status"` // completed, failed, abandoned
+	Success       bool      `json:"success"`
+	Value         float64   `json:"value"` // 0-1, value of outcomes
+	ExecutionTime float64   `json:"execution_time"` // seconds
+	Outcomes      []string  `json:"outcomes"` // What was learned/achieved
+	CreatedAt     time.Time `json:"created_at"`
+}
+
 // QueryBeliefs queries the knowledge base as a belief system
 func (re *ReasoningEngine) QueryBeliefs(query string, domain string) ([]Belief, error) {
 	log.Printf("🧠 Querying beliefs: %s (domain: %s)", query, domain)

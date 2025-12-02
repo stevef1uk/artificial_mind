@@ -495,21 +495,37 @@ func (e *FSMEngine) updateGoalStatus(goal CuriosityGoal) {
 		return
 	}
 
+	// Track previous status to detect status changes
+	var previousStatus string
+
 	// Find and update the specific goal
 	for i, goalData := range goalsData {
 		var existingGoal CuriosityGoal
 		if err := json.Unmarshal([]byte(goalData), &existingGoal); err == nil {
 			if existingGoal.ID == goal.ID {
+				previousStatus = existingGoal.Status
 				// Update the goal status
 				existingGoal.Status = goal.Status
 				updatedData, err := json.Marshal(existingGoal)
 				if err == nil {
 					// Replace the goal in the list
 					e.redis.LSet(e.ctx, key, int64(i), updatedData)
-					log.Printf("Updated goal %s status to %s", goal.ID, goal.Status)
+					log.Printf("Updated goal %s status from %s to %s", goal.ID, previousStatus, goal.Status)
 				}
 				break
 			}
+		}
+	}
+
+	// Record outcome if goal was completed or failed
+	if goal.Status == "completed" || goal.Status == "failed" {
+		// Only record if status actually changed (avoid duplicate recordings)
+		if previousStatus != goal.Status {
+			success := goal.Status == "completed"
+			// Extract value from execution results if available
+			value := e.extractGoalValue(goal, success)
+			outcomes := e.extractGoalOutcomes(goal)
+			e.recordGoalOutcome(goal, success, value, outcomes)
 		}
 	}
 }
@@ -518,6 +534,276 @@ func (e *FSMEngine) updateGoalStatus(goal CuriosityGoal) {
 type scoredCuriosityGoal struct {
 	Goal  CuriosityGoal
 	Score float64
+}
+
+// recordGoalOutcome records the outcome of a goal execution for learning
+func (e *FSMEngine) recordGoalOutcome(goal CuriosityGoal, success bool, value float64, outcomes []string) {
+	domain := e.getCurrentDomain()
+	outcome := GoalOutcome{
+		GoalID:        goal.ID,
+		GoalType:      goal.Type,
+		Domain:         domain,
+		Status:         goal.Status,
+		Success:        success,
+		Value:          value,
+		ExecutionTime:  0, // Could be tracked if execution time is available
+		Outcomes:       outcomes,
+		CreatedAt:      time.Now(),
+	}
+
+	// Store outcome in Redis
+	outcomeData, err := json.Marshal(outcome)
+	if err != nil {
+		log.Printf("⚠️ Failed to marshal goal outcome: %v", err)
+		return
+	}
+
+	// Store by type and domain for easy querying
+	outcomeKey := fmt.Sprintf("goal_outcomes:%s:%s", goal.Type, domain)
+	e.redis.LPush(e.ctx, outcomeKey, outcomeData)
+	e.redis.LTrim(e.ctx, outcomeKey, 0, 199) // Keep last 200 outcomes
+
+	// Also store in general outcomes list
+	generalKey := fmt.Sprintf("goal_outcomes:all")
+	e.redis.LPush(e.ctx, generalKey, outcomeData)
+	e.redis.LTrim(e.ctx, generalKey, 0, 999) // Keep last 1000 outcomes
+
+	log.Printf("📊 Recorded goal outcome: %s (type=%s, success=%v, value=%.2f)", goal.ID, goal.Type, success, value)
+
+	// Update success rate statistics
+	e.updateSuccessRate(goal.Type, domain, success)
+
+	// Update average value statistics
+	e.updateAverageValue(goal.Type, domain, value)
+}
+
+// extractGoalValue extracts a value score (0-1) from goal execution results
+func (e *FSMEngine) extractGoalValue(goal CuriosityGoal, success bool) float64 {
+	// Base value on success
+	if !success {
+		return 0.1 // Low value for failures
+	}
+
+	// Check if we have execution results in context
+	if lastExec, ok := e.context["last_execution"].(map[string]interface{}); ok {
+		// Try to extract value indicators from execution results
+		if success, ok := lastExec["success"].(bool); ok && success {
+			// High value if execution was successful
+			return 0.8
+		}
+		// Check for other value indicators
+		if result, ok := lastExec["result"]; ok && result != nil {
+			return 0.7 // Medium-high value if we got results
+		}
+	}
+
+	// Default value based on goal type
+	switch goal.Type {
+	case "news_analysis":
+		return 0.6 // News analysis has moderate value
+	case "gap_filling":
+		return 0.7 // Gap filling has good value
+	case "contradiction_resolution":
+		return 0.8 // Contradiction resolution has high value
+	case "concept_exploration":
+		return 0.5 // Exploration has moderate value
+	default:
+		return 0.5 // Default moderate value
+	}
+}
+
+// extractGoalOutcomes extracts what was learned/achieved from goal execution
+func (e *FSMEngine) extractGoalOutcomes(goal CuriosityGoal) []string {
+	var outcomes []string
+
+	// Check execution results
+	if lastExec, ok := e.context["last_execution"].(map[string]interface{}); ok {
+		if _, ok := lastExec["result"]; ok {
+			outcomes = append(outcomes, fmt.Sprintf("Execution completed with result"))
+		}
+		if workflowID, ok := lastExec["workflow_id"].(string); ok && workflowID != "" {
+			outcomes = append(outcomes, fmt.Sprintf("Workflow %s executed", workflowID))
+		}
+	}
+
+	// Add goal-specific outcomes
+	if goal.Status == "completed" {
+		outcomes = append(outcomes, fmt.Sprintf("Goal '%s' completed successfully", goal.Description))
+	} else if goal.Status == "failed" {
+		outcomes = append(outcomes, fmt.Sprintf("Goal '%s' failed", goal.Description))
+	}
+
+	// Add domain-specific outcomes
+	if len(goal.Targets) > 0 {
+		outcomes = append(outcomes, fmt.Sprintf("Explored targets: %v", goal.Targets))
+	}
+
+	return outcomes
+}
+
+// updateSuccessRate updates the success rate for a goal type/domain combination
+func (e *FSMEngine) updateSuccessRate(goalType, domain string, success bool) {
+	key := fmt.Sprintf("goal_success_rate:%s:%s", goalType, domain)
+
+	// Get current statistics
+	statsKey := fmt.Sprintf("goal_stats:%s:%s", goalType, domain)
+	statsData, err := e.redis.Get(e.ctx, statsKey).Result()
+	
+	var successes, total int
+	var stats map[string]interface{}
+	if err == nil && statsData != "" {
+		if err := json.Unmarshal([]byte(statsData), &stats); err == nil {
+			if s, ok := stats["successes"].(float64); ok {
+				successes = int(s)
+			}
+			if t, ok := stats["total"].(float64); ok {
+				total = int(t)
+			}
+		}
+	}
+
+	// Update statistics
+	total++
+	if success {
+		successes++
+	}
+
+	// Calculate success rate
+	successRate := float64(successes) / float64(total)
+
+	// Store updated statistics
+	stats = map[string]interface{}{
+		"successes":   successes,
+		"total":       total,
+		"success_rate": successRate,
+		"updated_at":  time.Now().Unix(),
+	}
+	statsJSON, _ := json.Marshal(stats)
+	e.redis.Set(e.ctx, statsKey, statsJSON, 0)
+
+	// Also store success rate separately for quick access
+	e.redis.Set(e.ctx, key, successRate, 0)
+
+	log.Printf("📈 Updated success rate for %s:%s: %.2f%% (%d/%d)", goalType, domain, successRate*100, successes, total)
+}
+
+// updateAverageValue updates the average value for a goal type/domain combination
+func (e *FSMEngine) updateAverageValue(goalType, domain string, value float64) {
+	key := fmt.Sprintf("goal_avg_value:%s:%s", goalType, domain)
+
+	// Get current statistics
+	statsKey := fmt.Sprintf("goal_value_stats:%s:%s", goalType, domain)
+	statsData, err := e.redis.Get(e.ctx, statsKey).Result()
+	
+	var totalValue float64
+	var count int
+	var stats map[string]interface{}
+	if err == nil && statsData != "" {
+		if err := json.Unmarshal([]byte(statsData), &stats); err == nil {
+			if tv, ok := stats["total_value"].(float64); ok {
+				totalValue = tv
+			}
+			if c, ok := stats["count"].(float64); ok {
+				count = int(c)
+			}
+		}
+	}
+
+	// Update statistics
+	totalValue += value
+	count++
+	avgValue := totalValue / float64(count)
+
+	// Store updated statistics
+	stats = map[string]interface{}{
+		"total_value": totalValue,
+		"count":       count,
+		"avg_value":   avgValue,
+		"updated_at":  time.Now().Unix(),
+	}
+	statsJSON, _ := json.Marshal(stats)
+	e.redis.Set(e.ctx, statsKey, statsJSON, 0)
+
+	// Also store average value separately for quick access
+	e.redis.Set(e.ctx, key, avgValue, 0)
+
+	log.Printf("💰 Updated avg value for %s:%s: %.2f (from %d goals)", goalType, domain, avgValue, count)
+}
+
+// getSuccessRate retrieves the success rate for a goal type/domain combination
+func (e *FSMEngine) getSuccessRate(goalType, domain string) float64 {
+	key := fmt.Sprintf("goal_success_rate:%s:%s", goalType, domain)
+	rate, err := e.redis.Get(e.ctx, key).Float64()
+	if err != nil {
+		return 0.5 // Default neutral success rate if no data
+	}
+	return rate
+}
+
+// getAverageValue retrieves the average value for a goal type/domain combination
+func (e *FSMEngine) getAverageValue(goalType, domain string) float64 {
+	key := fmt.Sprintf("goal_avg_value:%s:%s", goalType, domain)
+	value, err := e.redis.Get(e.ctx, key).Float64()
+	if err != nil {
+		return 0.5 // Default neutral value if no data
+	}
+	return value
+}
+
+// hasRecentFailures checks if similar goals have failed recently
+func (e *FSMEngine) hasRecentFailures(goal CuriosityGoal, domain string) bool {
+	// Check outcomes from last 24 hours
+	cutoff := time.Now().Add(-24 * time.Hour)
+	outcomeKey := fmt.Sprintf("goal_outcomes:%s:%s", goal.Type, domain)
+	
+	outcomesData, err := e.redis.LRange(e.ctx, outcomeKey, 0, 49).Result() // Check last 50 outcomes
+	if err != nil {
+		return false
+	}
+
+	failureCount := 0
+	for _, outcomeData := range outcomesData {
+		var outcome GoalOutcome
+		if err := json.Unmarshal([]byte(outcomeData), &outcome); err == nil {
+			// Only count recent failures
+			if outcome.CreatedAt.After(cutoff) && !outcome.Success {
+				failureCount++
+			}
+		}
+	}
+
+	// If we have 3+ recent failures of this type, consider it a pattern
+	return failureCount >= 3
+}
+
+// markGoalAsFailed marks a goal as failed and records the outcome
+func (e *FSMEngine) markGoalAsFailed(goalID string, reason string) {
+	domain := e.getCurrentDomain()
+	key := fmt.Sprintf("reasoning:curiosity_goals:%s", domain)
+
+	// Find the goal and mark it as failed
+	goalsData, err := e.redis.LRange(e.ctx, key, 0, 199).Result()
+	if err != nil {
+		log.Printf("⚠️ Failed to find goal %s to mark as failed: %v", goalID, err)
+		return
+	}
+
+	for i, goalData := range goalsData {
+		var goal CuriosityGoal
+		if err := json.Unmarshal([]byte(goalData), &goal); err == nil {
+			if goal.ID == goalID {
+				goal.Status = "failed"
+				updatedData, err := json.Marshal(goal)
+				if err == nil {
+					e.redis.LSet(e.ctx, key, int64(i), updatedData)
+					log.Printf("❌ Marked goal %s as failed: %s", goalID, reason)
+					// updateGoalStatus will record the outcome
+					e.updateGoalStatus(goal)
+				}
+				break
+			}
+		}
+	}
 }
 
 // selectBestGoal intelligently selects the most important goal to process
@@ -703,6 +989,32 @@ func minInt(a, b int) int {
 // calculateGoalScore calculates a priority score for a goal
 func (e *FSMEngine) calculateGoalScore(goal CuriosityGoal, domain string) float64 {
 	score := float64(goal.Priority) // Base priority (1-10)
+
+	// Historical success bonus - goals of types that succeed more often get bonus
+	successRate := e.getSuccessRate(goal.Type, domain)
+	if successRate > 0.5 {
+		// Goals of types that succeed more than 50% get bonus
+		// Scale: 0.5 -> 0 bonus, 1.0 -> +3.0 bonus
+		successBonus := (successRate - 0.5) * 6.0
+		score += successBonus
+		log.Printf("📊 Goal %s: success rate bonus +%.2f (rate=%.2f)", goal.ID, successBonus, successRate)
+	}
+
+	// Historical value bonus - goals of types that yield high value get bonus
+	avgValue := e.getAverageValue(goal.Type, domain)
+	if avgValue > 0.5 {
+		// Goals of types that yield more than 0.5 value get bonus
+		// Scale: 0.5 -> 0 bonus, 1.0 -> +2.0 bonus
+		valueBonus := (avgValue - 0.5) * 4.0
+		score += valueBonus
+		log.Printf("💰 Goal %s: value bonus +%.2f (avg=%.2f)", goal.ID, valueBonus, avgValue)
+	}
+
+	// Failure penalty for similar goals that have failed recently
+	if e.hasRecentFailures(goal, domain) {
+		score -= 2.0
+		log.Printf("⚠️ Goal %s: recent failures penalty -2.0", goal.ID)
+	}
 
 	// News analysis goals get bonus for recency and impact
 	if goal.Type == "news_analysis" {
