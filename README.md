@@ -117,7 +117,13 @@ docker compose up -d  # or: docker-compose up -d
 
 - **Docker & Docker Compose** - [Download here](https://www.docker.com/get-started)
 - **Git** - [Download here](https://git-scm.com/downloads)
+- **Go 1.21+** - [Download here](https://go.dev/dl/) (required for building services)
 - **LLM Provider** - OpenAI, Anthropic, or local LLM (see [Setup Guide](docs/SETUP_GUIDE.md))
+
+**macOS Users:**
+- The Monitor UI builds natively on macOS without CGO dependencies
+- Use `make build-monitor` or `make build-macos` to build
+- Ensure Go 1.21+ is installed: `go version`
 
 ### ⚙️ Configuration
 
@@ -224,6 +230,27 @@ make build
 ./bin/fsm-server &
 ```
 
+### 🍎 Building Monitor UI on macOS
+
+The Monitor UI can be built natively on macOS:
+
+```bash
+# Build monitor UI for macOS
+make build-monitor
+
+# Or build specifically for macOS (explicit)
+make build-macos
+
+# The binary will be created at: bin/monitor-ui
+```
+
+**Note:** The monitor UI uses pure Go (no CGO dependencies), so it builds cleanly on macOS without any special requirements. Just ensure you have Go 1.21+ installed.
+
+**Troubleshooting:**
+- If you encounter issues, ensure you're using Go 1.21 or later: `go version`
+- The monitor UI doesn't require CGO, so it should build without any C compiler dependencies
+- If templates aren't found, ensure you're running from the project root directory
+
 ### 🧪 Test Your Setup
 
 ```bash
@@ -240,6 +267,81 @@ curl -X POST http://localhost:8081/api/v1/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "What LLM provider are you using?", "show_thinking": true}'
 ```
+
+---
+
+## 🛠️ Utility Scripts
+
+The project includes several utility scripts for common operations:
+
+### Database Management
+
+**Clean All Databases** (`scripts/clean_databases.sh`):
+```bash
+# Thoroughly clean all databases (stops services first)
+./scripts/clean_databases.sh --confirm
+
+# This script:
+# - Stops all services to prevent key recreation
+# - Clears Redis (all keys)
+# - Clears Neo4j (all nodes and relationships)
+# - Clears Weaviate (all collections)
+# - Cleans persistent data directories
+# - Restarts containers
+```
+
+**Clean Reasoning Traces** (`scripts/clean_reasoning_traces.sh`):
+```bash
+# Clean old reasoning traces from Redis (reduces UI clutter)
+./scripts/clean_reasoning_traces.sh
+
+# This script:
+# - Trims reasoning traces to 10 per key
+# - Trims explanations to 5 per key
+# - Helps reduce UI spam after database cleanup
+```
+
+**Clean All Data** (`scripts/clean_all.sh`):
+```bash
+# Complete cleanup including logs
+./scripts/clean_all.sh --confirm
+
+# This script:
+# - Clears all log files
+# - Clears Redis, Neo4j, and Weaviate
+# - More comprehensive than clean_databases.sh
+```
+
+### System Management
+
+**Restart System** (`restart.sh`):
+```bash
+# Quick restart of entire system
+./restart.sh
+
+# This script:
+# - Stops all application services
+# - Restarts infrastructure (Docker Compose)
+# - Starts all application services
+# - Provides status check URLs
+```
+
+**Using Make Targets**:
+```bash
+# Clean databases via Makefile
+make clean-databases
+
+# Full reset (stop → clean → restart)
+make reset-all
+
+# Clear Redis only
+make clear-redis
+
+# Clear all databases (requires confirmation)
+make clear-redis CONFIRM=YES
+```
+
+See [Database Cleanup Guide](docs/DATABASE_CLEANUP.md) for detailed information.
 
 ### 🔐 Secure Packaging (Optional)
 
@@ -480,6 +582,44 @@ make test-metrics      # Performance metrics
 ### Development Mode
 ```bash
 make dev  # Start all services with auto-reload
+```
+
+### Building Components
+
+**Build All:**
+```bash
+make build  # Build all components
+```
+
+**Build Individual Components:**
+```bash
+make build-principles  # Build Principles Server
+make build-hdn         # Build HDN Server
+make build-monitor     # Build Monitor UI
+make build-fsm         # Build FSM Server
+make build-goal        # Build Goal Manager
+```
+
+**Cross-Platform Builds:**
+```bash
+make build-macos       # Build for macOS (darwin/amd64)
+make build-linux       # Build for Linux
+make build-windows     # Build for Windows
+make build-arm64       # Build for ARM64
+make build-x86         # Build for x86_64
+make build-all-archs   # Build for multiple architectures
+```
+
+**Monitor UI on macOS:**
+```bash
+# The monitor UI builds cleanly on macOS without CGO dependencies
+make build-monitor
+
+# Or use the explicit macOS target
+make build-macos
+
+# Verify the build
+./bin/monitor-ui --help
 ```
 
 ### Code Quality
