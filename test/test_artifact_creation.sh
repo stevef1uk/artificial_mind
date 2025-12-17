@@ -2,7 +2,10 @@
 set -euo pipefail
 
 HDN_URL=${HDN_URL:-http://localhost:8081}
-TMP_DIR=/home/stevef/dev/agi/tmp
+# Use project-relative temp directory for portability (works on Linux, macOS, etc.)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TMP_DIR="$PROJECT_ROOT/tmp"
 mkdir -p "$TMP_DIR"
 
 # ------------------------------------------------------------

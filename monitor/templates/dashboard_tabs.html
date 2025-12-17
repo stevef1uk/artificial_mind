@@ -2326,6 +2326,9 @@
                     normalized: String(m.tool_id || '').trim().toLowerCase()
                 })));
 
+                // Store original tools list BEFORE filtering (for unregistered metrics check)
+                const allTools = [...tools];
+
                 // Apply client-side filters
                 const originSel = document.getElementById('tools-origin-filter');
                 const hideEphemeralChk = document.getElementById('tools-hide-ephemeral');
@@ -2404,9 +2407,16 @@
                         }).join('');
                         
                         // Also show metrics for tools that aren't in the registered tools list
+                        // Use allTools (before filtering) for comparison, not the filtered tools array
+                        // Filter out ephemeral/internal tools that are expected to have metrics
                         const unregisteredMetrics = allMetrics.filter(m => {
                             const metricToolId = String(m.tool_id || '').trim();
-                            return !tools.some(t => String(t.id || '').trim() === metricToolId);
+                            // Skip if this is an ephemeral/internal tool (these are expected to have metrics and may be filtered from display)
+                            if (ephemeralIds.has(metricToolId)) {
+                                return false; // Don't show ephemeral tools in "Internal Tools" section
+                            }
+                            // Check against ALL tools (before filtering), not just the filtered list
+                            return !allTools.some(t => String(t.id || '').trim() === metricToolId);
                         });
                         
                         if (unregisteredMetrics.length > 0) {
