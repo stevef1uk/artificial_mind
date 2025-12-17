@@ -1771,6 +1771,12 @@ func (e *FSMEngine) executeGrowthEngine(action ActionConfig, event map[string]in
 		return
 	}
 
+	// Skip transition if no goals generated (prevents empty cycles)
+	if len(goals) == 0 {
+		log.Printf("ℹ️ No curiosity goals generated, skipping transition")
+		return
+	}
+
 	log.Printf("🎯 Generated %d curiosity goals", len(goals))
 
 	// Set conclusion in context
@@ -2038,6 +2044,12 @@ func (e *FSMEngine) executeCuriosityGoals(action ActionConfig, event map[string]
 
 		_ = e.redis.LTrim(e.ctx, key, 0, 199)
 		log.Printf("Added %d new goals (deduplicated from %d generated)", newGoalsCount, len(goals))
+		
+		// Skip trace logging if no new goals were added (prevents spam)
+		if newGoalsCount == 0 {
+			log.Printf("ℹ️ No new goals added (all duplicates), skipping trace logging")
+			return
+		}
 	}
 
 	// Set a current goal if none exists and we have goals
@@ -2059,6 +2071,37 @@ func (e *FSMEngine) executeCuriosityGoals(action ActionConfig, event map[string]
 	conclusion := fmt.Sprintf("Generated %d curiosity goals", len(goals))
 	e.context["conclusion"] = conclusion
 	e.context["confidence"] = 0.8
+
+	// Create reasoning trace only if we have goals
+	if len(goals) > 0 {
+		trace := ReasoningTrace{
+			ID:        fmt.Sprintf("trace_%d", time.Now().UnixNano()),
+			Goal:      e.getCurrentGoal(),
+			Domain:    domain,
+			CreatedAt: time.Now(),
+			Steps: []ReasoningStep{
+				{
+					StepNumber: 1,
+					Action:     "generate_curiosity_goals",
+					Result:     map[string]interface{}{"goals_count": len(goals), "domain": domain},
+					Reasoning:  fmt.Sprintf("Generated %d curiosity goals for domain '%s'", len(goals), domain),
+					Confidence: 0.8,
+					Timestamp:  time.Now(),
+				},
+			},
+			Conclusion: fmt.Sprintf("Generated %d curiosity goals", len(goals)),
+			Confidence: 0.8,
+			Properties: map[string]interface{}{
+				"state":  e.currentState,
+				"agent":  e.agentID,
+				"domain": domain,
+			},
+		}
+
+		if err := e.reasoning.LogReasoningTrace(trace); err != nil {
+			log.Printf("Warning: failed to log reasoning trace: %v", err)
+		}
+	}
 
 	// Emit curiosity_goals_generated event
 	go func() {

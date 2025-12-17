@@ -1927,11 +1927,11 @@
                     const trContainer = document.getElementById('reasoning-traces');
                     const exps = Array.isArray(r.data.explanations) ? r.data.explanations : [];
                     const trs = Array.isArray(t.data.traces) ? t.data.traces : [];
-                    expContainer.innerHTML = exps.length ? exps.slice(0,20).map(e=>{
+                    expContainer.innerHTML = exps.length ? exps.slice(0,5).map(e=>{ // Reduced from 20 to 5
                         const pretty = typeof e==='string' ? e : JSON.stringify(e, null, 2);
                         return `<pre class=\"json-display\">${pretty}</pre>`;
                     }).join('') : '<div class=\"loading\">No explanations</div>';
-                    trContainer.innerHTML = trs.length ? trs.slice(0,20).map(e=>{
+                    trContainer.innerHTML = trs.length ? trs.slice(0,10).map(e=>{ // Reduced from 20 to 10
                         const pretty = typeof e==='string' ? e : JSON.stringify(e, null, 2);
                         return `<pre class=\"json-display\">${pretty}</pre>`;
                     }).join('') : '<div class=\"loading\">No traces</div>';

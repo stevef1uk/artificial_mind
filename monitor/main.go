@@ -4958,9 +4958,9 @@ func (m *MonitorService) getReasoningTraces(c *gin.Context) {
 		domain = "General"
 	}
 
-	// Get traces from Redis
+	// Get traces from Redis (limit to 10 most recent to prevent UI spam)
 	key := fmt.Sprintf("reasoning:traces:%s", domain)
-	traces, err := m.redisClient.LRange(context.Background(), key, 0, 99).Result()
+	traces, err := m.redisClient.LRange(context.Background(), key, 0, 9).Result()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reasoning traces"})
 		return
@@ -4984,9 +4984,9 @@ func (m *MonitorService) getBeliefs(c *gin.Context) {
 		domain = "General"
 	}
 
-	// Get beliefs from Redis
+	// Get beliefs from Redis (limit to 10 to prevent UI spam)
 	key := fmt.Sprintf("reasoning:beliefs:%s", domain)
-	beliefs, err := m.redisClient.LRange(context.Background(), key, 0, 99).Result()
+	beliefs, err := m.redisClient.LRange(context.Background(), key, 0, 9).Result()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch beliefs"})
 		return
@@ -5019,12 +5019,18 @@ func (m *MonitorService) getHypotheses(c *gin.Context) {
 	}
 
 	var hypothesisList []map[string]interface{}
+	count := 0
+	maxHypotheses := 10 // Limit to 10 hypotheses to prevent UI spam
 	for _, hypothesisData := range hypotheses {
+		if count >= maxHypotheses {
+			break
+		}
 		var hypothesis map[string]interface{}
 		if err := json.Unmarshal([]byte(hypothesisData), &hypothesis); err == nil {
 			// Filter by domain if specified
 			if domain == "General" || hypothesis["domain"] == domain {
 				hypothesisList = append(hypothesisList, hypothesis)
+				count++
 			}
 		}
 	}
@@ -5039,9 +5045,9 @@ func (m *MonitorService) getCuriosityGoals(c *gin.Context) {
 		domain = "General"
 	}
 
-	// Get curiosity goals from Redis
+	// Get curiosity goals from Redis (limit to 10 to prevent UI spam)
 	key := fmt.Sprintf("reasoning:curiosity_goals:%s", domain)
-	goals, err := m.redisClient.LRange(context.Background(), key, 0, 99).Result()
+	goals, err := m.redisClient.LRange(context.Background(), key, 0, 9).Result()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch curiosity goals"})
 		return
@@ -5253,9 +5259,9 @@ func (m *MonitorService) getReflection(c *gin.Context) {
 	}
 	reflection["fsm_thinking"] = fsmThinking
 
-	// 2. Recent Reasoning Traces
+	// 2. Recent Reasoning Traces (limit to 10 to prevent spam)
 	tracesKey := fmt.Sprintf("reasoning:traces:%s", domain)
-	traces, _ := m.redisClient.LRange(ctx, tracesKey, 0, int64(limit-1)).Result()
+	traces, _ := m.redisClient.LRange(ctx, tracesKey, 0, 9).Result()
 	var reasoningTraces []map[string]interface{}
 	for _, traceData := range traces {
 		var trace map[string]interface{}
@@ -5380,9 +5386,13 @@ func (m *MonitorService) getRecentExplanations(c *gin.Context) {
 
 	var allExplanations []map[string]interface{}
 
-	// Collect explanations from all goals
+	// Collect explanations from all goals (limit to prevent spam)
+	maxKeys := 5 // Only check first 5 goal keys
+	if len(keys) > maxKeys {
+		keys = keys[:maxKeys]
+	}
 	for _, key := range keys {
-		explanations, err := m.redisClient.LRange(ctx, key, 0, 4).Result() // Get last 5 from each goal
+		explanations, err := m.redisClient.LRange(ctx, key, 0, 2).Result() // Get last 3 from each goal (reduced from 5)
 		if err != nil {
 			continue
 		}

@@ -1312,7 +1312,7 @@
                     traces = traces.filter(t => ((t.goal || '').toLowerCase().includes(goalFilter)));
                 }
                 traces = dedupById(traces);
-                traces = sortByCreatedAtDesc(traces).slice(0, 50);
+                traces = sortByCreatedAtDesc(traces).slice(0, 10); // Reduced from 50 to 10 to prevent UI spam
                 const container = document.getElementById('reasoning-traces');
                 console.log('Container found:', container);
                 if (!container) {

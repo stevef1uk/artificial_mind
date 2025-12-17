@@ -50,7 +50,7 @@ ifeq ($(VERBOSE),1)
 endif
 
 # Memory components configuration
-COMPOSE := docker compose
+COMPOSE := docker-compose
 RAG_URL ?= http://localhost:9010
 WEAVIATE_URL ?= http://localhost:8080
 NEO4J_URI ?= bolt://localhost:7687

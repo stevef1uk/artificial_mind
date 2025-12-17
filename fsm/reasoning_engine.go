@@ -205,6 +205,29 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 	if err != nil {
 		log.Printf("Warning: Failed to check for concepts: %v", err)
 	} else if len(concepts) == 0 {
+		// Check if we've recently generated basic exploration goals (avoid spam)
+		recentGoalsKey := fmt.Sprintf("reasoning:recent_goals:%s", domain)
+		recentCount, _ := re.redis.LLen(re.ctx, recentGoalsKey).Result()
+		
+		// If we've generated goals recently (within last 10 minutes), skip to avoid spam
+		if recentCount > 0 {
+			// Check the timestamp of the most recent goal
+			recentGoalData, err := re.redis.LIndex(re.ctx, recentGoalsKey, 0).Result()
+			if err == nil {
+				var recentGoal map[string]interface{}
+				if json.Unmarshal([]byte(recentGoalData), &recentGoal) == nil {
+					if createdAtStr, ok := recentGoal["created_at"].(string); ok {
+						if createdAt, err := time.Parse(time.RFC3339, createdAtStr); err == nil {
+							if time.Since(createdAt) < 10*time.Minute {
+								log.Printf("ℹ️ Skipping goal generation - recently generated goals for domain %s (within last 10 minutes)", domain)
+								return []CuriosityGoal{}, nil
+							}
+						}
+					}
+				}
+			}
+		}
+		
 		log.Printf("ℹ️ No concepts found in domain %s, generating basic exploration goals", domain)
 		// Generate basic exploration goals when no data exists
 		basicGoals := []CuriosityGoal{
@@ -227,6 +250,15 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 				CreatedAt:   time.Now(),
 			},
 		}
+		
+		// Track recent goal generation to prevent spam
+		for _, goal := range basicGoals {
+			goalData, _ := json.Marshal(goal)
+			re.redis.LPush(re.ctx, recentGoalsKey, goalData)
+			re.redis.LTrim(re.ctx, recentGoalsKey, 0, 9) // Keep last 10
+			re.redis.Expire(re.ctx, recentGoalsKey, 10*time.Minute)
+		}
+		
 		log.Printf("✅ Generated %d basic exploration goals", len(basicGoals))
 		return basicGoals, nil
 	}
@@ -323,8 +355,8 @@ func (re *ReasoningEngine) LogReasoningTrace(trace ReasoningTrace) error {
 		if err := re.redis.LPush(re.ctx, key, traceData).Err(); err != nil {
 			log.Printf("Warning: Failed to store trace in %s: %v", key, err)
 		}
-		// Keep only last 100 traces per key
-		re.redis.LTrim(re.ctx, key, 0, 99)
+		// Keep only last 20 traces per key (reduced from 100 to prevent UI spam)
+		re.redis.LTrim(re.ctx, key, 0, 19)
 	}
 
 	log.Printf("✅ Reasoning trace logged successfully")

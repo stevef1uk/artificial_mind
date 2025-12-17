@@ -28,7 +28,7 @@ performance:
   # Sleep time in event processing loop (milliseconds)
   event_loop_sleep_ms: 100
   # Timer tick interval (seconds)
-  timer_interval_seconds: 2
+  timer_interval_seconds: 10
   # Maximum events processed per cycle
   max_events_per_cycle: 5
   # Sleep time after processing events (milliseconds)
