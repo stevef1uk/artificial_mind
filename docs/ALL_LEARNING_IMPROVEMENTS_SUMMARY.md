@@ -243,3 +243,4 @@ All six priorities are now complete and integrated. The Artificial Mind now has:
 
 The system should now be significantly more focused and successful in its learning!
 
+

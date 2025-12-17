@@ -244,6 +244,7 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 		server.toolMetrics,
 		server.fileStorage,
 		"http://localhost:8080", // HDN base URL for tool calling
+		redisAddr,                // Redis address for learning data
 	)
 
 	// Create planner integration

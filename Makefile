@@ -383,13 +383,13 @@ start-fsm: build-fsm
 .PHONY: start-all
 start-all: build
 	@echo "🚀 Starting both servers using startup script..."
-	@./start_servers.sh
+	@./scripts/start_servers.sh
 
 # Stop all servers using the stop script
 .PHONY: stop
 stop:
 	@echo "🛑 Stopping servers using stop script..."
-	@./stop_servers.sh
+	@./scripts/stop_servers.sh
 
 # Start memory infra via docker-compose (Redis, Qdrant, Neo4j)
 .PHONY: compose-up
@@ -511,9 +511,15 @@ clear-redis:
 reset-redis: restart-redis clear-redis
 	@echo "✅ Redis reset complete"
 
-# Full reset: stop all, clear Redis, restart everything
+# Thorough database cleanup (stops services, clears Redis, Neo4j, Weaviate, and data directories)
+.PHONY: clean-databases
+clean-databases:
+	@echo "🧹 Running thorough database cleanup (will stop services first)..."
+	@./scripts/clean_databases.sh --confirm
+
+# Full reset: stop all, clear databases, restart everything
 .PHONY: reset-all
-reset-all: stop clear-redis start-all
+reset-all: stop clean-databases start-all
 	@echo "✅ Full system reset complete"
 
 # Run HDN principles test
@@ -574,7 +580,7 @@ examples: start-principles
 .PHONY: dev
 dev: build
 	@echo "🔄 Starting development mode using startup script..."
-	@./start_servers.sh
+	@./scripts/start_servers.sh
 	@echo "✅ Development servers started!"
 	@echo "   Press Ctrl+C to stop or run 'make stop'"
 

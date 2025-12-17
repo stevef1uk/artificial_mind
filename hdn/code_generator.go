@@ -492,6 +492,8 @@ IMPORTANT:
 - 🚨 CRITICAL FOR MATHEMATICAL TASKS: If the context provides parameters (like matrix1, matrix2, count, number, etc.), you MUST read them from the context/environment variables - DO NOT hardcode values!
 - 🚨 CRITICAL FOR MATRIX OPERATIONS: If context contains matrix1, matrix2, or similar parameters, you MUST parse them from environment variables or context - DO NOT hardcode matrix values!
 - 🚨 CRITICAL FOR GO MATRIX OPERATIONS: Read matrices from environment variables (os.Getenv("matrix1"), os.Getenv("matrix2")) and parse the JSON/string format - DO NOT hardcode matrix values!
+- 🚨 CRITICAL FOR GO MATRIX ADDITION: For matrix addition, add corresponding elements: result[i][j] = matrix1[i][j] + matrix2[i][j] - Example: [[1,2],[3,4]] + [[5,6],[7,8]] = [[6,8],[10,12]] NOT [[6,9],[9,12]]!
+- 🚨 CRITICAL FOR GO MATRIX OUTPUT FORMAT: Print each ROW on a SEPARATE line - DO NOT print the entire matrix! Use: for i := 0; i < len(result); i++ { fmt.Println(result[i]) } - This prints [6 8] on first line and [10 12] on second line!
 - 🚨 CRITICAL FOR PYTHON MATRIX OPERATIONS: Read matrices from environment variables (os.getenv("matrix1"), os.getenv("matrix2")) and parse the JSON/string format - DO NOT hardcode matrix values!
 - For data processing tasks, create functions that process the data and print the results
 - Don't create test functions or validation functions - create the actual functionality

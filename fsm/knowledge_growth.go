@@ -263,36 +263,58 @@ func (kge *KnowledgeGrowthEngine) extractConceptsWithLLM(text, domain string) []
 		hdnURL = "http://localhost:8081"
 	}
 
-	// Create prompt for concept extraction
-	prompt := fmt.Sprintf(`Analyze the following text from the %s domain and extract key concepts.
+	// Get user interests for relevance filtering
+	userInterests := kge.getUserInterests()
+
+	// Create prompt for concept extraction with relevance focus
+	prompt := fmt.Sprintf(`Analyze the following text from the %s domain and extract USEFUL, RELEVANT concepts.
 
 Text: %s
 
+User Interests: %s
+
 For each concept you identify, provide:
 1. A clear, meaningful name (not generic like "concept" or "thing")
-2. A definition explaining what it is
+2. A definition explaining what it is and why it's useful
 3. Confidence level (0.0-1.0) based on how clearly the concept is described
-4. Properties or characteristics if mentioned
-5. Constraints or limitations if mentioned
+4. Relevance score (0.0-1.0) - how relevant/useful this concept is to the user
+5. Properties or characteristics if mentioned
+6. Constraints or limitations if mentioned
 
 Return as JSON array with format:
 [
   {
     "name": "ConceptName",
-    "definition": "Clear definition...",
+    "definition": "Clear definition explaining what it is and why it's useful...",
     "confidence": 0.85,
+    "relevance": 0.80,
     "properties": ["property1", "property2"],
     "constraints": ["constraint1"]
   }
 ]
 
 Only extract concepts that are:
+- USEFUL - Will help accomplish tasks or solve problems
+- RELEVANT - Related to user interests or domain knowledge
+- ACTIONABLE - Can be used in practice, not just theoretical
 - Clearly defined or described in the text
 - Domain-relevant
 - Not too generic or vague
 - Have meaningful names (not timestamps or IDs)
 
-If no clear concepts are found, return empty array [].`, domain, text)
+Prioritize concepts that:
+- Help accomplish specific tasks
+- Solve real problems
+- Are actionable and practical
+- Relate to user interests
+
+Skip concepts that are:
+- Too abstract or theoretical without practical use
+- Not relevant to user interests
+- Too generic or vague
+- Just restating obvious information
+
+If no useful, relevant concepts are found, return empty array [].`, domain, text, userInterests)
 
 	// Call HDN interpret endpoint
 	interpretURL := fmt.Sprintf("%s/api/v1/interpret", hdnURL)
@@ -397,26 +419,76 @@ If no clear concepts are found, return empty array [].`, domain, text)
 			}
 		}
 
-		discovery := ConceptDiscovery{
-			Name:        name,
-			Domain:      domain,
-			Definition:  def,
-			Confidence:  conf,
-			Source:      "llm_semantic_analysis",
-			Properties:  properties,
-			Constraints: constraints,
-			CreatedAt:   time.Now(),
+		// Get relevance score
+		relevance, _ := concept["relevance"].(float64)
+		if relevance < 0.0 {
+			relevance = 0.0
+		}
+		if relevance > 1.0 {
+			relevance = 1.0
 		}
 
-		discoveries = append(discoveries, discovery)
-		log.Printf("✨ Extracted concept via LLM: %s (confidence: %.2f)", name, conf)
+		// Only include concepts with reasonable relevance (>= 0.4)
+		if relevance >= 0.4 {
+			discovery := ConceptDiscovery{
+				Name:        name,
+				Domain:      domain,
+				Definition:  def,
+				Confidence:  conf,
+				Source:      "llm_semantic_analysis",
+				Properties:  properties,
+				Constraints: constraints,
+				CreatedAt:   time.Now(),
+			}
+
+			// Store relevance in properties for later use
+			// (Note: ConceptDiscovery doesn't have a Relevance field, but we can filter here)
+			discoveries = append(discoveries, discovery)
+			log.Printf("✨ Extracted relevant concept: %s (confidence: %.2f, relevance: %.2f)", name, conf, relevance)
+		} else {
+			log.Printf("🛑 Filtered out low-relevance concept: %s (relevance: %.2f)", name, relevance)
+		}
 	}
 
 	if len(discoveries) > 0 {
 		log.Printf("📚 Extracted %d concepts via semantic analysis", len(discoveries))
 	}
 
+	if len(discoveries) > 0 {
+		log.Printf("📚 Extracted %d relevant concepts via semantic analysis", len(discoveries))
+	}
+
 	return discoveries
+}
+
+// getUserInterests retrieves user interests/goals from Redis for relevance filtering
+func (kge *KnowledgeGrowthEngine) getUserInterests() string {
+	// Try to get user interests from Redis
+	interestsKey := "user:interests"
+	interests, err := kge.redis.Get(kge.ctx, interestsKey).Result()
+	if err == nil && interests != "" {
+		return interests
+	}
+
+	// Try to get from recent goals (what user is working on)
+	goalsKey := "reasoning:curiosity_goals:all"
+	goalsData, err := kge.redis.LRange(kge.ctx, goalsKey, 0, 4).Result()
+	if err == nil && len(goalsData) > 0 {
+		var interests []string
+		for _, goalData := range goalsData {
+			var goal map[string]interface{}
+			if err := json.Unmarshal([]byte(goalData), &goal); err == nil {
+				if desc, ok := goal["description"].(string); ok {
+					interests = append(interests, desc)
+				}
+			}
+		}
+		if len(interests) > 0 {
+			return strings.Join(interests, ", ")
+		}
+	}
+
+	return "general knowledge, problem solving, task completion"
 }
 
 // extractConceptsFallback provides fallback concept extraction when LLM is unavailable

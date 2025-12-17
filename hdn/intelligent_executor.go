@@ -17,6 +17,8 @@ import (
 
 	planner "agi/planner_evaluator"
 	selfmodel "agi/self"
+
+	"github.com/redis/go-redis/v9"
 )
 
 // IntelligentExecutor handles the complete workflow of:
@@ -41,6 +43,44 @@ type IntelligentExecutor struct {
 	validationMode     bool
 	usePlanner         bool
 	recentTasks        map[string]time.Time // Loop protection: track recent task executions
+	learningRedis      *redis.Client        // Redis client for learning data
+	ctx                context.Context      // Context for Redis operations
+}
+
+// FailurePattern tracks common failure patterns for learning
+type FailurePattern struct {
+	PatternType   string    `json:"pattern_type"`   // "compilation", "runtime", "logic", "validation"
+	ErrorCategory string    `json:"error_category"` // "undefined", "type_mismatch", "import_error", etc.
+	Language      string    `json:"language"`
+	TaskCategory  string    `json:"task_category"` // Derived from task name/description
+	Frequency     int       `json:"frequency"`
+	SuccessRate   float64   `json:"success_rate"` // Success rate after fixes
+	CommonFixes   []string  `json:"common_fixes"` // What fixes work for this pattern
+	FirstSeen     time.Time `json:"first_seen"`
+	LastSeen      time.Time `json:"last_seen"`
+}
+
+// CodeGenStrategy tracks code generation strategies and their effectiveness
+type CodeGenStrategy struct {
+	StrategyID   string    `json:"strategy_id"`
+	PromptStyle  string    `json:"prompt_style"` // "detailed", "concise", "example_based", etc.
+	TaskCategory string    `json:"task_category"`
+	Language     string    `json:"language"`
+	SuccessRate  float64   `json:"success_rate"`
+	AvgRetries   float64   `json:"avg_retries"`
+	AvgQuality   float64   `json:"avg_quality"`
+	UsageCount   int       `json:"usage_count"`
+	LastUsed     time.Time `json:"last_used"`
+}
+
+// CodeGenLearningProgress tracks learning progress by task category and language
+type CodeGenLearningProgress struct {
+	TaskCategory   string  `json:"task_category"`
+	Language       string  `json:"language"`
+	SuccessRate    float64 `json:"success_rate"`
+	AvgQuality     float64 `json:"avg_quality"`
+	RecentProgress float64 `json:"recent_progress"` // Progress in last N executions
+	FocusScore     float64 `json:"focus_score"`     // Should we focus here?
 }
 
 // ExecutionRequest represents a request to execute a task intelligently
@@ -91,7 +131,16 @@ func NewIntelligentExecutor(
 	toolMetrics *ToolMetricsManager,
 	fileStorage *FileStorage,
 	hdnBaseURL string,
+	redisAddr string, // Redis address for learning data
 ) *IntelligentExecutor {
+	// Initialize Redis client for learning data if address provided
+	var learningRedis *redis.Client
+	if redisAddr != "" {
+		learningRedis = redis.NewClient(&redis.Options{
+			Addr: redisAddr,
+		})
+	}
+
 	return &IntelligentExecutor{
 		domainManager:      domainManager,
 		codeStorage:        codeStorage,
@@ -107,6 +156,9 @@ func NewIntelligentExecutor(
 		maxRetries:         3,
 		validationMode:     true,
 		usePlanner:         plannerIntegration != nil,
+		learningRedis:      learningRedis,
+		ctx:                context.Background(),
+		recentTasks:        make(map[string]time.Time),
 	}
 }
 
@@ -1322,7 +1374,7 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	if strings.Contains(strings.ToLower(enhancedDesc), "matrix") ||
 		(req.Context != nil && (req.Context["matrix1"] != "" || req.Context["matrix2"] != "")) {
 		if req.Language == "go" {
-			enhancedDesc += "\n\n🚨 CRITICAL FOR GO MATRIX OPERATIONS:\n- You MUST read matrices from environment variables using os.Getenv(\"matrix1\") and os.Getenv(\"matrix2\")\n- Parse the JSON string format (e.g., \"[[1,2],[3,4]]\") using encoding/json\n- DO NOT hardcode matrix values - the matrices will be different each time!\n- CRITICAL: Matrix type in Go is [][]int (slice of slices), NOT [][][]int (3D array)!\n- Example: var matrix1 [][]int; matrix1Str := os.Getenv(\"matrix1\"); json.Unmarshal([]byte(matrix1Str), &matrix1)\n- Function signature for matrix multiplication: func multiplyMatrices(matrix1 [][]int, matrix2 [][]int) [][]int\n- You MUST import \"os\" for os.Getenv() and \"encoding/json\" for json.Unmarshal()\n- DO NOT import \"strconv\" unless you actually use it - unused imports cause compilation errors!"
+			enhancedDesc += "\n\n🚨 CRITICAL FOR GO MATRIX OPERATIONS:\n- You MUST read matrices from environment variables using os.Getenv(\"matrix1\") and os.Getenv(\"matrix2\")\n- Parse the JSON string format (e.g., \"[[1,2],[3,4]]\") using encoding/json\n- DO NOT hardcode matrix values - the matrices will be different each time!\n- CRITICAL: Matrix type in Go is [][]int (slice of slices), NOT [][][]int (3D array)!\n- Example: var matrix1 [][]int; matrix1Str := os.Getenv(\"matrix1\"); json.Unmarshal([]byte(matrix1Str), &matrix1)\n- 🚨 CRITICAL: For matrix ADDITION, add corresponding elements: result[i][j] = matrix1[i][j] + matrix2[i][j]\n- Example: [[1,2],[3,4]] + [[5,6],[7,8]] = [[1+5,2+6],[3+7,4+8]] = [[6,8],[10,12]]\n- Function signature for matrix addition: func addMatrices(matrix1 [][]int, matrix2 [][]int) [][]int\n- You MUST import \"os\" for os.Getenv() and \"encoding/json\" for json.Unmarshal()\n- DO NOT import \"strconv\" unless you actually use it - unused imports cause compilation errors!\n- 🚨 CRITICAL OUTPUT FORMAT: When printing matrix results, print each ROW on a SEPARATE line using fmt.Println()\n- Example: For result [[6,8],[10,12]], you MUST print:\n  fmt.Println(result[0])  // prints [6 8]\n  fmt.Println(result[1])  // prints [10 12]\n- DO NOT print fmt.Println(result) - that prints the entire matrix as [[6 8] [10 12]] on one line!\n- DO NOT use fmt.Printf with %v for the entire matrix - print each row separately!\n- The output must be: [6 8] on first line, [10 12] on second line (two separate lines)\n- Use a loop: for i := 0; i < len(result); i++ { fmt.Println(result[i]) }"
 		} else if req.Language == "python" {
 			enhancedDesc += "\n\n🚨 CRITICAL FOR PYTHON MATRIX OPERATIONS:\n- You MUST read matrices from environment variables using os.getenv(\"matrix1\") and os.getenv(\"matrix2\")\n- Parse the JSON string format (e.g., \"[[1,2],[3,4]]\") using json.loads()\n- DO NOT hardcode matrix values - the matrices will be different each time!\n- Example: matrix1 = json.loads(os.getenv(\"matrix1\"))"
 		}
@@ -1401,6 +1453,9 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 			break
 		} else {
 			log.Printf("❌ [INTELLIGENT] Code validation failed on attempt %d: %s", attempt+1, validationResult.Error)
+
+			// Learn from validation failure
+			ie.learnFromValidationFailure(validationResult, req)
 
 			// Try to fix the code using LLM feedback
 			if attempt < req.MaxRetries-1 {
@@ -1503,6 +1558,13 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	// Record episode in self-model
 	if ie.selfModelManager != nil {
 		ie.recordExecutionEpisode(req, result, "traditional_execution")
+	}
+
+	// Learn from execution outcome
+	if result.Success && generatedCode != nil {
+		ie.recordSuccessfulExecution(req, result, generatedCode)
+	} else if !result.Success {
+		ie.recordFailedExecution(req, result)
 	}
 
 	// Record metrics for monitor UI
@@ -3268,5 +3330,302 @@ func (ie *IntelligentExecutor) executeProgramDirectly(ctx context.Context, req *
 	// Log tool metrics for intelligent execution
 	ie.logIntelligentExecutionMetrics(ctx, req, result)
 
+	// Learn from execution outcome
+	if result.Success && generatedCode != nil {
+		ie.recordSuccessfulExecution(req, result, generatedCode)
+	} else if !result.Success {
+		ie.recordFailedExecution(req, result)
+	}
+
 	return result, nil
+}
+
+// ============================================================================
+// LEARNING METHODS - Focused Learning Improvements
+// ============================================================================
+
+// categorizeFailure categorizes a failure error into a pattern type and category
+func (ie *IntelligentExecutor) categorizeFailure(errorMsg string, language string) (patternType, errorCategory string) {
+	errorLower := strings.ToLower(errorMsg)
+
+	// Determine pattern type
+	if strings.Contains(errorLower, "undefined") ||
+		strings.Contains(errorLower, "imported and not used") ||
+		strings.Contains(errorLower, "declared but not used") ||
+		strings.Contains(errorLower, "cannot find package") {
+		patternType = "compilation"
+	} else if strings.Contains(errorLower, "panic") ||
+		strings.Contains(errorLower, "runtime error") ||
+		strings.Contains(errorLower, "index out of range") ||
+		strings.Contains(errorLower, "nil pointer") {
+		patternType = "runtime"
+	} else if strings.Contains(errorLower, "type") && strings.Contains(errorLower, "mismatch") ||
+		strings.Contains(errorLower, "cannot use") ||
+		strings.Contains(errorLower, "assignment mismatch") {
+		patternType = "type_error"
+	} else {
+		patternType = "validation"
+	}
+
+	// Determine error category
+	if strings.Contains(errorLower, "undefined") {
+		errorCategory = "undefined_symbol"
+	} else if strings.Contains(errorLower, "import") {
+		errorCategory = "import_error"
+	} else if strings.Contains(errorLower, "type") {
+		errorCategory = "type_mismatch"
+	} else if strings.Contains(errorLower, "assignment mismatch") {
+		errorCategory = "assignment_mismatch"
+	} else if strings.Contains(errorLower, "unused") || strings.Contains(errorLower, "not used") {
+		errorCategory = "unused_import"
+	} else {
+		errorCategory = "other"
+	}
+
+	return patternType, errorCategory
+}
+
+// recordFailurePattern records a failure pattern for learning
+func (ie *IntelligentExecutor) recordFailurePattern(validationResult ValidationStep, req *ExecutionRequest) {
+	if ie.learningRedis == nil {
+		return
+	}
+
+	patternType, errorCategory := ie.categorizeFailure(validationResult.Error, req.Language)
+	taskCategory := ie.deriveTaskCategory(req.TaskName, req.Description)
+
+	patternKey := fmt.Sprintf("failure_pattern:%s:%s:%s", patternType, errorCategory, req.Language)
+	patternData, err := ie.learningRedis.Get(ie.ctx, patternKey).Result()
+
+	var pattern FailurePattern
+	if err == nil && patternData != "" {
+		json.Unmarshal([]byte(patternData), &pattern)
+	} else {
+		pattern = FailurePattern{
+			PatternType:   patternType,
+			ErrorCategory: errorCategory,
+			Language:      req.Language,
+			TaskCategory:  taskCategory,
+			Frequency:     0,
+			SuccessRate:   0.0,
+			CommonFixes:   []string{},
+			FirstSeen:     time.Now(),
+		}
+	}
+
+	pattern.Frequency++
+	pattern.LastSeen = time.Now()
+
+	patternDataJSON, _ := json.Marshal(pattern)
+	ie.learningRedis.Set(ie.ctx, patternKey, patternDataJSON, 30*24*time.Hour) // 30 days TTL
+
+	log.Printf("📊 [LEARNING] Recorded failure pattern: %s/%s (frequency: %d)", patternType, errorCategory, pattern.Frequency)
+}
+
+// learnFromValidationFailure learns from validation failures to improve future code generation
+func (ie *IntelligentExecutor) learnFromValidationFailure(validationResult ValidationStep, req *ExecutionRequest) {
+	if ie.learningRedis == nil {
+		return
+	}
+
+	// Record failure pattern
+	ie.recordFailurePattern(validationResult, req)
+
+	// Update prevention hints based on error type
+	patternType, errorCategory := ie.categorizeFailure(validationResult.Error, req.Language)
+	preventionKey := fmt.Sprintf("prevention_hint:%s:%s:%s", patternType, errorCategory, req.Language)
+
+	// Store prevention hint
+	hint := ie.generatePreventionHint(validationResult.Error, req.Language)
+	ie.learningRedis.Set(ie.ctx, preventionKey, hint, 30*24*time.Hour)
+}
+
+// generatePreventionHint generates a prevention hint based on error message
+func (ie *IntelligentExecutor) generatePreventionHint(errorMsg, language string) string {
+	errorLower := strings.ToLower(errorMsg)
+
+	if strings.Contains(errorLower, "undefined") {
+		return "Check for missing imports or typos in function/variable names"
+	} else if strings.Contains(errorLower, "imported and not used") {
+		return "Remove unused imports - they cause compilation errors"
+	} else if strings.Contains(errorLower, "assignment mismatch") {
+		return "Check function return values - json.Unmarshal returns only error, not ([]byte, error)"
+	} else if strings.Contains(errorLower, "type") && strings.Contains(errorLower, "mismatch") {
+		return "Check type assertions - JSON numbers are float64, not int64"
+	}
+
+	return "Review error message carefully and fix all issues"
+}
+
+// recordSuccessfulExecution records a successful execution for learning
+func (ie *IntelligentExecutor) recordSuccessfulExecution(req *ExecutionRequest, result *IntelligentExecutionResult, code *GeneratedCode) {
+	if ie.learningRedis == nil {
+		return
+	}
+
+	taskCategory := ie.deriveTaskCategory(req.TaskName, req.Description)
+
+	// Record code generation strategy success
+	strategyKey := fmt.Sprintf("codegen_strategy:%s:%s", taskCategory, req.Language)
+	strategyData, err := ie.learningRedis.Get(ie.ctx, strategyKey).Result()
+
+	var strategy CodeGenStrategy
+	if err == nil && strategyData != "" {
+		json.Unmarshal([]byte(strategyData), &strategy)
+	} else {
+		strategy = CodeGenStrategy{
+			StrategyID:   fmt.Sprintf("strategy_%s_%s", taskCategory, req.Language),
+			PromptStyle:  "default",
+			TaskCategory: taskCategory,
+			Language:     req.Language,
+			SuccessRate:  0.0,
+			AvgRetries:   0.0,
+			AvgQuality:   0.0,
+			UsageCount:   0,
+			LastUsed:     time.Now(),
+		}
+	}
+
+	strategy.UsageCount++
+	strategy.LastUsed = time.Now()
+
+	// Update success rate (exponential moving average)
+	alpha := 0.1 // Learning rate
+	strategy.SuccessRate = alpha*1.0 + (1-alpha)*strategy.SuccessRate
+
+	// Update average retries
+	strategy.AvgRetries = alpha*float64(result.RetryCount) + (1-alpha)*strategy.AvgRetries
+
+	// Update average quality (based on retry count - lower is better)
+	quality := 1.0 - (float64(result.RetryCount) / 5.0) // Normalize to 0-1
+	if quality < 0 {
+		quality = 0
+	}
+	strategy.AvgQuality = alpha*quality + (1-alpha)*strategy.AvgQuality
+
+	strategyDataJSON, _ := json.Marshal(strategy)
+	ie.learningRedis.Set(ie.ctx, strategyKey, strategyDataJSON, 30*24*time.Hour)
+
+	log.Printf("📊 [LEARNING] Recorded successful execution: %s/%s (success_rate: %.2f%%, retries: %.1f)",
+		taskCategory, req.Language, strategy.SuccessRate*100, strategy.AvgRetries)
+}
+
+// recordFailedExecution records a failed execution for learning
+func (ie *IntelligentExecutor) recordFailedExecution(req *ExecutionRequest, result *IntelligentExecutionResult) {
+	if ie.learningRedis == nil {
+		return
+	}
+
+	taskCategory := ie.deriveTaskCategory(req.TaskName, req.Description)
+
+	// Update strategy success rate (failure)
+	strategyKey := fmt.Sprintf("codegen_strategy:%s:%s", taskCategory, req.Language)
+	strategyData, err := ie.learningRedis.Get(ie.ctx, strategyKey).Result()
+
+	if err == nil && strategyData != "" {
+		var strategy CodeGenStrategy
+		json.Unmarshal([]byte(strategyData), &strategy)
+
+		// Update success rate (exponential moving average)
+		alpha := 0.1
+		strategy.SuccessRate = alpha*0.0 + (1-alpha)*strategy.SuccessRate
+		strategy.UsageCount++
+		strategy.LastUsed = time.Now()
+
+		strategyDataJSON, _ := json.Marshal(strategy)
+		ie.learningRedis.Set(ie.ctx, strategyKey, strategyDataJSON, 30*24*time.Hour)
+	}
+
+	log.Printf("📊 [LEARNING] Recorded failed execution: %s/%s", taskCategory, req.Language)
+}
+
+// deriveTaskCategory derives a task category from task name and description
+func (ie *IntelligentExecutor) deriveTaskCategory(taskName, description string) string {
+	combined := strings.ToLower(taskName + " " + description)
+
+	// Categorize based on keywords
+	if strings.Contains(combined, "json") || strings.Contains(combined, "parse") {
+		return "json_processing"
+	} else if strings.Contains(combined, "file") || strings.Contains(combined, "read") || strings.Contains(combined, "write") {
+		return "file_operations"
+	} else if strings.Contains(combined, "http") || strings.Contains(combined, "api") || strings.Contains(combined, "request") {
+		return "http_operations"
+	} else if strings.Contains(combined, "calculate") || strings.Contains(combined, "math") || strings.Contains(combined, "compute") {
+		return "calculation"
+	} else if strings.Contains(combined, "transform") || strings.Contains(combined, "convert") {
+		return "data_transformation"
+	}
+
+	return "general"
+}
+
+// identifyFocusAreas identifies areas showing promise for focused learning
+func (ie *IntelligentExecutor) identifyFocusAreas() []CodeGenLearningProgress {
+	if ie.learningRedis == nil {
+		return []CodeGenLearningProgress{}
+	}
+
+	var focusAreas []CodeGenLearningProgress
+
+	// Scan for strategies with high success rates
+	pattern := "codegen_strategy:*"
+	keys, err := ie.learningRedis.Keys(ie.ctx, pattern).Result()
+	if err != nil {
+		return focusAreas
+	}
+
+	for _, key := range keys {
+		strategyData, err := ie.learningRedis.Get(ie.ctx, key).Result()
+		if err != nil {
+			continue
+		}
+
+		var strategy CodeGenStrategy
+		if err := json.Unmarshal([]byte(strategyData), &strategy); err != nil {
+			continue
+		}
+
+		// Calculate focus score (success rate + quality - retries)
+		focusScore := strategy.SuccessRate*0.5 + strategy.AvgQuality*0.3 - (strategy.AvgRetries/10.0)*0.2
+
+		if focusScore > 0.5 && strategy.UsageCount >= 3 { // Only focus on areas with enough data
+			progress := CodeGenLearningProgress{
+				TaskCategory:   strategy.TaskCategory,
+				Language:       strategy.Language,
+				SuccessRate:    strategy.SuccessRate,
+				AvgQuality:     strategy.AvgQuality,
+				RecentProgress: 0.0, // Could be calculated from recent executions
+				FocusScore:     focusScore,
+			}
+			focusAreas = append(focusAreas, progress)
+		}
+	}
+
+	return focusAreas
+}
+
+// assessCodeQuality assesses the quality of generated code
+func (ie *IntelligentExecutor) assessCodeQuality(code *GeneratedCode, retryCount int) float64 {
+	quality := 1.0
+
+	// Penalize for retries
+	quality -= float64(retryCount) * 0.2
+
+	// Reward for code length (reasonable size)
+	lines := strings.Count(code.Code, "\n")
+	if lines > 5 && lines < 100 {
+		quality += 0.1
+	} else if lines > 100 {
+		quality -= 0.1 // Too long might indicate complexity
+	}
+
+	// Ensure quality is between 0 and 1
+	if quality < 0 {
+		quality = 0
+	}
+	if quality > 1 {
+		quality = 1
+	}
+
+	return quality
 }

@@ -148,6 +148,7 @@ func (ki *KnowledgeIntegration) ClassifyDomain(input string) (*DomainClassificat
 }
 
 // ExtractFacts extracts facts from input using domain knowledge
+// Now with relevance filtering to learn more useful knowledge
 func (ki *KnowledgeIntegration) ExtractFacts(input string, domain string) ([]Fact, error) {
 	// Get domain concepts for context
 	concepts, err := ki.getDomainConcepts(domain)
@@ -155,23 +156,314 @@ func (ki *KnowledgeIntegration) ExtractFacts(input string, domain string) ([]Fac
 		return nil, fmt.Errorf("failed to get domain concepts: %w", err)
 	}
 
-	// Extract facts based on domain context
-	facts := []Fact{
-		{
-			ID:         fmt.Sprintf("fact_%d", time.Now().UnixNano()),
-			Content:    input,
-			Domain:     domain,
-			Confidence: 0.8, // Simplified confidence calculation
-			Properties: map[string]interface{}{
-				"source": "user_input",
-				"domain": domain,
+	// Extract meaningful facts using LLM (not just wrapping input)
+	facts, err := ki.extractMeaningfulFacts(input, domain, concepts)
+	if err != nil {
+		log.Printf("⚠️ Failed to extract meaningful facts: %v, falling back to basic extraction", err)
+		// Fallback to basic extraction
+		facts = []Fact{
+			{
+				ID:         fmt.Sprintf("fact_%d", time.Now().UnixNano()),
+				Content:    input,
+				Domain:     domain,
+				Confidence: 0.5, // Lower confidence for fallback
+				Properties: map[string]interface{}{
+					"source": "user_input",
+					"domain": domain,
+				},
+				Constraints: ki.extractConstraintsFromMap(concepts),
+				CreatedAt:   time.Now(),
 			},
-			Constraints: ki.extractConstraintsFromMap(concepts),
-			CreatedAt:   time.Now(),
-		},
+		}
+	}
+
+	// Score relevance and filter
+	facts = ki.filterByRelevance(facts, domain)
+
+	return facts, nil
+}
+
+// extractMeaningfulFacts uses LLM to extract actual facts from text
+func (ki *KnowledgeIntegration) extractMeaningfulFacts(input string, domain string, concepts []map[string]interface{}) ([]Fact, error) {
+	if len(strings.TrimSpace(input)) == 0 {
+		return []Fact{}, nil
+	}
+
+	// Get user interests/goals for relevance
+	userInterests := ki.getUserInterests()
+
+	// Build context about domain concepts
+	conceptNames := []string{}
+	for _, c := range concepts {
+		if name, ok := c["name"].(string); ok {
+			conceptNames = append(conceptNames, name)
+		}
+	}
+	conceptContext := strings.Join(conceptNames, ", ")
+	if conceptContext == "" {
+		conceptContext = "general knowledge"
+	}
+
+	// Create prompt for fact extraction with relevance focus
+	prompt := fmt.Sprintf(`Extract actionable, useful facts from the following text in the %s domain.
+
+Text: %s
+
+Domain Context: %s
+
+User Interests: %s
+
+Extract facts that are:
+1. ACTIONABLE - Can be used to accomplish tasks or make decisions
+2. SPECIFIC - Concrete information, not vague statements
+3. RELEVANT - Related to user interests or domain knowledge
+4. USEFUL - Will help with future tasks or understanding
+
+For each fact, provide:
+- A clear, specific statement
+- Why it's useful/actionable
+- Relevance score (0.0-1.0) based on user interests
+
+Return as JSON array:
+[
+  {
+    "fact": "Specific actionable fact",
+    "usefulness": "Why this fact is useful",
+    "relevance": 0.85,
+    "actionable": true
+  }
+]
+
+Skip facts that are:
+- Too vague or generic
+- Not actionable
+- Not relevant to user interests
+- Just restating obvious information
+
+If no useful facts found, return empty array [].`, domain, input, conceptContext, userInterests)
+
+	// Call HDN interpret endpoint
+	hdnURL := strings.TrimSuffix(ki.hdnURL, "/")
+	if hdnURL == "" {
+		hdnURL = "http://localhost:8081"
+	}
+
+	interpretURL := fmt.Sprintf("%s/api/v1/interpret", hdnURL)
+	reqData := map[string]interface{}{
+		"text": prompt,
+	}
+
+	reqJSON, err := json.Marshal(reqData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal fact extraction request: %w", err)
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Post(interpretURL, "application/json", bytes.NewReader(reqJSON))
+	if err != nil {
+		return nil, fmt.Errorf("fact extraction LLM call failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fact extraction returned status %d", resp.StatusCode)
+	}
+
+	var interpretResp map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&interpretResp); err != nil {
+		return nil, fmt.Errorf("failed to decode fact extraction response: %w", err)
+	}
+
+	// Extract facts from response
+	factsJSON, ok := interpretResp["result"].(string)
+	if !ok {
+		if result, ok := interpretResp["output"].(string); ok {
+			factsJSON = result
+		} else {
+			return nil, fmt.Errorf("no result in fact extraction response")
+		}
+	}
+
+	// Parse facts from JSON
+	var factData []map[string]interface{}
+	if err := json.Unmarshal([]byte(factsJSON), &factData); err != nil {
+		// Try to extract JSON array from text response
+		start := strings.Index(factsJSON, "[")
+		end := strings.LastIndex(factsJSON, "]")
+		if start >= 0 && end > start {
+			factsJSON = factsJSON[start : end+1]
+			if err := json.Unmarshal([]byte(factsJSON), &factData); err != nil {
+				return nil, fmt.Errorf("failed to parse facts JSON: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("no JSON array found in response")
+		}
+	}
+
+	// Convert to Fact structs
+	var facts []Fact
+	for _, fd := range factData {
+		factContent, _ := fd["fact"].(string)
+		relevance, _ := fd["relevance"].(float64)
+		actionable, _ := fd["actionable"].(bool)
+
+		if factContent == "" {
+			continue
+		}
+
+		// Ensure relevance is valid
+		if relevance < 0.0 {
+			relevance = 0.0
+		}
+		if relevance > 1.0 {
+			relevance = 1.0
+		}
+
+		// Only include actionable facts with reasonable relevance
+		if actionable && relevance >= 0.3 {
+			fact := Fact{
+				ID:         fmt.Sprintf("fact_%d", time.Now().UnixNano()),
+				Content:    factContent,
+				Domain:     domain,
+				Confidence: relevance, // Use relevance as confidence
+				Properties: map[string]interface{}{
+					"source":     "llm_extraction",
+					"domain":     domain,
+					"relevance":  relevance,
+					"actionable": actionable,
+					"usefulness": fd["usefulness"],
+				},
+				Constraints: ki.extractConstraintsFromMap(concepts),
+				CreatedAt:   time.Now(),
+			}
+			facts = append(facts, fact)
+			previewLen := 50
+			if len(factContent) < previewLen {
+				previewLen = len(factContent)
+			}
+			log.Printf("✨ Extracted relevant fact: %s (relevance: %.2f)", factContent[:previewLen], relevance)
+		}
+	}
+
+	if len(facts) > 0 {
+		log.Printf("📚 Extracted %d relevant facts from input", len(facts))
 	}
 
 	return facts, nil
+}
+
+// filterByRelevance filters facts by relevance score
+func (ki *KnowledgeIntegration) filterByRelevance(facts []Fact, domain string) []Fact {
+	userInterests := ki.getUserInterests()
+	var filtered []Fact
+
+	for _, fact := range facts {
+		// Get relevance score from properties
+		relevance := 0.5 // Default
+		if rel, ok := fact.Properties["relevance"].(float64); ok {
+			relevance = rel
+		} else {
+			// Calculate relevance if not provided
+			relevance = ki.calculateRelevance(fact.Content, userInterests, domain)
+		}
+
+		// Only keep facts with relevance >= 0.4
+		if relevance >= 0.4 {
+			fact.Confidence = relevance
+			fact.Properties["relevance"] = relevance
+			filtered = append(filtered, fact)
+		} else {
+			previewLen := 50
+			if len(fact.Content) < previewLen {
+				previewLen = len(fact.Content)
+			}
+			log.Printf("🛑 Filtered out low-relevance fact: %s (relevance: %.2f)",
+				fact.Content[:previewLen], relevance)
+		}
+	}
+
+	log.Printf("📊 Relevance filtering: %d facts kept out of %d (threshold: 0.4)", len(filtered), len(facts))
+	return filtered
+}
+
+// calculateRelevance calculates relevance score for a fact
+func (ki *KnowledgeIntegration) calculateRelevance(factContent string, userInterests string, domain string) float64 {
+	relevance := 0.5 // Base relevance
+
+	// Boost relevance if fact mentions user interests
+	if userInterests != "" {
+		lowerFact := strings.ToLower(factContent)
+		lowerInterests := strings.ToLower(userInterests)
+		interestWords := strings.Fields(lowerInterests)
+		matches := 0
+		for _, word := range interestWords {
+			if len(word) > 3 && strings.Contains(lowerFact, word) {
+				matches++
+			}
+		}
+		if matches > 0 {
+			relevance += float64(matches) * 0.15
+		}
+	}
+
+	// Boost relevance for actionable keywords
+	actionableKeywords := []string{"can", "should", "must", "need", "how to", "way to", "method", "process", "step"}
+	lowerFact := strings.ToLower(factContent)
+	for _, keyword := range actionableKeywords {
+		if strings.Contains(lowerFact, keyword) {
+			relevance += 0.1
+			break
+		}
+	}
+
+	// Penalize vague facts
+	vagueKeywords := []string{"something", "things", "stuff", "various", "many", "some"}
+	for _, keyword := range vagueKeywords {
+		if strings.Contains(lowerFact, keyword) {
+			relevance -= 0.1
+			break
+		}
+	}
+
+	// Ensure relevance is between 0 and 1
+	if relevance < 0 {
+		relevance = 0
+	}
+	if relevance > 1 {
+		relevance = 1
+	}
+
+	return relevance
+}
+
+// getUserInterests retrieves user interests/goals from Redis
+func (ki *KnowledgeIntegration) getUserInterests() string {
+	// Try to get user interests from Redis
+	interestsKey := "user:interests"
+	interests, err := ki.redis.Get(ki.ctx, interestsKey).Result()
+	if err == nil && interests != "" {
+		return interests
+	}
+
+	// Try to get from recent goals (what user is working on)
+	goalsKey := "reasoning:curiosity_goals:all"
+	goalsData, err := ki.redis.LRange(ki.ctx, goalsKey, 0, 4).Result()
+	if err == nil && len(goalsData) > 0 {
+		var interests []string
+		for _, goalData := range goalsData {
+			var goal map[string]interface{}
+			if err := json.Unmarshal([]byte(goalData), &goal); err == nil {
+				if desc, ok := goal["description"].(string); ok {
+					interests = append(interests, desc)
+				}
+			}
+		}
+		if len(interests) > 0 {
+			return strings.Join(interests, ", ")
+		}
+	}
+
+	return "general knowledge, problem solving, task completion"
 }
 
 // getExistingHypotheses retrieves existing hypotheses from Redis to avoid duplicates

@@ -310,6 +310,7 @@ type APIServer struct {
 	conversationalAPI    *conversational.ConversationalAPI
 	currentDomain        string
 	redis                *redis.Client
+	redisAddr            string // Redis address for learning data
 	projectManager       *ProjectManager
 	eventBus             *eventbus.NATSBus
 	workingMemory        *mempkg.WorkingMemoryManager
@@ -348,6 +349,7 @@ func NewAPIServer(domainPath string, redisAddr string) *APIServer {
 	server.redis = redis.NewClient(&redis.Options{
 		Addr: redisAddr,
 	})
+	server.redisAddr = redisAddr // Store for learning data
 
 	// Initialize project manager (24h TTL like others)
 	server.projectManager = NewProjectManager(redisAddr, 24)
@@ -2156,6 +2158,7 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 		s.toolMetrics,
 		s.fileStorage,
 		s.hdnBaseURL,
+		s.redisAddr,
 	)
 
 	// Execute intelligently with timeout
@@ -2928,6 +2931,7 @@ func (s *APIServer) handlePrimeNumbers(w http.ResponseWriter, r *http.Request) {
 		s.toolMetrics,
 		s.fileStorage,
 		s.hdnBaseURL,
+		s.redisAddr,
 	)
 
 	// Execute prime numbers example
@@ -2970,6 +2974,7 @@ func (s *APIServer) handleListCapabilities(w http.ResponseWriter, r *http.Reques
 		s.toolMetrics,
 		s.fileStorage,
 		s.hdnBaseURL,
+		s.redisAddr,
 	)
 
 	// Get cached capabilities
@@ -3065,6 +3070,7 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 				s.toolMetrics,
 				s.fileStorage,
 				s.hdnBaseURL,
+				s.redisAddr,
 			)
 
 			ctx := context.Background()
@@ -3247,6 +3253,7 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 			s.toolMetrics,
 			s.fileStorage,
 			s.hdnBaseURL,
+			s.redisAddr,
 		)
 
 		ctx := r.Context()
@@ -4232,6 +4239,7 @@ func (s *APIServer) handleInterpretAndExecute(w http.ResponseWriter, r *http.Req
 			s.toolMetrics,
 			s.fileStorage,
 			s.hdnBaseURL,
+			s.redisAddr,
 		)
 
 		result, err := executor.ExecuteTaskIntelligently(ctx, &ExecutionRequest{
@@ -4366,6 +4374,7 @@ func (s *APIServer) handleInformationalQuery(ctx context.Context, query string) 
 		s.toolMetrics,
 		s.fileStorage,
 		s.hdnBaseURL,
+		s.redisAddr,
 	)
 	
 	capabilities, err := executor.ListCachedCapabilities()
