@@ -2006,7 +2006,7 @@
                     return cards.join('');
                 };
                 if (trC) {
-                    const html = renderCards(traces.slice(0, 50), x => {
+                    const html = renderCards(traces.slice(0, 10), x => { // Reduced from 50 to 10
                         const title = x.goal || x.title || x.event || x.state || '';
                         const text = x.conclusion || x.text || x.message || x.detail || '';
                         const ts = x.created_at || x.timestamp || x.time;
@@ -2027,7 +2027,7 @@
                     trC.innerHTML = html || '<div class="loading">No reasoning traces</div>';
                 }
                 if (exC) {
-                    const html = renderCards(explanations.slice(0, 50), x => {
+                    const html = renderCards(explanations.slice(0, 5), x => { // Reduced from 50 to 5
                         const title = x.goal || x.title || x.id || '';
                         const text = x.explanation || x.summary || x.text || x.content || '';
                         const ts = x.generated_at || x.created_at || x.timestamp;
@@ -2045,7 +2045,7 @@
                     exC.innerHTML = html || '<div class="loading">No explanations</div>';
                 }
                 if (beC) {
-                    const html = renderCards(beliefs.slice(0, 50), x => {
+                    const html = renderCards(beliefs.slice(0, 10), x => { // Reduced from 50 to 10
                         const title = x.statement || x.title || x.concept || x.id || '';
                         const props = x.properties || {};
                         const text = x.reason || x.text || props.summary || props.description || x.value || '';
@@ -2069,7 +2069,7 @@
                     beC.innerHTML = html || '<div class="loading">No beliefs</div>';
                 }
                 if (cgC) {
-                    const html = renderCards(goals.slice(0, 50), x => {
+                    const html = renderCards(goals.slice(0, 10), x => { // Reduced from 50 to 10
                         const title = x.description || x.title || x.name || x.id || '';
                         const text = x.reason || x.text || (Array.isArray(x.targets) ? `Targets: ${x.targets.join(', ')}` : '');
                         const ts = x.created_at || x.timestamp;
@@ -2089,7 +2089,7 @@
                     cgC.innerHTML = html || '<div class="loading">No curiosity goals</div>';
                 }
                 if (hyC) {
-                    const hypCards = hypotheses.slice(0, 50).map(h => {
+                    const hypCards = hypotheses.slice(0, 10).map(h => { // Reduced from 50 to 10
                         const title = h.description || h.title || h.id || '';
                         const status = (h.status || 'unknown').toString().toLowerCase();
                         const conf = (typeof h.confidence === 'number') ? `${(h.confidence*100).toFixed(0)}%` : safe(h.confidence);
