@@ -87,9 +87,9 @@ func (kge *KnowledgeGrowthEngine) DiscoverNewConcepts(episodes []map[string]inte
 		discoveries = append(discoveries, concepts...)
 	}
 
-	// Remove duplicates and filter by HIGHER confidence threshold (0.75 instead of 0.6)
+	// Remove duplicates and filter by confidence threshold (0.6 - balanced to allow useful concepts)
 	discoveries = kge.deduplicateConcepts(discoveries)
-	discoveries = kge.filterByConfidence(discoveries, 0.75)
+	discoveries = kge.filterByConfidence(discoveries, 0.6)
 
 	log.Printf("📚 Discovered %d new concepts", len(discoveries))
 	return discoveries, nil
@@ -351,7 +351,7 @@ If no useful, relevant concepts are found, return empty array [].`, domain, text
 	// Call HDN interpret endpoint
 	interpretURL := fmt.Sprintf("%s/api/v1/interpret", hdnURL)
 	reqData := map[string]interface{}{
-		"text": prompt,
+		"input": prompt, // API expects "input" not "text"
 	}
 
 	reqJSON, err := json.Marshal(reqData)
@@ -946,7 +946,7 @@ Be strict: Only mark as novel and worth learning if genuinely new and useful.`, 
 
 	interpretURL := fmt.Sprintf("%s/api/v1/interpret", hdnURL)
 	reqData := map[string]interface{}{
-		"text": prompt,
+		"input": prompt, // API expects "input" not "text"
 	}
 
 	reqJSON, err := json.Marshal(reqData)

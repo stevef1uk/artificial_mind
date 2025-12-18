@@ -475,18 +475,58 @@ func (re *ReasoningEngine) executeCypherQuery(cypherQuery string) ([]Belief, err
 		return nil, err
 	}
 
-	// Convert results to beliefs with quality-based confidence
+	// Convert results to beliefs with quality-based confidence and LLM filtering
 	var beliefs []Belief
+	var filteredCount int
+
+	// Limit how many beliefs we process to avoid overwhelming the system
+	maxBeliefsToProcess := 100
+	if len(result.Results) > maxBeliefsToProcess {
+		log.Printf("⚠️ Limiting belief processing to %d out of %d results", maxBeliefsToProcess, len(result.Results))
+		result.Results = result.Results[:maxBeliefsToProcess]
+	}
+
 	for i, res := range result.Results {
 		statement := re.extractStatementFromResult(res)
 
 		// Calculate confidence based on data quality
 		confidence := re.calculateBeliefConfidence(res, statement)
 
-		// Skip low-confidence beliefs (filter at 0.5 threshold - lowered from 0.7 to allow more beliefs)
-		if confidence < 0.5 {
-			log.Printf("🛑 Skipping low-confidence belief: %s (confidence: %.2f)", statement, confidence)
+		// Skip low-confidence beliefs (filter at 0.45 threshold - adjusted to allow existing concepts)
+		if confidence < 0.45 {
+			filteredCount++
 			continue
+		}
+
+		// Skip LLM assessment for simple concept names (they're already in KB as concepts)
+		// Only assess beliefs that have substantial content beyond just a name
+		shouldAssess := confidence >= 0.7 && len(statement) > 20 &&
+			!strings.Contains(strings.ToLower(statement), "century") && // Skip time periods
+			!strings.Contains(strings.ToLower(statement), "in ") // Skip "X in Y" patterns
+
+		if shouldAssess {
+			isNovel, isWorthLearning, err := re.assessBeliefValue(statement, re.extractDomainFromResult(res))
+			if err != nil {
+				// If assessment fails, skip the belief (don't default to storing)
+				// This prevents storing beliefs when LLM assessment isn't working
+				log.Printf("⏭️ Skipping belief (assessment failed): %s - %v", statement[:minInt(50, len(statement))], err)
+				filteredCount++
+				continue
+			}
+
+			if !isNovel || !isWorthLearning {
+				filteredCount++
+				if !isNovel {
+					log.Printf("⏭️ Skipping belief (not novel/obvious): %s", statement[:minInt(50, len(statement))])
+				} else {
+					log.Printf("⏭️ Skipping belief (not worth learning): %s", statement[:minInt(50, len(statement))])
+				}
+				continue
+			}
+		} else if confidence >= 0.6 {
+			// For medium-confidence beliefs that don't meet assessment criteria,
+			// store them but log that they weren't assessed
+			log.Printf("ℹ️ Storing belief without LLM assessment (simple concept name): %s", statement[:minInt(50, len(statement))])
 		}
 
 		belief := Belief{
@@ -501,8 +541,8 @@ func (re *ReasoningEngine) executeCypherQuery(cypherQuery string) ([]Belief, err
 		beliefs = append(beliefs, belief)
 	}
 
-	log.Printf("📊 Belief quality: %d beliefs extracted (%d filtered for low confidence)",
-		len(beliefs), len(result.Results)-len(beliefs))
+	log.Printf("📊 Belief quality: %d beliefs extracted (%d filtered: %d low confidence, %d not worth learning)",
+		len(beliefs), filteredCount, len(result.Results)-len(beliefs)-filteredCount, filteredCount-(len(result.Results)-len(beliefs)))
 
 	return beliefs, nil
 }
@@ -973,11 +1013,27 @@ func (re *ReasoningEngine) isGenericGoal(goal CuriosityGoal) bool {
 
 // calculateBeliefConfidence calculates confidence based on data quality
 func (re *ReasoningEngine) calculateBeliefConfidence(result map[string]interface{}, statement string) float64 {
-	baseConfidence := 0.8
+	baseConfidence := 0.7 // Lowered from 0.8 to be less harsh
 
 	// Penalty for "Unknown concept" (no real data)
 	if statement == "Unknown concept" || strings.TrimSpace(statement) == "" {
 		return 0.3
+	}
+
+	// Check if this is an existing concept (has a name in knowledge base)
+	isExistingConcept := false
+	for _, k := range []string{"n", "c", "a", "b", "related"} {
+		if node, ok := result[k].(map[string]interface{}); ok {
+			if props, ok := node["Props"].(map[string]interface{}); ok {
+				// If concept exists in KB, give it baseline confidence
+				if name, ok := props["name"].(string); ok && name != "" {
+					isExistingConcept = true
+					// Existing concepts get baseline boost (they're known entities)
+					baseConfidence = 0.6 // Baseline for existing concepts
+					break
+				}
+			}
+		}
 	}
 
 	// Bonus for having a proper definition
@@ -993,14 +1049,15 @@ func (re *ReasoningEngine) calculateBeliefConfidence(result map[string]interface
 		}
 	}
 	if hasDefinition {
-		baseConfidence += 0.1
-	} else {
-		baseConfidence -= 0.2
+		baseConfidence += 0.15 // Increased bonus for definitions
+	} else if !isExistingConcept {
+		// Only penalize if it's not an existing concept
+		baseConfidence -= 0.1 // Reduced penalty from 0.2
 	}
 
-	// Penalty for very short statements (likely incomplete)
-	if len(statement) < 10 {
-		baseConfidence -= 0.15
+	// Reduced penalty for short statements (many valid concepts have short names)
+	if len(statement) < 10 && !isExistingConcept {
+		baseConfidence -= 0.1 // Reduced penalty from 0.15
 	}
 
 	// Bonus for longer, more detailed statements
@@ -1017,4 +1074,129 @@ func (re *ReasoningEngine) calculateBeliefConfidence(result map[string]interface
 	}
 
 	return baseConfidence
+}
+
+// assessBeliefValue uses LLM to assess if a belief from the knowledge base is worth storing
+// This prevents storing obvious/common knowledge that's already in the KB
+func (re *ReasoningEngine) assessBeliefValue(statement string, domain string) (bool, bool, error) {
+	if len(strings.TrimSpace(statement)) == 0 {
+		return false, false, nil
+	}
+
+	// Create prompt for LLM assessment
+	prompt := fmt.Sprintf(`Assess whether this knowledge from the knowledge base is worth storing as a belief.
+
+Knowledge: %s
+Domain: %s
+
+This knowledge already exists in the knowledge base. Should we store it as a belief?
+
+Evaluate:
+1. NOVELTY: Is this knowledge novel/interesting, or is it obvious/common knowledge?
+2. VALUE: Is this knowledge worth storing as a belief? Will it help with tasks or decisions?
+
+Return JSON:
+{
+  "is_novel": true/false,
+  "is_worth_learning": true/false,
+  "reasoning": "Brief explanation"
+}
+
+Be strict: Only mark as worth learning if:
+- The knowledge is actionable and useful
+- The knowledge will help accomplish tasks
+- The knowledge is not obvious/common knowledge
+- The knowledge adds value beyond just existing in the KB
+
+If the knowledge is obvious, common knowledge, or not actionable, mark is_worth_learning=false.`, statement, domain)
+
+	// Call HDN interpret endpoint
+	interpretURL := fmt.Sprintf("%s/api/v1/interpret", re.hdnURL)
+	reqData := map[string]interface{}{
+		"input": prompt, // API expects "input" not "text"
+	}
+
+	reqJSON, err := json.Marshal(reqData)
+	if err != nil {
+		return false, false, fmt.Errorf("failed to marshal assessment request: %w", err)
+	}
+
+	resp, err := re.httpClient.Post(interpretURL, "application/json", bytes.NewReader(reqJSON))
+	if err != nil {
+		return false, false, fmt.Errorf("belief assessment LLM call failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, false, fmt.Errorf("belief assessment returned status %d", resp.StatusCode)
+	}
+
+	var interpretResp map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&interpretResp); err != nil {
+		return false, false, fmt.Errorf("failed to decode assessment response: %w", err)
+	}
+
+	// Extract assessment from response
+	// The /api/v1/interpret endpoint returns InterpretationResult with tasks/message
+	// The LLM response (including JSON) is in the task description
+	var assessmentJSON string
+
+	// Try to get JSON from task descriptions first (most likely location)
+	if tasks, ok := interpretResp["tasks"].([]interface{}); ok && len(tasks) > 0 {
+		for _, t := range tasks {
+			if task, ok := t.(map[string]interface{}); ok {
+				// Check description field
+				if desc, ok := task["description"].(string); ok && desc != "" {
+					assessmentJSON = desc
+					break
+				}
+			}
+		}
+	}
+
+	// Fallback to message field
+	if assessmentJSON == "" {
+		if msg, ok := interpretResp["message"].(string); ok && msg != "" {
+			assessmentJSON = msg
+		}
+	}
+
+	// Final fallback: try result/output fields (for other endpoints)
+	if assessmentJSON == "" {
+		if result, ok := interpretResp["result"].(string); ok {
+			assessmentJSON = result
+		} else if output, ok := interpretResp["output"].(string); ok {
+			assessmentJSON = output
+		} else {
+			return false, false, fmt.Errorf("no assessment data in response")
+		}
+	}
+
+	// Extract JSON from the text (the LLM response may contain JSON embedded in text)
+	// Look for JSON object in the response
+	start := strings.Index(assessmentJSON, "{")
+	end := strings.LastIndex(assessmentJSON, "}")
+	if start >= 0 && end > start {
+		assessmentJSON = assessmentJSON[start : end+1]
+	} else {
+		return false, false, fmt.Errorf("no JSON found in assessment response: %s", assessmentJSON[:minInt(100, len(assessmentJSON))])
+	}
+
+	// Parse assessment JSON (already extracted above)
+	var assessment map[string]interface{}
+	if err := json.Unmarshal([]byte(assessmentJSON), &assessment); err != nil {
+		return false, false, fmt.Errorf("failed to parse assessment JSON: %w (extracted: %s)", err, assessmentJSON[:minInt(200, len(assessmentJSON))])
+	}
+
+	// Extract values
+	isNovel, _ := assessment["is_novel"].(bool)
+	isWorthLearning, _ := assessment["is_worth_learning"].(bool)
+
+	reasoning, _ := assessment["reasoning"].(string)
+	if reasoning != "" {
+		log.Printf("🧠 Belief assessment: '%s' - novel=%v, worth_learning=%v, reasoning=%s",
+			statement[:minInt(50, len(statement))], isNovel, isWorthLearning, reasoning)
+	}
+
+	return isNovel, isWorthLearning, nil
 }

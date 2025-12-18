@@ -250,7 +250,7 @@ If no useful facts found, return empty array [].`, domain, input, conceptContext
 
 	interpretURL := fmt.Sprintf("%s/api/v1/interpret", hdnURL)
 	reqData := map[string]interface{}{
-		"text": prompt,
+		"input": prompt, // API expects "input" not "text"
 	}
 
 	reqJSON, err := json.Marshal(reqData)
@@ -1334,7 +1334,7 @@ If the knowledge is not actionable or useful, mark is_worth_learning=false.`, kn
 
 	interpretURL := fmt.Sprintf("%s/api/v1/interpret", hdnURL)
 	reqData := map[string]interface{}{
-		"text": prompt,
+		"input": prompt, // API expects "input" not "text"
 	}
 
 	reqJSON, err := json.Marshal(reqData)
