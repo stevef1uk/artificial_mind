@@ -352,7 +352,7 @@ If no useful facts found, return empty array [].`, domain, input, conceptContext
 	return facts, nil
 }
 
-// filterByRelevance filters facts by relevance score
+// filterByRelevance filters facts by relevance score and checks for novelty
 func (ki *KnowledgeIntegration) filterByRelevance(facts []Fact, domain string) []Fact {
 	userInterests := ki.getUserInterests()
 	var filtered []Fact
@@ -369,9 +369,47 @@ func (ki *KnowledgeIntegration) filterByRelevance(facts []Fact, domain string) [
 
 		// Only keep facts with relevance >= 0.4
 		if relevance >= 0.4 {
-			fact.Confidence = relevance
-			fact.Properties["relevance"] = relevance
-			filtered = append(filtered, fact)
+			// Check if this fact is novel and worth learning
+			isNovel, isWorthLearning, err := ki.assessKnowledgeValue(fact.Content, domain)
+			if err != nil {
+				log.Printf("⚠️ Failed to assess knowledge value for fact, defaulting to store: %v", err)
+				// Default to storing if assessment fails
+				isNovel = true
+				isWorthLearning = true
+			}
+
+			if isNovel && isWorthLearning {
+				// Check if knowledge already exists
+				alreadyExists, err := ki.knowledgeAlreadyExists(fact.Content, domain)
+				if err != nil {
+					log.Printf("⚠️ Failed to check if knowledge exists, defaulting to store: %v", err)
+					alreadyExists = false
+				}
+
+				if !alreadyExists {
+					fact.Confidence = relevance
+					fact.Properties["relevance"] = relevance
+					fact.Properties["novel"] = isNovel
+					fact.Properties["worth_learning"] = isWorthLearning
+					filtered = append(filtered, fact)
+				} else {
+					previewLen := 50
+					if len(fact.Content) < previewLen {
+						previewLen = len(fact.Content)
+					}
+					log.Printf("⏭️ Skipping fact (already known): %s", fact.Content[:previewLen])
+				}
+			} else {
+				previewLen := 50
+				if len(fact.Content) < previewLen {
+					previewLen = len(fact.Content)
+				}
+				if !isNovel {
+					log.Printf("⏭️ Skipping fact (not novel/obvious): %s", fact.Content[:previewLen])
+				} else {
+					log.Printf("⏭️ Skipping fact (not worth learning): %s", fact.Content[:previewLen])
+				}
+			}
 		} else {
 			previewLen := 50
 			if len(fact.Content) < previewLen {
@@ -382,7 +420,7 @@ func (ki *KnowledgeIntegration) filterByRelevance(facts []Fact, domain string) [
 		}
 	}
 
-	log.Printf("📊 Relevance filtering: %d facts kept out of %d (threshold: 0.4)", len(filtered), len(facts))
+	log.Printf("📊 Relevance/novelty filtering: %d facts kept out of %d", len(filtered), len(facts))
 	return filtered
 }
 
@@ -1223,6 +1261,244 @@ func (ki *KnowledgeIntegration) extractConstraintsFromMap(concepts []map[string]
 	}
 
 	return constraints
+}
+
+// assessKnowledgeValue uses LLM to assess if knowledge is novel and worth learning
+// Returns: (isNovel, isWorthLearning, error)
+func (ki *KnowledgeIntegration) assessKnowledgeValue(knowledge string, domain string) (bool, bool, error) {
+	if len(strings.TrimSpace(knowledge)) == 0 {
+		return false, false, nil
+	}
+
+	// Get existing knowledge context
+	existingConcepts, err := ki.getDomainConcepts(domain)
+	if err != nil {
+		log.Printf("⚠️ Failed to get domain concepts for assessment: %v", err)
+		existingConcepts = []map[string]interface{}{}
+	}
+
+	// Build context of existing knowledge
+	conceptNames := []string{}
+	for _, c := range existingConcepts {
+		if name, ok := c["name"].(string); ok {
+			conceptNames = append(conceptNames, name)
+		}
+	}
+	existingContext := strings.Join(conceptNames, ", ")
+	if existingContext == "" {
+		existingContext = "No existing concepts in this domain"
+	}
+
+	// Create prompt for LLM assessment
+	prompt := fmt.Sprintf(`Assess whether the following knowledge is worth learning and storing.
+
+Knowledge to assess: %s
+Domain: %s
+Existing knowledge in domain: %s
+
+Evaluate:
+1. NOVELTY: Is this knowledge new/novel, or is it already obvious/known?
+   - Consider if this is common knowledge that everyone knows
+   - Consider if this is already covered by existing knowledge
+   - Consider if this is just restating something obvious
+
+2. VALUE: Is this knowledge worth storing?
+   - Will this help accomplish tasks or solve problems?
+   - Is this actionable and useful?
+   - Is this specific enough to be valuable?
+   - Will this help with future learning or decision-making?
+
+Return JSON:
+{
+  "is_novel": true/false,
+  "is_worth_learning": true/false,
+  "reasoning": "Brief explanation of why",
+  "novelty_score": 0.0-1.0,
+  "value_score": 0.0-1.0
+}
+
+Be strict: Only mark as novel and worth learning if:
+- The knowledge is genuinely new or adds meaningful detail
+- The knowledge is actionable and useful
+- The knowledge is not obvious/common knowledge
+- The knowledge is not already covered by existing knowledge
+
+If the knowledge is obvious, common knowledge, or already known, mark is_novel=false.
+If the knowledge is not actionable or useful, mark is_worth_learning=false.`, knowledge, domain, existingContext)
+
+	// Call HDN interpret endpoint
+	hdnURL := strings.TrimSuffix(ki.hdnURL, "/")
+	if hdnURL == "" {
+		hdnURL = "http://localhost:8081"
+	}
+
+	interpretURL := fmt.Sprintf("%s/api/v1/interpret", hdnURL)
+	reqData := map[string]interface{}{
+		"text": prompt,
+	}
+
+	reqJSON, err := json.Marshal(reqData)
+	if err != nil {
+		return false, false, fmt.Errorf("failed to marshal assessment request: %w", err)
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Post(interpretURL, "application/json", bytes.NewReader(reqJSON))
+	if err != nil {
+		return false, false, fmt.Errorf("knowledge assessment LLM call failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, false, fmt.Errorf("knowledge assessment returned status %d", resp.StatusCode)
+	}
+
+	var interpretResp map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&interpretResp); err != nil {
+		return false, false, fmt.Errorf("failed to decode assessment response: %w", err)
+	}
+
+	// Extract assessment from response
+	assessmentJSON, ok := interpretResp["result"].(string)
+	if !ok {
+		if result, ok := interpretResp["output"].(string); ok {
+			assessmentJSON = result
+		} else {
+			return false, false, fmt.Errorf("no result in assessment response")
+		}
+	}
+
+	// Parse assessment JSON
+	var assessment map[string]interface{}
+	if err := json.Unmarshal([]byte(assessmentJSON), &assessment); err != nil {
+		// Try to extract JSON from text response
+		start := strings.Index(assessmentJSON, "{")
+		end := strings.LastIndex(assessmentJSON, "}")
+		if start >= 0 && end > start {
+			assessmentJSON = assessmentJSON[start : end+1]
+			if err := json.Unmarshal([]byte(assessmentJSON), &assessment); err != nil {
+				return false, false, fmt.Errorf("failed to parse assessment JSON: %w", err)
+			}
+		} else {
+			return false, false, fmt.Errorf("no JSON found in assessment response")
+		}
+	}
+
+	// Extract values
+	isNovel, _ := assessment["is_novel"].(bool)
+	isWorthLearning, _ := assessment["is_worth_learning"].(bool)
+	
+	// Also check scores as fallback
+	if noveltyScore, ok := assessment["novelty_score"].(float64); ok && noveltyScore > 0.5 {
+		isNovel = true
+	}
+	if valueScore, ok := assessment["value_score"].(float64); ok && valueScore > 0.5 {
+		isWorthLearning = true
+	}
+
+	reasoning, _ := assessment["reasoning"].(string)
+	if reasoning != "" {
+		log.Printf("🧠 Knowledge assessment: novel=%v, worth_learning=%v, reasoning=%s", isNovel, isWorthLearning, reasoning)
+	}
+
+	return isNovel, isWorthLearning, nil
+}
+
+// knowledgeAlreadyExists checks if knowledge already exists in the knowledge base
+func (ki *KnowledgeIntegration) knowledgeAlreadyExists(knowledge string, domain string) (bool, error) {
+	if len(strings.TrimSpace(knowledge)) == 0 {
+		return false, nil
+	}
+
+	// Query HDN knowledge API to search for similar concepts/facts
+	hdnURL := strings.TrimSuffix(ki.hdnURL, "/")
+	if hdnURL == "" {
+		hdnURL = "http://localhost:8081"
+	}
+
+	// Extract key terms from knowledge for search
+	keyTerms := ki.extractKeyTerms(knowledge)
+	if len(keyTerms) == 0 {
+		return false, nil
+	}
+
+	// Search for concepts matching key terms
+	searchURL := fmt.Sprintf("%s/api/v1/knowledge/search?name=%s&limit=10", hdnURL, keyTerms[0])
+	resp, err := http.Get(searchURL)
+	if err != nil {
+		return false, fmt.Errorf("failed to search knowledge: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, nil // Assume not exists if search fails
+	}
+
+	var searchResult struct {
+		Concepts []map[string]interface{} `json:"concepts"`
+		Count    int                      `json:"count"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&searchResult); err != nil {
+		return false, nil // Assume not exists if decode fails
+	}
+
+	// Check if any existing concept is similar to the new knowledge
+	for _, concept := range searchResult.Concepts {
+		conceptName, _ := concept["name"].(string)
+		conceptDef, _ := concept["definition"].(string)
+		
+		// Simple similarity check - if knowledge contains concept name or vice versa
+		knowledgeLower := strings.ToLower(knowledge)
+		if conceptName != "" && strings.Contains(knowledgeLower, strings.ToLower(conceptName)) {
+			return true, nil
+		}
+		if conceptDef != "" {
+			defLen := len(conceptDef)
+			if defLen > 100 {
+				defLen = 100
+			}
+			if strings.Contains(knowledgeLower, strings.ToLower(conceptDef[:defLen])) {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
+// extractKeyTerms extracts key terms from knowledge for searching
+func (ki *KnowledgeIntegration) extractKeyTerms(knowledge string) []string {
+	// Simple extraction - remove common words and get meaningful terms
+	words := strings.Fields(strings.ToLower(knowledge))
+	commonWords := map[string]bool{
+		"the": true, "a": true, "an": true, "is": true, "are": true,
+		"was": true, "were": true, "be": true, "been": true, "being": true,
+		"have": true, "has": true, "had": true, "do": true, "does": true,
+		"did": true, "will": true, "would": true, "should": true, "could": true,
+		"can": true, "may": true, "might": true, "must": true, "this": true,
+		"that": true, "these": true, "those": true, "it": true, "its": true,
+		"they": true, "them": true, "their": true, "we": true, "our": true,
+		"you": true, "your": true, "i": true, "my": true, "me": true,
+		"to": true, "of": true, "in": true, "on": true, "at": true,
+		"for": true, "with": true, "by": true, "from": true, "as": true,
+		"and": true, "or": true, "but": true, "if": true, "then": true,
+	}
+
+	var keyTerms []string
+	for _, word := range words {
+		// Remove punctuation
+		word = strings.Trim(word, ".,!?;:()[]{}")
+		if len(word) > 3 && !commonWords[word] {
+			keyTerms = append(keyTerms, word)
+		}
+	}
+
+	// Return up to 5 key terms
+	if len(keyTerms) > 5 {
+		return keyTerms[:5]
+	}
+	return keyTerms
 }
 
 // evaluateFactHypothesisPotential evaluates the potential value of a fact-based hypothesis

@@ -208,8 +208,9 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 		// Check if we've recently generated basic exploration goals (avoid spam)
 		recentGoalsKey := fmt.Sprintf("reasoning:recent_goals:%s", domain)
 		recentCount, _ := re.redis.LLen(re.ctx, recentGoalsKey).Result()
-		
-		// If we've generated goals recently (within last 10 minutes), skip to avoid spam
+
+		// If we've generated goals recently (within last 2 minutes), skip to avoid spam
+		// Reduced from 10 minutes to 2 minutes to allow more goal generation
 		if recentCount > 0 {
 			// Check the timestamp of the most recent goal
 			recentGoalData, err := re.redis.LIndex(re.ctx, recentGoalsKey, 0).Result()
@@ -218,8 +219,8 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 				if json.Unmarshal([]byte(recentGoalData), &recentGoal) == nil {
 					if createdAtStr, ok := recentGoal["created_at"].(string); ok {
 						if createdAt, err := time.Parse(time.RFC3339, createdAtStr); err == nil {
-							if time.Since(createdAt) < 10*time.Minute {
-								log.Printf("ℹ️ Skipping goal generation - recently generated goals for domain %s (within last 10 minutes)", domain)
+							if time.Since(createdAt) < 2*time.Minute {
+								log.Printf("ℹ️ Skipping goal generation - recently generated goals for domain %s (within last 2 minutes)", domain)
 								return []CuriosityGoal{}, nil
 							}
 						}
@@ -227,7 +228,7 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 				}
 			}
 		}
-		
+
 		log.Printf("ℹ️ No concepts found in domain %s, generating basic exploration goals", domain)
 		// Generate basic exploration goals when no data exists
 		basicGoals := []CuriosityGoal{
@@ -250,15 +251,15 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 				CreatedAt:   time.Now(),
 			},
 		}
-		
+
 		// Track recent goal generation to prevent spam
 		for _, goal := range basicGoals {
 			goalData, _ := json.Marshal(goal)
 			re.redis.LPush(re.ctx, recentGoalsKey, goalData)
-			re.redis.LTrim(re.ctx, recentGoalsKey, 0, 9) // Keep last 10
-			re.redis.Expire(re.ctx, recentGoalsKey, 10*time.Minute)
+			re.redis.LTrim(re.ctx, recentGoalsKey, 0, 9)           // Keep last 10
+			re.redis.Expire(re.ctx, recentGoalsKey, 2*time.Minute) // Reduced from 10 to 2 minutes
 		}
-		
+
 		log.Printf("✅ Generated %d basic exploration goals", len(basicGoals))
 		return basicGoals, nil
 	}
@@ -482,8 +483,8 @@ func (re *ReasoningEngine) executeCypherQuery(cypherQuery string) ([]Belief, err
 		// Calculate confidence based on data quality
 		confidence := re.calculateBeliefConfidence(res, statement)
 
-		// Skip low-confidence beliefs (filter at 0.7 threshold)
-		if confidence < 0.7 {
+		// Skip low-confidence beliefs (filter at 0.5 threshold - lowered from 0.7 to allow more beliefs)
+		if confidence < 0.5 {
 			log.Printf("🛑 Skipping low-confidence belief: %s (confidence: %.2f)", statement, confidence)
 			continue
 		}

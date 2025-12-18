@@ -134,7 +134,7 @@ func (kge *KnowledgeGrowthEngine) GrowKnowledgeBase(episodes []map[string]interf
 	}
 	log.Printf("🔍 Initial discoveries: %d concepts before filtering", len(discoveries))
 
-	// 2. Create new concepts in the knowledge base (with enhanced quality gate)
+	// 2. Create new concepts in the knowledge base (with enhanced quality gate + novelty checking)
 	var createdCount, skippedCount int
 	for _, discovery := range discoveries {
 		// Additional quality check: require minimum definition length
@@ -148,6 +148,38 @@ func (kge *KnowledgeGrowthEngine) GrowKnowledgeBase(episodes []map[string]interf
 		// Avoid generic/meaningless concept names
 		if kge.isGenericConceptName(discovery.Name) {
 			log.Printf("⚠️ Skipping concept %s: name too generic", discovery.Name)
+			skippedCount++
+			continue
+		}
+
+		// Check if concept already exists
+		alreadyExists, err := kge.conceptAlreadyExists(discovery.Name, domain)
+		if err != nil {
+			log.Printf("⚠️ Failed to check if concept exists, defaulting to create: %v", err)
+			alreadyExists = false
+		}
+		if alreadyExists {
+			log.Printf("⏭️ Skipping concept %s: already exists in knowledge base", discovery.Name)
+			skippedCount++
+			continue
+		}
+
+		// Assess if concept is novel and worth learning
+		conceptKnowledge := fmt.Sprintf("%s: %s", discovery.Name, discovery.Definition)
+		isNovel, isWorthLearning, err := kge.assessConceptValue(conceptKnowledge, domain)
+		if err != nil {
+			log.Printf("⚠️ Failed to assess concept value, defaulting to create: %v", err)
+			// Default to creating if assessment fails
+			isNovel = true
+			isWorthLearning = true
+		}
+
+		if !isNovel || !isWorthLearning {
+			if !isNovel {
+				log.Printf("⏭️ Skipping concept %s: not novel/obvious", discovery.Name)
+			} else {
+				log.Printf("⏭️ Skipping concept %s: not worth learning", discovery.Name)
+			}
 			skippedCount++
 			continue
 		}
@@ -859,6 +891,170 @@ func (kge *KnowledgeGrowthEngine) isGenericConceptName(name string) bool {
 }
 
 // storeValidationMetrics stores validation metrics in Redis for monitoring
+// assessConceptValue uses LLM to assess if a concept is novel and worth learning
+func (kge *KnowledgeGrowthEngine) assessConceptValue(conceptKnowledge string, domain string) (bool, bool, error) {
+	if len(strings.TrimSpace(conceptKnowledge)) == 0 {
+		return false, false, nil
+	}
+
+	// Get existing knowledge context
+	existingConcepts, err := kge.getDomainConcepts(domain)
+	if err != nil {
+		log.Printf("⚠️ Failed to get domain concepts for assessment: %v", err)
+		existingConcepts = []map[string]interface{}{}
+	}
+
+	// Build context of existing knowledge
+	conceptNames := []string{}
+	for _, c := range existingConcepts {
+		if name, ok := c["name"].(string); ok {
+			conceptNames = append(conceptNames, name)
+		}
+	}
+	existingContext := strings.Join(conceptNames, ", ")
+	if existingContext == "" {
+		existingContext = "No existing concepts in this domain"
+	}
+
+	// Create prompt for LLM assessment (similar to knowledge_integration.go)
+	prompt := fmt.Sprintf(`Assess whether the following concept is worth learning and storing.
+
+Concept to assess: %s
+Domain: %s
+Existing concepts in domain: %s
+
+Evaluate:
+1. NOVELTY: Is this concept new/novel, or is it already obvious/known?
+2. VALUE: Is this concept worth storing? Will it help accomplish tasks?
+
+Return JSON:
+{
+  "is_novel": true/false,
+  "is_worth_learning": true/false,
+  "reasoning": "Brief explanation",
+  "novelty_score": 0.0-1.0,
+  "value_score": 0.0-1.0
+}
+
+Be strict: Only mark as novel and worth learning if genuinely new and useful.`, conceptKnowledge, domain, existingContext)
+
+	// Call HDN interpret endpoint
+	hdnURL := strings.TrimSuffix(kge.hdnURL, "/")
+	if hdnURL == "" {
+		hdnURL = "http://localhost:8081"
+	}
+
+	interpretURL := fmt.Sprintf("%s/api/v1/interpret", hdnURL)
+	reqData := map[string]interface{}{
+		"text": prompt,
+	}
+
+	reqJSON, err := json.Marshal(reqData)
+	if err != nil {
+		return false, false, fmt.Errorf("failed to marshal assessment request: %w", err)
+	}
+
+	resp, err := kge.httpClient.Post(interpretURL, "application/json", bytes.NewReader(reqJSON))
+	if err != nil {
+		return false, false, fmt.Errorf("concept assessment LLM call failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, false, fmt.Errorf("concept assessment returned status %d", resp.StatusCode)
+	}
+
+	var interpretResp map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&interpretResp); err != nil {
+		return false, false, fmt.Errorf("failed to decode assessment response: %w", err)
+	}
+
+	// Extract assessment from response
+	assessmentJSON, ok := interpretResp["result"].(string)
+	if !ok {
+		if result, ok := interpretResp["output"].(string); ok {
+			assessmentJSON = result
+		} else {
+			return false, false, fmt.Errorf("no result in assessment response")
+		}
+	}
+
+	// Parse assessment JSON
+	var assessment map[string]interface{}
+	if err := json.Unmarshal([]byte(assessmentJSON), &assessment); err != nil {
+		// Try to extract JSON from text response
+		start := strings.Index(assessmentJSON, "{")
+		end := strings.LastIndex(assessmentJSON, "}")
+		if start >= 0 && end > start {
+			assessmentJSON = assessmentJSON[start : end+1]
+			if err := json.Unmarshal([]byte(assessmentJSON), &assessment); err != nil {
+				return false, false, fmt.Errorf("failed to parse assessment JSON: %w", err)
+			}
+		} else {
+			return false, false, fmt.Errorf("no JSON found in assessment response")
+		}
+	}
+
+	// Extract values
+	isNovel, _ := assessment["is_novel"].(bool)
+	isWorthLearning, _ := assessment["is_worth_learning"].(bool)
+	
+	// Also check scores as fallback
+	if noveltyScore, ok := assessment["novelty_score"].(float64); ok && noveltyScore > 0.5 {
+		isNovel = true
+	}
+	if valueScore, ok := assessment["value_score"].(float64); ok && valueScore > 0.5 {
+		isWorthLearning = true
+	}
+
+	return isNovel, isWorthLearning, nil
+}
+
+// conceptAlreadyExists checks if a concept already exists in the knowledge base
+func (kge *KnowledgeGrowthEngine) conceptAlreadyExists(conceptName string, domain string) (bool, error) {
+	if len(strings.TrimSpace(conceptName)) == 0 {
+		return false, nil
+	}
+
+	// Query HDN knowledge API to search for the concept
+	hdnURL := strings.TrimSuffix(kge.hdnURL, "/")
+	if hdnURL == "" {
+		hdnURL = "http://localhost:8081"
+	}
+
+	// Search for concepts matching the name
+	searchURL := fmt.Sprintf("%s/api/v1/knowledge/search?name=%s&limit=10", hdnURL, conceptName)
+	resp, err := kge.httpClient.Get(searchURL)
+	if err != nil {
+		return false, fmt.Errorf("failed to search concepts: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, nil // Assume not exists if search fails
+	}
+
+	var searchResult struct {
+		Concepts []map[string]interface{} `json:"concepts"`
+		Count    int                      `json:"count"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&searchResult); err != nil {
+		return false, nil // Assume not exists if decode fails
+	}
+
+	// Check if any existing concept matches (case-insensitive)
+	conceptNameLower := strings.ToLower(conceptName)
+	for _, concept := range searchResult.Concepts {
+		existingName, _ := concept["name"].(string)
+		if strings.ToLower(existingName) == conceptNameLower {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 func (kge *KnowledgeGrowthEngine) storeValidationMetrics(domain string, contradictions, missingRelations int) {
 	key := fmt.Sprintf("knowledge:validation:metrics:%s", domain)
 	metrics := map[string]interface{}{

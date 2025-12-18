@@ -1191,6 +1191,38 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	taskKey := fmt.Sprintf("%s:%s", req.TaskName, req.Description)
 	now := time.Now()
 
+	// Filter out trivial repetitive tasks
+	trivialPatterns := []string{
+		"create example.txt",
+		"create example",
+		"list directory and create",
+		"list current directory",
+	}
+	descLower := strings.ToLower(req.Description)
+	for _, pattern := range trivialPatterns {
+		if strings.Contains(descLower, pattern) {
+			// Check if we've seen this trivial task recently (within 1 minute)
+			trivialKey := fmt.Sprintf("trivial:%s", pattern)
+			if ie.recentTasks == nil {
+				ie.recentTasks = make(map[string]time.Time)
+			}
+			if lastSeen, exists := ie.recentTasks[trivialKey]; exists {
+				if now.Sub(lastSeen) < 1*time.Minute {
+					log.Printf("⚠️ [INTELLIGENT] Trivial task filter: '%s' executed recently, skipping to prevent repetition", pattern)
+					return &IntelligentExecutionResult{
+						Success:        false,
+						Error:          fmt.Sprintf("Trivial task '%s' executed too recently, skipping to prevent repetition", pattern),
+						ExecutionTime:  time.Since(start),
+						WorkflowID:     workflowID,
+						RetryCount:     0,
+						UsedCachedCode: false,
+					}, nil
+				}
+			}
+			ie.recentTasks[trivialKey] = now
+		}
+	}
+
 	// Check if we've seen this exact task recently (within 5 seconds)
 	if ie.recentTasks == nil {
 		ie.recentTasks = make(map[string]time.Time)
@@ -1213,9 +1245,9 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	// Update the recent tasks map
 	ie.recentTasks[taskKey] = now
 
-	// Clean up old entries (older than 30 seconds)
+	// Clean up old entries (older than 5 minutes for better memory management)
 	for key, timestamp := range ie.recentTasks {
-		if now.Sub(timestamp) > 30*time.Second {
+		if now.Sub(timestamp) > 5*time.Minute {
 			delete(ie.recentTasks, key)
 		}
 	}
@@ -3459,6 +3491,20 @@ func (ie *IntelligentExecutor) generatePreventionHint(errorMsg, language string)
 
 // recordSuccessfulExecution records a successful execution for learning
 func (ie *IntelligentExecutor) recordSuccessfulExecution(req *ExecutionRequest, result *IntelligentExecutionResult, code *GeneratedCode) {
+	// Skip storing trivial repetitive capabilities
+	trivialPatterns := []string{
+		"create example.txt",
+		"create example",
+		"list directory and create",
+		"list current directory",
+	}
+	descLower := strings.ToLower(req.Description)
+	for _, pattern := range trivialPatterns {
+		if strings.Contains(descLower, pattern) {
+			log.Printf("🚫 [INTELLIGENT] Skipping capability storage for trivial task: %s", pattern)
+			return
+		}
+	}
 	if ie.learningRedis == nil {
 		return
 	}

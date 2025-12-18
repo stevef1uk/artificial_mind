@@ -8,7 +8,7 @@ The Artificial Mind FSM actively grows and improves the knowledge base through c
 
 ### Enhanced Learning Focus and Success
 
-The system now includes six major improvements to make learning more focused and successful:
+The system now includes eight major improvements to make learning more focused and successful:
 
 1. **Goal Outcome Learning System**: Tracks which goals succeed/fail and learns from outcomes
 2. **Enhanced Goal Scoring**: Uses historical success data to prioritize goals
@@ -16,8 +16,10 @@ The system now includes six major improvements to make learning more focused and
 4. **Focused Learning Strategy**: Focuses on promising areas (70% focused, 30% exploration)
 5. **Meta-Learning System**: Learns about its own learning process
 6. **Improved Concept Discovery**: Uses LLM-based semantic analysis instead of pattern matching
+7. **LLM-Based Novelty Assessment**: Uses LLM to assess if knowledge is novel and worth learning (NEW)
+8. **Duplicate Prevention**: Checks if knowledge already exists before storing (NEW)
 
-See `LEARNING_FOCUS_IMPROVEMENTS.md` for detailed information about these improvements.
+See `LEARNING_FOCUS_IMPROVEMENTS.md` and `RELEVANCE_FILTERING_IMPROVEMENTS.md` for detailed information about these improvements.
 
 ## Knowledge Growth Flow
 
@@ -33,9 +35,11 @@ User Input → FSM → learn → discover_concepts → evaluate → grow_knowled
 
 ### 1. **Concept Discovery** (in `learn` state)
 - Analyzes episodes for new domain concepts
-- Extracts patterns and relationships
+- Extracts patterns and relationships using LLM-based semantic analysis
+- **Assesses novelty and value** using LLM before storing (NEW)
+- **Checks if concept already exists** to prevent duplicates (NEW)
 - Creates new concepts with confidence scores
-- Auto-creates concepts above threshold
+- Auto-creates concepts above threshold (only if novel and valuable)
 
 ### 2. **Gap Analysis** (in `learn` state)
 - Identifies missing relationships
@@ -44,7 +48,9 @@ User Input → FSM → learn → discover_concepts → evaluate → grow_knowled
 - Prioritizes gaps by importance
 
 ### 3. **Knowledge Growth** (in `evaluate` state)
-- Creates new concepts from discoveries
+- Creates new concepts from discoveries (only if novel and valuable)
+- **Filters out obvious/common knowledge** using LLM assessment (NEW)
+- **Prevents duplicate knowledge** by checking existing knowledge base (NEW)
 - Fills high-priority knowledge gaps
 - Updates existing concepts with new information
 - Adds relationships and constraints

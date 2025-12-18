@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -49,6 +51,47 @@ func NewCodeStorage(redisAddr string, ttlHours int) *CodeStorage {
 func (cs *CodeStorage) StoreCode(code *GeneratedCode) error {
 	ctx := context.Background()
 
+	// Check for duplicate capabilities before storing
+	// Normalize task name and description for comparison
+	taskNameNorm := strings.ToLower(strings.TrimSpace(code.TaskName))
+	descNorm := strings.ToLower(strings.TrimSpace(code.Description))
+
+	// Skip trivial repetitive tasks
+	trivialPatterns := []string{
+		"create example.txt",
+		"create example",
+		"list directory and create",
+		"list current directory",
+	}
+	for _, pattern := range trivialPatterns {
+		if strings.Contains(descNorm, pattern) || strings.Contains(taskNameNorm, pattern) {
+			log.Printf("🚫 [CODE-STORAGE] Skipping storage of trivial task: %s", code.TaskName)
+			return nil // Return nil to not error, just skip
+		}
+	}
+
+	// Check for existing similar code (same task name + language)
+	existingKey := fmt.Sprintf("index:task:%s", code.TaskName)
+	existingIDs, err := cs.client.SMembers(ctx, existingKey).Result()
+	if err == nil && len(existingIDs) > 0 {
+		// Check if any existing code has similar description (normalized)
+		for _, existingID := range existingIDs {
+			existingCode, err := cs.GetCode(existingID)
+			if err != nil {
+				continue
+			}
+			// If same task name, language, and similar description, skip storing duplicate
+			if existingCode.Language == code.Language {
+				existingDescNorm := strings.ToLower(strings.TrimSpace(existingCode.Description))
+				// If descriptions are very similar (80% overlap), skip
+				if cs.similarity(existingDescNorm, descNorm) > 0.8 {
+					log.Printf("🚫 [CODE-STORAGE] Skipping duplicate capability: %s (similar to existing %s)", code.TaskName, existingID)
+					return nil // Skip duplicate
+				}
+			}
+		}
+	}
+
 	// Generate unique ID if not provided
 	if code.ID == "" {
 		code.ID = fmt.Sprintf("code_%d", time.Now().UnixNano())
@@ -78,6 +121,44 @@ func (cs *CodeStorage) StoreCode(code *GeneratedCode) error {
 	}
 
 	return nil
+}
+
+// similarity calculates a simple similarity score between two strings (0.0 to 1.0)
+func (cs *CodeStorage) similarity(s1, s2 string) float64 {
+	if s1 == s2 {
+		return 1.0
+	}
+	if len(s1) == 0 || len(s2) == 0 {
+		return 0.0
+	}
+
+	// Simple word overlap similarity
+	words1 := strings.Fields(s1)
+	words2 := strings.Fields(s2)
+	if len(words1) == 0 || len(words2) == 0 {
+		return 0.0
+	}
+
+	// Count common words
+	common := 0
+	for _, w1 := range words1 {
+		for _, w2 := range words2 {
+			if w1 == w2 {
+				common++
+				break
+			}
+		}
+	}
+
+	// Return ratio of common words to total unique words
+	maxLen := len(words1)
+	if len(words2) > maxLen {
+		maxLen = len(words2)
+	}
+	if maxLen == 0 {
+		return 0.0
+	}
+	return float64(common) / float64(maxLen)
 }
 
 // GetCode retrieves code by ID

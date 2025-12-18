@@ -46,6 +46,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - **Focused Learning** - System focuses on promising areas and learns from outcomes
 - **Meta-Learning** - System learns about its own learning process
 - **Semantic Concept Discovery** - LLM-based concept extraction with understanding
+- **Intelligent Knowledge Filtering** - LLM-based assessment of novelty and value to prevent storing obvious/duplicate knowledge
 
 ---
 
@@ -63,6 +64,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - [**Reasoning Implementation**](docs/REASONING_IMPLEMENTATION_SUMMARY.md) - Technical implementation details
 - [**Knowledge Growth**](docs/KNOWLEDGE_GROWTH.md) - Continuous learning system
 - [**Domain Knowledge**](docs/DOMAIN_KNOWLEDGE.md) - Knowledge representation and management
+- [**LLM-Based Knowledge Filtering**](docs/LLM_BASED_KNOWLEDGE_FILTERING.md) - Intelligent filtering of novel, valuable knowledge
 
 ### 💬 Interfaces & Communication
 - [**Conversational AI Summary**](docs/CONVERSATIONAL_AI_SUMMARY.md) - Natural language interface

@@ -2,7 +2,7 @@
 
 ## Overview
 
-I've improved the Artificial Mind's learning system to focus on **relevant, useful knowledge** rather than learning everything equally. The system now filters facts and concepts based on relevance to user interests and goals, ensuring it learns what's actually useful.
+I've improved the Artificial Mind's learning system to focus on **relevant, useful knowledge** rather than learning everything equally. The system now uses **LLM-based intelligent filtering** to assess novelty and value, checks for existing knowledge, and filters facts and concepts based on relevance to user interests and goals, ensuring it learns what's actually useful and novel.
 
 ## Problem Identified
 
@@ -90,6 +90,31 @@ facts := []Fact{
 - Logs filtered items for monitoring
 - Only stores relevant, useful knowledge
 
+### 6. **LLM-Based Novelty Assessment** ✅ (NEW)
+
+**Added:**
+- `assessKnowledgeValue()` - Uses LLM to assess if knowledge is novel and worth learning
+- `knowledgeAlreadyExists()` - Checks if knowledge already exists before storing
+- `assessConceptValue()` - Assesses concept novelty and value
+- `conceptAlreadyExists()` - Checks if concept already exists
+
+**Key Features:**
+- **Novelty Assessment**: LLM evaluates if knowledge is genuinely new or just obvious/common knowledge
+- **Value Assessment**: LLM evaluates if knowledge is actionable and worth storing
+- **Duplicate Prevention**: Checks knowledge base before storing to prevent duplicates
+- **Intelligent Filtering**: Only stores knowledge that is novel, valuable, and doesn't already exist
+
+**Assessment Criteria:**
+- **Novelty**: Is this knowledge new/novel, or is it already obvious/known?
+- **Value**: Will this help accomplish tasks or solve problems?
+- **Existence**: Does this knowledge already exist in the knowledge base?
+
+**Benefits:**
+- Prevents storing obvious/common knowledge
+- Avoids duplicate knowledge storage
+- Focuses on actionable, useful knowledge
+- Uses LLM intelligence to make filtering decisions
+
 ## Implementation Details
 
 ### Fact Extraction Flow
@@ -103,7 +128,11 @@ Extract specific facts with relevance scores
     ↓
 filterByRelevance() [Threshold: 0.4]
     ↓
-Store only relevant facts
+assessKnowledgeValue() [LLM-based novelty/value assessment]
+    ↓
+knowledgeAlreadyExists() [Check for duplicates]
+    ↓
+Store only novel, valuable, non-duplicate facts
 ```
 
 ### Concept Discovery Flow
@@ -117,7 +146,11 @@ Extract concepts with relevance scores
     ↓
 Filter concepts with relevance < 0.4
     ↓
-Store only relevant concepts
+conceptAlreadyExists() [Check for duplicates]
+    ↓
+assessConceptValue() [LLM-based novelty/value assessment]
+    ↓
+Store only novel, valuable, non-duplicate concepts
 ```
 
 ## Key Functions
@@ -142,6 +175,25 @@ Store only relevant concepts
 - Falls back to recent goals
 - Returns default interests if none found
 
+### `assessKnowledgeValue(knowledge, domain)` (NEW)
+- Uses LLM to assess if knowledge is novel and worth learning
+- Returns `(isNovel, isWorthLearning, error)`
+- Evaluates novelty (is it new or obvious?) and value (is it useful?)
+- Filters out obvious/common knowledge
+
+### `knowledgeAlreadyExists(knowledge, domain)` (NEW)
+- Checks if knowledge already exists in the knowledge base
+- Queries HDN knowledge API for similar concepts
+- Prevents duplicate storage
+
+### `assessConceptValue(conceptKnowledge, domain)` (NEW)
+- Similar to `assessKnowledgeValue` but for concepts
+- Assesses if a concept is novel and worth learning
+
+### `conceptAlreadyExists(conceptName, domain)` (NEW)
+- Checks if a concept already exists before storing
+- Prevents duplicate concept creation
+
 ## Expected Outcomes
 
 After these improvements:
@@ -151,6 +203,9 @@ After these improvements:
 3. **User-Focused Learning:** Learns what user cares about
 4. **Reduced Noise:** Filters out irrelevant knowledge
 5. **Actionable Knowledge:** Prioritizes knowledge that helps accomplish tasks
+6. **Novel Knowledge Only:** Only stores genuinely new, non-obvious knowledge
+7. **No Duplicates:** Prevents storing knowledge that already exists
+8. **Intelligent Filtering:** Uses LLM to make smart decisions about what to learn
 
 ## Configuration
 
@@ -198,6 +253,10 @@ The Artificial Mind now learns **more relevant, useful knowledge** by:
 - Scoring relevance based on user interests
 - Filtering out irrelevant knowledge
 - Prioritizing actionable, useful information
+- **Using LLM to assess novelty and value** (NEW)
+- **Checking for existing knowledge before storing** (NEW)
+- **Preventing duplicate knowledge storage** (NEW)
+- **Filtering out obvious/common knowledge** (NEW)
 
-This makes the system more focused and useful, learning what actually matters rather than everything equally.
+This makes the system more focused and useful, learning what actually matters rather than everything equally. The system now uses **intelligent LLM-based filtering** to ensure it only learns novel, valuable knowledge that doesn't already exist.
 
