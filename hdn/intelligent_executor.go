@@ -2096,8 +2096,20 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 
 	// (removed: normalization during validation)
 	env := map[string]string{}
+	// Filter out non-functional context keys that shouldn't be passed to code execution
+	// These keys can cause the LLM to generate code that references them incorrectly
+	skipKeys := map[string]bool{
+		"session_id":         true,
+		"project_id":         true,
+		"artifact_names":     true,
+		"save_code_filename": true,
+		"saveCodeFilename":   true,
+		"artifacts":          true,
+		"artifactsWrapper":   true,
+		"prefer_traditional": true,
+	}
 	for k, v := range req.Context {
-		if v != "" {
+		if v != "" && !skipKeys[strings.TrimSpace(strings.ToLower(k))] {
 			env[k] = v
 		}
 	}
@@ -2487,6 +2499,18 @@ func sanitizeGeneratedPythonCode(code string) string {
 	// This prevents safety loops by stripping lines that invoke external commands
 	reUnsafe := regexp.MustCompile(`(?m)^.*(subprocess\.|os\.system\().*$`)
 	fixed = reUnsafe.ReplaceAllString(fixed, "")
+
+	// Fix session_id references that try to convert to int
+	// Pattern: session_id = int(os.getenv('session_id', 'default'))
+	// Replace with: session_id = os.getenv('session_id', 'default') or remove if not needed
+	reSessionIDInt := regexp.MustCompile(`(?m)^\s*session_id\s*=\s*int\(os\.getenv\(['"]session_id['"],\s*['"][^'"]*['"]\)\)`)
+	fixed = reSessionIDInt.ReplaceAllString(fixed, "")
+	// Also handle variations like session_id = int(os.getenv("session_id", default))
+	reSessionIDInt2 := regexp.MustCompile(`(?m)^\s*session_id\s*=\s*int\(os\.getenv\(["']session_id["'],\s*[^)]+\)\)`)
+	fixed = reSessionIDInt2.ReplaceAllString(fixed, "")
+	// Remove any remaining session_id assignments that aren't needed
+	reSessionIDAny := regexp.MustCompile(`(?m)^\s*session_id\s*=\s*os\.getenv\(['"]session_id['"][^)]*\)`)
+	fixed = reSessionIDAny.ReplaceAllString(fixed, "")
 
 	// If a dict is saved via to_csv, wrap it in DataFrame first
 	// Replace patterns like: <name>.to_csv(path) where <name> may be a dict
