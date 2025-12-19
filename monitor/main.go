@@ -175,9 +175,44 @@ func NewMonitorService() *MonitorService {
 	if fsmURL == "" {
 		fsmURL = "http://localhost:8083"
 	}
+	// Check NEO4J_URL first, fall back to NEO4J_URI if not set (for compatibility)
 	neo4jURL := strings.TrimSpace(os.Getenv("NEO4J_URL"))
 	if neo4jURL == "" {
-		neo4jURL = "http://localhost:7474"
+		// Fall back to NEO4J_URI (used by other services) and convert if needed
+		neo4jURI := strings.TrimSpace(os.Getenv("NEO4J_URI"))
+		if neo4jURI != "" {
+			neo4jURL = neo4jURI
+		} else {
+			neo4jURL = "http://localhost:7474"
+		}
+	}
+	
+	// Convert Bolt protocol URL to HTTP monitoring URL if needed
+	// Works for both Kubernetes and non-Kubernetes:
+	// - bolt://localhost:7687 -> http://localhost:7474
+	// - bolt://neo4j.agi.svc.cluster.local:7687 -> http://neo4j.agi.svc.cluster.local:7474
+	if strings.HasPrefix(neo4jURL, "bolt://") {
+		neo4jURL = strings.Replace(neo4jURL, "bolt://", "http://", 1)
+		// Replace port 7687 with 7474 (HTTP port)
+		if strings.Contains(neo4jURL, ":7687") {
+			neo4jURL = strings.Replace(neo4jURL, ":7687", ":7474", 1)
+		} else if !strings.Contains(neo4jURL, ":") {
+			// No port specified, add HTTP port
+			neo4jURL = neo4jURL + ":7474"
+		} else {
+			// Has a port but not 7687, replace it with 7474
+			parts := strings.Split(neo4jURL, ":")
+			if len(parts) >= 2 {
+				neo4jURL = strings.Join(parts[:len(parts)-1], ":") + ":7474"
+			}
+		}
+	} else if !strings.HasPrefix(neo4jURL, "http://") && !strings.HasPrefix(neo4jURL, "https://") {
+		// If it's not a full URL, assume it's just a host and add http:// and port
+		if !strings.Contains(neo4jURL, ":") {
+			neo4jURL = "http://" + neo4jURL + ":7474"
+		} else {
+			neo4jURL = "http://" + neo4jURL
+		}
 	}
 	weaviateURL := strings.TrimSpace(os.Getenv("WEAVIATE_URL"))
 	if weaviateURL == "" {
@@ -189,8 +224,29 @@ func NewMonitorService() *MonitorService {
 	} else if strings.HasPrefix(natsURL, "nats://") {
 		// Convert NATS protocol URL to HTTP monitoring URL
 		// nats://nats.agi.svc.cluster.local:4222 -> http://nats.agi.svc.cluster.local:8223
+		// nats://nats.agi.svc.cluster.local -> http://nats.agi.svc.cluster.local:8223
 		natsURL = strings.Replace(natsURL, "nats://", "http://", 1)
-		natsURL = strings.Replace(natsURL, ":4222", ":8223", 1)
+		// Replace port 4222 with 8223, or add :8223 if no port specified
+		if strings.Contains(natsURL, ":4222") {
+			natsURL = strings.Replace(natsURL, ":4222", ":8223", 1)
+		} else if !strings.Contains(natsURL, ":") {
+			// No port specified, add monitoring port
+			natsURL = natsURL + ":8223"
+		} else {
+			// Has a port but not 4222, replace it with 8223
+			// Extract host and replace port
+			parts := strings.Split(natsURL, ":")
+			if len(parts) >= 2 {
+				natsURL = strings.Join(parts[:len(parts)-1], ":") + ":8223"
+			}
+		}
+	} else if !strings.HasPrefix(natsURL, "http://") && !strings.HasPrefix(natsURL, "https://") {
+		// If it's not a full URL, assume it's just a host and add http:// and port
+		if !strings.Contains(natsURL, ":") {
+			natsURL = "http://" + natsURL + ":8223"
+		} else {
+			natsURL = "http://" + natsURL
+		}
 	}
 
 	m := &MonitorService{
