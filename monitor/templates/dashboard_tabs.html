@@ -8,7 +8,7 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-    <script src="/static/js/logs.js"></script>
+    <!-- <script src="/static/js/logs.js"></script> --> <!-- Optional: logs.js not required -->
     <style>
         * {
             margin: 0;
@@ -842,8 +842,8 @@
             reasoning: false
         };
 
-        // Tab switching
-        function switchTab(tabName) {
+        // Tab switching (make globally accessible)
+        window.switchTab = function(tabName) {
             console.log('switchTab called with:', tabName);
             // Hide all tabs
             document.querySelectorAll('.tab-content').forEach(tab => {
@@ -957,8 +957,8 @@
             }
         }
 
-        // Refresh current tab
-        function refreshCurrentTab() {
+        // Refresh current tab (make globally accessible)
+        window.refreshCurrentTab = function() {
             tabDataLoaded[currentTab] = false;
             loadTabData(currentTab);
         }
@@ -2490,7 +2490,6 @@
                             toolsListDiv.innerHTML += unregisteredHtml;
                         }
                     }
-                }
                 
             } catch (error) {
                 toolMetricsDiv.innerHTML = `<div class="error">Error loading tool metrics: ${error.message}</div>`;
