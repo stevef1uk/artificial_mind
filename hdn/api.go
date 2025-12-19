@@ -350,6 +350,14 @@ func NewAPIServer(domainPath string, redisAddr string) *APIServer {
 		Addr: redisAddr,
 	})
 	server.redisAddr = redisAddr // Store for learning data
+	
+	// Test Redis connection
+	ctx := context.Background()
+	if err := server.redis.Ping(ctx).Err(); err != nil {
+		log.Printf("⚠️  [API] Failed to connect to Redis at %s: %v", redisAddr, err)
+	} else {
+		log.Printf("✅ [API] Successfully connected to Redis at %s", redisAddr)
+	}
 
 	// Initialize project manager (24h TTL like others)
 	server.projectManager = NewProjectManager(redisAddr, 24)
@@ -2770,12 +2778,8 @@ func (s *APIServer) createIntelligentWorkflowRecord(req IntelligentExecutionRequ
 	// Then, try to get actual generated files from file storage
 	if result.GeneratedCode != nil {
 		// Get files from file storage using the workflow ID that was used for file storage
-		redisAddr := getenvTrim("REDIS_URL")
-		if redisAddr == "" {
-			redisAddr = "localhost:6379"
-		} else if strings.HasPrefix(redisAddr, "redis://") {
-			redisAddr = strings.TrimPrefix(redisAddr, "redis://")
-		}
+		redisAddrRaw := getenvTrim("REDIS_URL")
+		redisAddr := normalizeRedisAddr(redisAddrRaw)
 		fileStorage := NewFileStorage(redisAddr, 24)
 		storedFiles, err := fileStorage.GetFilesByWorkflow(workflowID)
 		if err == nil {
@@ -3118,8 +3122,13 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 				redisAddr := getenvTrim("REDIS_URL")
 				if redisAddr == "" {
 					redisAddr = "localhost:6379"
-				} else if strings.HasPrefix(redisAddr, "redis://") {
-					redisAddr = strings.TrimPrefix(redisAddr, "redis://")
+				} else {
+					// Strip redis:// prefix if present
+					if strings.HasPrefix(redisAddr, "redis://") {
+						redisAddr = strings.TrimPrefix(redisAddr, "redis://")
+					}
+					// Remove trailing slash if present
+					redisAddr = strings.TrimSuffix(redisAddr, "/")
 				}
 				fs := NewFileStorage(redisAddr, 24)
 				if files, err := fs.GetFilesByWorkflow(wfID); err == nil && len(files) > 0 {

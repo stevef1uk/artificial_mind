@@ -133,6 +133,27 @@ func getenvTrim(key string) string {
 	return strings.TrimSpace(v)
 }
 
+// normalizeRedisAddr normalizes a Redis address from environment variable
+// Handles redis:// prefix and ensures proper format
+func normalizeRedisAddr(addr string) string {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return "localhost:6379"
+	}
+	// Strip redis:// prefix if present
+	if strings.HasPrefix(addr, "redis://") {
+		addr = strings.TrimPrefix(addr, "redis://")
+	}
+	// Remove trailing slash if present
+	addr = strings.TrimSuffix(addr, "/")
+	// Ensure we have a valid address format (host:port)
+	if !strings.Contains(addr, ":") {
+		// If no port specified, add default Redis port
+		addr = addr + ":6379"
+	}
+	return addr
+}
+
 func startAPIServer(domainPath string, config *ServerConfig) {
 	// Create enhanced domain with config
 	enhancedDomain := &EnhancedDomain{
@@ -191,11 +212,12 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 	enhancedDomain.Config.Settings = envConfig.Settings
 
 	// Initialize domain and action managers (env override REDIS_URL)
-	redisAddr := getenvTrim("REDIS_URL")
-	if redisAddr == "" {
-		redisAddr = "localhost:6379"
-	} else if strings.HasPrefix(redisAddr, "redis://") {
-		redisAddr = strings.TrimPrefix(redisAddr, "redis://")
+	redisAddrRaw := getenvTrim("REDIS_URL")
+	redisAddr := normalizeRedisAddr(redisAddrRaw)
+	if redisAddrRaw == "" {
+		log.Printf("⚠️  [REDIS] REDIS_URL not set, using default: %s", redisAddr)
+	} else {
+		log.Printf("✅ [REDIS] Using Redis address: %s (from REDIS_URL: %s)", redisAddr, redisAddrRaw)
 	}
 
 	// Create API server
@@ -227,6 +249,13 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 	redisClient := redis.NewClient(&redis.Options{
 		Addr: redisAddr,
 	})
+	// Test Redis connection
+	ctx := context.Background()
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		log.Printf("⚠️  [REDIS] Failed to connect to Redis at %s: %v", redisAddr, err)
+	} else {
+		log.Printf("✅ [REDIS] Successfully connected to Redis at %s", redisAddr)
+	}
 
 	// Initialize self-model manager
 	selfModelManager := selfmodel.NewManager(redisAddr, "hdn_self_model")
