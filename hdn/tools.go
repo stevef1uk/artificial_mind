@@ -814,22 +814,50 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 
 		// Handle html_scraper by running host binary if present (no Docker)
 		if id == "tool_html_scraper" {
-			candidates := []string{
+			// Try to resolve project root from environment variable
+			projectRoot := strings.TrimSpace(os.Getenv("AGI_PROJECT_ROOT"))
+			candidates := []string{}
+
+			if projectRoot != "" {
+				// Use absolute paths based on project root
+				candidates = append(candidates,
+					filepath.Join(projectRoot, "bin", "html-scraper"),
+					filepath.Join(projectRoot, "bin", "tools", "html_scraper"),
+				)
+			}
+
+			// Also try relative paths (for backward compatibility)
+			candidates = append(candidates,
 				filepath.Join("bin", "html-scraper"),
 				filepath.Join("..", "bin", "html-scraper"),
 				filepath.Join("bin", "tools", "html_scraper"),
 				filepath.Join("..", "bin", "tools", "html_scraper"),
+			)
+
+			// Try to make relative paths absolute
+			wd, _ := os.Getwd()
+			if wd != "" {
+				candidates = append(candidates,
+					filepath.Join(wd, "bin", "tools", "html_scraper"),
+					filepath.Join(wd, "bin", "html-scraper"),
+				)
 			}
+
 			bin := ""
 			for _, c := range candidates {
 				if fileExists(c) {
-					bin = c
+					// Make path absolute for reliable execution
+					if abs, err := filepath.Abs(c); err == nil {
+						bin = abs
+					} else {
+						bin = c
+					}
 					break
 				}
 			}
 			if bin == "" {
 				w.WriteHeader(http.StatusNotFound)
-				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "html scraper not built"})
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "html scraper not built - checked paths: " + strings.Join(candidates, ", ")})
 				return
 			}
 			url, _ := getString(params, "url")

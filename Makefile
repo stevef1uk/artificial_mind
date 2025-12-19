@@ -588,8 +588,8 @@ dev: build
 .PHONY: docker-build-push
 docker-build-push:
 	@echo "🐳 Building and pushing all Docker images..."
-	@chmod +x build-and-push-images.sh
-	@./build-and-push-images.sh
+	@chmod +x scripts/build-and-push-images.sh
+	@./scripts/build-and-push-images.sh
 
 # Check Docker images status
 .PHONY: docker-check
