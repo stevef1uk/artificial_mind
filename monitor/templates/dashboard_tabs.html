@@ -2275,13 +2275,21 @@
                 
                 // Debug: Log raw API responses
                 console.log('[Tools UI] Tools API response:', toolsRes.data);
+                console.log('[Tools UI] Tools API status:', toolsRes.status, toolsRes.statusText);
                 console.log('[Tools UI] Metrics API response:', allMetricsRes.data);
                 
                 let tools = (toolsRes.data && toolsRes.data.tools) ? toolsRes.data.tools : [];
+                if (!Array.isArray(tools)) {
+                    console.error('[Tools UI] Tools is not an array!', typeof tools, tools);
+                    tools = [];
+                }
                 const allMetricsRaw = Array.isArray(allMetricsRes.data?.metrics) ? allMetricsRes.data.metrics : [];
                 const allMetrics = allMetricsRaw.filter(it => !excludeIds.includes(it.tool_id));
                 
                 console.log('[Tools UI] Found', tools.length, 'tools and', allMetrics.length, 'metrics');
+                if (tools.length === 0) {
+                    console.warn('[Tools UI] ⚠️ No tools found! Check API response above.');
+                }
                 console.log('[Tools UI] Tool IDs:', tools.map(t => ({ id: t.id, name: t.name })));
                 console.log('[Tools UI] Metric tool_ids (full details):', allMetrics.map(m => ({
                     tool_id: m.tool_id,
@@ -2346,20 +2354,40 @@
                     'tool_ls','tool_exec','tool_file_read','tool_file_write','tool_docker_list','tool_codegen'
                 ]);
 
+                console.log('[Tools UI] Before filtering:', tools.length, 'tools');
+                console.log('[Tools UI] Filter settings - origin:', origin, 'hideEphemeral:', hideEphemeral);
+                
                 tools = tools.filter(t => {
                     // origin filter by created_by: 'system' | 'agent'
-                    if (origin === 'system' && String((t.created_by||'')).toLowerCase() !== 'system') return false;
-                    if (origin === 'agent' && String((t.created_by||'')).toLowerCase() !== 'agent') return false;
-                    if (hideEphemeral && ephemeralIds.has(String(t.id||''))) return false;
+                    if (origin === 'system' && String((t.created_by||'')).toLowerCase() !== 'system') {
+                        console.log('[Tools UI] Filtered out (origin):', t.id, 'created_by:', t.created_by);
+                        return false;
+                    }
+                    if (origin === 'agent' && String((t.created_by||'')).toLowerCase() !== 'agent') {
+                        console.log('[Tools UI] Filtered out (origin):', t.id, 'created_by:', t.created_by);
+                        return false;
+                    }
+                    if (hideEphemeral && ephemeralIds.has(String(t.id||''))) {
+                        console.log('[Tools UI] Filtered out (ephemeral):', t.id);
+                        return false;
+                    }
                     return true;
                 });
 
-                if (toolsListDiv) {
-                    console.log('[Tools UI] Rendering tools:', tools.length, 'tools after filtering');
-                    if (tools.length === 0) {
-                        console.warn('[Tools UI] No tools to display after filtering');
-                        toolsListDiv.innerHTML = '<div class="loading">No tools registered (check filters)</div>';
-                    } else {
+                console.log('[Tools UI] After filtering:', tools.length, 'tools remaining');
+
+                if (!toolsListDiv) {
+                    console.error('[Tools UI] ❌ tools-list-content div not found! Cannot render tools.');
+                    return;
+                }
+                
+                console.log('[Tools UI] Rendering tools:', tools.length, 'tools after filtering');
+                if (tools.length === 0) {
+                    console.warn('[Tools UI] No tools to display after filtering');
+                    console.warn('[Tools UI] Original tools count:', allTools.length);
+                    console.warn('[Tools UI] Check filter settings above');
+                    toolsListDiv.innerHTML = '<div class="loading">No tools registered (check filters)</div>';
+                } else {
                         toolsListDiv.innerHTML = tools.map(t => {
                             // Try exact match first, then normalized match
                             const toolId = String(t.id || '').trim();
