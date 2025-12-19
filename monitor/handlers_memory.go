@@ -193,20 +193,15 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 			Tags:      []string{"news"},
 		}
 
-		// Require a URL for linking if present in record or metadata
-		// Check record.URL first since that's where news events store their URLs
+		// Add URL if present, but don't require it (some news items may not have URLs)
 		if strings.TrimSpace(record.URL) != "" {
 			event.Metadata = ensureMap(event.Metadata)
 			event.Metadata["url"] = record.URL
-		} else if url, ok := event.Metadata["url"].(string); ok {
-			if strings.TrimSpace(url) == "" {
-				// No URL found, skip as it's likely not a concrete article
-				continue
-			}
-		} else {
-			// No URL found, skip as it's likely not a concrete article
-			continue
+		} else if url, ok := event.Metadata["url"].(string); ok && strings.TrimSpace(url) != "" {
+			event.Metadata = ensureMap(event.Metadata)
+			event.Metadata["url"] = url
 		}
+		// Note: We no longer skip items without URLs - they can still be displayed
 
 		// Only include actual news content
 		if event.Source == "news:fsm" || event.Source == "wikipedia" {
@@ -214,12 +209,15 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 		}
 	}
 
-	// Dedupe by canonical URL (keep newest timestamp)
+	// Dedupe by canonical URL (keep newest timestamp), but also include items without URLs
 	byURL := make(map[string]NewsEvent)
+	withoutURL := make([]NewsEvent, 0)
 	for _, ev := range newsEvents {
 		u, _ := ev.Metadata["url"].(string)
 		key := strings.TrimSpace(strings.ToLower(u))
 		if key == "" {
+			// Items without URLs are kept separately
+			withoutURL = append(withoutURL, ev)
 			continue
 		}
 		prev, ok := byURL[key]
@@ -228,9 +226,12 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 		}
 	}
 	newsEvents = newsEvents[:0]
+	// Add deduplicated items with URLs
 	for _, ev := range byURL {
 		newsEvents = append(newsEvents, ev)
 	}
+	// Add items without URLs (no deduplication needed)
+	newsEvents = append(newsEvents, withoutURL...)
 
 	// Sort by timestamp (newest first)
 	sort.Slice(newsEvents, func(i, j int) bool {
@@ -420,13 +421,11 @@ func (m *MonitorService) getWikipediaEvents(c *gin.Context) {
 			strings.Contains(lower, "outcome\":\"") {
 			return
 		}
-		// Require title and URL for interesting, navigable items
+		// Require title for interesting items, but URL is optional
 		if strings.TrimSpace(article.Title) == "" {
 			return
 		}
-		if strings.TrimSpace(article.URL) == "" {
-			return
-		}
+		// Note: URL is optional - Wikipedia items can be displayed without URLs
 
 		event := WikipediaEvent{
 			ID:        article.Additional.ID,

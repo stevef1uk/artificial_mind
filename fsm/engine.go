@@ -1452,10 +1452,6 @@ func (e *FSMEngine) executeExecuteCapability(action ActionConfig, event map[stri
 			e.context["selected_capability"] = selected
 		}
 	}
-	if selected == nil {
-		log.Printf("❌ No capability selected")
-		return
-	}
 
 	// Build request
 	base := os.Getenv("HDN_URL")
@@ -1474,10 +1470,22 @@ func (e *FSMEngine) executeExecuteCapability(action ActionConfig, event map[stri
 
 	// Build natural language input for interpret endpoint
 	desc := "Execute a task"
-	if v, ok := selected["description"].(string); ok && v != "" {
-		desc = v
-	} else if v, ok := selected["name"].(string); ok && v != "" {
-		desc = fmt.Sprintf("Execute %s", v)
+	if selected != nil {
+		// Use selected capability description
+		if v, ok := selected["description"].(string); ok && v != "" {
+			desc = v
+		} else if v, ok := selected["name"].(string); ok && v != "" {
+			desc = fmt.Sprintf("Execute %s", v)
+		}
+	} else {
+		// No capability selected - check if we have a current goal (curiosity goal)
+		if currentGoal := e.getCurrentGoal(); currentGoal != "" && currentGoal != "Unknown goal" {
+			desc = currentGoal
+			log.Printf("🎯 Using current curiosity goal as execution input: %s", desc)
+		} else {
+			log.Printf("❌ No capability selected and no current goal")
+			return
+		}
 	}
 
 	payload := map[string]interface{}{
@@ -2184,6 +2192,18 @@ func (e *FSMEngine) executeNewsStorage(action ActionConfig, event map[string]int
 		return
 	}
 
+	// Skip timer_tick and other non-news events
+	if eventType == "timer_tick" || eventType == "" {
+		return
+	}
+
+	// Only process actual news events (relations, alerts, etc.)
+	payload, ok := event["payload"].(map[string]interface{})
+	if !ok || len(payload) == 0 {
+		// Not a news event with content, skip
+		return
+	}
+
 	// Forward news events to HDN server for episodic memory indexing
 	e.forwardNewsEventToHDN(event)
 
@@ -2325,16 +2345,20 @@ func (e *FSMEngine) storeNewsEventInWeaviate(event map[string]interface{}) {
 	log.Printf("🔍 DEBUG: Event type: %s", eventType)
 
 	payload, ok := event["payload"].(map[string]interface{})
-	if !ok {
-		log.Printf("❌ DEBUG: No payload found in event")
+	if !ok || len(payload) == 0 {
+		log.Printf("⚠️ Skipping event - no payload or empty payload")
 		return
 	}
 	log.Printf("🔍 DEBUG: Payload: %+v", payload)
 
+	// Metadata is optional - create empty map if not present
 	metadata, ok := payload["metadata"].(map[string]interface{})
 	if !ok {
-		log.Printf("❌ DEBUG: No metadata found in payload")
-		return
+		metadata = make(map[string]interface{})
+		// Try to extract headline from text if no metadata
+		if text, ok := payload["text"].(string); ok && text != "" {
+			metadata["headline"] = text
+		}
 	}
 	log.Printf("🔍 DEBUG: Metadata: %+v", metadata)
 
