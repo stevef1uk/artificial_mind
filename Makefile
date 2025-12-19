@@ -12,7 +12,6 @@ ifeq ($(ARCH),x86_64)
 else ifeq ($(ARCH),aarch64)
 	GOARCH := arm64
 	# For ARM64, recommend Docker builds but allow native builds
-	$(warning WARNING: Building on ARM64. For production, consider using Docker builds instead.)
 endif
 
 # Cross-compilation support
