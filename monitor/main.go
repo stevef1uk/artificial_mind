@@ -2413,8 +2413,9 @@ func (m *MonitorService) ragSearch(c *gin.Context) {
 	vectorStr += "]"
 
 	// GraphQL query for Weaviate
+	// Note: metadata is stored as a text field (JSON string), not an object, so we can't query sub-fields
 	query := fmt.Sprintf(`{
-		"query": "{ Get { %s(nearVector: {vector: %s}, limit: %d) { _additional { id distance } title text source timestamp metadata { confidence event_type project_id summary id outcome event_id artifacts goal_id workflow_id } } } }"
+		"query": "{ Get { %s(nearVector: {vector: %s}, limit: %d) { _additional { id distance } title text source timestamp url metadata } } }"
 	}`, collection, vectorStr, limitInt)
 
 	url := strings.TrimRight(m.weaviateURL, "/") + "/v1/graphql"

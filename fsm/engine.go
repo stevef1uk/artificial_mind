@@ -2197,6 +2197,11 @@ func (e *FSMEngine) executeNewsStorage(action ActionConfig, event map[string]int
 		return
 	}
 
+	// Skip user messages and other conversational events - these are not news
+	if eventType == "user_message" || eventType == "assistant_message" || eventType == "conversation" {
+		return
+	}
+
 	// Only process actual news events (relations, alerts, etc.)
 	payload, ok := event["payload"].(map[string]interface{})
 	if !ok || len(payload) == 0 {

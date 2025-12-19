@@ -696,6 +696,13 @@
                         <input type="text" id="rag-query" placeholder="Enter your search query...">
                     </div>
                     <div class="input-group">
+                        <label for="rag-collection">Collection:</label>
+                        <select id="rag-collection">
+                            <option value="AgiWiki" selected>AgiWiki (Wikipedia)</option>
+                            <option value="WikipediaArticle">WikipediaArticle (News + Wiki)</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
                         <label for="rag-limit">Limit:</label>
                         <select id="rag-limit">
                             <option value="10">10 results</option>
@@ -2547,6 +2554,7 @@
         window.performRAGSearch = async function() {
             const query = document.getElementById('rag-query').value.trim();
             const limit = document.getElementById('rag-limit').value;
+            const collection = document.getElementById('rag-collection')?.value || 'AgiWiki';
             const resultDiv = document.getElementById('rag-results');
             
             if (!query) {
@@ -2557,7 +2565,7 @@
             try {
                 resultDiv.innerHTML = '<div class="loading">Searching...</div>';
                 
-                const response = await axios.get(`/api/rag/search?q=${encodeURIComponent(query)}&limit=${limit}`, { timeout: 10000 });
+                const response = await axios.get(`/api/rag/search?q=${encodeURIComponent(query)}&limit=${limit}&collection=${encodeURIComponent(collection)}`, { timeout: 10000 });
                 // Normalize response shape: accept array or common wrappers, plus backend's { result: { points: [...] } }
                 const raw = response.data;
                 let results = [];

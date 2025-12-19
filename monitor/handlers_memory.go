@@ -177,6 +177,12 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 		if strings.Contains(record.Title, "News Event: agi.tool.created") {
 			continue
 		}
+		// Skip user messages and other conversational events
+		if strings.Contains(record.Title, "News Event: user_message") ||
+			strings.Contains(record.Title, "News Event: assistant_message") ||
+			strings.Contains(record.Title, "News Event: conversation") {
+			continue
+		}
 		// Require basic ingestion signals
 		if strings.TrimSpace(record.Title) == "" {
 			continue
