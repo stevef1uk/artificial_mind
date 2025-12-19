@@ -322,20 +322,14 @@ type WikipediaEvent struct {
 func (m *MonitorService) getWikipediaEvents(c *gin.Context) {
 	_ = c.DefaultQuery("limit", "20") // Future use for pagination
 
-	// Query both AgiWiki and WikipediaArticle classes for wikipedia-sourced items
+	// Query AgiWiki class for wikipedia-sourced items. The wiki bootstrapper
+	// indexes articles into this class when using Weaviate as the backing
+	// vector DB.
 	query := map[string]interface{}{
 		"query": `
         {
             Get {
                 AgiWiki(limit: 50, where: { path: ["source"], operator: Equal, valueString: "wikipedia" }) {
-                    _additional { id }
-                    title
-                    text
-                    source
-                    url
-                    timestamp
-                }
-                WikipediaArticle(limit: 50, where: { path: ["source"], operator: Equal, valueString: "wikipedia" }) {
                     _additional { id }
                     title
                     text
@@ -369,16 +363,6 @@ func (m *MonitorService) getWikipediaEvents(c *gin.Context) {
 					URL       string `json:"url"`
 					Timestamp string `json:"timestamp"`
 				} `json:"AgiWiki"`
-				WikipediaArticle []struct {
-					Additional struct {
-						ID string `json:"id"`
-					} `json:"_additional"`
-					Title     string `json:"title"`
-					Text      string `json:"text"`
-					Source    string `json:"source"`
-					URL       string `json:"url"`
-					Timestamp string `json:"timestamp"`
-				} `json:"WikipediaArticle"`
 			} `json:"Get"`
 		} `json:"data"`
 		Errors []struct {
@@ -444,9 +428,6 @@ func (m *MonitorService) getWikipediaEvents(c *gin.Context) {
 	}
 
 	for _, article := range weaviateResp.Data.Get.AgiWiki {
-		appendIfInteresting(article)
-	}
-	for _, article := range weaviateResp.Data.Get.WikipediaArticle {
 		appendIfInteresting(article)
 	}
 

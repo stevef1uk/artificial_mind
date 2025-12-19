@@ -158,7 +158,9 @@ func main() {
 		vectorDB = NewQdrantClient(cfg.QdrantURL, "agi-wiki")
 		log.Printf("🔗 Using Qdrant: %s", cfg.QdrantURL)
 	} else {
-		vectorDB = NewWeaviateClient(cfg.QdrantURL, "WikipediaArticle")
+		// Use AgiWiki class in Weaviate, which is where the wiki bootstrapper
+		// stores articles when indexing into the agi-wiki collection.
+		vectorDB = NewWeaviateClient(cfg.QdrantURL, "AgiWiki")
 		log.Printf("🔗 Using Weaviate: %s", cfg.QdrantURL)
 	}
 
