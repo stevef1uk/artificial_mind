@@ -2355,8 +2355,10 @@
                 });
 
                 if (toolsListDiv) {
+                    console.log('[Tools UI] Rendering tools:', tools.length, 'tools after filtering');
                     if (tools.length === 0) {
-                        toolsListDiv.innerHTML = '<div class="loading">No tools registered</div>';
+                        console.warn('[Tools UI] No tools to display after filtering');
+                        toolsListDiv.innerHTML = '<div class="loading">No tools registered (check filters)</div>';
                     } else {
                         toolsListDiv.innerHTML = tools.map(t => {
                             // Try exact match first, then normalized match

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -154,7 +155,18 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 	}
 
 	if len(weaviateResp.Errors) > 0 {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Weaviate query error: " + weaviateResp.Errors[0].Message})
+		// If the class doesn't exist, return empty results instead of an error
+		// This can happen if Weaviate schema hasn't been initialized yet
+		errorMsg := weaviateResp.Errors[0].Message
+		if strings.Contains(errorMsg, "Cannot query field") || strings.Contains(errorMsg, "does not exist") {
+			log.Printf("⚠️ Weaviate class WikipediaArticle does not exist yet, returning empty news events")
+			c.JSON(http.StatusOK, gin.H{
+				"events": []NewsEvent{},
+				"count":  0,
+			})
+			return
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Weaviate query error: " + errorMsg})
 		return
 	}
 
