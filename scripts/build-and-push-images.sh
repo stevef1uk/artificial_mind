@@ -85,16 +85,38 @@ build_and_push() {
     local image_name=$2
     local description=$3
     
-    print_status "Building $description ($image_name)..."
+    print_status "Building $description ($image_name) for ARM64..."
     
-    if docker build -f "$dockerfile" \
-        --build-arg CUSTOMER_PUBLIC_KEY=secure/customer_public.pem \
-        --build-arg VENDOR_PUBLIC_KEY=secure/vendor_public.pem \
-        -t "$DOCKER_USERNAME/$image_name:secure" .; then
-        print_success "Built $image_name:secure"
+    # Use buildx for ARM64 cross-compilation if not on ARM64
+    if [ "$ARCH" != "aarch64" ]; then
+        # Ensure buildx is available and create builder if needed
+        if ! docker buildx inspect arm64-builder >/dev/null 2>&1; then
+            print_status "Creating ARM64 buildx builder..."
+            docker buildx create --name arm64-builder --use --bootstrap >/dev/null 2>&1 || true
+        fi
+        docker buildx use arm64-builder >/dev/null 2>&1 || true
+        
+        if docker buildx build --platform linux/arm64 -f "$dockerfile" \
+            --build-arg CUSTOMER_PUBLIC_KEY=secure/customer_public.pem \
+            --build-arg VENDOR_PUBLIC_KEY=secure/vendor_public.pem \
+            -t "$DOCKER_USERNAME/$image_name:secure" \
+            --load .; then
+            print_success "Built $image_name:secure (ARM64)"
+        else
+            print_error "Failed to build $image_name:secure"
+            return 1
+        fi
     else
-        print_error "Failed to build $image_name:secure"
-        return 1
+        # Native ARM64 build
+        if docker build -f "$dockerfile" \
+            --build-arg CUSTOMER_PUBLIC_KEY=secure/customer_public.pem \
+            --build-arg VENDOR_PUBLIC_KEY=secure/vendor_public.pem \
+            -t "$DOCKER_USERNAME/$image_name:secure" .; then
+            print_success "Built $image_name:secure"
+        else
+            print_error "Failed to build $image_name:secure"
+            return 1
+        fi
     fi
     
     print_status "Pushing $image_name:secure to Docker Hub..."
