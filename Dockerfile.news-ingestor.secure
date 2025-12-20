@@ -29,11 +29,12 @@ RUN test -f /keys/customer_public.pem && test -f /keys/vendor_public.pem
 RUN install -d /payload /out \
  && mv /app/bbc-news-ingestor /payload/data-processor \
  && echo "Running packager command:" \
- && echo "/usr/local/bin/packager -in /payload -out /out -pub /keys/customer_public.pem -license -vendor-pub /keys/vendor_public.pem" \
+ && echo "/usr/local/bin/packager -in /payload -out /out -pub /keys/customer_public.pem -zip=true -license -vendor-pub /keys/vendor_public.pem" \
  && /usr/local/bin/packager \
      -in /payload \
      -out /out \
      -pub /keys/customer_public.pem \
+     -zip=true \
      -license \
      -vendor-pub /keys/vendor_public.pem
 
