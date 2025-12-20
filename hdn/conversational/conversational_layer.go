@@ -94,10 +94,11 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		return cl.handleError("Failed to parse intent", err, req.SessionID)
 	}
 
-	cl.reasoningTrace.AddStep("intent_parsing", "Parsed user intent", map[string]interface{}{
+	cl.reasoningTrace.AddStep("intent_parsing", fmt.Sprintf("Parsed user intent: %s (confidence: %.2f)", intent.Type, intent.Confidence), map[string]interface{}{
 		"intent_type": intent.Type,
 		"confidence":  intent.Confidence,
 		"entities":    intent.Entities,
+		"goal":        intent.Goal,
 	})
 
 	// Step 2: Load conversation context
@@ -117,7 +118,7 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		return cl.handleError("Failed to determine action", err, req.SessionID)
 	}
 
-	cl.reasoningTrace.AddStep("action_determination", "Determined action to take", map[string]interface{}{
+	cl.reasoningTrace.AddStep("action_determination", fmt.Sprintf("Determined action: %s to achieve: %s", action.Type, action.Goal), map[string]interface{}{
 		"action_type": action.Type,
 		"action_goal": action.Goal,
 	})
@@ -128,9 +129,16 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		return cl.handleError("Failed to execute action", err, req.SessionID)
 	}
 
-	cl.reasoningTrace.AddStep("action_execution", "Executed action", map[string]interface{}{
+	resultDesc := "Executed action"
+	if result.Success {
+		resultDesc = fmt.Sprintf("Successfully executed action, got %s result", result.Type)
+	} else {
+		resultDesc = fmt.Sprintf("Action execution failed: %s", result.Error)
+	}
+	cl.reasoningTrace.AddStep("action_execution", resultDesc, map[string]interface{}{
 		"success":     result.Success,
 		"output_type": result.Type,
+		"error":       result.Error,
 	})
 
 	// Step 5: Generate natural language response
@@ -147,7 +155,11 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		return cl.handleError("Failed to generate response", err, req.SessionID)
 	}
 
-	cl.reasoningTrace.AddStep("response_generation", "Generated natural language response", map[string]interface{}{
+	responsePreview := response.Text
+	if len(responsePreview) > 100 {
+		responsePreview = responsePreview[:100] + "..."
+	}
+	cl.reasoningTrace.AddStep("response_generation", fmt.Sprintf("Generated response (confidence: %.2f): %s", response.Confidence, responsePreview), map[string]interface{}{
 		"response_length": len(response.Text),
 		"confidence":      response.Confidence,
 	})
@@ -204,6 +216,27 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		conversationResponse.ThinkingSummary = thoughtExpression.Summary
 		conversationResponse.Metadata["thought_count"] = len(thoughtExpression.Thoughts)
 		conversationResponse.Metadata["thinking_confidence"] = thoughtExpression.Confidence
+		
+		// Store thoughts as ThoughtEvents in Redis for later retrieval
+		for _, thought := range thoughtExpression.Thoughts {
+			thoughtEvent := ThoughtEvent{
+				SessionID:  req.SessionID,
+				Type:       thought.Type,
+				State:      thought.State,
+				Goal:       thought.Goal,
+				Thought:    thought.Content,
+				Confidence: thought.Confidence,
+				ToolUsed:   thought.ToolUsed,
+				Action:     thought.Action,
+				Result:     thought.Result,
+				Timestamp:  thought.Timestamp.Format(time.RFC3339Nano),
+				Metadata:   thought.Metadata,
+			}
+			if err := cl.thoughtExpression.StoreThoughtEvent(ctx, thoughtEvent); err != nil {
+				log.Printf("⚠️ [CONVERSATIONAL] Failed to store thought event: %v", err)
+			}
+		}
+		log.Printf("💾 [CONVERSATIONAL] Stored %d thought events for session: %s", len(thoughtExpression.Thoughts), req.SessionID)
 	}
 
 	// Add reasoning trace if requested
@@ -299,17 +332,26 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 
 	switch action.Type {
 	case "knowledge_query":
-		// Use HDN's intelligent execution for knowledge queries
-		result, err := cl.hdnClient.ExecuteTask(ctx, action.Goal, hdnContext)
+		// Use HDN's natural language interpretation for knowledge queries (allows tool usage)
+		interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, action.Goal, hdnContext)
 		if err != nil {
 			return nil, fmt.Errorf("knowledge query failed: %w", err)
 		}
+		
+		// Track tool usage if present in the result
+		if interpretResult != nil && interpretResult.Metadata != nil {
+			if toolID, ok := interpretResult.Metadata["tool_used"].(string); ok && toolID != "" {
+				cl.reasoningTrace.AddToolInvoked(toolID)
+				log.Printf("🔧 [CONVERSATIONAL] Tracked tool invocation: %s", toolID)
+			}
+		}
+		
 		return &ActionResult{
 			Type:    "knowledge_result",
 			Success: true,
 			Data: map[string]interface{}{
-				"result": result,
-				"source": "hdn_intelligent_execution",
+				"result": interpretResult,
+				"source": "hdn_natural_language",
 			},
 		}, nil
 
@@ -344,17 +386,26 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		}, nil
 
 	case "learning":
-		// Use HDN's learning capabilities
-		learnResult, err := cl.hdnClient.LearnFromLLM(ctx, action.Goal, hdnContext)
+		// Use HDN's natural language interpretation for learning queries (allows tool usage)
+		interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, action.Goal, hdnContext)
 		if err != nil {
 			return nil, fmt.Errorf("learning failed: %w", err)
 		}
+		
+		// Track tool usage if present in the result
+		if interpretResult != nil && interpretResult.Metadata != nil {
+			if toolID, ok := interpretResult.Metadata["tool_used"].(string); ok && toolID != "" {
+				cl.reasoningTrace.AddToolInvoked(toolID)
+				log.Printf("🔧 [CONVERSATIONAL] Tracked tool invocation: %s", toolID)
+			}
+		}
+		
 		return &ActionResult{
 			Type:    "learning_result",
 			Success: true,
 			Data: map[string]interface{}{
-				"result": learnResult,
-				"source": "hdn_learning",
+				"result": interpretResult,
+				"source": "hdn_natural_language",
 			},
 		}, nil
 
@@ -364,6 +415,15 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		if err != nil {
 			return nil, fmt.Errorf("explanation failed: %w", err)
 		}
+		
+		// Track tool usage if present in the result
+		if interpretResult != nil && interpretResult.Metadata != nil {
+			if toolID, ok := interpretResult.Metadata["tool_used"].(string); ok && toolID != "" {
+				cl.reasoningTrace.AddToolInvoked(toolID)
+				log.Printf("🔧 [CONVERSATIONAL] Tracked tool invocation: %s", toolID)
+			}
+		}
+		
 		return &ActionResult{
 			Type:    "explanation_result",
 			Success: true,
@@ -379,6 +439,15 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		if err != nil {
 			return nil, fmt.Errorf("general conversation failed: %w", err)
 		}
+		
+		// Track tool usage if present in the result
+		if interpretResult != nil && interpretResult.Metadata != nil {
+			if toolID, ok := interpretResult.Metadata["tool_used"].(string); ok && toolID != "" {
+				cl.reasoningTrace.AddToolInvoked(toolID)
+				log.Printf("🔧 [CONVERSATIONAL] Tracked tool invocation: %s", toolID)
+			}
+		}
+		
 		return &ActionResult{
 			Type:    "conversation_result",
 			Success: true,

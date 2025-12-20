@@ -221,6 +221,9 @@ graph TB
   - **Self-Model Manager**: Goal tracking and learning
   - **Tool Registry & Discovery**: Redis-backed catalog (`tool:{id}`, `tools:registry`), bootstrap, discovery, registration APIs (`/api/v1/tools*`)
   - **Tool Executor**: Sandboxed execution (Docker), pre-exec Principles gate, output JSON parsing/normalization, usage logging (`tools:{agent_id}:usage_history`)
+  - **MCP Knowledge Server**: Exposes knowledge bases (Neo4j, Weaviate) as MCP tools for LLM access
+  - **Composite Tool Provider**: Combines HDN tools and MCP knowledge tools, automatically discovered by the LLM
+  - **Conversational Layer**: Natural language interface with chain-of-thought visibility and thought storage
   - See `Tools.md` for the tool schema, lifecycle, and operational details
 
 For a deeper, HDN-specific architecture diagram and narrative, see `hdn_architecture.md` and `Tools.md`.
@@ -246,6 +249,13 @@ For a deeper, HDN-specific architecture diagram and narrative, see `hdn_architec
   - Workflow artifact management
   - Capability code previews with modal viewer
   - Project dashboard: create/view projects, link workflows, view artifacts
+  - **Chain of Thought Tab**: Explore AI reasoning process with:
+    - Session management with message previews
+    - Thought visualization with timestamps, confidence, and metadata
+    - Integrated chat interface for creating sessions
+    - Real-time thought storage and retrieval
+    - Conversation history display
+  - **Chat Proxy**: Proxies chat requests to HDN with `show_thinking` enabled
 
 ### 5. **Self-Model** (`self/`)
 - **Purpose**: Self-awareness, motivations, and learning
@@ -290,7 +300,7 @@ Motivation & Goal Manager (policy layer):
 /- Scoring: simple `importance(priority) * confidence` by default; pluggable policy
 /- Runtime: subscribes to events, spawns/updates goals, archives achieved/failed
 
-### 6. **Event Bus** (`eventbus/`)
+### 7. **Event Bus** (`eventbus/`)
 - **Purpose**: Single canonical backbone for all perceptions, messages, telemetry, and inter-module events
 - **Technology**: NATS Core (subjects: `agi.events.*`, default: `agi.events.input`)
 - **Schema**: Canonical event envelope ensures uniform shape across producers/consumers
@@ -418,7 +428,21 @@ User Request → Domain Knowledge Validation → Planner/Evaluator → Domain-Aw
 - **Relationship Traversal**: Find related concepts and alternative approaches
 - **Knowledge Updates**: Learn from execution results to update domain knowledge
 
-### 5. Proposed: Project Flow
+### 5. **MCP Knowledge Integration Flow (Database-First Approach)**
+```
+User Question → Conversational Layer → Intent Parsing → LLM Sees MCP Tools → 
+LLM Chooses MCP Tool → MCP Server → Neo4j/Weaviate Query → Results → LLM Response
+```
+- **Database-First Strategy**: LLM is encouraged to query knowledge bases before generating responses
+- **MCP Tool Discovery**: Composite Tool Provider automatically discovers MCP tools at startup
+- **Tool Selection**: LLM sees available MCP tools (`mcp_query_neo4j`, `mcp_get_concept`, etc.) in its prompt
+- **Knowledge Query**: When LLM identifies a knowledge question, it can use MCP tools to query databases
+- **Response Generation**: LLM incorporates query results into its natural language response
+- **When to Use Databases**: Knowledge questions, concept lookups, relationship queries, semantic search
+- **When to Use LLM Only**: Creative tasks, code generation, general conversation, tasks requiring reasoning
+- **Initialization Verification**: System verifies MCP connectivity at startup to ensure tools are available
+
+### 6. Proposed: Project Flow
 ```
 User defines Project → Project created in Redis → Planner schedules sub-goals →
 Workflows execute → Checkpoints saved → Monitor displays progress → Resume across sessions
@@ -658,6 +682,20 @@ make help
   - `GET /api/reasoning/hypotheses/{domain}` — Get generated and screened hypotheses
   - `POST /api/v1/memory/goals/cleanup` — Cleanup internal self-model goals
 
+- Conversational API
+  - `POST /api/v1/chat` — Full conversational interface with thinking mode
+  - `POST /api/v1/chat/text` — Simple text-only chat
+  - `POST /api/v1/chat/stream` — Streaming chat with real-time thoughts
+  - `GET /api/v1/chat/sessions` — List all conversation sessions
+  - `GET /api/v1/chat/sessions/{sessionId}/history` — Get conversation history
+  - `GET /api/v1/chat/sessions/{sessionId}/thoughts` — Get stored thoughts for a session
+  - `GET /api/v1/chat/sessions/{sessionId}/thoughts/stream` — Stream thoughts in real-time
+
+- MCP Knowledge Server
+  - `POST /mcp` — MCP JSON-RPC endpoint for knowledge tools
+  - `POST /api/v1/mcp` — Alternative MCP endpoint
+  - Exposes knowledge bases as MCP tools: `query_neo4j`, `search_weaviate`, `get_concept`, `find_related_concepts`
+
 ### Monitor UI (Port 8082)
 - `GET /` — Dashboard
 - `GET /test` — Test page
@@ -680,6 +718,12 @@ make help
   - `GET /api/daily_summary/latest` — Latest daily summary (Redis-backed)
   - `GET /api/daily_summary/history` — Recent daily summaries (last 30)
   - `GET /api/daily_summary/{date}` — Summary for a specific UTC date
+
+- Chain of Thought (Proxied to HDN)
+  - `GET /api/v1/chat/sessions` — List all conversation sessions
+  - `GET /api/v1/chat/sessions/{sessionId}/history` — Get conversation history
+  - `GET /api/v1/chat/sessions/{sessionId}/thoughts` — Get stored thoughts for a session
+  - `POST /api/chat` — Send chat message with thinking enabled
 
 ### Proposed Project API (Port 8081)
 - `POST /api/v1/projects` — Create project

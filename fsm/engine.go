@@ -2052,7 +2052,7 @@ func (e *FSMEngine) executeCuriosityGoals(action ActionConfig, event map[string]
 
 		_ = e.redis.LTrim(e.ctx, key, 0, 199)
 		log.Printf("Added %d new goals (deduplicated from %d generated)", newGoalsCount, len(goals))
-		
+
 		// Skip trace logging if no new goals were added (prevents spam)
 		if newGoalsCount == 0 {
 			log.Printf("ℹ️ No new goals added (all duplicates), skipping trace logging")

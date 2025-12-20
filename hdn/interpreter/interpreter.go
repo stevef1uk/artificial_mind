@@ -50,13 +50,13 @@ type InterpretationResult struct {
 
 // NewInterpreter creates a new interpreter instance
 func NewInterpreter(llmClient LLMClientInterface) *Interpreter {
-	// Create a real tool provider that uses HDN server
+	// Create a composite tool provider that combines HDN and MCP tools
 	// Use environment variable or default to localhost for backward compatibility
 	hdnURL := os.Getenv("HDN_URL")
 	if hdnURL == "" {
-		hdnURL = "http://localhost:8080"
+		hdnURL = "http://localhost:8081"
 	}
-	toolProvider := NewRealToolProvider(hdnURL)
+	toolProvider := NewCompositeToolProvider(hdnURL)
 
 	// Create flexible LLM adapter
 	flexibleLLM := NewFlexibleLLMAdapter(llmClient)

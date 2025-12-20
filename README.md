@@ -30,23 +30,27 @@ The Artificial Mind system consists of several interconnected components that wo
 - **🧠 FSM Engine** - Finite State Machine for cognitive state management
 - **🎯 HDN (Hierarchical Decision Network)** - AI planning and execution system with ethical safeguards
 - **⚖️ Principles API** - Ethical decision-making system for AI actions
-- **🎪 Conversational Layer** - Natural language interface with thinking mode
+- **🎪 Conversational Layer** - Natural language interface with chain-of-thought visibility
 - **🔧 Tool System** - Extensible tool framework for AI capabilities
-- **📊 Monitor UI** - Real-time visualization and control interface
+- **📊 Monitor UI** - Real-time visualization and control interface with Chain of Thought tab
 - **🧠 Thinking Mode** - Real-time AI introspection and transparency
+- **🔌 MCP Knowledge Server** - Exposes knowledge bases (Neo4j, Weaviate) as MCP tools for LLM access
 
 ### Advanced Features
 
-- **Real-time Thought Expression** - See inside the AI's reasoning process
+- **Real-time Thought Expression** - See inside the AI's reasoning process with Chain of Thought UI
+- **MCP Knowledge Integration** - Knowledge bases (Neo4j, Weaviate) exposed as MCP tools for LLM access
+- **Database-First Queries** - LLM can query knowledge bases before generating responses
 - **Ethical Safeguards** - Built-in principles checking for all actions
 - **Hierarchical Planning** - Multi-level task decomposition and execution
-- **Natural Language Interface** - Conversational AI with full transparency
-- **Tool Integration** - Extensible framework for AI capabilities
+- **Natural Language Interface** - Conversational AI with full transparency and thought storage
+- **Tool Integration** - Extensible framework for AI capabilities with composite tool provider
 - **Knowledge Growth** - Continuous learning and adaptation
 - **Focused Learning** - System focuses on promising areas and learns from outcomes
 - **Meta-Learning** - System learns about its own learning process
 - **Semantic Concept Discovery** - LLM-based concept extraction with understanding
 - **Intelligent Knowledge Filtering** - LLM-based assessment of novelty and value to prevent storing obvious/duplicate knowledge
+- **Session Management** - Conversation sessions with message previews and thought history
 
 ---
 
@@ -69,6 +73,8 @@ The Artificial Mind system consists of several interconnected components that wo
 ### 💬 Interfaces & Communication
 - [**Conversational AI Summary**](docs/CONVERSATIONAL_AI_SUMMARY.md) - Natural language interface
 - [**Natural Language Interface**](docs/NATURAL_LANGUAGE_INTERFACE.md) - Language processing capabilities
+- [**MCP Knowledge Integration**](docs/MCP_KNOWLEDGE_INTEGRATION.md) - MCP server for knowledge base access
+- [**MCP Initialization Check**](docs/MCP_INITIALIZATION_CHECK.md) - Startup verification of MCP connectivity
 - [**API Reference**](docs/API_REFERENCE.md) - Complete API documentation
 
 ### ⚖️ Ethics & Safety

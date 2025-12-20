@@ -526,6 +526,174 @@
             font-size: 0.9rem;
             margin-top: 5px;
         }
+
+        /* Chain of Thought Styles */
+        .thoughts-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            max-height: 800px;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .thought-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            border: 1px solid #e9ecef;
+            border-radius: 12px;
+            padding: 20px;
+            border-left: 4px solid #4CAF50;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .thought-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+            border-color: #007bff;
+        }
+
+        .thought-card.decision {
+            border-left-color: #2196F3;
+        }
+
+        .thought-card.action {
+            border-left-color: #FF9800;
+        }
+
+        .thought-card.observation {
+            border-left-color: #9C27B0;
+        }
+
+        .thought-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .thought-type {
+            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            box-shadow: 0 2px 4px rgba(76, 175, 80, 0.3);
+        }
+
+        .thought-card.decision .thought-type {
+            background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+            box-shadow: 0 2px 4px rgba(33, 150, 243, 0.3);
+        }
+
+        .thought-card.action .thought-type {
+            background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
+            box-shadow: 0 2px 4px rgba(255, 152, 0, 0.3);
+        }
+
+        .thought-card.observation .thought-type {
+            background: linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%);
+            box-shadow: 0 2px 4px rgba(156, 39, 176, 0.3);
+        }
+        
+        /* Database query highlighting */
+        .thought-card.database-query {
+            border-left: 4px solid #28a745;
+            background: linear-gradient(to right, #f0fff4 0%, #ffffff 10%);
+        }
+        
+        .thought-card.database-query:hover {
+            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.2);
+        }
+        
+        .database-badge {
+            display: inline-block;
+            background: #28a745;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+        
+        .meta-value.mcp-tool,
+        .meta-value.tool-name {
+            color: #28a745;
+            font-weight: 600;
+            font-family: 'Courier New', monospace;
+            background: rgba(40, 167, 69, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            display: inline-block;
+        }
+
+        .thought-timestamp {
+            color: #6c757d;
+            font-size: 0.85rem;
+        }
+
+        .thought-content {
+            margin-bottom: 15px;
+            line-height: 1.6;
+            color: #2c3e50;
+            font-size: 0.95rem;
+        }
+
+        .thought-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            font-size: 0.9rem;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #e9ecef;
+        }
+
+        .meta-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+        }
+
+        .meta-label {
+            color: #6c757d;
+            font-weight: 500;
+        }
+
+        .meta-value {
+            color: #2c3e50;
+            font-weight: 600;
+        }
+
+        .confidence-bar {
+            width: 100%;
+            height: 8px;
+            background: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #f44336 0%, #ff9800 50%, #4caf50 100%);
+            transition: width 0.3s ease;
+            border-radius: 4px;
+        }
+
+        .no-thoughts {
+            text-align: center;
+            color: #6c757d;
+            font-style: italic;
+            padding: 40px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 2px dashed #dee2e6;
+        }
     </style>
 </head>
 <body>
@@ -549,6 +717,7 @@
                 <button class="tab-button" onclick="switchTab('goals')">🎯 Goals</button>
                 <button class="tab-button" onclick="switchTab('projects')">📁 Projects</button>
                 <button class="tab-button" onclick="switchTab('reasoning')">🧠 Reasoning</button>
+                <button class="tab-button" onclick="switchTab('thoughts')">💭 Chain of Thought</button>
                 <button class="tab-button" onclick="switchTab('tools')">🔧 Tools</button>
                 <button class="tab-button" onclick="switchTab('metrics')">📦 Artefacts</button>
                 <button class="tab-button" onclick="switchTab('logs')">📝 Logs</button>
@@ -775,6 +944,46 @@
                 </div>
             </div>
 
+            <!-- Chain of Thought Tab -->
+            <div id="thoughts-tab" class="tab-content">
+                <div class="card">
+                    <h3>💭 Chain of Thought</h3>
+                    <div style="margin:6px 0 10px 0; color:#555; font-size:0.95em;">
+                        Ask questions and explore the AI's reasoning process and decision-making chain.
+                    </div>
+                    
+                    <!-- Chat Input Section -->
+                    <div style="margin-bottom:20px; padding:15px; background:#f8f9fa; border-radius:8px; border:1px solid #e9ecef;">
+                        <label for="thoughts-chat-input" style="font-weight:500; display:block; margin-bottom:8px;">Ask a question:</label>
+                        <div style="display:flex; gap:8px;">
+                            <input type="text" id="thoughts-chat-input" placeholder="Type your question here..." style="flex:1; padding:8px 12px; border:1px solid #e1e8ed; border-radius:6px; font-size:0.95rem;" onkeypress="if(event.key==='Enter') sendThoughtsChatMessage()">
+                            <button class="btn" onclick="sendThoughtsChatMessage()" id="thoughts-chat-send">Send</button>
+                        </div>
+                        <div id="thoughts-chat-status" style="margin-top:8px; font-size:0.85rem; color:#6c757d;"></div>
+                        <!-- Response Display -->
+                        <div id="thoughts-chat-response" style="margin-top:12px; padding:12px; background:white; border-radius:6px; border:1px solid #dee2e6; display:none;">
+                            <div style="font-weight:600; color:#495057; margin-bottom:6px;">AI Response:</div>
+                            <div id="thoughts-chat-response-text" style="color:#2c3e50; line-height:1.6;"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- Session Selection -->
+                    <div style="display:flex; gap:10px; align-items:center; margin-bottom:15px; flex-wrap:wrap;">
+                        <label for="thoughts-session-select" style="font-weight:500;">Session:</label>
+                        <select id="thoughts-session-select" onchange="if(this.value) loadThoughts();" style="padding:8px 12px; border:1px solid #e1e8ed; border-radius:6px; min-width:250px;">
+                            <option value="">Select a session...</option>
+                        </select>
+                        <label for="thoughts-limit" style="font-weight:500;">Limit:</label>
+                        <input type="number" id="thoughts-limit" value="50" min="1" max="200" style="padding:8px 12px; border:1px solid #e1e8ed; border-radius:6px; width:80px;">
+                        <button class="btn" onclick="loadThoughts()">🔄 Refresh Thoughts</button>
+                        <button class="btn" onclick="loadThoughtsSessions()">🔄 Refresh Sessions</button>
+                    </div>
+                    <div id="thoughts-container" style="margin-top:15px;">
+                        <div class="loading">Ask a question above or select a session to view the AI's chain of thought...</div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Artefacts Tab (repurposed from Metrics) -->
             <div id="metrics-tab" class="tab-content">
                 <div class="card">
@@ -865,7 +1074,8 @@
             tools: false,
             metrics: false,
             logs: false,
-            reasoning: false
+            reasoning: false,
+            thoughts: false
         };
 
         // Tab switching (make globally accessible)
@@ -925,8 +1135,8 @@
 
             try {
                 // Don't replace content for tabs that render their own dynamic inner content
-                // Keep existing DOM for: overview, workflows, tools, metrics (Artefacts), reasoning, logs
-                if (tabName !== 'overview' && tabName !== 'workflows' && tabName !== 'tools' && tabName !== 'metrics' && tabName !== 'reasoning' && tabName !== 'logs') {
+                // Keep existing DOM for: overview, workflows, tools, metrics (Artefacts), reasoning, logs, thoughts
+                if (tabName !== 'overview' && tabName !== 'workflows' && tabName !== 'tools' && tabName !== 'metrics' && tabName !== 'reasoning' && tabName !== 'logs' && tabName !== 'thoughts') {
                     contentDiv.innerHTML = '<div class="loading">Loading...</div>';
                 }
                 
@@ -1027,6 +1237,9 @@
                         break;
                     case 'reasoning':
                         await loadReasoningTab();
+                        break;
+                    case 'thoughts':
+                        await loadThoughtsTab();
                         break;
                 }
                 
@@ -3026,6 +3239,406 @@
                 }
             }
         }
+
+        // Chain of Thought Tab Functions
+        async function loadThoughtsTab() {
+            await loadThoughtsSessions();
+            const sessionSelect = document.getElementById('thoughts-session-select');
+            if (sessionSelect && sessionSelect.value) {
+                await loadThoughts();
+            }
+        }
+
+        async function loadThoughtsSessions() {
+            try {
+                const response = await axios.get('/api/v1/chat/sessions', { timeout: 5000 });
+                const data = response.data;
+                
+                const sessionSelect = document.getElementById('thoughts-session-select');
+                if (!sessionSelect) return;
+                
+                const currentValue = sessionSelect.value;
+                sessionSelect.innerHTML = '<option value="">Select a session...</option>';
+                
+                if (data.sessions && Array.isArray(data.sessions) && data.sessions.length > 0) {
+                    // Load history for each session to show preview
+                    const sessionPromises = data.sessions.map(async (sessionId) => {
+                        try {
+                            const historyResp = await axios.get(`/api/v1/chat/sessions/${sessionId}/history?limit=1`, { timeout: 3000 });
+                            const history = historyResp.data.history || [];
+                            let preview = sessionId;
+                            if (history.length > 0 && history[0].metadata && history[0].metadata.intent) {
+                                const userMsg = history[0].metadata.intent.original_message || history[0].metadata.intent.goal || '';
+                                if (userMsg) {
+                                    preview = `${sessionId} - ${userMsg.substring(0, 50)}${userMsg.length > 50 ? '...' : ''}`;
+                                }
+                            }
+                            return { sessionId, preview };
+                        } catch (err) {
+                            return { sessionId, preview: sessionId };
+                        }
+                    });
+                    
+                    const sessionsWithPreview = await Promise.all(sessionPromises);
+                    
+                    sessionsWithPreview.forEach(({ sessionId, preview }) => {
+                        const option = document.createElement('option');
+                        option.value = sessionId;
+                        option.textContent = preview;
+                        sessionSelect.appendChild(option);
+                    });
+                    
+                    // Restore previous selection if it still exists
+                    if (currentValue) {
+                        sessionSelect.value = currentValue;
+                    }
+                } else {
+                    sessionSelect.innerHTML = '<option value="">No sessions available</option>';
+                }
+            } catch (error) {
+                console.error('Failed to load sessions:', error);
+                const sessionSelect = document.getElementById('thoughts-session-select');
+                const container = document.getElementById('thoughts-container');
+                
+                if (sessionSelect) {
+                    sessionSelect.innerHTML = '<option value="">Error loading sessions</option>';
+                }
+                
+                // Show helpful error message in the container
+                if (container) {
+                    let errorMsg = 'Failed to load sessions. ';
+                    let errorDetails = '';
+                    
+                    if (error.response) {
+                        const status = error.response.status;
+                        const data = error.response.data || {};
+                        
+                        if (status === 404 || status === 503) {
+                            errorMsg = 'Conversational API not available. ';
+                            errorDetails = data.error || data.details || 'The HDN server\'s conversational layer may not be initialized.';
+                            errorMsg += errorDetails;
+                            if (data.details && data.details !== errorDetails) {
+                                errorMsg += '<br><small>' + data.details + '</small>';
+                            }
+                        } else if (status === 502) {
+                            errorMsg += 'HDN server is not reachable. Please ensure the HDN server is running and that HDN_URL is correctly configured.';
+                        } else if (status === 503) {
+                            errorMsg += 'HDN server is temporarily unavailable.';
+                        } else {
+                            errorMsg += `Server returned error ${status}.`;
+                            if (data.error) {
+                                errorMsg += '<br><small>' + data.error + '</small>';
+                            }
+                        }
+                    } else if (error.code === 'ECONNREFUSED' || error.message.includes('Network Error')) {
+                        errorMsg += 'Cannot connect to HDN server. Please check that the HDN server is running.';
+                    } else {
+                        errorMsg += error.message || 'Unknown error occurred.';
+                    }
+                    
+                    container.innerHTML = `<div class="error" style="padding: 20px; background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 8px; margin: 15px 0;">
+                        <strong>⚠️ ${error.response?.status === 404 || error.response?.status === 503 ? 'Service Unavailable' : 'Connection Error'}</strong><br>
+                        ${errorMsg}
+                        ${error.response?.status === 404 || error.response?.status === 503 ? '<br><br><strong>Possible solutions:</strong><ul style="margin: 10px 0; padding-left: 20px;"><li>Ensure the HDN server has the LLM client properly configured</li><li>Check HDN server logs for LLM initialization errors</li><li>Verify LLM_PROVIDER and related environment variables are set</li></ul>' : ''}
+                    </div>`;
+                }
+            }
+        }
+
+        async function loadThoughts() {
+            const container = document.getElementById('thoughts-container');
+            if (!container) return;
+            
+            const sessionSelect = document.getElementById('thoughts-session-select');
+            const limitInput = document.getElementById('thoughts-limit');
+            
+            const sessionId = sessionSelect ? sessionSelect.value : '';
+            const limit = limitInput ? limitInput.value || '50' : '50';
+            
+            if (!sessionId) {
+                container.innerHTML = '<div class="no-thoughts">Please select a session to view thoughts.</div>';
+                return;
+            }
+            
+            container.innerHTML = '<div class="loading">Loading thoughts...</div>';
+            
+            try {
+                const response = await axios.get(`/api/v1/chat/sessions/${sessionId}/thoughts?limit=${limit}`, { timeout: 10000 });
+                const data = response.data;
+                
+                if (data.error) {
+                    container.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                    return;
+                }
+                
+                const thoughts = data.thoughts || [];
+                
+                if (thoughts.length === 0) {
+                    container.innerHTML = '<div class="no-thoughts">No thoughts available for this session.</div>';
+                    return;
+                }
+                
+                // Create thoughts list
+                const thoughtsList = document.createElement('div');
+                thoughtsList.className = 'thoughts-list';
+                
+                thoughts.forEach(thought => {
+                    const thoughtCard = createThoughtCard(thought);
+                    thoughtsList.appendChild(thoughtCard);
+                });
+                
+                container.innerHTML = '';
+                container.appendChild(thoughtsList);
+            } catch (error) {
+                console.error('Failed to load thoughts:', error);
+                let errorMsg = 'Error loading thoughts. ';
+                if (error.response) {
+                    if (error.response.status === 502) {
+                        errorMsg += 'HDN server is not reachable. Please ensure the HDN server is running.';
+                    } else if (error.response.status === 404) {
+                        errorMsg += 'Session not found.';
+                    } else {
+                        errorMsg += `Server returned error ${error.response.status}.`;
+                    }
+                } else if (error.code === 'ECONNREFUSED' || error.message.includes('Network Error')) {
+                    errorMsg += 'Cannot connect to HDN server.';
+                } else {
+                    errorMsg += error.message || 'Unknown error occurred.';
+                }
+                
+                container.innerHTML = `<div class="error" style="padding: 20px; background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 8px; margin: 15px 0;">
+                    <strong>⚠️ Error</strong><br>
+                    ${errorMsg}
+                </div>`;
+            }
+        }
+
+        function createThoughtCard(thought) {
+            const card = document.createElement('div');
+            const thoughtType = (thought.type || 'thinking').toLowerCase();
+            
+            // Check if this thought uses MCP tools (database queries)
+            // Check multiple possible fields where tool info might be stored
+            const toolUsed = thought.tool_used || thought.toolUsed || '';
+            const contentLower = (thought.content || thought.thought || '').toLowerCase();
+            const action = (thought.action || '').toLowerCase();
+            
+            // Debug: log thought data to console (remove in production)
+            if (toolUsed || contentLower.includes('mcp') || contentLower.includes('neo4j') || contentLower.includes('weaviate')) {
+                console.log('🔍 Thought with potential MCP tool:', {
+                    tool_used: toolUsed,
+                    content: contentLower.substring(0, 100),
+                    action: action,
+                    metadata: thought.metadata
+                });
+            }
+            
+            // Check if tool name starts with mcp_ or if content/action mentions MCP/database tools
+            let isMCPTool = toolUsed.startsWith('mcp_') || 
+                             toolUsed.includes('mcp_') ||
+                             contentLower.includes('mcp_') ||
+                             contentLower.includes('neo4j') ||
+                             contentLower.includes('weaviate') ||
+                             contentLower.includes('database') ||
+                             contentLower.includes('knowledge base') ||
+                             contentLower.includes('query') && (contentLower.includes('concept') || contentLower.includes('graph')) ||
+                             action.includes('mcp_') ||
+                             action.includes('neo4j') ||
+                             action.includes('weaviate');
+            
+            // Also check metadata for tool information
+            let metadataTool = '';
+            if (thought.metadata) {
+                metadataTool = (thought.metadata.tool || thought.metadata.tool_name || thought.metadata.tool_used || '').toString().toLowerCase();
+                if (metadataTool.startsWith('mcp_') || metadataTool.includes('mcp_')) {
+                    isMCPTool = true;
+                }
+            }
+            
+            const isDatabaseQuery = isMCPTool;
+            
+            // Add MCP/database class for styling
+            let cardClasses = `thought-card ${thoughtType}`;
+            if (isDatabaseQuery) {
+                cardClasses += ' database-query';
+            }
+            card.className = cardClasses;
+            
+            const timestamp = thought.timestamp ? new Date(thought.timestamp).toLocaleString() : 'Unknown time';
+            const confidence = Math.round((thought.confidence || 0) * 100);
+            const content = thought.content || thought.thought || 'No content';
+            
+            // Determine database badge text based on tool
+            let databaseBadge = '';
+            let toolDisplayName = '';
+            if (isDatabaseQuery) {
+                let dbType = 'Database';
+                const effectiveToolName = toolUsed || metadataTool || '';
+                const allText = (toolUsed + ' ' + contentLower + ' ' + action + ' ' + metadataTool).toLowerCase();
+                
+                if (allText.includes('neo4j') || toolUsed.includes('get_concept') || toolUsed.includes('find_related') || toolUsed.includes('query_neo4j')) {
+                    dbType = 'Neo4j';
+                } else if (allText.includes('weaviate') || toolUsed.includes('search_weaviate')) {
+                    dbType = 'Weaviate';
+                } else if (toolUsed.startsWith('mcp_')) {
+                    // If it's an MCP tool but we can't determine the DB, show Database
+                    dbType = 'Database';
+                }
+                
+                // Create a human-readable tool name
+                if (effectiveToolName) {
+                    // Remove mcp_ prefix and format nicely
+                    toolDisplayName = effectiveToolName.replace(/^mcp_/, '').replace(/_/g, ' ');
+                    // Capitalize first letter of each word
+                    toolDisplayName = toolDisplayName.split(' ').map(word => 
+                        word.charAt(0).toUpperCase() + word.slice(1)
+                    ).join(' ');
+                }
+                
+                databaseBadge = `<span class="database-badge" title="Using ${dbType} knowledge base via ${effectiveToolName || 'MCP tool'}">🗄️ ${dbType}</span>`;
+            }
+            
+            card.innerHTML = `
+                <div class="thought-header">
+                    <span class="thought-type">${thoughtType}</span>
+                    ${databaseBadge}
+                    <span class="thought-timestamp">${timestamp}</span>
+                </div>
+                <div class="thought-content">${escapeHtml(content)}</div>
+                <div class="thought-meta">
+                    ${thought.state ? `
+                    <div class="meta-item">
+                        <span class="meta-label">State:</span>
+                        <span class="meta-value">${escapeHtml(thought.state)}</span>
+                    </div>
+                    ` : ''}
+                    ${thought.goal ? `
+                    <div class="meta-item">
+                        <span class="meta-label">Goal:</span>
+                        <span class="meta-value">${escapeHtml(thought.goal)}</span>
+                    </div>
+                    ` : ''}
+                    <div class="meta-item">
+                        <span class="meta-label">Confidence:</span>
+                        <span class="meta-value">${confidence}%</span>
+                    </div>
+                    ${thought.tool_used || thought.toolUsed ? `
+                    <div class="meta-item">
+                        <span class="meta-label">Tool:</span>
+                        <span class="meta-value ${isDatabaseQuery ? 'tool-name' : ''}" title="${escapeHtml(thought.tool_used || thought.toolUsed || '')}">
+                            ${toolDisplayName || escapeHtml(thought.tool_used || thought.toolUsed || '')}
+                        </span>
+                    </div>
+                    ` : ''}
+                    ${isDatabaseQuery && toolDisplayName ? `
+                    <div class="meta-item">
+                        <span class="meta-label">Database:</span>
+                        <span class="meta-value tool-name">${toolDisplayName}</span>
+                    </div>
+                    ` : ''}
+                    ${isDatabaseQuery && !thought.tool_used && !thought.toolUsed ? `
+                    <div class="meta-item">
+                        <span class="meta-label">Source:</span>
+                        <span class="meta-value tool-name">Knowledge Base Query</span>
+                    </div>
+                    ` : ''}
+                    ${thought.action ? `
+                    <div class="meta-item">
+                        <span class="meta-label">Action:</span>
+                        <span class="meta-value">${escapeHtml(thought.action)}</span>
+                    </div>
+                    ` : ''}
+                    ${thought.result ? `
+                    <div class="meta-item">
+                        <span class="meta-label">Result:</span>
+                        <span class="meta-value">${escapeHtml(String(thought.result))}</span>
+                    </div>
+                    ` : ''}
+                </div>
+                <div class="confidence-bar">
+                    <div class="confidence-fill" style="width: ${confidence}%"></div>
+                </div>
+            `;
+            
+            return card;
+        }
+
+        // Make functions globally accessible
+        // Send chat message and create session
+        async function sendThoughtsChatMessage() {
+            const input = document.getElementById('thoughts-chat-input');
+            const sendBtn = document.getElementById('thoughts-chat-send');
+            const statusDiv = document.getElementById('thoughts-chat-status');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            input.disabled = true;
+            sendBtn.disabled = true;
+            statusDiv.textContent = 'Sending message...';
+            statusDiv.style.color = '#6c757d';
+            
+            try {
+                // Generate a session ID if we don't have one selected
+                let sessionId = document.getElementById('thoughts-session-select').value;
+                if (!sessionId) {
+                    sessionId = 'chat_' + Date.now();
+                }
+                
+                const response = await axios.post('/api/chat', {
+                    message: message,
+                    session_id: sessionId
+                }, { timeout: 120000 });
+                
+                // Display the response
+                const responseDiv = document.getElementById('thoughts-chat-response');
+                const responseText = document.getElementById('thoughts-chat-response-text');
+                if (responseDiv && responseText) {
+                    // Handle both string and JSON responses
+                    let responseContent = '';
+                    if (typeof response.data === 'string') {
+                        responseContent = response.data;
+                    } else if (response.data && typeof response.data === 'object') {
+                        responseContent = response.data.response || response.data.text || JSON.stringify(response.data, null, 2);
+                    } else {
+                        responseContent = 'Response received';
+                    }
+                    responseText.textContent = responseContent;
+                    responseDiv.style.display = 'block';
+                }
+                
+                statusDiv.textContent = 'Message sent! Loading thoughts...';
+                statusDiv.style.color = '#28a745';
+                
+                // Clear input
+                input.value = '';
+                
+                // Update session selector and load thoughts
+                await loadThoughtsSessions();
+                const sessionSelect = document.getElementById('thoughts-session-select');
+                if (sessionSelect) {
+                    sessionSelect.value = sessionId;
+                }
+                
+                // Wait a moment for thoughts to be generated, then load them
+                setTimeout(async () => {
+                    await loadThoughts();
+                    statusDiv.textContent = 'Message sent! Check the thoughts below.';
+                }, 2000);
+                
+            } catch (error) {
+                console.error('Failed to send chat message:', error);
+                statusDiv.textContent = 'Error: ' + (error.response?.data?.error || error.message || 'Failed to send message');
+                statusDiv.style.color = '#dc3545';
+            } finally {
+                input.disabled = false;
+                sendBtn.disabled = false;
+            }
+        }
+
+        window.loadThoughts = loadThoughts;
+        window.loadThoughtsSessions = loadThoughtsSessions;
+        window.sendThoughtsChatMessage = sendThoughtsChatMessage;
 
         window.deleteProject = async function(projectId) {
             console.log('Delete project called with ID:', projectId);

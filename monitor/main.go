@@ -172,7 +172,7 @@ func NewMonitorService() *MonitorService {
 
 	hdnURL := strings.TrimSpace(os.Getenv("HDN_URL"))
 	if hdnURL == "" {
-		hdnURL = "http://localhost:8080"
+		hdnURL = "http://localhost:8081" // HDN Server runs on port 8081
 	}
 	principlesURL := strings.TrimSpace(os.Getenv("PRINCIPLES_URL"))
 	if principlesURL == "" {
@@ -827,15 +827,26 @@ func (m *MonitorService) chatAPI(c *gin.Context) {
 	}
 
 	// Forward the request to the HDN server's chat endpoint
-	chatReq := map[string]string{
-		"message":    req.Message,
-		"session_id": req.SessionID,
+	// Use the full chat endpoint with show_thinking to generate thought events
+	chatReq := map[string]interface{}{
+		"message":       req.Message,
+		"session_id":    req.SessionID,
+		"show_thinking": true, // Enable thought generation
 	}
 
 	jsonData, _ := json.Marshal(chatReq)
-	resp, err := http.Post(m.hdnURL+"/api/v1/chat/text", "application/json", bytes.NewBuffer(jsonData))
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 120 * time.Second, // 2 minute timeout for LLM responses
+	}
+
+	resp, err := client.Post(m.hdnURL+"/api/v1/chat", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to chat service"})
+		log.Printf("❌ [MONITOR] Chat API error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("Failed to connect to chat service at %s: %v", m.hdnURL+"/api/v1/chat", err),
+		})
 		return
 	}
 	defer resp.Body.Close()
@@ -851,15 +862,28 @@ func (m *MonitorService) chatAPI(c *gin.Context) {
 		return
 	}
 
-	// Return the text response
+	// Parse JSON response and return just the text
+	var chatResponse map[string]interface{}
+	if err := json.Unmarshal(body, &chatResponse); err == nil {
+		// Extract response text from JSON
+		if responseText, ok := chatResponse["response"].(string); ok {
+			c.String(http.StatusOK, responseText)
+			return
+		}
+	}
+
+	// Fallback: return as-is (might be plain text or JSON)
 	c.String(http.StatusOK, string(body))
 }
 
 // getChatSessions proxies chat sessions request to HDN
 func (m *MonitorService) getChatSessions(c *gin.Context) {
-	resp, err := http.Get(m.hdnURL + "/api/v1/chat/sessions")
+	url := m.hdnURL + "/api/v1/chat/sessions"
+	resp, err := http.Get(url)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to chat service"})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("Failed to connect to HDN server at %s: %v", url, err),
+		})
 		return
 	}
 	defer resp.Body.Close()
@@ -870,8 +894,19 @@ func (m *MonitorService) getChatSessions(c *gin.Context) {
 		return
 	}
 
+	if resp.StatusCode == http.StatusNotFound {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":   "Conversational API not available. The HDN server's conversational layer may not be initialized. Ensure the LLM client is properly configured.",
+			"details": string(body),
+		})
+		return
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		c.JSON(http.StatusBadGateway, gin.H{"error": string(body)})
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error":   fmt.Sprintf("HDN server returned status %d", resp.StatusCode),
+			"details": string(body),
+		})
 		return
 	}
 

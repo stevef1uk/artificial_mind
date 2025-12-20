@@ -321,6 +321,7 @@ type APIServer struct {
 	uiExecutionSemaphore chan struct{} // Reserved slot for UI requests
 	toolMetrics          *ToolMetricsManager
 	hdnBaseURL           string // For tool calling
+	mcpKnowledgeServer   *MCPKnowledgeServer
 }
 
 func NewAPIServer(domainPath string, redisAddr string) *APIServer {
@@ -495,8 +496,8 @@ func NewAPIServer(domainPath string, redisAddr string) *APIServer {
 		server.hdnBaseURL = "http://localhost:8080" // Default
 	}
 
-	// Initialize conversational layer
-	server.initializeConversationalLayer()
+	// Note: Conversational layer initialization is deferred until SetLLMClient is called
+	// This ensures the LLM client is available before initializing the conversational API
 
 	server.setupRoutes()
 	return server
@@ -728,12 +729,85 @@ func (h *SimpleChatHDN) LearnFromLLM(ctx context.Context, input string, context 
 }
 
 func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input string, context map[string]string) (*conversational.InterpretResult, error) {
+	log.Printf("🔍 [SIMPLE-CHAT-HDN] InterpretNaturalLanguage called with input: %s", input)
+	
+	// Use the actual interpreter to process the input with tool support
+	if h.server == nil || h.server.interpreter == nil {
+		log.Printf("⚠️ [SIMPLE-CHAT-HDN] Server or interpreter not available, using fallback")
+		// Fallback to simple response if interpreter not available
+		return &conversational.InterpretResult{
+			Success:     true,
+			Interpreted: fmt.Sprintf("Interpreted: %s", input),
+			Metadata: map[string]interface{}{
+				"interpreted_at": time.Now(),
+			},
+		}, nil
+	}
+
+	// Use flexible interpreter to get tool-aware interpretation
+	flexibleInterpreter := h.server.interpreter.GetFlexibleInterpreter()
+	if flexibleInterpreter == nil {
+		log.Printf("⚠️ [SIMPLE-CHAT-HDN] Flexible interpreter not available, using fallback")
+		return &conversational.InterpretResult{
+			Success:     true,
+			Interpreted: fmt.Sprintf("Interpreted: %s", input),
+			Metadata: map[string]interface{}{
+				"interpreted_at": time.Now(),
+			},
+		}, nil
+	}
+	
+	log.Printf("✅ [SIMPLE-CHAT-HDN] Using flexible interpreter with tool support")
+
+	// Create natural language request
+	req := interpreter.NaturalLanguageRequest{
+		Input:     input,
+		Context:   context,
+		SessionID: fmt.Sprintf("conv_%d", time.Now().UnixNano()),
+	}
+
+	// Use InterpretAndExecute to actually execute tools if the LLM chooses to use them
+	result, err := flexibleInterpreter.InterpretAndExecute(ctx, &req)
+	if err != nil {
+		log.Printf("⚠️ [SIMPLE-CHAT-HDN] Interpretation failed: %v", err)
+		return &conversational.InterpretResult{
+			Success:     false,
+			Interpreted: fmt.Sprintf("Interpretation failed: %v", err),
+			Metadata: map[string]interface{}{
+				"error": err.Error(),
+			},
+		}, nil
+	}
+
+	// Extract tool information if a tool was used
+	metadata := map[string]interface{}{
+		"interpreted_at": time.Now(),
+		"response_type":  string(result.ResponseType),
+	}
+
+	// Track tool usage
+	if result.ToolCall != nil {
+		metadata["tool_used"] = result.ToolCall.ToolID
+		metadata["tool_description"] = result.ToolCall.Description
+		if result.ToolExecutionResult != nil {
+			metadata["tool_success"] = result.ToolExecutionResult.Success
+			if result.ToolExecutionResult.Error != "" {
+				metadata["tool_error"] = result.ToolExecutionResult.Error
+			}
+		}
+		log.Printf("🔧 [SIMPLE-CHAT-HDN] Tool %s was used in interpretation", result.ToolCall.ToolID)
+	}
+
+	// Build interpreted text from result
+	interpretedText := result.Message
+	if result.ToolExecutionResult != nil && result.ToolExecutionResult.Success {
+		interpretedText = fmt.Sprintf("%s\n\nTool result: %v", interpretedText, result.ToolExecutionResult.Result)
+	}
+
 	return &conversational.InterpretResult{
-		Success:     true,
-		Interpreted: fmt.Sprintf("Interpreted: %s", input),
-		Metadata: map[string]interface{}{
-			"interpreted_at": time.Now(),
-		},
+		Success:     result.Success,
+		Interpreted: interpretedText,
+		Metadata:    metadata,
 	}, nil
 }
 
@@ -838,6 +912,9 @@ func (l *SimpleChatLLM) ExtractEntities(ctx context.Context, text string, entity
 func (s *APIServer) setupRoutes() {
 	// Health check
 	s.router.HandleFunc("/health", s.handleHealth).Methods("GET")
+	
+	// Register MCP knowledge server routes
+	s.RegisterMCPKnowledgeServerRoutes()
 
 	// Task execution
 	s.router.HandleFunc("/api/v1/task/execute", s.handleExecuteTask).Methods("POST")
@@ -1035,6 +1112,12 @@ func (s *APIServer) SetLLMClient(client *LLMClient) {
 	// Update interpreter LLM wrapper to use the initialized client
 	if s.llmWrapper != nil {
 		s.llmWrapper.client = s.llmClient
+	}
+	// Re-register routes now that conversational API is initialized
+	// This ensures the conversational routes are available
+	if s.conversationalAPI != nil {
+		s.conversationalAPI.RegisterRoutes(s.router)
+		log.Printf("💬 [API] Conversational routes registered")
 	}
 }
 
