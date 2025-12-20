@@ -18,15 +18,21 @@ import (
 type KnowledgeIntegration struct {
 	hdnURL        string
 	principlesURL string
+	mcpEndpoint   string // MCP server endpoint
 	redis         *redis.Client
 	ctx           context.Context
 }
 
 // NewKnowledgeIntegration creates a new knowledge integration instance
 func NewKnowledgeIntegration(hdnURL, principlesURL string, redis *redis.Client) *KnowledgeIntegration {
+	mcpEndpoint := hdnURL + "/mcp"
+	if hdnURL == "" {
+		mcpEndpoint = "http://localhost:8081/mcp"
+	}
 	return &KnowledgeIntegration{
 		hdnURL:        hdnURL,
 		principlesURL: principlesURL,
+		mcpEndpoint:   mcpEndpoint,
 		redis:         redis,
 		ctx:           context.Background(),
 	}
@@ -644,6 +650,9 @@ func (ki *KnowledgeIntegration) GenerateHypotheses(facts []Fact, domain string) 
 		concepts = []map[string]interface{}{}
 	}
 
+	// Enhance concepts with related concepts using MCP for better context
+	concepts = ki.enhanceConceptsWithRelated(concepts, domain)
+
 	// If no concepts available, generate basic hypotheses based on facts or return empty
 	if len(concepts) == 0 {
 		log.Printf("ℹ️ No concepts found in domain %s, generating basic hypotheses from facts", domain)
@@ -995,6 +1004,76 @@ func (ki *KnowledgeIntegration) hasActionableProperties(conceptName, domain stri
 	return false
 }
 
+// enhanceConceptsWithRelated enhances concepts with related concepts using MCP
+func (ki *KnowledgeIntegration) enhanceConceptsWithRelated(concepts []map[string]interface{}, domain string) []map[string]interface{} {
+	enhanced := make([]map[string]interface{}, len(concepts))
+
+	for i, concept := range concepts {
+		enhanced[i] = concept
+		name, _ := concept["name"].(string)
+		if name == "" {
+			continue
+		}
+
+		// Use MCP to find related concepts
+		result, err := ki.callMCPTool("find_related_concepts", map[string]interface{}{
+			"concept_name": name,
+			"max_depth":    1, // Just immediate relationships for learning context
+		})
+		if err != nil {
+			// MCP call failed, keep concept as-is
+			continue
+		}
+
+		// Parse related concepts from result
+		resultMap, ok := result.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		results, ok := resultMap["results"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		// Extract related concept names
+		var relatedNames []string
+		for _, r := range results {
+			row, ok := r.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			var relatedConcept map[string]interface{}
+			if c, ok := row["related"].(map[string]interface{}); ok {
+				relatedConcept = c
+			} else if c, ok := row["c"].(map[string]interface{}); ok {
+				relatedConcept = c
+			} else {
+				relatedConcept = row
+			}
+
+			if relName, ok := relatedConcept["name"].(string); ok && relName != "" {
+				relatedNames = append(relatedNames, relName)
+			}
+		}
+
+		// Add related concepts to the concept's properties
+		if len(relatedNames) > 0 {
+			if props, ok := enhanced[i]["properties"].(map[string]interface{}); ok {
+				props["related_concepts"] = relatedNames
+			} else {
+				enhanced[i]["properties"] = map[string]interface{}{
+					"related_concepts": relatedNames,
+				}
+			}
+			log.Printf("🔗 Enhanced concept %s with %d related concepts via MCP", name, len(relatedNames))
+		}
+	}
+
+	return enhanced
+}
+
 // generateRelationshipHypotheses creates hypotheses based on concept relationships
 func (ki *KnowledgeIntegration) generateRelationshipHypotheses(concepts []map[string]interface{}, domain string) []Hypothesis {
 	var hypotheses []Hypothesis
@@ -1184,7 +1263,107 @@ func (ki *KnowledgeIntegration) UpdateDomainKnowledge(domain string, results map
 }
 
 // Helper methods
+
+// callMCPTool calls an MCP tool and returns the result
+func (ki *KnowledgeIntegration) callMCPTool(toolName string, arguments map[string]interface{}) (interface{}, error) {
+	reqBody := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/call",
+		"params": map[string]interface{}{
+			"name":      toolName,
+			"arguments": arguments,
+		},
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal MCP request: %w", err)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Post(ki.mcpEndpoint, "application/json", bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to call MCP server: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("MCP server returned status %d", resp.StatusCode)
+	}
+
+	var mcpResponse struct {
+		JSONRPC string      `json:"jsonrpc"`
+		ID      int         `json:"id"`
+		Result  interface{} `json:"result,omitempty"`
+		Error   *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error,omitempty"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&mcpResponse); err != nil {
+		return nil, fmt.Errorf("failed to decode MCP response: %w", err)
+	}
+
+	if mcpResponse.Error != nil {
+		return nil, fmt.Errorf("MCP error: %s", mcpResponse.Error.Message)
+	}
+
+	return mcpResponse.Result, nil
+}
+
+// getDomainConcepts gets domain concepts using MCP query_neo4j tool
 func (ki *KnowledgeIntegration) getDomainConcepts(domain string) ([]map[string]interface{}, error) {
+	// Try MCP first, fallback to direct API
+	cypherQuery := fmt.Sprintf("MATCH (c:Concept {domain: '%s'}) RETURN c LIMIT 50", domain)
+
+	result, err := ki.callMCPTool("query_neo4j", map[string]interface{}{
+		"query": cypherQuery,
+	})
+	if err != nil {
+		log.Printf("⚠️ MCP query failed, falling back to direct API: %v", err)
+		// Fallback to direct API
+		return ki.getDomainConceptsDirect(domain)
+	}
+
+	// Parse MCP result
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		return ki.getDomainConceptsDirect(domain)
+	}
+
+	results, ok := resultMap["results"].([]interface{})
+	if !ok {
+		return ki.getDomainConceptsDirect(domain)
+	}
+
+	var concepts []map[string]interface{}
+	for _, r := range results {
+		row, ok := r.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		// Extract concept from Cypher result format
+		if c, ok := row["c"].(map[string]interface{}); ok {
+			concepts = append(concepts, c)
+		} else if c, ok := row["c"].(map[string]interface{}); ok {
+			// Handle different result formats
+			concepts = append(concepts, c)
+		}
+	}
+
+	if len(concepts) > 0 {
+		log.Printf("✅ Retrieved %d concepts via MCP", len(concepts))
+		return concepts, nil
+	}
+
+	// Fallback if no results
+	return ki.getDomainConceptsDirect(domain)
+}
+
+// getDomainConceptsDirect gets domain concepts via direct API (fallback)
+func (ki *KnowledgeIntegration) getDomainConceptsDirect(domain string) ([]map[string]interface{}, error) {
 	searchURL := fmt.Sprintf("%s/api/v1/knowledge/search?domain=%s&limit=50", ki.hdnURL, domain)
 
 	resp, err := http.Get(searchURL)
@@ -1387,7 +1566,7 @@ If the knowledge is not actionable or useful, mark is_worth_learning=false.`, kn
 	// Extract values
 	isNovel, _ := assessment["is_novel"].(bool)
 	isWorthLearning, _ := assessment["is_worth_learning"].(bool)
-	
+
 	// Also check scores as fallback
 	if noveltyScore, ok := assessment["novelty_score"].(float64); ok && noveltyScore > 0.5 {
 		isNovel = true
@@ -1404,16 +1583,10 @@ If the knowledge is not actionable or useful, mark is_worth_learning=false.`, kn
 	return isNovel, isWorthLearning, nil
 }
 
-// knowledgeAlreadyExists checks if knowledge already exists in the knowledge base
+// knowledgeAlreadyExists checks if knowledge already exists in the knowledge base using MCP
 func (ki *KnowledgeIntegration) knowledgeAlreadyExists(knowledge string, domain string) (bool, error) {
 	if len(strings.TrimSpace(knowledge)) == 0 {
 		return false, nil
-	}
-
-	// Query HDN knowledge API to search for similar concepts/facts
-	hdnURL := strings.TrimSuffix(ki.hdnURL, "/")
-	if hdnURL == "" {
-		hdnURL = "http://localhost:8081"
 	}
 
 	// Extract key terms from knowledge for search
@@ -1422,43 +1595,86 @@ func (ki *KnowledgeIntegration) knowledgeAlreadyExists(knowledge string, domain 
 		return false, nil
 	}
 
-	// Search for concepts matching key terms
-	searchURL := fmt.Sprintf("%s/api/v1/knowledge/search?name=%s&limit=10", hdnURL, keyTerms[0])
-	resp, err := http.Get(searchURL)
-	if err != nil {
-		return false, fmt.Errorf("failed to search knowledge: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return false, nil // Assume not exists if search fails
-	}
-
-	var searchResult struct {
-		Concepts []map[string]interface{} `json:"concepts"`
-		Count    int                      `json:"count"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&searchResult); err != nil {
-		return false, nil // Assume not exists if decode fails
-	}
-
-	// Check if any existing concept is similar to the new knowledge
-	for _, concept := range searchResult.Concepts {
-		conceptName, _ := concept["name"].(string)
-		conceptDef, _ := concept["definition"].(string)
-		
-		// Simple similarity check - if knowledge contains concept name or vice versa
-		knowledgeLower := strings.ToLower(knowledge)
-		if conceptName != "" && strings.Contains(knowledgeLower, strings.ToLower(conceptName)) {
-			return true, nil
+	// Try using MCP get_concept tool for each key term
+	for _, term := range keyTerms {
+		if len(term) < 3 {
+			continue
 		}
-		if conceptDef != "" {
-			defLen := len(conceptDef)
-			if defLen > 100 {
-				defLen = 100
+
+		// Use MCP get_concept tool
+		result, err := ki.callMCPTool("get_concept", map[string]interface{}{
+			"name":   term,
+			"domain": domain,
+		})
+		if err != nil {
+			// Tool call failed, continue to next term
+			continue
+		}
+
+		// Parse result
+		resultMap, ok := result.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		results, ok := resultMap["results"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		// Check if any concept matches
+		knowledgeLower := strings.ToLower(knowledge)
+		for _, r := range results {
+			row, ok := r.(map[string]interface{})
+			if !ok {
+				continue
 			}
-			if strings.Contains(knowledgeLower, strings.ToLower(conceptDef[:defLen])) {
+
+			// Extract concept from result
+			var concept map[string]interface{}
+			if c, ok := row["c"].(map[string]interface{}); ok {
+				concept = c
+			} else if c, ok := row["concept"].(map[string]interface{}); ok {
+				concept = c
+			} else {
+				concept = row
+			}
+
+			conceptName, _ := concept["name"].(string)
+			conceptDef, _ := concept["definition"].(string)
+
+			// Check similarity
+			if conceptName != "" && strings.Contains(knowledgeLower, strings.ToLower(conceptName)) {
+				log.Printf("🔍 Found existing concept via MCP: %s", conceptName)
+				return true, nil
+			}
+			if conceptDef != "" {
+				defLen := len(conceptDef)
+				if defLen > 100 {
+					defLen = 100
+				}
+				if strings.Contains(knowledgeLower, strings.ToLower(conceptDef[:defLen])) {
+					log.Printf("🔍 Found existing concept definition via MCP: %s", conceptName)
+					return true, nil
+				}
+			}
+		}
+	}
+
+	// Fallback: Use Cypher query via MCP for broader search
+	cypherQuery := fmt.Sprintf(
+		"MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('%s') OR toLower(c.definition) CONTAINS toLower('%s') RETURN c LIMIT 10",
+		keyTerms[0], keyTerms[0],
+	)
+
+	result, err := ki.callMCPTool("query_neo4j", map[string]interface{}{
+		"query": cypherQuery,
+	})
+	if err == nil {
+		resultMap, ok := result.(map[string]interface{})
+		if ok {
+			if results, ok := resultMap["results"].([]interface{}); ok && len(results) > 0 {
+				log.Printf("🔍 Found existing knowledge via MCP Cypher query")
 				return true, nil
 			}
 		}

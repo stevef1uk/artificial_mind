@@ -16,19 +16,25 @@ import (
 
 // KnowledgeGrowthEngine handles growing the knowledge base
 type KnowledgeGrowthEngine struct {
-	hdnURL     string
-	redis      *redis.Client
-	ctx        context.Context
-	httpClient *http.Client
+	hdnURL      string
+	mcpEndpoint string // MCP server endpoint
+	redis       *redis.Client
+	ctx         context.Context
+	httpClient  *http.Client
 }
 
 // NewKnowledgeGrowthEngine creates a new knowledge growth engine
 func NewKnowledgeGrowthEngine(hdnURL string, redis *redis.Client) *KnowledgeGrowthEngine {
+	mcpEndpoint := hdnURL + "/mcp"
+	if hdnURL == "" {
+		mcpEndpoint = "http://localhost:8081/mcp"
+	}
 	return &KnowledgeGrowthEngine{
-		hdnURL:     hdnURL,
-		redis:      redis,
-		ctx:        context.Background(),
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		hdnURL:      hdnURL,
+		mcpEndpoint: mcpEndpoint,
+		redis:       redis,
+		ctx:         context.Background(),
+		httpClient:  &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -628,6 +634,53 @@ func (kge *KnowledgeGrowthEngine) filterByConfidence(discoveries []ConceptDiscov
 }
 
 func (kge *KnowledgeGrowthEngine) getDomainConcepts(domain string) ([]map[string]interface{}, error) {
+	// Try MCP first, fallback to direct API
+	cypherQuery := fmt.Sprintf("MATCH (c:Concept {domain: '%s'}) RETURN c LIMIT 100", domain)
+	
+	result, err := kge.callMCPTool("query_neo4j", map[string]interface{}{
+		"query": cypherQuery,
+	})
+	if err != nil {
+		log.Printf("⚠️ MCP query failed, falling back to direct API: %v", err)
+		return kge.getDomainConceptsDirect(domain)
+	}
+
+	// Parse MCP result
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		return kge.getDomainConceptsDirect(domain)
+	}
+
+	results, ok := resultMap["results"].([]interface{})
+	if !ok {
+		return kge.getDomainConceptsDirect(domain)
+	}
+
+	var concepts []map[string]interface{}
+	for _, r := range results {
+		row, ok := r.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		// Extract concept from Cypher result format
+		if c, ok := row["c"].(map[string]interface{}); ok {
+			concepts = append(concepts, c)
+		} else if c, ok := row["concept"].(map[string]interface{}); ok {
+			concepts = append(concepts, c)
+		}
+	}
+
+	if len(concepts) > 0 {
+		log.Printf("✅ Retrieved %d concepts via MCP", len(concepts))
+		return concepts, nil
+	}
+
+	// Fallback if no results
+	return kge.getDomainConceptsDirect(domain)
+}
+
+// getDomainConceptsDirect gets domain concepts via direct API (fallback)
+func (kge *KnowledgeGrowthEngine) getDomainConceptsDirect(domain string) ([]map[string]interface{}, error) {
 	searchURL := fmt.Sprintf("%s/api/v1/knowledge/search?domain=%s&limit=100", kge.hdnURL, domain)
 
 	resp, err := kge.httpClient.Get(searchURL)
@@ -1010,19 +1063,116 @@ Be strict: Only mark as novel and worth learning if genuinely new and useful.`, 
 	return isNovel, isWorthLearning, nil
 }
 
-// conceptAlreadyExists checks if a concept already exists in the knowledge base
+// callMCPTool calls an MCP tool and returns the result
+func (kge *KnowledgeGrowthEngine) callMCPTool(toolName string, arguments map[string]interface{}) (interface{}, error) {
+	reqBody := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/call",
+		"params": map[string]interface{}{
+			"name":      toolName,
+			"arguments": arguments,
+		},
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal MCP request: %w", err)
+	}
+
+	resp, err := kge.httpClient.Post(kge.mcpEndpoint, "application/json", bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to call MCP server: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("MCP server returned status %d", resp.StatusCode)
+	}
+
+	var mcpResponse struct {
+		JSONRPC string      `json:"jsonrpc"`
+		ID      int         `json:"id"`
+		Result  interface{} `json:"result,omitempty"`
+		Error   *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error,omitempty"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&mcpResponse); err != nil {
+		return nil, fmt.Errorf("failed to decode MCP response: %w", err)
+	}
+
+	if mcpResponse.Error != nil {
+		return nil, fmt.Errorf("MCP error: %s", mcpResponse.Error.Message)
+	}
+
+	return mcpResponse.Result, nil
+}
+
+// conceptAlreadyExists checks if a concept already exists in the knowledge base using MCP
 func (kge *KnowledgeGrowthEngine) conceptAlreadyExists(conceptName string, domain string) (bool, error) {
 	if len(strings.TrimSpace(conceptName)) == 0 {
 		return false, nil
 	}
 
-	// Query HDN knowledge API to search for the concept
+	// Try using MCP get_concept tool first
+	result, err := kge.callMCPTool("get_concept", map[string]interface{}{
+		"name":   conceptName,
+		"domain": domain,
+	})
+	if err != nil {
+		log.Printf("⚠️ MCP get_concept failed, falling back to direct API: %v", err)
+		return kge.conceptAlreadyExistsDirect(conceptName, domain)
+	}
+
+	// Parse MCP result
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		return kge.conceptAlreadyExistsDirect(conceptName, domain)
+	}
+
+	results, ok := resultMap["results"].([]interface{})
+	if !ok {
+		return kge.conceptAlreadyExistsDirect(conceptName, domain)
+	}
+
+	// Check if any existing concept matches (case-insensitive)
+	conceptNameLower := strings.ToLower(conceptName)
+	for _, r := range results {
+		row, ok := r.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Extract concept from result
+		var concept map[string]interface{}
+		if c, ok := row["c"].(map[string]interface{}); ok {
+			concept = c
+		} else if c, ok := row["concept"].(map[string]interface{}); ok {
+			concept = c
+		} else {
+			concept = row
+		}
+
+		existingName, _ := concept["name"].(string)
+		if strings.ToLower(existingName) == conceptNameLower {
+			log.Printf("🔍 Found existing concept via MCP: %s", existingName)
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// conceptAlreadyExistsDirect checks if a concept exists via direct API (fallback)
+func (kge *KnowledgeGrowthEngine) conceptAlreadyExistsDirect(conceptName string, domain string) (bool, error) {
 	hdnURL := strings.TrimSuffix(kge.hdnURL, "/")
 	if hdnURL == "" {
 		hdnURL = "http://localhost:8081"
 	}
 
-	// Search for concepts matching the name
 	searchURL := fmt.Sprintf("%s/api/v1/knowledge/search?name=%s&limit=10", hdnURL, conceptName)
 	resp, err := kge.httpClient.Get(searchURL)
 	if err != nil {
@@ -1031,7 +1181,7 @@ func (kge *KnowledgeGrowthEngine) conceptAlreadyExists(conceptName string, domai
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return false, nil // Assume not exists if search fails
+		return false, nil
 	}
 
 	var searchResult struct {
@@ -1040,10 +1190,9 @@ func (kge *KnowledgeGrowthEngine) conceptAlreadyExists(conceptName string, domai
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&searchResult); err != nil {
-		return false, nil // Assume not exists if decode fails
+		return false, nil
 	}
 
-	// Check if any existing concept matches (case-insensitive)
 	conceptNameLower := strings.ToLower(conceptName)
 	for _, concept := range searchResult.Concepts {
 		existingName, _ := concept["name"].(string)
