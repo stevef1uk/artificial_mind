@@ -8,7 +8,7 @@ spec:
     spec:
       containers:
       - name: news-ingestor
-        image: stevef1uk/data-processor:secure-fixed2
+        image: stevef1uk/data-processor:secure
         imagePullPolicy: IfNotPresent
         args: ["-url", "https://www.bbc.com/news", "-max", "50", "-debug"]
         env:

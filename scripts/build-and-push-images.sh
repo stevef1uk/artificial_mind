@@ -59,6 +59,7 @@ required_files=(
     "Dockerfile.fsm.secure"
     "Dockerfile.monitor-ui.secure"
     "Dockerfile.goal-manager.secure"
+    "Dockerfile.wiki-summarizer.secure"
 )
 
 for file in "${required_files[@]}"; do
@@ -138,6 +139,7 @@ build_and_push "Dockerfile.fsm.secure" "fsm-server" "FSM Server"
 build_and_push "Dockerfile.monitor-ui.secure" "monitor-ui" "Monitor UI"
 build_and_push "Dockerfile.goal-manager.secure" "goal-manager" "Goal Manager"
 build_and_push "Dockerfile.wiki-bootstrapper.secure" "knowledge-builder" "Knowledge Builder"
+build_and_push "Dockerfile.wiki-summarizer.secure" "wiki-summarizer" "Wiki Summarizer"
 build_and_push "Dockerfile.news-ingestor.secure" "data-processor" "Data Processor"
 
 
@@ -151,6 +153,7 @@ echo "  - $DOCKER_USERNAME/fsm-server:secure"
 echo "  - $DOCKER_USERNAME/monitor-ui:secure"
 echo "  - $DOCKER_USERNAME/goal-manager:secure"
 echo "  - $DOCKER_USERNAME/knowledge-builder:secure"
+echo "  - $DOCKER_USERNAME/wiki-summarizer:secure"
 echo "  - $DOCKER_USERNAME/data-processor:secure"
 
 print_status "You can now deploy these images to your Kubernetes cluster."
