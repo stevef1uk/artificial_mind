@@ -804,7 +804,7 @@
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap;">
                         <h3>🧾 Recent Logs</h3>
                         <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                            <select id="log-level-filter" onchange="applyLogFilters()" style="padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; background: white;">
+                            <select id="log-level-filter" onchange="if(typeof applyLogFilters==='function')applyLogFilters()" style="padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; background: white;">
                                 <option value="all">All Levels</option>
                                 <option value="error">ERROR only</option>
                                 <option value="warning">WARNING+</option>
@@ -812,13 +812,42 @@
                                 <option value="debug">DEBUG+</option>
                             </select>
                             <label style="display: flex; align-items: center; gap: 5px; font-size: 13px; cursor: pointer;">
-                                <input type="checkbox" id="hide-verbose-logs" onchange="applyLogFilters()" style="cursor: pointer;">
+                                <input type="checkbox" id="hide-verbose-logs" onchange="if(typeof applyLogFilters==='function')applyLogFilters()" style="cursor: pointer;">
                                 Hide verbose
                             </label>
-                            <button id="log-source-toggle" onclick="toggleLogSource()" style="padding: 8px 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; min-width: 120px;">
+                            <button id="log-source-toggle" onclick="if(typeof toggleLogSource==='function')toggleLogSource()" style="padding: 8px 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; min-width: 120px;">
                                 Switch to <span id="log-source-indicator">K8s Logs</span>
                             </button>
-                            <button onclick="loadLogs(); loadRecentLogsCompact();" style="padding: 8px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
+                            <!-- K8s Controls -->
+                            <div id="k8s-controls" style="display: none; gap: 6px; align-items: center; flex-wrap: wrap;">
+                                <label style="font-size:12px; color:#374151;">Namespace:</label>
+                                <input id="k8s-ns-input" value="agi" placeholder="e.g. agi" style="width:100px; padding:4px 6px; font-size:12px; border: 1px solid #ddd; border-radius: 4px;" />
+                                <label style="font-size:12px; color:#374151;">Selector:</label>
+                                <input id="k8s-selector-key-input" value="app" placeholder="selector key" style="width:120px; padding:4px 6px; font-size:12px; border: 1px solid #ddd; border-radius: 4px;" />
+                                <label style="font-size:12px; color:#374151;">Service:</label>
+                                <select id="k8s-service-select" onchange="if(typeof changeLogService==='function')changeLogService(this.value)" style="min-width:160px; padding:4px 6px; font-size:12px; border: 1px solid #ddd; border-radius: 4px;">
+                                    <option value="fsm-server-rpi58">fsm-server-rpi58</option>
+                                    <option value="hdn-server-rpi58">hdn-server-rpi58</option>
+                                    <option value="goal-manager">goal-manager</option>
+                                    <option value="principles-server">principles-server</option>
+                                </select>
+                                <button onclick="if(typeof applyK8sSettings==='function')applyK8sSettings()" style="padding: 6px 10px; background: #6b7280; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;" title="Apply namespace and selector changes">Apply</button>
+                            </div>
+                            <!-- Local Log Controls -->
+                            <div id="local-controls" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                                <label style="font-size:12px; color:#374151;">Log File:</label>
+                                <input id="local-log-file" value="/tmp/hdn_server.log" placeholder="/tmp/hdn_server.log" onkeypress="if(event.key==='Enter'&&typeof applyLocalLogSettings==='function')applyLocalLogSettings()" style="width:250px; padding:4px 6px; font-size:12px; border: 1px solid #ddd; border-radius: 4px;" />
+                                <button onclick="if(typeof applyLocalLogSettings==='function')applyLocalLogSettings()" style="padding: 6px 10px; background: #6b7280; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Apply</button>
+                                <select id="common-log-files" onchange="if(this.value&&typeof applyLocalLogSettings==='function'){document.getElementById('local-log-file').value=this.value;applyLocalLogSettings();}" style="padding:4px 6px; font-size:12px; border: 1px solid #ddd; border-radius: 4px; background: white;">
+                                    <option value="">Common files...</option>
+                                    <option value="/tmp/hdn_server.log">hdn_server.log</option>
+                                    <option value="/tmp/fsm.log">fsm.log</option>
+                                    <option value="/tmp/goal_manager.log">goal_manager.log</option>
+                                    <option value="/tmp/principles_server.log">principles_server.log</option>
+                                    <option value="/var/log/syslog">syslog</option>
+                                </select>
+                            </div>
+                            <button onclick="if(typeof loadLogs==='function'&&typeof loadRecentLogsCompact==='function'){loadLogs();loadRecentLogsCompact();}" style="padding: 8px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
                                 🔄 Refresh
                             </button>
                         </div>
@@ -940,28 +969,32 @@
                     case 'logs':
                         // Load logs using the configurable logs.js
                         console.log('Loading logs tab...');
-                        const logsCompactEl = document.getElementById('logs-compact');
-                        const logsTabEl = document.getElementById('logs-tab');
-                        console.log('logs-compact element exists:', !!logsCompactEl);
-                        console.log('logs-tab element exists:', !!logsTabEl);
-                        console.log('logs-tab has active class:', logsTabEl?.classList.contains('active'));
-                        console.log('logs-tab display style:', logsTabEl ? window.getComputedStyle(logsTabEl).display : 'N/A');
-                        console.log('All elements with logs in id:', document.querySelectorAll('[id*="logs"]'));
-                        if (typeof loadLogs === 'function') {
-                            // Wait a bit for the template to render
-                            setTimeout(async () => {
-                                console.log('After timeout - logs-compact element exists:', !!document.getElementById('logs-compact'));
-                                console.log('logs-tab innerHTML:', document.getElementById('logs-tab')?.innerHTML.substring(0, 200));
-                                await loadLogs();
-                            }, 100);
-                        } else {
-                            // Fallback: try to load logs directly if logs.js didn't load
-                            console.warn('loadLogs function not found, attempting fallback load');
-                            const fallbackContainer = document.getElementById('logs-compact');
-                            if (fallbackContainer) {
-                                setTimeout(async () => {
-                                    try {
-                                        const response = await axios.get('/api/logs?limit=200', { timeout: 5000 });
+                        // Wait a bit for the template to render and scripts to load
+                        setTimeout(() => {
+                            console.log('Checking for loadLogs function...');
+                            console.log('typeof loadLogs:', typeof loadLogs);
+                            console.log('typeof window.loadLogs:', typeof window.loadLogs);
+                            console.log('typeof loadRecentLogsCompact:', typeof loadRecentLogsCompact);
+                            
+                            // Try multiple ways to call the function
+                            if (typeof window.loadLogs === 'function') {
+                                console.log('Calling window.loadLogs()');
+                                window.loadLogs();
+                            } else if (typeof loadLogs === 'function') {
+                                console.log('Calling loadLogs()');
+                                loadLogs();
+                            } else if (typeof window.loadRecentLogsCompact === 'function') {
+                                console.log('Calling window.loadRecentLogsCompact()');
+                                window.loadRecentLogsCompact();
+                            } else if (typeof loadRecentLogsCompact === 'function') {
+                                console.log('Calling loadRecentLogsCompact()');
+                                loadRecentLogsCompact();
+                            } else {
+                                console.warn('loadLogs function not found, attempting fallback load');
+                                // Fallback: try to load logs directly if logs.js didn't load
+                                const fallbackContainer = document.getElementById('logs-compact');
+                                if (fallbackContainer) {
+                                    axios.get('/api/logs?limit=200', { timeout: 5000 }).then(response => {
                                         const logs = response.data || [];
                                         if (logs.length > 0) {
                                             const logsHtml = logs.map(log => {
@@ -974,15 +1007,15 @@
                                         } else {
                                             fallbackContainer.innerHTML = '<div style="color: #666; text-align: center; padding: 20px;">No logs available</div>';
                                         }
-                                    } catch (error) {
+                                    }).catch(error => {
                                         console.error('Fallback log load failed:', error);
                                         if (fallbackContainer) {
                                             fallbackContainer.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px;">❌ Error loading logs: ${error.message}</div>`;
                                         }
-                                    }
-                                }, 100);
+                                    });
+                                }
                             }
-                        }
+                        }, 200);
                         break;
                     case 'reasoning':
                         await loadReasoningTab();

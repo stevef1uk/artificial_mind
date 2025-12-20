@@ -2,15 +2,20 @@
 // Cache bust: 2025-10-03-06-55
 // Default to local logs (better for Mac/development), user can switch to K8s if needed
 let useKubernetesLogs = localStorage.getItem('use_k8s_logs') === 'true'; // Check localStorage, default to false
-let currentLogService = 'fsm-server-rpi58'; // Default service
+let currentLogService = localStorage.getItem('current_log_service') || 'fsm-server-rpi58'; // Default service
 // K8s config with persistence
 let k8sNs = localStorage.getItem('k8s_ns') || 'agi';
 let k8sSelectorKey = localStorage.getItem('k8s_selector_key') || 'app';
+// Local log file config
+let localLogFile = localStorage.getItem('local_log_file') || '/tmp/hdn_server.log';
 
 // Log filtering
 let allLogs = []; // Store all logs for filtering
 let currentLogLevelFilter = 'all';
 let hideVerboseLogs = false;
+
+// Track if K8s is unavailable to stop polling
+let k8sUnavailable = false;
 
 // Patterns to hide when "Hide verbose" is enabled
 const verbosePatterns = [
@@ -99,23 +104,71 @@ async function loadLogs() {
             response = await axios.get(`/api/k8s/logs/${encodeURIComponent(currentLogService)}?${params.toString()}`, { timeout: 5000 });
         } else {
             // Use local logs endpoint with timeout
-            response = await axios.get('/api/logs?limit=200', { timeout: 5000 });
+            // Include log file path if specified
+            const params = new URLSearchParams({ limit: '200' });
+            if (localLogFile && localLogFile.trim() !== '') {
+                params.append('file', localLogFile.trim());
+            }
+            response = await axios.get(`/api/logs?${params.toString()}`, { timeout: 5000 });
         }
         allLogs = Array.isArray(response.data) ? response.data : [];
         
         // Apply filters and render
-        applyLogFilters();
+        if (typeof applyLogFilters === 'function') {
+            applyLogFilters();
+        }
     } catch (error) {
         console.error('Error loading logs:', error);
         const el = getOrCreateLogsContainer();
         if (el) {
+            let errorMessage = error.message;
+            let errorDetails = '';
+            
+            // Extract more detailed error message from response if available
+            if (error.response && error.response.data) {
+                const data = error.response.data;
+                if (data.message) {
+                    errorMessage = data.message;
+                }
+                if (data.hint) {
+                    errorDetails = `<br><small style="color: #7f8c8d;">💡 ${data.hint}</small>`;
+                } else if (data.details) {
+                    errorDetails = `<br><small style="color: #7f8c8d;">Details: ${data.details}</small>`;
+                }
+            }
+            
+            // Check if kubectl is unavailable (400 error with specific message)
+            if (error.response && error.response.status === 400) {
+                const data = error.response.data || {};
+                if (data.error === 'kubectl not available' || data.message?.includes('kubectl')) {
+                    k8sUnavailable = true;
+                    // Stop polling for K8s logs
+                    if (window._logsPoll) {
+                        clearInterval(window._logsPoll);
+                        window._logsPoll = null;
+                    }
+                    el.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px; border: 2px solid #e74c3c; border-radius: 8px; background: #fee;">
+                        <strong>❌ Kubernetes logs unavailable</strong><br>
+                        ${errorMessage}${errorDetails}<br><br>
+                        <button onclick="if(typeof setLogSource==='function')setLogSource('local')" style="padding: 8px 16px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin-top: 10px;">
+                            Switch to Local Logs
+                        </button>
+                    </div>`;
+                    return; // Don't continue trying
+                }
+            }
+            
             if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
                 const suggestion = useKubernetesLogs 
                     ? 'Try switching to Local logs or check if kubectl is available.'
                     : 'Try switching to K8s logs or check if the service is running.';
                 el.innerHTML = `<div style="color: #f39c12; text-align: center; padding: 20px;">⏱️ Logs endpoint timed out. ${suggestion}</div>`;
+            } else if (error.response && error.response.status === 404) {
+                el.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px;">❌ Service not found: ${errorMessage}${errorDetails}<br><small>Try selecting a different service or switching to Local logs.</small></div>`;
+            } else if (error.response && error.response.status === 400) {
+                el.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px;">❌ ${errorMessage}${errorDetails}<br><small>Kubernetes logs are not available. Try switching to Local logs.</small></div>`;
             } else {
-                el.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px;">❌ Error loading logs: ${error.message}<br><small>Try switching log source using the buttons above.</small></div>`;
+                el.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px;">❌ Error loading logs: ${errorMessage}${errorDetails}<br><small>Try switching log source using the buttons above.</small></div>`;
             }
         } else {
             // If container still doesn't exist, try to show error in the tab itself
@@ -130,99 +183,169 @@ async function loadLogs() {
     }
 }
 
-// Toggle between Kubernetes and local logs
-function toggleLogSource() {
-    useKubernetesLogs = !useKubernetesLogs;
-    // Persist preference
-    localStorage.setItem('use_k8s_logs', useKubernetesLogs ? 'true' : 'false');
-    // console.log('Switched to:', useKubernetesLogs ? 'Kubernetes logs' : 'Local logs');
-    
-    // Update both UI indicators
-    const indicators = [
-        document.getElementById('log-source-indicator'),
-        document.getElementById('log-source-indicator-tab')
-    ];
-    
-    indicators.forEach(indicator => {
-        if (indicator) {
-            indicator.textContent = useKubernetesLogs ? 'K8s Logs' : 'Local Logs';
-            indicator.className = useKubernetesLogs ? 'k8s-indicator' : 'local-indicator';
-        }
-    });
-    
-    // Reload logs with new source
-    loadLogs();
-    loadRecentLogsCompact();
-}
-
-// Explicitly set source from UI buttons
-function setLogSource(source) {
-    useKubernetesLogs = (source === 'k8s');
-    // Persist preference
-    localStorage.setItem('use_k8s_logs', useKubernetesLogs ? 'true' : 'false');
-    const indicator = document.getElementById('log-source-indicator');
-    if (indicator) {
-        indicator.textContent = useKubernetesLogs ? 'K8s Logs' : 'Local Logs';
-        indicator.className = useKubernetesLogs ? 'k8s-indicator' : 'local-indicator';
-    }
-    loadLogs();
-    loadRecentLogsCompact();
-}
+// Note: toggleLogSource and setLogSource are now defined in the IIFE above to ensure they're available immediately
 
 function applyK8sSettings() {
     const nsInput = document.getElementById('k8s-ns-input');
     const keyInput = document.getElementById('k8s-selector-key-input');
     const svcSelect = document.getElementById('k8s-service-select');
-    const ns = nsInput ? nsInput.value : k8sNs;
-    const key = keyInput ? keyInput.value : k8sSelectorKey;
+    const ns = nsInput ? nsInput.value.trim() : k8sNs;
+    const key = keyInput ? keyInput.value.trim() : k8sSelectorKey;
     const svc = svcSelect ? svcSelect.value : currentLogService;
+    
     setK8sLogsConfig(ns, key);
     if (svc && typeof svc === 'string' && svc.trim()) {
         changeLogService(svc.trim());
     }
+    
     if (useKubernetesLogs) {
-        loadLogs();
-        loadRecentLogsCompact();
+        if (typeof loadLogs === 'function') {
+            loadLogs();
+        }
+        if (typeof loadRecentLogsCompact === 'function') {
+            loadRecentLogsCompact();
+        }
     }
 }
 
 // Change Kubernetes service
 function changeLogService(serviceName) {
-    currentLogService = serviceName;
-    // console.log('Changed log service to:', serviceName);
+    if (!serviceName || typeof serviceName !== 'string') {
+        // Try to get from select element if not provided
+        const serviceSelect = document.getElementById('k8s-service-select');
+        if (serviceSelect) {
+            serviceName = serviceSelect.value;
+        } else {
+            console.warn('changeLogService: No service name provided and select element not found');
+            return;
+        }
+    }
+    
+    currentLogService = serviceName.trim();
+    localStorage.setItem('current_log_service', currentLogService);
+    console.log('Changed log service to:', currentLogService);
+    
+    // Update the select element to reflect the change
+    const serviceSelect = document.getElementById('k8s-service-select');
+    if (serviceSelect && serviceSelect.value !== currentLogService) {
+        serviceSelect.value = currentLogService;
+    }
     
     if (useKubernetesLogs) {
+        if (typeof loadLogs === 'function') {
+            loadLogs();
+        }
+        if (typeof loadRecentLogsCompact === 'function') {
+            loadRecentLogsCompact();
+        }
+    }
+}
+
+// Apply local log file settings
+function applyLocalLogSettings() {
+    const fileInput = document.getElementById('local-log-file');
+    if (fileInput) {
+        localLogFile = fileInput.value.trim() || '/tmp/hdn_server.log';
+        localStorage.setItem('local_log_file', localLogFile);
+        console.log('Changed local log file to:', localLogFile);
+    }
+    // Reload logs with the new file path
+    if (typeof loadLogs === 'function') {
         loadLogs();
+    }
+    if (typeof loadRecentLogsCompact === 'function') {
         loadRecentLogsCompact();
     }
 }
 
 async function loadRecentLogsCompact() {
+    // Skip if K8s is unavailable and we're trying to use K8s logs
+    if (useKubernetesLogs && k8sUnavailable) {
+        return; // Don't keep trying
+    }
+    
     try {
         let response;
         if (useKubernetesLogs) {
             // Use Kubernetes logs
             const params = new URLSearchParams({ limit: '200', ns: k8sNs, selector_key: k8sSelectorKey });
             response = await axios.get(`/api/k8s/logs/${encodeURIComponent(currentLogService)}?${params.toString()}`, { timeout: 5000 });
+            // Reset unavailable flag on success
+            k8sUnavailable = false;
         } else {
             // Use local logs endpoint with timeout
-            response = await axios.get('/api/logs?limit=200', { timeout: 5000 });
+            // Include log file path if specified
+            const params = new URLSearchParams({ limit: '200' });
+            if (localLogFile && localLogFile.trim() !== '') {
+                params.append('file', localLogFile.trim());
+            }
+            response = await axios.get(`/api/logs?${params.toString()}`, { timeout: 5000 });
         }
         allLogs = Array.isArray(response.data) ? response.data : [];
         
         // Apply filters and render
-        applyLogFilters();
+        if (typeof applyLogFilters === 'function') {
+            applyLogFilters();
+        }
     } catch (error) {
-        console.error('Error loading compact logs:', error);
+        // Don't spam errors if K8s is unavailable - only log once
+        if (!(useKubernetesLogs && k8sUnavailable)) {
+            console.error('Error loading compact logs:', error);
+        }
+        
         const el = getOrCreateLogsContainer();
         if (el) {
+            let errorMessage = error.message;
+            let errorDetails = '';
+            
+            // Extract more detailed error message from response if available
+            if (error.response && error.response.data) {
+                const data = error.response.data;
+                if (data.message) {
+                    errorMessage = data.message;
+                }
+                if (data.hint) {
+                    errorDetails = `<br><small style="color: #7f8c8d;">💡 ${data.hint}</small>`;
+                } else if (data.details) {
+                    errorDetails = `<br><small style="color: #7f8c8d;">Details: ${data.details}</small>`;
+                }
+            }
+            
+            // Check if kubectl is unavailable (400 error with specific message)
+            if (error.response && error.response.status === 400) {
+                const data = error.response.data || {};
+                if (data.error === 'kubectl not available' || data.message?.includes('kubectl')) {
+                    k8sUnavailable = true;
+                    // Stop polling for K8s logs
+                    if (window._logsPoll) {
+                        clearInterval(window._logsPoll);
+                        window._logsPoll = null;
+                    }
+                    // Only show error if we haven't shown it already (avoid duplicate messages)
+                    if (!el.innerHTML.includes('Kubernetes logs unavailable')) {
+                        el.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px; border: 2px solid #e74c3c; border-radius: 8px; background: #fee;">
+                            <strong>❌ Kubernetes logs unavailable</strong><br>
+                            ${errorMessage}${errorDetails}<br><br>
+                            <button onclick="if(typeof setLogSource==='function')setLogSource('local')" style="padding: 8px 16px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin-top: 10px;">
+                                Switch to Local Logs
+                            </button>
+                        </div>`;
+                    }
+                    return; // Don't continue trying
+                }
+            }
+            
             if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
                 const suggestion = useKubernetesLogs 
                     ? 'Try switching to Local logs or check if kubectl is available.'
                     : 'Try switching to K8s logs or check if the service is running.';
                 el.innerHTML = `<div style="color: #f39c12; text-align: center; padding: 20px;">⏱️ Logs endpoint timed out. ${suggestion}</div>`;
+            } else if (error.response && error.response.status === 404) {
+                el.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px;">❌ Service not found: ${errorMessage}${errorDetails}<br><small>Try selecting a different service or switching to Local logs.</small></div>`;
+            } else if (error.response && error.response.status === 400) {
+                el.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px;">❌ ${errorMessage}${errorDetails}<br><small>Kubernetes logs are not available. Try switching to Local logs.</small></div>`;
             } else {
-                el.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px;">❌ Error loading logs: ${error.message}<br><small>Try switching log source using the buttons above.</small></div>`;
+                el.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px;">❌ Error loading logs: ${errorMessage}${errorDetails}<br><small>Try switching log source using the buttons above.</small></div>`;
             }
         } else {
             // If container still doesn't exist, try to show error in the tab itself
@@ -334,12 +457,137 @@ function renderFilteredLogs(logs) {
     }
 }
 
-// Make functions globally available
-window.toggleLogSource = toggleLogSource;
+// Update UI to show/hide appropriate controls based on log source
+function updateLogSourceUI() {
+    const k8sControls = document.getElementById('k8s-controls');
+    const localControls = document.getElementById('local-controls');
+    
+    if (k8sControls) {
+        k8sControls.style.display = useKubernetesLogs ? 'flex' : 'none';
+        // Ensure flex layout is applied
+        if (useKubernetesLogs) {
+            k8sControls.style.gap = '6px';
+            k8sControls.style.alignItems = 'center';
+            k8sControls.style.flexWrap = 'wrap';
+        }
+    }
+    if (localControls) {
+        localControls.style.display = useKubernetesLogs ? 'none' : 'flex';
+        // Ensure flex layout is applied
+        if (!useKubernetesLogs) {
+            localControls.style.gap = '6px';
+            localControls.style.alignItems = 'center';
+            localControls.style.flexWrap = 'wrap';
+        }
+    }
+}
+
+// FIRST: Expose all functions to window immediately (before toggleLogSource uses them)
 window.changeLogService = changeLogService;
 window.loadLogs = loadLogs;
 window.loadRecentLogsCompact = loadRecentLogsCompact;
 window.applyLogFilters = applyLogFilters;
+window.applyK8sSettings = applyK8sSettings;
+window.applyLocalLogSettings = applyLocalLogSettings;
+window.updateLogSourceUI = updateLogSourceUI;
+window.getOrCreateLogsContainer = getOrCreateLogsContainer;
+
+// THEN: Define toggleLogSource which uses the above functions
+window.toggleLogSource = function() {
+    useKubernetesLogs = !useKubernetesLogs;
+    localStorage.setItem('use_k8s_logs', useKubernetesLogs ? 'true' : 'false');
+    console.log('toggleLogSource: switched to', useKubernetesLogs ? 'K8s' : 'Local');
+    
+    // Reset K8s unavailable flag when switching away from K8s
+    if (!useKubernetesLogs) {
+        k8sUnavailable = false;
+    }
+    
+    const indicators = [
+        document.getElementById('log-source-indicator'),
+        document.getElementById('log-source-indicator-tab')
+    ];
+    
+    indicators.forEach(indicator => {
+        if (indicator) {
+            indicator.textContent = useKubernetesLogs ? 'K8s Logs' : 'Local Logs';
+            indicator.className = useKubernetesLogs ? 'k8s-indicator' : 'local-indicator';
+        }
+    });
+    
+    // Update button text
+    const toggleBtn = document.getElementById('log-source-toggle');
+    if (toggleBtn) {
+        toggleBtn.innerHTML = `Switch to <span id="log-source-indicator">${useKubernetesLogs ? 'Local Logs' : 'K8s Logs'}</span>`;
+    }
+    
+    // Show/hide appropriate controls
+    if (typeof window.updateLogSourceUI === 'function') {
+        window.updateLogSourceUI();
+    } else if (typeof updateLogSourceUI === 'function') {
+        updateLogSourceUI();
+    }
+    
+    // Restart polling if needed
+    if (!useKubernetesLogs && !window._logsPoll) {
+        window._logsPoll = setInterval(() => {
+            if (typeof window.loadRecentLogsCompact === 'function') {
+                window.loadRecentLogsCompact();
+            }
+        }, 3000);
+    }
+    
+    // Load logs with new source - use window references
+    if (typeof window.loadLogs === 'function') {
+        window.loadLogs();
+    } else if (typeof window.loadRecentLogsCompact === 'function') {
+        window.loadRecentLogsCompact();
+    } else {
+        console.error('loadLogs function not available');
+    }
+};
+
+window.setLogSource = function(source) {
+    useKubernetesLogs = (source === 'k8s');
+    localStorage.setItem('use_k8s_logs', useKubernetesLogs ? 'true' : 'false');
+    console.log('setLogSource: set to', useKubernetesLogs ? 'K8s' : 'Local');
+    
+    const indicator = document.getElementById('log-source-indicator');
+    if (indicator) {
+        indicator.textContent = useKubernetesLogs ? 'K8s Logs' : 'Local Logs';
+        indicator.className = useKubernetesLogs ? 'k8s-indicator' : 'local-indicator';
+    }
+    
+    // Update button text
+    const toggleBtn = document.getElementById('log-source-toggle');
+    if (toggleBtn) {
+        toggleBtn.innerHTML = `Switch to <span id="log-source-indicator">${useKubernetesLogs ? 'Local Logs' : 'K8s Logs'}</span>`;
+    }
+    
+    // Show/hide appropriate controls
+    if (typeof window.updateLogSourceUI === 'function') {
+        window.updateLogSourceUI();
+    } else if (typeof updateLogSourceUI === 'function') {
+        updateLogSourceUI();
+    }
+    
+    // Load logs with new source - use window references
+    if (typeof window.loadLogs === 'function') {
+        window.loadLogs();
+    } else if (typeof window.loadRecentLogsCompact === 'function') {
+        window.loadRecentLogsCompact();
+    }
+};
+
+// Debug: Log that functions are available
+console.log('logs.js loaded - functions available:', {
+    toggleLogSource: typeof window.toggleLogSource,
+    loadLogs: typeof window.loadLogs,
+    loadRecentLogsCompact: typeof window.loadRecentLogsCompact,
+    applyK8sSettings: typeof window.applyK8sSettings,
+    applyLocalLogSettings: typeof window.applyLocalLogSettings,
+    changeLogService: typeof window.changeLogService
+});
 
 document.addEventListener('DOMContentLoaded', function() {
     // Restore filter preferences
@@ -362,8 +610,97 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    loadRecentLogsCompact();
+    // Restore service selection
+    const savedService = localStorage.getItem('current_log_service');
+    if (savedService) {
+        currentLogService = savedService;
+        const serviceSelect = document.getElementById('k8s-service-select');
+        if (serviceSelect) {
+            serviceSelect.value = currentLogService;
+        }
+    }
+    
+    // Restore local log file
+    const savedLogFile = localStorage.getItem('local_log_file');
+    if (savedLogFile) {
+        localLogFile = savedLogFile;
+        const fileInput = document.getElementById('local-log-file');
+        if (fileInput) {
+            fileInput.value = localLogFile;
+        }
+    }
+    
+    // Restore K8s settings
+    const savedNs = localStorage.getItem('k8s_ns');
+    const savedSelector = localStorage.getItem('k8s_selector_key');
+    if (savedNs) {
+        k8sNs = savedNs;
+        const nsInput = document.getElementById('k8s-ns-input');
+        if (nsInput) nsInput.value = k8sNs;
+    }
+    if (savedSelector) {
+        k8sSelectorKey = savedSelector;
+        const selectorInput = document.getElementById('k8s-selector-key-input');
+        if (selectorInput) selectorInput.value = k8sSelectorKey;
+    }
+    
+    // Update UI based on current log source
+    updateLogSourceUI();
+    
+    // Update button text
+    const toggleBtn = document.getElementById('log-source-toggle');
+    if (toggleBtn) {
+        toggleBtn.innerHTML = `Switch to <span id="log-source-indicator">${useKubernetesLogs ? 'Local Logs' : 'K8s Logs'}</span>`;
+    }
+    
+    // Populate K8s service dropdown
+    const serviceSelect = document.getElementById('k8s-service-select');
+    if (serviceSelect) {
+        // Set current service as selected
+        if (currentLogService) {
+            serviceSelect.value = currentLogService;
+        }
+        
+        // Add onchange handler if not already set
+        if (!serviceSelect.onchange) {
+            serviceSelect.onchange = function() {
+                if (typeof changeLogService === 'function') {
+                    changeLogService(this.value);
+                }
+            };
+        }
+        
+        // Try to fetch services from API to populate dropdown
+        if (serviceSelect.options.length <= 4) {
+            axios.get('/api/k8s/services', { timeout: 4000 }).then(resp => {
+                const items = Array.isArray(resp.data) ? resp.data : [];
+                const names = items.map(s => s.name).filter(Boolean);
+                if (names.length > 0) {
+                    const currentValue = serviceSelect.value || currentLogService;
+                    serviceSelect.innerHTML = names.map(v => 
+                        `<option value="${v}" ${v===currentValue?'selected':''}>${v}</option>`
+                    ).join('');
+                    // Re-attach onchange handler after innerHTML update
+                    serviceSelect.onchange = function() {
+                        if (typeof changeLogService === 'function') {
+                            changeLogService(this.value);
+                        }
+                    };
+                }
+            }).catch(() => {
+                // Keep default options
+            });
+        }
+    }
+    
+    if (typeof loadRecentLogsCompact === 'function') {
+        loadRecentLogsCompact();
+    }
     if (window._logsPoll) clearInterval(window._logsPoll);
-    window._logsPoll = setInterval(loadRecentLogsCompact, 3000);
+    window._logsPoll = setInterval(() => {
+        if (typeof loadRecentLogsCompact === 'function') {
+            loadRecentLogsCompact();
+        }
+    }, 3000);
 });
 
