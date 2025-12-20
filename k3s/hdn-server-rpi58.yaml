@@ -21,7 +21,7 @@ spec:
           effect: "NoSchedule"
       containers:
         - name: hdn-server
-          image: stevef1uk/hdn-server:secure-test3
+          image: stevef1uk/hdn-server:secure
           imagePullPolicy: Always
           args: ["--domain", "/config/domain.json", "--config", "/config/config.json", "--port", "8080", "--mode", "server"]
           ports:
