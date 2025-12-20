@@ -345,6 +345,30 @@ func (ip *IntentParser) templateBasedGoalGeneration(message string, intentType s
 func (ip *IntentParser) applyRuleBasedRefinements(message string, intentType string, confidence float64) (string, float64) {
 	message = strings.ToLower(message)
 
+	// Override misclassifications: "What is X?" should always be "query" to use knowledge base
+	queryOverridePatterns := []string{
+		`^what is `,
+		`^what are `,
+		`^what's `,
+		`^what was `,
+		`^what were `,
+		`^tell me about `,
+		`^explain `,
+		`^describe `,
+		`^define `,
+		`^what does `,
+		`^how does `,
+		`^how do `,
+	}
+	for _, pattern := range queryOverridePatterns {
+		if matched, _ := regexp.MatchString(pattern, message); matched {
+			if intentType != "query" {
+				log.Printf("🔧 [INTENT-PARSER] Overriding intent from '%s' to 'query' for pattern: %s", intentType, pattern)
+			}
+			return "query", 0.95
+		}
+	}
+
 	// Check for high-confidence patterns
 	highConfidencePatterns := map[string][]string{
 		"query": {

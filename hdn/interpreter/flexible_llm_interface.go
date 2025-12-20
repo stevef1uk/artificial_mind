@@ -140,6 +140,11 @@ func (f *FlexibleLLMAdapter) parseFlexibleResponse(response string) (*FlexibleLL
 		jsonStr := response[jsonStart : jsonEnd+1]
 		if err := json.Unmarshal([]byte(jsonStr), &flexibleResp); err == nil {
 			log.Printf("✅ [FLEXIBLE-LLM] Extracted and parsed JSON: %s", flexibleResp.Type)
+			if flexibleResp.Type == ResponseTypeToolCall && flexibleResp.ToolCall != nil {
+				log.Printf("🔧 [FLEXIBLE-LLM] Tool call parsed: %s", flexibleResp.ToolCall.ToolID)
+			} else if flexibleResp.Type == ResponseTypeToolCall && flexibleResp.ToolCall == nil {
+				log.Printf("⚠️ [FLEXIBLE-LLM] Tool call type but ToolCall is nil!")
+			}
 			return &flexibleResp, nil
 		}
 	}

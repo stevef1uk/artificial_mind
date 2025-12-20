@@ -81,8 +81,17 @@ func (f *FlexibleInterpreter) Interpret(ctx context.Context, req *NaturalLanguag
 	// Set response-specific data
 	switch response.Type {
 	case ResponseTypeToolCall:
+		if response.ToolCall == nil {
+			log.Printf("❌ [FLEXIBLE-INTERPRETER] Response type is tool_call but ToolCall is nil in response!")
+		} else {
+			log.Printf("🔧 [FLEXIBLE-INTERPRETER] Parsed tool call: %s", response.ToolCall.ToolID)
+		}
 		result.ToolCall = response.ToolCall
-		result.Message = fmt.Sprintf("Tool call: %s", response.ToolCall.ToolID)
+		if response.ToolCall != nil {
+			result.Message = fmt.Sprintf("Tool call: %s", response.ToolCall.ToolID)
+		} else {
+			result.Message = "Tool call requested but ToolCall is nil"
+		}
 	case ResponseTypeCodeArtifact:
 		result.CodeArtifact = response.CodeArtifact
 		result.Message = fmt.Sprintf("Code artifact generated: %s", response.CodeArtifact.Language)
@@ -159,6 +168,7 @@ func (f *FlexibleInterpreter) InterpretAndExecute(ctx context.Context, req *Natu
 
 	// If it's a tool call, validate and execute it
 	if result.ToolCall != nil {
+		log.Printf("🔧 [FLEXIBLE-INTERPRETER] Executing tool: %s with parameters: %+v", result.ToolCall.ToolID, result.ToolCall.Parameters)
 		// Validate the tool ID against available tools to avoid invoking non-existent endpoints
 		tools, terr := f.toolProvider.GetAvailableTools(ctx)
 		if terr == nil && len(tools) > 0 {
@@ -175,6 +185,7 @@ func (f *FlexibleInterpreter) InterpretAndExecute(ctx context.Context, req *Natu
 				for _, t := range tools {
 					ids = append(ids, t.ID)
 				}
+				log.Printf("❌ [FLEXIBLE-INTERPRETER] Invalid tool_id '%s'; must be one of: %s", result.ToolCall.ToolID, strings.Join(ids, ", "))
 				result.ToolExecutionResult = &ToolExecutionResult{
 					Success: false,
 					Error:   fmt.Sprintf("invalid tool_id '%s'; must be one of: %s", result.ToolCall.ToolID, strings.Join(ids, ", ")),
@@ -186,18 +197,22 @@ func (f *FlexibleInterpreter) InterpretAndExecute(ctx context.Context, req *Natu
 		}
 		executionResult, err := f.toolProvider.ExecuteTool(ctx, result.ToolCall.ToolID, result.ToolCall.Parameters)
 		if err != nil {
+			log.Printf("❌ [FLEXIBLE-INTERPRETER] Tool execution failed: %v", err)
 			result.ToolExecutionResult = &ToolExecutionResult{
 				Success: false,
 				Error:   err.Error(),
 			}
 			result.Message = fmt.Sprintf("Tool execution failed: %v", err)
 		} else {
+			log.Printf("✅ [FLEXIBLE-INTERPRETER] Tool %s executed successfully", result.ToolCall.ToolID)
 			result.ToolExecutionResult = &ToolExecutionResult{
 				Success: true,
 				Result:  executionResult,
 			}
 			result.Message = "Tool executed successfully"
 		}
+	} else {
+		log.Printf("⚠️ [FLEXIBLE-INTERPRETER] Response type is %s but ToolCall is nil", result.ResponseType)
 	}
 
 	return result, nil

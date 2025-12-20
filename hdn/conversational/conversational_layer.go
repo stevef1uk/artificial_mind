@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -124,6 +125,8 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 	})
 
 	// Step 4: Execute the action using FSM + HDN
+	// Add original message to context for knowledge query extraction
+	conversationContext["original_message"] = req.Message
 	result, err := cl.executeAction(ctx, action, conversationContext)
 	if err != nil {
 		return cl.handleError("Failed to execute action", err, req.SessionID)
@@ -329,11 +332,117 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 	for k, v := range action.Parameters {
 		hdnContext[k] = fmt.Sprintf("%v", v)
 	}
+	
+	// Add original message if available in context for knowledge query extraction
+	if origMsg, ok := context["original_message"].(string); ok {
+		hdnContext["original_message"] = origMsg
+	} else if origMsg, ok := context["message"].(string); ok {
+		hdnContext["original_message"] = origMsg
+	}
 
 	switch action.Type {
 	case "knowledge_query":
 		// Use HDN's natural language interpretation for knowledge queries (allows tool usage)
-		interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, action.Goal, hdnContext)
+		// For knowledge queries, use a simpler query format to encourage tool usage
+		// Extract the core query from the goal or use the original message
+		queryText := action.Goal
+		// If goal is too verbose, try to extract a simpler query
+		if strings.Contains(queryText, "**Goal:**") {
+			// Extract text after "**Goal:**" and before any "**Rationale:**" or similar
+			parts := strings.Split(queryText, "**Goal:**")
+			if len(parts) > 1 {
+				goalPart := strings.Split(parts[1], "**")[0]
+				goalPart = strings.TrimSpace(goalPart)
+				// If it's still too long, try to extract just the question part
+				if len(goalPart) > 100 {
+					// Look for question patterns
+					if idx := strings.Index(goalPart, "What is"); idx >= 0 {
+						queryText = goalPart[idx:]
+						if endIdx := strings.Index(queryText, "."); endIdx > 0 && endIdx < 50 {
+							queryText = queryText[:endIdx+1]
+						}
+					} else if idx := strings.Index(goalPart, "What are"); idx >= 0 {
+						queryText = goalPart[idx:]
+						if endIdx := strings.Index(queryText, "."); endIdx > 0 && endIdx < 50 {
+							queryText = queryText[:endIdx+1]
+						}
+					} else {
+						// Just use first sentence
+						if endIdx := strings.Index(goalPart, "."); endIdx > 0 {
+							queryText = goalPart[:endIdx+1]
+						}
+					}
+				} else {
+					queryText = goalPart
+				}
+			}
+		}
+		// For knowledge queries, create a more direct prompt that forces tool usage
+		// Extract just the core concept name from the original message or goal
+		// Try to get the original message from context first
+		originalMessage := ""
+		if origMsg, ok := hdnContext["original_message"]; ok {
+			originalMessage = origMsg
+		} else if origMsg, ok := context["original_message"].(string); ok {
+			originalMessage = origMsg
+		}
+		
+		// Extract concept name from "What is X?" pattern
+		coreQuery := ""
+		searchText := originalMessage
+		if searchText == "" {
+			searchText = queryText
+			log.Printf("⚠️ [CONVERSATIONAL] Original message not found in context, using queryText: %s", queryText)
+		} else {
+			log.Printf("✅ [CONVERSATIONAL] Using original message for extraction: %s", originalMessage)
+		}
+		
+		// Look for "What is X?" or "What are X?" patterns
+		lowerText := strings.ToLower(searchText)
+		if idx := strings.Index(lowerText, "what is "); idx >= 0 {
+			start := idx + len("what is ")
+			end := len(searchText)
+			// Find end of concept (period, question mark, or end of string)
+			for i := start; i < len(searchText); i++ {
+				if searchText[i] == '.' || searchText[i] == '?' || searchText[i] == '!' {
+					end = i
+					break
+				}
+			}
+			coreQuery = strings.TrimSpace(searchText[start:end])
+			log.Printf("✅ [CONVERSATIONAL] Extracted concept name from 'What is' pattern: '%s'", coreQuery)
+		} else if idx := strings.Index(lowerText, "what are "); idx >= 0 {
+			start := idx + len("what are ")
+			end := len(searchText)
+			for i := start; i < len(searchText); i++ {
+				if searchText[i] == '.' || searchText[i] == '?' || searchText[i] == '!' {
+					end = i
+					break
+				}
+			}
+			coreQuery = strings.TrimSpace(searchText[start:end])
+			log.Printf("✅ [CONVERSATIONAL] Extracted concept name from 'What are' pattern: '%s'", coreQuery)
+		}
+		
+		// If we couldn't extract, try to get first word or short phrase from queryText
+		if coreQuery == "" {
+			// Take first meaningful word/phrase (up to 20 chars or first punctuation)
+			words := strings.Fields(queryText)
+			if len(words) > 0 {
+				coreQuery = words[0]
+				// Capitalize if needed
+				if len(coreQuery) > 0 {
+					coreQuery = strings.ToUpper(coreQuery[:1]) + coreQuery[1:]
+				}
+			} else {
+				coreQuery = "Unknown"
+			}
+		}
+		
+		// Create a very direct tool call instruction
+		directQuery := fmt.Sprintf("Query your knowledge base about '%s'. Use the mcp_get_concept tool with name='%s' and domain='General' to retrieve information.", coreQuery, coreQuery)
+		log.Printf("🔍 [CONVERSATIONAL] Simplified knowledge query: %s (extracted from: %s)", directQuery, searchText)
+		interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, directQuery, hdnContext)
 		if err != nil {
 			return nil, fmt.Errorf("knowledge query failed: %w", err)
 		}

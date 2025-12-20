@@ -796,6 +796,11 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 			}
 		}
 		log.Printf("🔧 [SIMPLE-CHAT-HDN] Tool %s was used in interpretation", result.ToolCall.ToolID)
+	} else {
+		log.Printf("⚠️ [SIMPLE-CHAT-HDN] result.ToolCall is nil! ResponseType: %s, HasToolExecutionResult: %v", result.ResponseType, result.ToolExecutionResult != nil)
+		if result.ToolExecutionResult != nil {
+			log.Printf("⚠️ [SIMPLE-CHAT-HDN] Tool was executed but ToolCall is nil - this shouldn't happen!")
+		}
 	}
 
 	// Build interpreted text from result
