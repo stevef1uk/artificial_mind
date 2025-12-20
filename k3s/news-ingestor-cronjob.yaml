@@ -14,7 +14,7 @@ spec:
           containers:
           - name: news-ingestor
             image: stevef1uk/data-processor:secure
-            imagePullPolicy: IfNotPresent
+            imagePullPolicy: Always
             args: ["-url", "https://www.bbc.com/news", "-max", "100", "-llm", "-batch-size", "10", "-debug"]
             env:
             - name: NATS_URL

@@ -15,7 +15,7 @@ spec:
           containers:
           - name: wiki-bootstrapper
             image: stevef1uk/knowledge-builder:secure
-            imagePullPolicy: IfNotPresent
+            imagePullPolicy: Always
             args: ["-weaviate", "-max-nodes", "500000", "-max-depth", "4", "-rpm", "60", "-burst", "10", "-jitter-ms", "25"]
             env:
             - name: NEO4J_URI
