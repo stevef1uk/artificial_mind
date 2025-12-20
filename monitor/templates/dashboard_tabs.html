@@ -8,7 +8,7 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-    <!-- <script src="/static/js/logs.js"></script> --> <!-- Optional: logs.js not required -->
+    <script src="/static/js/logs.js"></script>
     <style>
         * {
             margin: 0;
@@ -943,6 +943,34 @@
                                 console.log('logs-tab innerHTML:', document.getElementById('logs-tab')?.innerHTML.substring(0, 200));
                                 await loadLogs();
                             }, 100);
+                        } else {
+                            // Fallback: try to load logs directly if logs.js didn't load
+                            console.warn('loadLogs function not found, attempting fallback load');
+                            const fallbackContainer = document.getElementById('logs-compact');
+                            if (fallbackContainer) {
+                                setTimeout(async () => {
+                                    try {
+                                        const response = await axios.get('/api/logs?limit=200', { timeout: 5000 });
+                                        const logs = response.data || [];
+                                        if (logs.length > 0) {
+                                            const logsHtml = logs.map(log => {
+                                                const time = new Date(log.timestamp || Date.now()).toLocaleTimeString();
+                                                const level = (log.level || '').toUpperCase();
+                                                const msg = (log.message || '').toString();
+                                                return `<div class="log-item"><span class="log-time">${time}</span> <span class="log-level ${level}">${level}</span> <span class="log-message">${msg}</span></div>`;
+                                            }).join('');
+                                            fallbackContainer.innerHTML = logsHtml;
+                                        } else {
+                                            fallbackContainer.innerHTML = '<div style="color: #666; text-align: center; padding: 20px;">No logs available</div>';
+                                        }
+                                    } catch (error) {
+                                        console.error('Fallback log load failed:', error);
+                                        if (fallbackContainer) {
+                                            fallbackContainer.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px;">❌ Error loading logs: ${error.message}</div>`;
+                                        }
+                                    }
+                                }, 100);
+                            }
                         }
                         break;
                     case 'reasoning':
