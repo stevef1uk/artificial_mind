@@ -176,9 +176,14 @@ func (s *APIServer) registerTool(ctx context.Context, t Tool) error {
 		return err
 	}
 	if err := s.redis.Set(ctx, s.toolKey(t.ID), b, 0).Err(); err != nil {
+		log.Printf("❌ [REGISTER-TOOL] Failed to Set tool %s in Redis: %v", t.ID, err)
 		return err
 	}
-	_ = s.redis.SAdd(ctx, s.toolsRegistryKey(), t.ID).Err()
+	if err := s.redis.SAdd(ctx, s.toolsRegistryKey(), t.ID).Err(); err != nil {
+		log.Printf("❌ [REGISTER-TOOL] Failed to SAdd tool %s to registry: %v", t.ID, err)
+		return err
+	}
+	log.Printf("✅ [REGISTER-TOOL] Successfully registered tool %s in Redis", t.ID)
 
 	// Best-effort event emission
 	if s.eventBus != nil {

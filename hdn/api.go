@@ -355,8 +355,19 @@ func NewAPIServer(domainPath string, redisAddr string) *APIServer {
 	ctx := context.Background()
 	if err := server.redis.Ping(ctx).Err(); err != nil {
 		log.Printf("⚠️  [API] Failed to connect to Redis at %s: %v", redisAddr, err)
+		log.Printf("⚠️  [API] This will cause tools not to be persisted. Check REDIS_URL environment variable.")
 	} else {
 		log.Printf("✅ [API] Successfully connected to Redis at %s", redisAddr)
+		// Verify we can write and read
+		testKey := "hdn:connection_test"
+		if err := server.redis.Set(ctx, testKey, "test", time.Second).Err(); err != nil {
+			log.Printf("⚠️  [API] Redis write test failed: %v", err)
+		} else if val, err := server.redis.Get(ctx, testKey).Result(); err != nil || val != "test" {
+			log.Printf("⚠️  [API] Redis read test failed: %v", err)
+		} else {
+			log.Printf("✅ [API] Redis read/write test passed")
+			server.redis.Del(ctx, testKey)
+		}
 	}
 
 	// Initialize project manager (24h TTL like others)
