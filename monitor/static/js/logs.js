@@ -1,10 +1,26 @@
 // Configuration for log source
 // Cache bust: 2025-10-03-06-55
-let useKubernetesLogs = true; // Default to Kubernetes logs
+// Default to local logs (better for Mac/development), user can switch to K8s if needed
+let useKubernetesLogs = localStorage.getItem('use_k8s_logs') === 'true'; // Check localStorage, default to false
 let currentLogService = 'fsm-server-rpi58'; // Default service
 // K8s config with persistence
 let k8sNs = localStorage.getItem('k8s_ns') || 'agi';
 let k8sSelectorKey = localStorage.getItem('k8s_selector_key') || 'app';
+
+// Log filtering
+let allLogs = []; // Store all logs for filtering
+let currentLogLevelFilter = 'all';
+let hideVerboseLogs = false;
+
+// Patterns to hide when "Hide verbose" is enabled
+const verbosePatterns = [
+    /Retrieved \d+ files for workflow/,
+    /Failed to get workflow record.*redis: nil/,
+    /Found \d+ active workflow IDs in Redis/,
+    /Payload Preview:/,
+    /\[API\] Retrieved \d+ files for workflow/,
+    /⚠️ \[API\] Failed to get workflow record.*redis: nil/,
+];
 
 function setK8sLogsConfig(ns, selectorKey) {
     if (ns && typeof ns === 'string') {
@@ -85,46 +101,30 @@ async function loadLogs() {
             // Use local logs endpoint with timeout
             response = await axios.get('/api/logs?limit=200', { timeout: 5000 });
         }
-        const logs = response.data;
+        allLogs = Array.isArray(response.data) ? response.data : [];
         
-        let logsHtml = '';
-        if (logs && logs.length > 0) {
-            logs.forEach(log => {
-                const time = new Date(log.timestamp || Date.now()).toLocaleTimeString();
-                const level = (log.level || '').toUpperCase();
-                const msg = (log.message || '').toString();
-                logsHtml += `
-                    <div class="log-item">
-                        <span class="log-time">${time}</span>
-                        <span class="log-level ${level}">${level}</span>
-                        <span class="log-message">${msg}</span>
-                    </div>`;
-            });
-        } else {
-            logsHtml = '<div style="color: #666; text-align: center; padding: 20px;">No logs available</div>';
-        }
-        
-        const el = getOrCreateLogsContainer();
-        if (el) {
-            el.innerHTML = logsHtml;
-        } else {
-            console.error('Element logs-compact not found');
-            // Try again after a short delay
-            setTimeout(() => {
-                const retryEl = getOrCreateLogsContainer();
-                if (retryEl) {
-                    retryEl.innerHTML = logsHtml;
-                }
-            }, 200);
-        }
+        // Apply filters and render
+        applyLogFilters();
     } catch (error) {
         console.error('Error loading logs:', error);
         const el = getOrCreateLogsContainer();
         if (el) {
             if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-                el.innerHTML = '<div style="color: #f39c12; text-align: center; padding: 20px;">⏱️ Logs endpoint timed out. Try switching to K8s logs or check if the service is running.</div>';
+                const suggestion = useKubernetesLogs 
+                    ? 'Try switching to Local logs or check if kubectl is available.'
+                    : 'Try switching to K8s logs or check if the service is running.';
+                el.innerHTML = `<div style="color: #f39c12; text-align: center; padding: 20px;">⏱️ Logs endpoint timed out. ${suggestion}</div>`;
             } else {
-                el.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px;">❌ Error loading logs: ${error.message}</div>`;
+                el.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px;">❌ Error loading logs: ${error.message}<br><small>Try switching log source using the buttons above.</small></div>`;
+            }
+        } else {
+            // If container still doesn't exist, try to show error in the tab itself
+            const logsTab = document.getElementById('logs-tab');
+            if (logsTab) {
+                const errorDiv = document.createElement('div');
+                errorDiv.style.cssText = 'color: #e74c3c; text-align: center; padding: 20px;';
+                errorDiv.innerHTML = `❌ Error loading logs: ${error.message}`;
+                logsTab.appendChild(errorDiv);
             }
         }
     }
@@ -133,6 +133,8 @@ async function loadLogs() {
 // Toggle between Kubernetes and local logs
 function toggleLogSource() {
     useKubernetesLogs = !useKubernetesLogs;
+    // Persist preference
+    localStorage.setItem('use_k8s_logs', useKubernetesLogs ? 'true' : 'false');
     // console.log('Switched to:', useKubernetesLogs ? 'Kubernetes logs' : 'Local logs');
     
     // Update both UI indicators
@@ -156,6 +158,8 @@ function toggleLogSource() {
 // Explicitly set source from UI buttons
 function setLogSource(source) {
     useKubernetesLogs = (source === 'k8s');
+    // Persist preference
+    localStorage.setItem('use_k8s_logs', useKubernetesLogs ? 'true' : 'false');
     const indicator = document.getElementById('log-source-indicator');
     if (indicator) {
         indicator.textContent = useKubernetesLogs ? 'K8s Logs' : 'Local Logs';
@@ -204,49 +208,129 @@ async function loadRecentLogsCompact() {
             // Use local logs endpoint with timeout
             response = await axios.get('/api/logs?limit=200', { timeout: 5000 });
         }
-        const logs = response.data;
+        allLogs = Array.isArray(response.data) ? response.data : [];
         
-        let logsHtml = '';
-        if (logs && logs.length > 0) {
-            logs.forEach(log => {
-                const time = new Date(log.timestamp || Date.now()).toLocaleTimeString();
-                const level = (log.level || '').toUpperCase();
-                const msg = (log.message || '').toString();
-                logsHtml += `
-                    <div class="log-item" style="font-size:12px;">
-                        <span class="log-time">${time}</span>
-                        <span class="log-level ${level}">${level}</span>
-                        <span class="log-message">${msg}</span>
-                    </div>`;
-            });
-        } else {
-            logsHtml = '<div style="color: #666; text-align: center; padding: 20px;">No logs available</div>';
-        }
-        
-        const el = getOrCreateLogsContainer();
-        if (el) {
-            el.innerHTML = logsHtml;
-        } else {
-            console.error('Element logs-compact not found for compact view');
-            // Try again after a short delay
-            setTimeout(() => {
-                const retryEl = getOrCreateLogsContainer();
-                if (retryEl) {
-                    retryEl.innerHTML = logsHtml;
-                    // console.log('Compact logs HTML set on retry');
-                }
-            }, 200);
-        }
+        // Apply filters and render
+        applyLogFilters();
     } catch (error) {
         console.error('Error loading compact logs:', error);
         const el = getOrCreateLogsContainer();
         if (el) {
             if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-                el.innerHTML = '<div style="color: #f39c12; text-align: center; padding: 20px;">⏱️ Logs endpoint timed out. Try switching to K8s logs or check if the service is running.</div>';
+                const suggestion = useKubernetesLogs 
+                    ? 'Try switching to Local logs or check if kubectl is available.'
+                    : 'Try switching to K8s logs or check if the service is running.';
+                el.innerHTML = `<div style="color: #f39c12; text-align: center; padding: 20px;">⏱️ Logs endpoint timed out. ${suggestion}</div>`;
             } else {
-                el.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px;">❌ Error loading logs: ${error.message}</div>`;
+                el.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px;">❌ Error loading logs: ${error.message}<br><small>Try switching log source using the buttons above.</small></div>`;
+            }
+        } else {
+            // If container still doesn't exist, try to show error in the tab itself
+            const logsTab = document.getElementById('logs-tab');
+            if (logsTab) {
+                const errorDiv = document.createElement('div');
+                errorDiv.style.cssText = 'color: #e74c3c; text-align: center; padding: 20px;';
+                errorDiv.innerHTML = `❌ Error loading logs: ${error.message}`;
+                logsTab.appendChild(errorDiv);
             }
         }
+    }
+}
+
+// Apply log filters and render filtered logs
+function applyLogFilters() {
+    const levelFilter = document.getElementById('log-level-filter');
+    const hideVerbose = document.getElementById('hide-verbose-logs');
+    
+    if (levelFilter) {
+        currentLogLevelFilter = levelFilter.value;
+        localStorage.setItem('log_level_filter', currentLogLevelFilter);
+    }
+    if (hideVerbose) {
+        hideVerboseLogs = hideVerbose.checked;
+        localStorage.setItem('hide_verbose_logs', hideVerboseLogs ? 'true' : 'false');
+    }
+    
+    // Filter logs
+    let filteredLogs = allLogs.filter(log => {
+        const level = (log.level || 'info').toLowerCase();
+        const msg = (log.message || '').toString();
+        
+        // Apply level filter
+        if (currentLogLevelFilter !== 'all') {
+            const levelOrder = { 'error': 0, 'warning': 1, 'info': 2, 'debug': 3 };
+            const filterLevel = levelOrder[currentLogLevelFilter] ?? 3;
+            const logLevel = levelOrder[level] ?? 2;
+            if (logLevel > filterLevel) {
+                return false;
+            }
+        }
+        
+        // Apply verbose filter
+        if (hideVerboseLogs) {
+            for (const pattern of verbosePatterns) {
+                if (pattern.test(msg)) {
+                    return false;
+                }
+            }
+        }
+        
+        return true;
+    });
+    
+    // Render filtered logs
+    renderFilteredLogs(filteredLogs);
+}
+
+// Render filtered logs to the container
+function renderFilteredLogs(logs) {
+    let logsHtml = '';
+    if (logs && logs.length > 0) {
+        logs.forEach(log => {
+            const time = new Date(log.timestamp || Date.now()).toLocaleTimeString();
+            const level = (log.level || 'info').toUpperCase();
+            let msg = (log.message || '').toString();
+            
+            // Truncate very long messages
+            if (msg.length > 500) {
+                msg = msg.substring(0, 500) + '...';
+            }
+            
+            // Escape HTML but preserve line breaks
+            msg = msg.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            
+            const levelClass = level.toLowerCase();
+            logsHtml += `
+                <div class="log-item log-${levelClass}" style="padding: 4px 8px; margin: 2px 0; border-left: 3px solid ${
+                    levelClass === 'error' ? '#e74c3c' : 
+                    levelClass === 'warning' ? '#f39c12' : 
+                    levelClass === 'debug' ? '#95a5a6' : '#3498db'
+                }; font-size: 12px; line-height: 1.4;">
+                    <span class="log-time" style="color: #7f8c8d; margin-right: 8px; font-family: monospace;">${time}</span>
+                    <span class="log-level" style="color: ${
+                        levelClass === 'error' ? '#e74c3c' : 
+                        levelClass === 'warning' ? '#f39c12' : 
+                        levelClass === 'debug' ? '#95a5a6' : '#3498db'
+                    }; font-weight: bold; margin-right: 8px; min-width: 60px; display: inline-block;">${level}</span>
+                    <span class="log-message" style="color: #2c3e50;">${msg}</span>
+                </div>`;
+        });
+    } else {
+        logsHtml = '<div style="color: #666; text-align: center; padding: 20px;">No logs match the current filters</div>';
+    }
+    
+    const el = getOrCreateLogsContainer();
+    if (el) {
+        el.innerHTML = logsHtml;
+    } else {
+        console.error('Element logs-compact not found');
+        // Try again after a short delay
+        setTimeout(() => {
+            const retryEl = getOrCreateLogsContainer();
+            if (retryEl) {
+                retryEl.innerHTML = logsHtml;
+            }
+        }, 200);
     }
 }
 
@@ -255,8 +339,29 @@ window.toggleLogSource = toggleLogSource;
 window.changeLogService = changeLogService;
 window.loadLogs = loadLogs;
 window.loadRecentLogsCompact = loadRecentLogsCompact;
+window.applyLogFilters = applyLogFilters;
 
 document.addEventListener('DOMContentLoaded', function() {
+    // Restore filter preferences
+    const savedLevelFilter = localStorage.getItem('log_level_filter');
+    const savedHideVerbose = localStorage.getItem('hide_verbose_logs') === 'true';
+    
+    if (savedLevelFilter) {
+        const levelFilter = document.getElementById('log-level-filter');
+        if (levelFilter) {
+            levelFilter.value = savedLevelFilter;
+            currentLogLevelFilter = savedLevelFilter;
+        }
+    }
+    
+    if (savedHideVerbose) {
+        const hideVerbose = document.getElementById('hide-verbose-logs');
+        if (hideVerbose) {
+            hideVerbose.checked = true;
+            hideVerboseLogs = true;
+        }
+    }
+    
     loadRecentLogsCompact();
     if (window._logsPoll) clearInterval(window._logsPoll);
     window._logsPoll = setInterval(loadRecentLogsCompact, 3000);

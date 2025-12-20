@@ -804,6 +804,17 @@
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap;">
                         <h3>🧾 Recent Logs</h3>
                         <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                            <select id="log-level-filter" onchange="applyLogFilters()" style="padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; background: white;">
+                                <option value="all">All Levels</option>
+                                <option value="error">ERROR only</option>
+                                <option value="warning">WARNING+</option>
+                                <option value="info">INFO+</option>
+                                <option value="debug">DEBUG+</option>
+                            </select>
+                            <label style="display: flex; align-items: center; gap: 5px; font-size: 13px; cursor: pointer;">
+                                <input type="checkbox" id="hide-verbose-logs" onchange="applyLogFilters()" style="cursor: pointer;">
+                                Hide verbose
+                            </label>
                             <button id="log-source-toggle" onclick="toggleLogSource()" style="padding: 8px 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; min-width: 120px;">
                                 Switch to <span id="log-source-indicator">K8s Logs</span>
                             </button>
@@ -812,7 +823,7 @@
                             </button>
                         </div>
                     </div>
-                    <div id="logs-compact" class="logs-container" style="max-height: 240px;"></div>
+                    <div id="logs-compact" class="logs-container" style="max-height: 600px; overflow-y: auto;"></div>
                 </div>
             </div>
         </div>
@@ -899,8 +910,8 @@
 
             try {
                 // Don't replace content for tabs that render their own dynamic inner content
-                // Keep existing DOM for: overview, workflows, tools, metrics (Artefacts), reasoning
-                if (tabName !== 'overview' && tabName !== 'workflows' && tabName !== 'tools' && tabName !== 'metrics' && tabName !== 'reasoning') {
+                // Keep existing DOM for: overview, workflows, tools, metrics (Artefacts), reasoning, logs
+                if (tabName !== 'overview' && tabName !== 'workflows' && tabName !== 'tools' && tabName !== 'metrics' && tabName !== 'reasoning' && tabName !== 'logs') {
                     contentDiv.innerHTML = '<div class="loading">Loading...</div>';
                 }
                 
