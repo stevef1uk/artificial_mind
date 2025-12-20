@@ -1,5 +1,5 @@
 // Configuration for log source
-// Cache bust: 2025-12-20-16-00
+// Cache bust: 2025-10-03-06-55
 console.log('logs.js script loaded');
 let useKubernetesLogs = true; // Default to Kubernetes logs
 let currentLogService = 'fsm-server-rpi58'; // Default service
@@ -78,6 +78,7 @@ function getOrCreateLogsContainer() {
 }
 
 async function loadLogs() {
+    console.log('loadLogs() called, useKubernetesLogs:', useKubernetesLogs, 'currentLogService:', currentLogService, 'localLogFile:', localLogFile);
     try {
         // Wait a bit to ensure DOM is ready
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -94,18 +95,25 @@ async function loadLogs() {
         let response;
         if (useKubernetesLogs) {
             // Use Kubernetes logs
+            console.log('loadLogs: Loading K8s logs for service:', currentLogService, 'ns:', k8sNs, 'selector_key:', k8sSelectorKey);
             const params = new URLSearchParams({ limit: '200', ns: k8sNs, selector_key: k8sSelectorKey });
-            response = await axios.get(`/api/k8s/logs/${encodeURIComponent(currentLogService)}?${params.toString()}`, { timeout: 5000 });
+            const url = `/api/k8s/logs/${encodeURIComponent(currentLogService)}?${params.toString()}`;
+            console.log('loadLogs: K8s URL:', url);
+            response = await axios.get(url, { timeout: 5000 });
         } else {
             // Use local logs endpoint with timeout
             const fileToLoad = localLogFile || '/tmp/hdn_server.log';
+            console.log('loadLogs: Loading local logs from file:', fileToLoad, 'useKubernetesLogs:', useKubernetesLogs);
             const params = new URLSearchParams({ limit: '200' });
             if (fileToLoad && fileToLoad.trim() !== '') {
                 params.append('file', fileToLoad.trim());
             }
-            response = await axios.get(`/api/logs?${params.toString()}`, { timeout: 5000 });
+            const url = `/api/logs?${params.toString()}`;
+            console.log('loadLogs: Local URL:', url);
+            response = await axios.get(url, { timeout: 5000 });
         }
         const logs = response.data;
+        console.log('loadLogs: Response received, logs count:', Array.isArray(logs) ? logs.length : 0, 'logs type:', typeof logs);
         
         let logsHtml = '';
         if (logs && Array.isArray(logs) && logs.length > 0) {
@@ -128,7 +136,9 @@ async function loadLogs() {
         const finalEl = document.getElementById('logs-compact');
         if (finalEl) {
             finalEl.innerHTML = logsHtml;
+            console.log('Logs rendered successfully');
         } else {
+            console.error('loadLogs: logs-compact element not found after loading');
             // Try getOrCreateLogsContainer as fallback
             const fallbackEl = getOrCreateLogsContainer();
             if (fallbackEl) {
@@ -136,13 +146,20 @@ async function loadLogs() {
             }
         }
     } catch (error) {
-        console.error('Error loading logs:', error);
+        console.error('loadLogs: Error loading logs:', error);
+        console.error('loadLogs: Error details:', {
+            message: error.message,
+            code: error.code,
+            response: error.response?.data,
+            status: error.response?.status,
+            stack: error.stack
+        });
         const el = getOrCreateLogsContainer();
         if (el) {
             if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
                 el.innerHTML = '<div style="color: #f39c12; text-align: center; padding: 20px;">⏱️ Logs endpoint timed out. Try switching to K8s logs or check if the service is running.</div>';
             } else {
-                el.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px;">❌ Error loading logs: ${error.message}</div>`;
+                el.innerHTML = `<div style="color: #e74c3c; text-align: center; padding: 20px;">❌ Error loading logs: ${error.message}<br><small>Check console for details</small></div>`;
             }
         }
     }
@@ -219,9 +236,16 @@ function applyLocalLogFile() {
 
 // Explicitly set source from UI buttons
 function setLogSource(source) {
+    // Force console output - use multiple methods
+    console.log('=== setLogSource FUNCTION START ===');
+    console.error('setLogSource ERROR TEST - called with:', source); // Use error to ensure it shows
+    console.warn('setLogSource WARN TEST - source:', source);
+    alert('setLogSource called with: ' + source); // Force visible output
+    
     try {
         useKubernetesLogs = (source === 'k8s');
         localStorage.setItem('use_k8s_logs', useKubernetesLogs ? 'true' : 'false');
+        console.log('setLogSource: switched to', source, 'useKubernetesLogs:', useKubernetesLogs);
     
     const indicator = document.getElementById('log-source-indicator');
     if (indicator) {
@@ -232,44 +256,73 @@ function setLogSource(source) {
     // Show/hide controls based on source
     const k8sControls = document.getElementById('k8s-service-controls');
     const localControls = document.getElementById('local-log-controls');
+    console.log('setLogSource: Found elements:', {
+        k8sControls: !!k8sControls,
+        localControls: !!localControls,
+        useKubernetesLogs: useKubernetesLogs
+    });
     
     if (k8sControls) {
-        k8sControls.style.display = useKubernetesLogs ? 'flex' : 'none';
+        const newDisplay = useKubernetesLogs ? 'flex' : 'none';
+        k8sControls.style.display = newDisplay;
+        console.log('setLogSource: K8s controls display set to', newDisplay, 'actual:', k8sControls.style.display);
+    } else {
+        console.warn('setLogSource: k8s-service-controls element not found!');
     }
     
     if (localControls) {
-        localControls.style.display = useKubernetesLogs ? 'none' : 'flex';
+        const newDisplay = useKubernetesLogs ? 'none' : 'flex';
+        localControls.style.display = newDisplay;
+        console.log('setLogSource: Local controls display set to', newDisplay, 'actual:', localControls.style.display);
         // Update the select dropdown to show current file
         const selectEl = document.getElementById('local-log-file-select');
         if (selectEl) {
             selectEl.value = localLogFile || '/tmp/hdn_server.log';
+            console.log('setLogSource: Local log file selector set to', selectEl.value);
+        } else {
+            console.warn('setLogSource: local-log-file-select element not found!');
         }
+    } else {
+        console.warn('setLogSource: local-log-controls element not found!');
     }
     
     // Ensure K8s service selector is populated when switching to K8s
     if (useKubernetesLogs) {
         const svcSelect = document.getElementById('k8s-service-select');
-        if (svcSelect && (svcSelect.options.length === 0 || svcSelect.options.length === 1 && svcSelect.options[0].value === '')) {
+        if (svcSelect) {
             const fallback = ['nats', 'neo4j', 'redis', 'weaviate', 'weaviate-health-proxy', 'hdn-server-rpi58', 'fsm-server-rpi58', 'goal-manager', 'principles-server'];
+            // Always populate, even if it already has options
+            console.log('setLogSource: Populating K8s service selector, current options:', svcSelect.options.length);
             try {
                 axios.get('/api/k8s/services', { timeout: 4000 }).then(resp => {
                     const items = Array.isArray(resp.data) ? resp.data : [];
                     const names = items.map(s => s.name).filter(Boolean);
                     const values = names.length ? names : fallback;
                     svcSelect.innerHTML = values.map(v => `<option value="${v}" ${v===currentLogService?'selected':''}>${v}</option>`).join('');
-                }).catch(() => {
+                    console.log('setLogSource: K8s service selector populated with', values.length, 'services:', values);
+                }).catch((err) => {
+                    console.warn('setLogSource: Failed to load K8s services, using fallback:', err);
                     svcSelect.innerHTML = fallback.map(v => `<option value="${v}" ${v===currentLogService?'selected':''}>${v}</option>`).join('');
+                    console.log('setLogSource: K8s service selector populated with fallback');
                 });
             } catch (e) {
+                console.warn('setLogSource: Error loading K8s services, using fallback:', e);
                 svcSelect.innerHTML = fallback.map(v => `<option value="${v}" ${v===currentLogService?'selected':''}>${v}</option>`).join('');
+                console.log('setLogSource: K8s service selector populated with fallback (catch)');
             }
+        } else {
+            console.warn('setLogSource: k8s-service-select element not found!');
         }
     }
     
+    console.error('setLogSource: About to call loadLogs and loadRecentLogsCompact');
     loadLogs();
     loadRecentLogsCompact();
+    console.error('setLogSource: EXIT - completed');
     } catch (error) {
-        console.error('Error in setLogSource:', error);
+        console.error('setLogSource: ERROR:', error);
+        console.error('setLogSource: Error stack:', error.stack);
+        alert('setLogSource ERROR: ' + error.message);
         throw error;
     }
 }
@@ -312,11 +365,14 @@ async function loadRecentLogsCompact() {
         } else {
             // Use local logs endpoint with timeout
             const fileToLoad = localLogFile || '/tmp/hdn_server.log';
+            console.log('loadRecentLogsCompact: Loading local logs from file:', fileToLoad, 'useKubernetesLogs:', useKubernetesLogs);
             const params = new URLSearchParams({ limit: '200' });
             if (fileToLoad && fileToLoad.trim() !== '') {
                 params.append('file', fileToLoad.trim());
             }
-            response = await axios.get(`/api/logs?${params.toString()}`, { timeout: 5000 });
+            const url = `/api/logs?${params.toString()}`;
+            console.log('loadRecentLogsCompact: Requesting URL:', url);
+            response = await axios.get(url, { timeout: 5000 });
         }
         const logs = response.data;
         
@@ -364,7 +420,8 @@ async function loadRecentLogsCompact() {
     }
 }
 
-// Make functions globally available
+// Make functions globally available IMMEDIATELY (before DOMContentLoaded)
+// Store original function reference before assigning to window
 const originalSetLogSource = setLogSource;
 window.toggleLogSource = toggleLogSource;
 window.changeLogService = changeLogService;
@@ -372,11 +429,52 @@ window.changeLocalLogFile = changeLocalLogFile;
 window.loadLogs = loadLogs;
 window.loadRecentLogsCompact = loadRecentLogsCompact;
 window.applyLocalLogFile = applyLocalLogFile;
-window.setLogSource = originalSetLogSource;
-window.getOrCreateLogsContainer = getOrCreateLogsContainer;
+// Direct assignment - no wrapper to avoid any issues
+// But add a test to verify it's our function
+console.log('Assigning setLogSource to window, function body length:', setLogSource.toString().length);
+window.setLogSource = function(source) {
+    // Make a visible change to the page to prove this is executing
+    const testDiv = document.createElement('div');
+    testDiv.id = 'setLogSource-test';
+    testDiv.style.cssText = 'position: fixed; top: 10px; right: 10px; background: red; color: white; padding: 20px; z-index: 99999; font-size: 20px;';
+    testDiv.textContent = 'setLogSource CALLED WITH: ' + source;
+    document.body.appendChild(testDiv);
+    setTimeout(() => testDiv.remove(), 3000);
+    
+    console.error('=== WINDOW.SETLOGSOURCE CALLED ===', source);
+    console.error('=== CALLING ORIGINAL FUNCTION ===');
+    try {
+        const result = setLogSource(source);
+        console.error('=== ORIGINAL FUNCTION RETURNED ===', result);
+        return result;
+    } catch (e) {
+        console.error('=== ERROR IN ORIGINAL FUNCTION ===', e);
+        throw e;
+    }
+};
+console.log('window.setLogSource assigned, type:', typeof window.setLogSource);
 window.getOrCreateLogsContainer = getOrCreateLogsContainer;
 
-// Functions are now available globally
+// Debug: Verify functions are exposed
+console.log('=== logs.js: All functions exposed ===');
+console.log('logs.js: Functions exposed:', {
+    setLogSource: typeof window.setLogSource,
+    toggleLogSource: typeof window.toggleLogSource,
+    changeLocalLogFile: typeof window.changeLocalLogFile,
+    loadLogs: typeof window.loadLogs,
+    originalSetLogSource: typeof originalSetLogSource
+});
+console.log('logs.js: window.setLogSource === originalSetLogSource?', window.setLogSource === originalSetLogSource);
+console.log('logs.js: Script execution completed at', new Date().toISOString());
+
+// Debug: Log that functions are available
+console.log('logs.js: Functions exposed to window:', {
+    toggleLogSource: typeof window.toggleLogSource,
+    loadLogs: typeof window.loadLogs,
+    loadRecentLogsCompact: typeof window.loadRecentLogsCompact,
+    applyLocalLogFile: typeof window.applyLocalLogFile,
+    getOrCreateLogsContainer: typeof window.getOrCreateLogsContainer
+});
 
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize local log file from localStorage

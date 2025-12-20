@@ -300,12 +300,22 @@ func main() {
 	// Serve static files (configurable via MONITOR_STATIC_DIR)
 	staticDir := strings.TrimSpace(os.Getenv("MONITOR_STATIC_DIR"))
 	if staticDir == "" {
-		// Get the directory where the monitor binary is located (same logic as templates)
+		// Default: look for static files in the monitor directory (same as templates)
+		// Get the directory where the monitor binary is located
 		execPath, err := os.Executable()
 		if err == nil {
 			execDir := filepath.Dir(execPath)
+			// Look for static in the monitor directory (one level up from bin)
 			projectRoot := filepath.Dir(execDir)
-			staticDir = filepath.Join(projectRoot, "monitor", "static")
+			monitorDir := filepath.Join(projectRoot, "monitor")
+			staticDir = filepath.Join(monitorDir, "static")
+			// Verify it exists, fallback to relative path if not
+			if _, err := os.Stat(staticDir); err != nil {
+				staticDir = "./static"
+				if wd, err := os.Getwd(); err == nil {
+					staticDir = filepath.Join(wd, staticDir)
+				}
+			}
 		} else {
 			// Fallback to relative path
 			staticDir = "./static"
@@ -313,33 +323,15 @@ func main() {
 				staticDir = filepath.Join(wd, staticDir)
 			}
 		}
-	}
-	if !strings.HasPrefix(staticDir, "/") {
-		if wd, err := os.Getwd(); err == nil {
-			staticDir = filepath.Join(wd, staticDir)
-		}
-	}
-	// Verify static directory exists
-	if _, err := os.Stat(staticDir); err != nil {
-		log.Printf("⚠️ [MONITOR] Static directory not found at %s, trying fallback", staticDir)
-		// Try fallback to relative path from current working directory
-		if wd, err := os.Getwd(); err == nil {
-			fallbackDir := filepath.Join(wd, "monitor", "static")
-			if _, err := os.Stat(fallbackDir); err == nil {
-				staticDir = fallbackDir
-				log.Printf("✅ [MONITOR] Using fallback static directory: %s", staticDir)
-			} else {
-				// Last resort: try just "static" in current directory
-				fallbackDir = filepath.Join(wd, "static")
-				if _, err := os.Stat(fallbackDir); err == nil {
-					staticDir = fallbackDir
-					log.Printf("✅ [MONITOR] Using static directory: %s", staticDir)
-				}
+	} else {
+		// If MONITOR_STATIC_DIR is set, resolve relative paths
+		if !strings.HasPrefix(staticDir, "/") {
+			if wd, err := os.Getwd(); err == nil {
+				staticDir = filepath.Join(wd, staticDir)
 			}
 		}
-	} else {
-		log.Printf("✅ [MONITOR] Serving static files from: %s", staticDir)
 	}
+	log.Printf("📁 [MONITOR] Serving static files from: %s", staticDir)
 	r.Static("/static", staticDir)
 	// Explicitly load templates and partials (Glob lacks ** support)
 	// Get the directory where the monitor binary is located
@@ -2719,7 +2711,7 @@ func (m *MonitorService) getLogs(c *gin.Context) {
 	// Get log file path from query parameter (if provided)
 	logFile := strings.TrimSpace(c.Query("file"))
 
-	// Read logs from HDN server log file
+	// Read logs from the specified log file
 	logs := m.readHDNLogs(limit, logFile)
 
 	// Filter by level if specified
@@ -2749,34 +2741,9 @@ func (m *MonitorService) readHDNLogs(limit int, logFile string) []map[string]int
 	if logFile == "" {
 		logFile = "/tmp/hdn_server.log" // Default to /tmp/hdn_server.log where HDN server writes
 	}
-
-	// Security: Only allow reading from safe directories to prevent path traversal
-	// Allow: /tmp, /var/log, current directory, and explicitly allowed paths
-	safePrefixes := []string{"/tmp/", "/var/log/", "./", "/opt/", "/usr/local/"}
-	isSafe := false
-	for _, prefix := range safePrefixes {
-		if strings.HasPrefix(logFile, prefix) {
-			isSafe = true
-			break
-		}
-	}
-	// Also allow absolute paths that are explicitly provided (user responsibility)
-	if !isSafe && strings.HasPrefix(logFile, "/") {
-		// Check for path traversal attempts
-		if strings.Contains(logFile, "..") {
-			log.Printf("⚠️ [MONITOR] Rejected log file path (path traversal attempt): %s", logFile)
-			logFile = "/tmp/hdn_server.log" // Fall back to default
-		} else {
-			// Allow absolute paths (user knows what they're doing)
-			isSafe = true
-		}
-	}
-	if !isSafe && !filepath.IsAbs(logFile) {
-		// Relative path - make it relative to /tmp
-		logFile = filepath.Join("/tmp", logFile)
-	}
-
+	log.Printf("📋 [MONITOR] readHDNLogs: reading from file=%q, limit=%d", logFile, limit)
 	if data, err := os.ReadFile(logFile); err == nil {
+		log.Printf("📋 [MONITOR] readHDNLogs: successfully read %d bytes from %q", len(data), logFile)
 		lines := strings.Split(string(data), "\n")
 		for i := len(lines) - 1; i >= 0 && len(logs) < limit; i-- {
 			line := strings.TrimSpace(lines[i])
@@ -2943,73 +2910,21 @@ func (m *MonitorService) getK8sLogs(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// First check if kubectl is available
-	if _, err := exec.LookPath("kubectl"); err != nil {
-		log.Printf("⚠️ [MONITOR] kubectl not found in PATH")
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "kubectl not available",
-			"message": "kubectl command not found. Kubernetes logs are only available when kubectl is installed and configured.",
-			"hint":    "Use local logs instead, or install kubectl and configure it to access your cluster.",
-		})
-		return
-	}
-
 	selectorKeys := []string{selectorKey, "app.kubernetes.io/name", "k8s-app"}
 	var output []byte
 	var selErr error
 	usedSelector := ""
-	var stderr []byte
 	for _, key := range selectorKeys {
 		usedSelector = key
 		cmd := exec.CommandContext(ctx, "kubectl", "logs", "-n", ns, "-l", key+"="+service, "--tail="+strconv.Itoa(limit))
-		var stderrBuf bytes.Buffer
-		cmd.Stderr = &stderrBuf
 		output, selErr = cmd.Output()
-		stderr = stderrBuf.Bytes()
 		if selErr == nil && len(strings.TrimSpace(string(output))) > 0 {
 			break
 		}
 	}
 	if selErr != nil {
-		errorMsg := selErr.Error()
-		if len(stderr) > 0 {
-			errorMsg = strings.TrimSpace(string(stderr))
-		}
-		log.Printf("⚠️ [MONITOR] Failed to get K8s logs for %s (ns=%s, selector=%s): %v", service, ns, usedSelector, errorMsg)
-
-		// Provide more helpful error messages
-		if strings.Contains(errorMsg, "not found") || strings.Contains(errorMsg, "No resources found") {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error":     "Service not found",
-				"message":   fmt.Sprintf("No pods found for service '%s' in namespace '%s' with selector '%s=%s'", service, ns, usedSelector, service),
-				"details":   errorMsg,
-				"namespace": ns,
-				"selector":  usedSelector + "=" + service,
-				"hint":      "Check that the service exists and the namespace/selector are correct.",
-			})
-		} else if strings.Contains(errorMsg, "connection refused") || strings.Contains(errorMsg, "Unable to connect") {
-			c.JSON(http.StatusBadGateway, gin.H{
-				"error":   "Kubernetes connection failed",
-				"message": "Unable to connect to Kubernetes cluster",
-				"details": errorMsg,
-				"hint":    "Check your kubectl configuration (kubectl config view) and ensure you can access the cluster.",
-			})
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":     "Failed to retrieve logs",
-				"message":   fmt.Sprintf("Error retrieving logs for service '%s'", service),
-				"details":   errorMsg,
-				"namespace": ns,
-				"selector":  usedSelector + "=" + service,
-			})
-		}
-		return
-	}
-
-	// Check if output is empty (all selectors failed)
-	if len(strings.TrimSpace(string(output))) == 0 {
-		log.Printf("⚠️ [MONITOR] No logs found for %s (ns=%s, selector=%s)", service, ns, usedSelector)
-		c.JSON(http.StatusOK, []map[string]interface{}{}) // Return empty array instead of error
+		log.Printf("⚠️ [MONITOR] Failed to get K8s logs for %s (ns=%s, selector=%s): %v", service, ns, usedSelector, selErr)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve logs", "details": selErr.Error(), "namespace": ns, "selector": usedSelector + "=" + service})
 		return
 	}
 
