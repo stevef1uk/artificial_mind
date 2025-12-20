@@ -2507,25 +2507,95 @@ func (m *MonitorService) ragSearch(c *gin.Context) {
 	vectorStr += "]"
 
 	// GraphQL query for Weaviate
-	// Note: metadata is stored as a text field (JSON string), not an object, so we can't query sub-fields
-	query := fmt.Sprintf(`{
-		"query": "{ Get { %s(nearVector: {vector: %s}, limit: %d) { _additional { id distance } title text source timestamp url metadata } } }"
-	}`, collection, vectorStr, limitInt)
+	// Note: Different collections have different schemas:
+	// - AgiWiki: only has text, timestamp, metadata (JSON string) - Wikipedia articles
+	// - AgiEpisodes: only has text, timestamp, metadata (JSON string) - Episodes
+	// - WikipediaArticle: has title, text, source, url, timestamp, metadata
+	// We'll query all possible fields and handle missing ones gracefully
+	var queryStr string
+	if collection == "AgiEpisodes" || collection == "AgiWiki" {
+		queryStr = fmt.Sprintf(`{
+			Get {
+				%s(nearVector: {vector: %s}, limit: %d) {
+					_additional {
+						id
+						distance
+					}
+					text
+					timestamp
+					metadata
+				}
+			}
+		}`, collection, vectorStr, limitInt)
+	} else {
+		// WikipediaArticle or other collections
+		queryStr = fmt.Sprintf(`{
+			Get {
+				%s(nearVector: {vector: %s}, limit: %d) {
+					_additional {
+						id
+						distance
+					}
+					title
+					text
+					source
+					timestamp
+					url
+					metadata
+				}
+			}
+		}`, collection, vectorStr, limitInt)
+	}
 
+	queryData := map[string]interface{}{
+		"query": queryStr,
+	}
+
+	queryBytes, _ := json.Marshal(queryData)
 	url := strings.TrimRight(m.weaviateURL, "/") + "/v1/graphql"
-	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader([]byte(query)))
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(queryBytes))
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to create request: " + err.Error()})
+		return
+	}
 	req.Header.Set("Content-Type", "application/json")
 	client := &http.Client{Timeout: 8 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "weaviate search failed"})
+		c.JSON(http.StatusBadGateway, gin.H{"error": "weaviate search failed: " + err.Error()})
 		return
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("weaviate returned status %d: %s", resp.StatusCode, string(bodyBytes))})
+		return
+	}
+
 	var res map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to decode weaviate response"})
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to decode weaviate response: " + err.Error()})
+		return
+	}
+
+	// Check for GraphQL errors
+	if errors, ok := res["errors"].([]interface{}); ok && len(errors) > 0 {
+		if errMap, ok := errors[0].(map[string]interface{}); ok {
+			if msg, ok := errMap["message"].(string); ok {
+				// If the class doesn't exist, return empty results instead of an error
+				if strings.Contains(msg, "Cannot query field") || strings.Contains(msg, "does not exist") {
+					log.Printf("⚠️ Weaviate class %s does not exist yet, returning empty results", collection)
+					c.JSON(http.StatusOK, map[string]interface{}{
+						"result": map[string]interface{}{"points": []interface{}{}},
+					})
+					return
+				}
+				c.JSON(http.StatusBadGateway, gin.H{"error": "Weaviate query error: " + msg})
+				return
+			}
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Weaviate query error"})
 		return
 	}
 
@@ -2536,6 +2606,71 @@ func (m *MonitorService) ragSearch(c *gin.Context) {
 				points := make([]map[string]interface{}, 0, len(results))
 				for _, result := range results {
 					if item, ok := result.(map[string]interface{}); ok {
+						// Filter out system noise and execution plans
+						text, _ := item["text"].(string)
+						metadata, _ := item["metadata"].(string)
+
+						// Check if this is a Wikipedia article (always allow these)
+						isWikipedia := strings.Contains(strings.ToLower(metadata), "\"source\":\"wikipedia\"")
+
+						// For AgiWiki collection, all items should be Wikipedia articles
+						// For other collections, apply stricter filtering
+						if collection != "AgiWiki" && !isWikipedia {
+							combinedText := text + " " + metadata
+
+							// Skip goal/task descriptions (short text that looks like task names)
+							textLower := strings.ToLower(strings.TrimSpace(text))
+							if (strings.HasPrefix(textLower, "analyze_") ||
+								strings.HasPrefix(textLower, "execute_") ||
+								strings.HasPrefix(textLower, "extract_") ||
+								strings.HasPrefix(textLower, "fetch_") ||
+								strings.HasPrefix(textLower, "generate_") ||
+								strings.Contains(textLower, ": analyze") ||
+								strings.Contains(textLower, ": extract") ||
+								strings.Contains(textLower, ": fetch")) &&
+								len(strings.TrimSpace(text)) < 200 {
+								// This looks like a task/goal description, skip it
+								continue
+							}
+
+							// Skip JSON-structured execution plans and task interpretations
+							// Look for patterns that indicate structured system data
+							if (strings.Contains(strings.ToLower(combinedText), "\"execution_plan\"") ||
+								strings.Contains(strings.ToLower(combinedText), "\"interpretation\"") ||
+								strings.Contains(strings.ToLower(combinedText), "\"tasks\":[") ||
+								strings.Contains(strings.ToLower(combinedText), "\"interpreted_at\"") ||
+								strings.Contains(strings.ToLower(combinedText), "\"session_id\"") ||
+								strings.Contains(strings.ToLower(combinedText), "execute_goal_plan")) &&
+								strings.Contains(combinedText, "{") && strings.Contains(combinedText, "}") {
+								// This looks like structured JSON system data, skip it
+								continue
+							}
+
+							// Skip system events
+							if strings.Contains(strings.ToLower(metadata), "\"source\":\"api:") ||
+								strings.Contains(strings.ToLower(metadata), "\"event_id\":\"evt_") {
+								continue
+							}
+
+							// Skip FSM episode metadata that's just JSON structures
+							if strings.Contains(strings.ToLower(metadata), "\"project_id\":\"fsm") &&
+								strings.Contains(strings.ToLower(metadata), "\"outcome\":\"success\"") &&
+								strings.Contains(strings.ToLower(text), "{") {
+								continue
+							}
+
+							// Skip very short or empty text (but allow longer task descriptions that might be useful)
+							if len(strings.TrimSpace(text)) < 50 {
+								continue
+							}
+
+							// Skip text that's mostly JSON structure
+							if strings.Count(text, "{") > 2 && strings.Count(text, "}") > 2 &&
+								strings.Count(text, "\"") > 10 {
+								continue
+							}
+						}
+
 						p := map[string]interface{}{"payload": item}
 						if addl, ok := item["_additional"].(map[string]interface{}); ok {
 							if d, ok := addl["distance"].(float64); ok {
@@ -2551,7 +2686,22 @@ func (m *MonitorService) ragSearch(c *gin.Context) {
 				res = map[string]interface{}{
 					"result": map[string]interface{}{"points": points},
 				}
+			} else {
+				// Collection exists but returned no results
+				res = map[string]interface{}{
+					"result": map[string]interface{}{"points": []interface{}{}},
+				}
 			}
+		} else {
+			// Get field missing
+			res = map[string]interface{}{
+				"result": map[string]interface{}{"points": []interface{}{}},
+			}
+		}
+	} else {
+		// Data field missing
+		res = map[string]interface{}{
+			"result": map[string]interface{}{"points": []interface{}{}},
 		}
 	}
 

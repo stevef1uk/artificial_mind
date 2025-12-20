@@ -698,7 +698,8 @@
                     <div class="input-group">
                         <label for="rag-collection">Collection:</label>
                         <select id="rag-collection">
-                            <option value="AgiWiki" selected>AgiWiki (Wikipedia)</option>
+                            <option value="AgiWiki" selected>AgiWiki (Wikipedia Articles)</option>
+                            <option value="AgiEpisodes">AgiEpisodes (Episodes)</option>
                             <option value="WikipediaArticle">WikipediaArticle (News + Wiki)</option>
                         </select>
                     </div>
@@ -2715,12 +2716,51 @@
                 const filtered = results.filter((r) => {
                     const p = (r && typeof r === 'object' && 'payload' in r) ? (r.payload || {}) : (r || {});
                     const txt = (p && (p.text || p.summary || '')) + '';
+                    const metadataStr = (p && p.metadata) ? (typeof p.metadata === 'string' ? p.metadata : JSON.stringify(p.metadata)) : '';
+                    const combinedText = txt + ' ' + metadataStr;
+                    
+                    // Filter out system/internal entries
                     const isTimer = /timer_tick/i.test(txt) || /news:fsm:timer_tick/i.test(txt);
                     const isFailed = (p && p.outcome && String(p.outcome).toLowerCase() === 'failed') ||
                                      (p && p.result && typeof p.result.status === 'number' && p.result.status >= 400) ||
                                      /server busy/i.test(txt);
+                    
+                    // Filter out execution plans, task interpretations, and system noise
+                    const isExecutionPlan = /execution_plan/i.test(combinedText) || 
+                                           /interpreted_at/i.test(combinedText) ||
+                                           /session_id/i.test(combinedText) ||
+                                           /structured task/i.test(combinedText) ||
+                                           /execute_goal_plan/i.test(combinedText) ||
+                                           /task_name/i.test(combinedText) ||
+                                           /\"tasks\":\[/i.test(combinedText) ||
+                                           /\"interpretation\"/i.test(combinedText) ||
+                                           /\"execution_plan\"/i.test(combinedText);
+                    
+                    // Filter out FSM/episode metadata noise
+                    const isSystemNoise = /\"outcome\":\"success\"/i.test(combinedText) ||
+                                          /\"project_id\":\"fsm/i.test(combinedText) ||
+                                          /\"id\":\"ep_/i.test(combinedText) ||
+                                          /\"result\":\{/i.test(combinedText) && /\"interpretation\"/i.test(combinedText);
+                    
+                    // Filter out API/system events
+                    const isSystemEvent = /\"source\":\"api:/i.test(combinedText) ||
+                                         /\"event_id\":\"evt_/i.test(combinedText);
+                    
+                    // Require actual content (title or meaningful text)
                     const hasContent = (p && (p.title || p.text || p.summary));
-                    return !isTimer && !isFailed && hasContent;
+                    
+                    // For AgiEpisodes, prefer Wikipedia articles
+                    const isWikipedia = /\"source\":\"wikipedia\"/i.test(metadataStr);
+                    
+                    // Exclude if it's system noise, but allow Wikipedia articles
+                    if (isTimer || isFailed || isExecutionPlan || isSystemNoise || isSystemEvent) {
+                        // Allow Wikipedia articles even if they have some system fields
+                        if (!isWikipedia) {
+                            return false;
+                        }
+                    }
+                    
+                    return hasContent;
                 });
 
                 // Soft re-rank: prioritize items where title/text contain the query
@@ -2749,6 +2789,20 @@
                                 const isPoint = result && typeof result === 'object' && 'payload' in result;
                                 const payload = isPoint ? (result.payload || {}) : (result || {});
 
+                                // Parse metadata if it's a JSON string (for AgiWiki/AgiEpisodes)
+                                let metadataObj = {};
+                                if (payload?.metadata) {
+                                    if (typeof payload.metadata === 'string') {
+                                        try {
+                                            metadataObj = JSON.parse(payload.metadata);
+                                        } catch (e) {
+                                            // Not JSON, ignore
+                                        }
+                                    } else if (typeof payload.metadata === 'object') {
+                                        metadataObj = payload.metadata;
+                                    }
+                                }
+
                                 // Compute score safely
                                 let score = 'N/A';
                                 if (typeof result?.score === 'number') {
@@ -2759,10 +2813,11 @@
                                     score = (1 - Number(result._additional.distance)).toFixed(3);
                                 }
 
-                                const title = payload?.title || payload?.name || '';
-                                const source = payload?.source || payload?.metadata?.source || '';
-                                const url = payload?.url || payload?.metadata?.url || '';
-                                const ts = payload?.timestamp || payload?.created_at || '';
+                                // Extract title and URL - check payload first, then metadata
+                                const title = payload?.title || metadataObj?.title || payload?.name || '';
+                                const source = payload?.source || metadataObj?.source || '';
+                                const url = payload?.url || metadataObj?.url || '';
+                                const ts = payload?.timestamp || metadataObj?.timestamp || payload?.created_at || '';
                                 const textRaw = payload?.text || payload?.summary || (typeof payload === 'string' ? payload : JSON.stringify(payload));
                                 const text = (textRaw || '').slice(0, 600);
                                 

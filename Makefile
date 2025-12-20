@@ -197,7 +197,16 @@ build-wiki-summarizer:
 .PHONY: run-wiki-bootstrapper
 run-wiki-bootstrapper: build-wiki-bootstrapper
 	@echo "🚀 Running Wikipedia bootstrapper..."
-	@NEO4J_URI=$(NEO4J_URI) NEO4J_USER=$(NEO4J_USER) NEO4J_PASS=$(NEO4J_PASS) QDRANT_URL=$(WEAVIATE_URL) $(BIN_DIR)/wiki-bootstrapper | cat
+	@if docker ps --format '{{.Names}}' | grep -qE '^$(REDIS_CONTAINER)$$'; then \
+		REDIS_ADDR=localhost:6379; \
+		echo "Using Redis at $$REDIS_ADDR (from Docker container $(REDIS_CONTAINER))"; \
+	else \
+		REDIS_ADDR=$${REDIS_ADDR:-localhost:6379}; \
+		echo "Using Redis at $$REDIS_ADDR"; \
+	fi; \
+	NEO4J_URI=$(NEO4J_URI) NEO4J_USER=$(NEO4J_USER) NEO4J_PASS=$(NEO4J_PASS) \
+	WEAVIATE_URL=$(WEAVIATE_URL) REDIS_ADDR=$$REDIS_ADDR \
+	$(BIN_DIR)/wiki-bootstrapper -weaviate | cat
 
 .PHONY: run-wiki-summarizer
 run-wiki-summarizer: build-wiki-summarizer

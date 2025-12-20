@@ -110,25 +110,16 @@ func (w *WeaviateAdapter) IndexEpisode(rec *EpisodicRecord, vec []float32) error
 	}
 
 	// Serialize metadata map to a JSON string to avoid schema type mismatches
+	// Note: Weaviate auto-schema for AgiEpisodes only has text, timestamp, and metadata fields
+	// So we store everything in the metadata JSON string, not as separate properties
 	if rec.Metadata != nil {
 		if b, err := json.Marshal(rec.Metadata); err == nil {
 			properties["metadata"] = string(b)
 		}
 	}
 
-	// If this is a Wikipedia article, format it properly
-	if source, ok := rec.Metadata["source"].(string); ok && source == "wikipedia" {
-		properties["source"] = "wikipedia"
-		if title, ok := rec.Metadata["title"].(string); ok {
-			properties["title"] = title
-		}
-		if url, ok := rec.Metadata["url"].(string); ok {
-			properties["url"] = url
-		}
-		if timestamp, ok := rec.Metadata["timestamp"].(string); ok {
-			properties["timestamp"] = timestamp
-		}
-	}
+	// Note: We don't set source, title, url as separate properties because AgiEpisodes
+	// class doesn't have those fields in its schema. All information is in the metadata JSON string.
 
 	// Create object in Weaviate
 	createData := map[string]interface{}{

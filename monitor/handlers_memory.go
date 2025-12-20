@@ -90,6 +90,7 @@ type NewsEvent struct {
 	Source    string                 `json:"source"`
 	Type      string                 `json:"type"`
 	Timestamp string                 `json:"timestamp"`
+	URL       string                 `json:"url,omitempty"`
 	Metadata  map[string]interface{} `json:"metadata"`
 	Tags      []string               `json:"tags"`
 }
@@ -141,6 +142,7 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 					Source    string `json:"source"`
 					URL       string `json:"url"`
 					Timestamp string `json:"timestamp"`
+					Metadata  string `json:"metadata"`
 				} `json:"WikipediaArticle"`
 			} `json:"Get"`
 		} `json:"data"`
@@ -200,6 +202,23 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 			continue
 		}
 
+		// Parse metadata JSON string if present to extract URL
+		var metadataMap map[string]interface{}
+		if record.Metadata != "" {
+			if err := json.Unmarshal([]byte(record.Metadata), &metadataMap); err == nil {
+				// Try to extract URL from original_metadata if present
+				if origMeta, ok := metadataMap["original_metadata"].(map[string]interface{}); ok {
+					if url, ok := origMeta["url"].(string); ok && strings.TrimSpace(url) != "" {
+						record.URL = url
+					}
+				}
+				// Also check top-level metadata for URL
+				if url, ok := metadataMap["url"].(string); ok && strings.TrimSpace(url) != "" && record.URL == "" {
+					record.URL = url
+				}
+			}
+		}
+
 		event := NewsEvent{
 			ID:        record.Additional.ID,
 			Title:     record.Title,
@@ -207,17 +226,17 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 			Source:    record.Source,
 			Type:      "news",
 			Timestamp: record.Timestamp,
-			Metadata:  make(map[string]interface{}),
+			Metadata:  metadataMap,
 			Tags:      []string{"news"},
 		}
 
 		// Add URL if present, but don't require it (some news items may not have URLs)
 		if strings.TrimSpace(record.URL) != "" {
-			event.Metadata = ensureMap(event.Metadata)
+			event.URL = record.URL
+			if event.Metadata == nil {
+				event.Metadata = make(map[string]interface{})
+			}
 			event.Metadata["url"] = record.URL
-		} else if url, ok := event.Metadata["url"].(string); ok && strings.TrimSpace(url) != "" {
-			event.Metadata = ensureMap(event.Metadata)
-			event.Metadata["url"] = url
 		}
 		// Note: We no longer skip items without URLs - they can still be displayed
 
@@ -328,10 +347,12 @@ func ensureMap(m map[string]interface{}) map[string]interface{} {
 // WikipediaEvent represents a Wikipedia event
 type WikipediaEvent struct {
 	ID        string                 `json:"id"`
+	Title     string                 `json:"title,omitempty"`
 	Text      string                 `json:"text"`
 	Source    string                 `json:"source"`
 	Type      string                 `json:"type"`
 	Timestamp string                 `json:"timestamp"`
+	URL       string                 `json:"url,omitempty"`
 	Metadata  map[string]interface{} `json:"metadata"`
 	Tags      []string               `json:"tags"`
 }
@@ -342,18 +363,18 @@ func (m *MonitorService) getWikipediaEvents(c *gin.Context) {
 
 	// Query AgiWiki class for wikipedia-sourced items. The wiki bootstrapper
 	// indexes articles into this class when using Weaviate as the backing
-	// vector DB.
+	// vector DB. The collection name "agi-wiki" gets sanitized to "AgiWiki".
+	// Note: Weaviate stores metadata as a JSON string, so we query text, timestamp, and metadata,
+	// then parse metadata to extract source, title, and url.
 	query := map[string]interface{}{
 		"query": `
         {
             Get {
-                AgiWiki(limit: 50, where: { path: ["source"], operator: Equal, valueString: "wikipedia" }) {
+                AgiWiki(limit: 200) {
                     _additional { id }
-                    title
                     text
-                    source
-                    url
                     timestamp
+                    metadata
                 }
             }
         }`,
@@ -375,11 +396,9 @@ func (m *MonitorService) getWikipediaEvents(c *gin.Context) {
 					Additional struct {
 						ID string `json:"id"`
 					} `json:"_additional"`
-					Title     string `json:"title"`
 					Text      string `json:"text"`
-					Source    string `json:"source"`
-					URL       string `json:"url"`
 					Timestamp string `json:"timestamp"`
+					Metadata  string `json:"metadata"`
 				} `json:"AgiWiki"`
 			} `json:"Get"`
 		} `json:"data"`
@@ -394,26 +413,53 @@ func (m *MonitorService) getWikipediaEvents(c *gin.Context) {
 	}
 
 	if len(weaviateResp.Errors) > 0 {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Weaviate query error: " + weaviateResp.Errors[0].Message})
+		// If the class doesn't exist, return empty results instead of an error
+		errorMsg := weaviateResp.Errors[0].Message
+		if strings.Contains(errorMsg, "Cannot query field") || strings.Contains(errorMsg, "does not exist") {
+			log.Printf("⚠️ Weaviate class AgiWiki does not exist yet, returning empty Wikipedia events")
+			c.JSON(http.StatusOK, gin.H{
+				"events": []WikipediaEvent{},
+				"count":  0,
+			})
+			return
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Weaviate query error: " + errorMsg})
 		return
 	}
 
-	// Convert to WikipediaEvent format with filtering for interesting items from both classes
+	// Convert to WikipediaEvent format with filtering for interesting items
 	var wikipediaEvents []WikipediaEvent
 
-	appendIfInteresting := func(article struct {
-		Additional struct {
-			ID string `json:"id"`
-		} `json:"_additional"`
-		Title     string `json:"title"`
-		Text      string `json:"text"`
-		Source    string `json:"source"`
-		URL       string `json:"url"`
-		Timestamp string `json:"timestamp"`
-	}) {
-		text := strings.TrimSpace(article.Text)
+	for _, item := range weaviateResp.Data.Get.AgiWiki {
+		// Parse metadata JSON string
+		var metadataMap map[string]interface{}
+		if item.Metadata != "" {
+			if err := json.Unmarshal([]byte(item.Metadata), &metadataMap); err != nil {
+				continue
+			}
+		} else {
+			metadataMap = make(map[string]interface{})
+		}
+
+		// Only process items with source="wikipedia" in metadata
+		source, _ := metadataMap["source"].(string)
+		if source != "wikipedia" {
+			continue
+		}
+
+		// Extract title and URL from metadata
+		title, _ := metadataMap["title"].(string)
+		url, _ := metadataMap["url"].(string)
+
+		// Use timestamp from metadata if available, otherwise use the timestamp field
+		timestamp := item.Timestamp
+		if ts, ok := metadataMap["timestamp"].(string); ok && ts != "" {
+			timestamp = ts
+		}
+
+		text := strings.TrimSpace(item.Text)
 		if len(text) < 20 {
-			return
+			continue
 		}
 		lower := strings.ToLower(text)
 		if strings.Contains(lower, "timer_tick") ||
@@ -421,32 +467,26 @@ func (m *MonitorService) getWikipediaEvents(c *gin.Context) {
 			strings.Contains(lower, "execution_plan") ||
 			strings.Contains(lower, "interpretation") ||
 			strings.Contains(lower, "outcome\":\"") {
-			return
+			continue
 		}
-		// Require title for interesting items, but URL is optional
-		if strings.TrimSpace(article.Title) == "" {
-			return
+		// Require title for interesting items
+		if strings.TrimSpace(title) == "" {
+			continue
 		}
-		// Note: URL is optional - Wikipedia items can be displayed without URLs
 
 		event := WikipediaEvent{
-			ID:        article.Additional.ID,
+			ID:        item.Additional.ID,
+			Title:     title,
 			Text:      text,
 			Source:    "wikipedia",
 			Type:      "article",
-			Timestamp: article.Timestamp,
-			Metadata: map[string]interface{}{
-				"title": article.Title,
-				"url":   article.URL,
-			},
-			Tags: []string{"wikipedia", "article"},
+			Timestamp: timestamp,
+			URL:       url,
+			Metadata:  metadataMap,
+			Tags:      []string{"wikipedia", "article"},
 		}
 
 		wikipediaEvents = append(wikipediaEvents, event)
-	}
-
-	for _, article := range weaviateResp.Data.Get.AgiWiki {
-		appendIfInteresting(article)
 	}
 
 	// Dedupe by ID
