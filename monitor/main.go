@@ -159,6 +159,17 @@ func NewMonitorService() *MonitorService {
 		Addr: addr,
 	})
 
+	// Test Redis connection on startup
+	ctx := context.Background()
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		log.Printf("⚠️  [MONITOR] Failed to connect to Redis at %s: %v", addr, err)
+		log.Printf("⚠️  [MONITOR] Make sure Redis is running and accessible at %s", addr)
+		log.Printf("⚠️  [MONITOR] For Docker Redis: docker ps | grep redis")
+		log.Printf("⚠️  [MONITOR] Monitor UI will continue but tools/metrics may not work")
+	} else {
+		log.Printf("✅ [MONITOR] Successfully connected to Redis at %s", addr)
+	}
+
 	hdnURL := strings.TrimSpace(os.Getenv("HDN_URL"))
 	if hdnURL == "" {
 		hdnURL = "http://localhost:8080"
@@ -949,9 +960,11 @@ func (m *MonitorService) getTools(c *gin.Context) {
 	ctx := context.Background()
 	ids, err := m.redisClient.SMembers(ctx, "tools:registry").Result()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "redis error"})
+		log.Printf("❌ [MONITOR] Redis error in getTools: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "redis error: " + err.Error()})
 		return
 	}
+	log.Printf("✅ [MONITOR] Found %d tool IDs in Redis registry", len(ids))
 	tools := make([]map[string]interface{}, 0, len(ids))
 	for _, id := range ids {
 		val, err := m.redisClient.Get(ctx, "tool:"+id).Result()

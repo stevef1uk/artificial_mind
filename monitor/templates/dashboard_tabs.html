@@ -2276,9 +2276,26 @@
                 // Debug: Log raw API responses
                 console.log('[Tools UI] Tools API response:', toolsRes.data);
                 console.log('[Tools UI] Tools API status:', toolsRes.status, toolsRes.statusText);
+                
+                // Check for error response
+                if (toolsRes.data && toolsRes.data.error) {
+                    console.error('[Tools UI] ❌ API returned error:', toolsRes.data.error);
+                    console.error('[Tools UI] This usually means Monitor UI cannot connect to Redis');
+                    console.error('[Tools UI] Check Monitor UI logs and REDIS_URL environment variable');
+                    toolMetricsDiv.innerHTML = `<div class="error">Redis connection error: ${toolsRes.data.error}</div>`;
+                    if (toolsListDiv) toolsListDiv.innerHTML = `<div class="error">Cannot load tools: Redis connection failed. Check Monitor UI logs.</div>`;
+                    return;
+                }
+                
+                console.log('[Tools UI] Tools API response type:', typeof toolsRes.data);
+                console.log('[Tools UI] Tools API response keys:', toolsRes.data ? Object.keys(toolsRes.data) : 'null');
+                console.log('[Tools UI] toolsRes.data.tools:', toolsRes.data?.tools);
+                console.log('[Tools UI] toolsRes.data.tools type:', typeof toolsRes.data?.tools);
+                console.log('[Tools UI] toolsRes.data.tools is array:', Array.isArray(toolsRes.data?.tools));
                 console.log('[Tools UI] Metrics API response:', allMetricsRes.data);
                 
                 let tools = (toolsRes.data && toolsRes.data.tools) ? toolsRes.data.tools : [];
+                console.log('[Tools UI] Parsed tools array length:', tools.length);
                 if (!Array.isArray(tools)) {
                     console.error('[Tools UI] Tools is not an array!', typeof tools, tools);
                     tools = [];
