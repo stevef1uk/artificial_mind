@@ -133,6 +133,12 @@ states:
       new_input:
         next: perceive  # Handle new input by going to perceive
         guard: "input_validation"
+      news_relations:
+        next: perceive  # Handle news relations as new input
+        guard: "input_validation"
+      news_alerts:
+        next: perceive  # Handle news alerts as new input
+        guard: "input_validation"
       facts_extracted:
         next: hypothesize  # Generate hypotheses from facts
       low_confidence:
@@ -157,6 +163,12 @@ states:
     on:
       new_input:
         next: perceive  # Handle new input by going to perceive
+        guard: "input_validation"
+      news_relations:
+        next: perceive  # Handle news relations as new input
+        guard: "input_validation"
+      news_alerts:
+        next: perceive  # Handle news alerts as new input
         guard: "input_validation"
       facts_ready:
         next: hypothesize
