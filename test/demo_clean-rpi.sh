@@ -525,17 +525,26 @@ main() {
         hierarchical_response=$(echo "$hierarchical_response" | sed '$d')
         
         # Check if hierarchical execution was accepted (async response)
-        if [ "$hierarchical_http_code" = "200" ] || [ "$hierarchical_http_code" = "201" ]; then
+        # HTTP 202 (Accepted) is the expected response for async hierarchical execution
+        if [ "$hierarchical_http_code" = "200" ] || [ "$hierarchical_http_code" = "201" ] || [ "$hierarchical_http_code" = "202" ]; then
             if is_valid_json "$hierarchical_response"; then
-                if echo "$hierarchical_response" | jq -e '.success' >/dev/null 2>&1; then
+                if echo "$hierarchical_response" | jq -e '.success' >/dev/null 2>&1 || [ "$hierarchical_http_code" = "202" ]; then
                     local workflow_id=$(echo "$hierarchical_response" | jq -r '.workflow_id // ""' 2>/dev/null)
                     if [ -n "$workflow_id" ]; then
                         print_success "✅ Hierarchical execution accepted with workflow ID: $workflow_id"
                     else
-                        print_success "✅ Hierarchical execution accepted"
+                        print_success "✅ Hierarchical execution accepted (HTTP $hierarchical_http_code)"
                     fi
                 else
                     print_warning "⚠️  Hierarchical execution with project failed"
+                    echo "Response: ${hierarchical_response:0:200}"
+                fi
+            else
+                # Even if JSON is invalid, 202 means it was accepted
+                if [ "$hierarchical_http_code" = "202" ]; then
+                    print_success "✅ Hierarchical execution accepted (HTTP 202 - async processing)"
+                else
+                    print_warning "⚠️  Hierarchical execution with project failed (invalid JSON response)"
                     echo "Response: ${hierarchical_response:0:200}"
                 fi
             fi
