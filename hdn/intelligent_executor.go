@@ -2684,12 +2684,16 @@ func sanitizeGeneratedPythonCode(code string) string {
 	// CRITICAL: Ensure main() is called if it's defined
 	// Many LLMs generate "def main():" but forget to call it
 	if strings.Contains(fixed, "def main():") || strings.Contains(fixed, "def main(") {
-		// Check if main() is already being called
-		if !strings.Contains(fixed, "if __name__ == '__main__':") && !strings.Contains(fixed, "main()") {
+		// Check if main() is already being called (not just defined)
+		// Use regex to find main() calls that are NOT part of "def main()"
+		hasMainCall := regexp.MustCompile(`(?:^|\n)\s*main\(\)|if __name__.*:\s*\n\s*main\(\)`).MatchString(fixed)
+		hasNameGuard := strings.Contains(fixed, "if __name__ == '__main__':")
+
+		if !hasNameGuard && !hasMainCall {
 			// Add call to main() at the end
 			fixed = fixed + "\n\nif __name__ == '__main__':\n    main()\n"
 			log.Printf("✅ [SANITIZE] Added missing main() call for Python code")
-		} else if strings.Contains(fixed, "if __name__ == '__main__':") && !strings.Contains(fixed, "    main()") {
+		} else if hasNameGuard && !hasMainCall {
 			// The guard is there but main() isn't called - add it
 			lines := strings.Split(fixed, "\n")
 			var newLines []string
