@@ -1284,34 +1284,34 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string) (map[stri
 		var goHostCmd string
 		if quietMode {
 			goHostCmd = fmt.Sprintf(`set -eu
-	WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
-	mkdir -p "$WORK"
-	cp %s "$WORK"/main.go
-	cd "$WORK"
-	# Ensure Go is on PATH for non-interactive SSH shells
-	export PATH="$PATH:/usr/local/go/bin:/home/pi/go/bin:/usr/local/bin:/usr/bin"
-	if ! command -v go >/dev/null 2>&1; then echo 'go not installed on host' >&2; exit 127; fi
-	if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
-	GOFLAGS= go build -o app ./main.go
-	./app
-	`, tempFile)
+WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
+mkdir -p "$WORK"
+cp %s "$WORK"/main.go
+cd "$WORK"
+# Ensure Go is on PATH for non-interactive SSH shells
+export PATH="$PATH:/usr/local/go/bin:/home/pi/go/bin:/usr/local/bin:/usr/bin"
+if ! command -v go >/dev/null 2>&1; then echo 'go not installed on host' >&2; exit 127; fi
+if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
+GOFLAGS= go build -o app ./main.go || exit 1
+./app
+`, tempFile)
 		} else {
 			goHostCmd = fmt.Sprintf(`set -euo pipefail
-	WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
-	mkdir -p "$WORK"
-	cp %s "$WORK"/main.go
-	cd "$WORK"
-	# Ensure Go is on PATH for non-interactive SSH shells
-	export PATH="$PATH:/usr/local/go/bin:/home/pi/go/bin:/usr/local/bin:/usr/bin"
-	if ! command -v go >/dev/null 2>&1; then echo 'go not installed on host' >&2; exit 127; fi
-	if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
-	GOFLAGS= go build -o app ./main.go
-	./app
-	`, tempFile)
+WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
+mkdir -p "$WORK"
+cp %s "$WORK"/main.go
+cd "$WORK"
+# Ensure Go is on PATH for non-interactive SSH shells
+export PATH="$PATH:/usr/local/go/bin:/home/pi/go/bin:/usr/local/bin:/usr/bin"
+if ! command -v go >/dev/null 2>&1; then echo 'go not installed on host' >&2; exit 127; fi
+if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
+GOFLAGS= go build -o app ./main.go || exit 1
+./app
+`, tempFile)
 		}
-		// Use -c instead of -lc to avoid sourcing .bashrc/.bash_profile which may dump environment
+		// Use --noprofile --norc to avoid sourcing .bashrc/.bash_profile which may dump environment
 		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"pi@"+rpiHost, "bash", "-c", goHostCmd)
+			"pi@"+rpiHost, "bash", "--noprofile", "--norc", "-c", goHostCmd)
 
 	case "python":
 		// Execute Python directly on the host in a venv; install detected packages; run the script
@@ -1336,9 +1336,9 @@ python3 -m venv "$VENV" >/dev/null 2>&1 || true
 python -m pip install --upgrade pip >/dev/null 2>&1 || true
 %spython %s`, pkgLine, tempFile)
 		}
-		// Use -c instead of -lc to avoid sourcing .bashrc/.bash_profile which may dump environment
+		// Use --noprofile --norc to avoid sourcing .bashrc/.bash_profile which may dump environment
 		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"pi@"+rpiHost, "bash", "-c", hostCmd)
+			"pi@"+rpiHost, "bash", "--noprofile", "--norc", "-c", hostCmd)
 
 	case "bash":
 		// Run shell script directly on the host
@@ -1348,9 +1348,27 @@ python -m pip install --upgrade pip >/dev/null 2>&1 || true
 		} else {
 			bashHostCmd = fmt.Sprintf("set -euo pipefail\nsh %s\n", tempFile)
 		}
+		// Use --noprofile --norc to avoid sourcing .bashrc/.bash_profile which may dump environment
+		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+			"pi@"+rpiHost, "bash", "--noprofile", "--norc", "-c", bashHostCmd)
+
+	case "javascript", "js", "node":
+		// Execute JavaScript/Node.js directly on the host
+		var jsHostCmd string
+		if quietMode {
+			jsHostCmd = fmt.Sprintf(`set -eu
+if ! command -v node >/dev/null 2>&1; then echo 'node not installed on host' >&2; exit 127; fi
+node %s
+`, tempFile)
+		} else {
+			jsHostCmd = fmt.Sprintf(`set -euo pipefail
+if ! command -v node >/dev/null 2>&1; then echo 'node not installed on host' >&2; exit 127; fi
+node %s
+`, tempFile)
+		}
 		// Use -c instead of -lc to avoid sourcing .bashrc/.bash_profile which may dump environment
 		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"pi@"+rpiHost, "bash", "-c", bashHostCmd)
+			"pi@"+rpiHost, "bash", "--noprofile", "--norc", "-c", jsHostCmd)
 
 	case "java":
 		// Execute Java directly on the host using system JDK
@@ -1382,7 +1400,7 @@ java "$MAIN"
 		}
 		// Use -c instead of -lc to avoid sourcing .bashrc/.bash_profile which may dump environment
 		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"pi@"+rpiHost, "bash", "-c", javaHostCmd)
+			"pi@"+rpiHost, "bash", "--noprofile", "--norc", "-c", javaHostCmd)
 
 	default:
 		// Fallback: run as a shell command directly on host
@@ -1392,9 +1410,9 @@ java "$MAIN"
 		} else {
 			wrapped = fmt.Sprintf("set -euo pipefail\n{ %s; }\n", code)
 		}
-		// Use -c instead of -lc to avoid sourcing .bashrc/.bash_profile which may dump environment
+		// Use --noprofile --norc to avoid sourcing .bashrc/.bash_profile which may dump environment
 		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"pi@"+rpiHost, "bash", "-c", wrapped)
+			"pi@"+rpiHost, "bash", "--noprofile", "--norc", "-c", wrapped)
 	}
 
 	log.Printf("🔧 [SSH-FALLBACK] Executing host command via SSH")
