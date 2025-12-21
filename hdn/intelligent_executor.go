@@ -2145,7 +2145,7 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 		dockerReq := &DockerExecutionRequest{
 			Language:     code.Language,
 			Code:         code.Code,
-			Timeout:      300,
+			Timeout:      600, // Increased to 10 minutes for complex code validation
 			Environment:  env,
 			IsValidation: true,
 		}

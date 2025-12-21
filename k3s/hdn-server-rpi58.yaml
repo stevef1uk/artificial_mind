@@ -69,15 +69,15 @@ spec:
                   key: token
             - name: UNPACK_WORK_DIR
               value: "/tmp/unpack"
-            # Docker resource limits for Raspberry Pi
+            # Docker resource limits for Raspberry Pi (increased for code validation)
             - name: DOCKER_MEMORY_LIMIT
-              value: "256m"
+              value: "512m"
             - name: DOCKER_CPU_LIMIT
-              value: "0.5"
+              value: "1.0"
             - name: DOCKER_PIDS_LIMIT
-              value: "128"
+              value: "256"
             - name: DOCKER_TMPFS_SIZE
-              value: "64m"
+              value: "128m"
             - name: ENABLE_ARM64_TOOLS
               value: "true"
             - name: EXECUTION_METHOD

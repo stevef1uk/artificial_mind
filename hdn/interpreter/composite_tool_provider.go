@@ -36,7 +36,7 @@ func NewCompositeToolProvider(hdnURL string) *CompositeToolProvider {
 	composite := &CompositeToolProvider{
 		providers: providers,
 	}
-	
+
 	// Verify MCP server connection asynchronously after a delay
 	// This allows the HTTP server to start listening first
 	go func() {
@@ -51,7 +51,7 @@ func NewCompositeToolProvider(hdnURL string) *CompositeToolProvider {
 // verifyMCPConnection checks if MCP server is accessible and tools can be discovered
 func (c *CompositeToolProvider) verifyMCPConnection() {
 	ctx := context.Background()
-	
+
 	// Find MCP provider
 	var mcpProvider *MCPToolProvider
 	for _, provider := range c.providers {
@@ -60,14 +60,14 @@ func (c *CompositeToolProvider) verifyMCPConnection() {
 			break
 		}
 	}
-	
+
 	if mcpProvider == nil {
 		log.Printf("⚠️ [MCP-VERIFY] MCP provider not found")
 		return
 	}
-	
+
 	log.Printf("🔍 [MCP-VERIFY] Verifying MCP server connection...")
-	
+
 	// Try to discover tools
 	tools, err := mcpProvider.GetAvailableTools(ctx)
 	if err != nil {
@@ -75,12 +75,12 @@ func (c *CompositeToolProvider) verifyMCPConnection() {
 		log.Printf("⚠️ [MCP-VERIFY] MCP knowledge tools will not be available to LLM")
 		return
 	}
-	
+
 	log.Printf("✅ [MCP-VERIFY] MCP server accessible - discovered %d tools", len(tools))
 	for _, tool := range tools {
 		log.Printf("   - %s: %s", tool.ID, tool.Description)
 	}
-	
+
 	// Test execution of a simple tool (get_concept with a test query)
 	if len(tools) > 0 {
 		// Try to execute get_concept if available
@@ -110,7 +110,7 @@ func (c *CompositeToolProvider) verifyMCPConnection() {
 			}
 		}
 	}
-	
+
 	log.Printf("✅ [MCP-VERIFY] MCP integration verified - LLM can use knowledge base tools")
 }
 
@@ -154,4 +154,3 @@ func (c *CompositeToolProvider) ExecuteTool(ctx context.Context, toolID string, 
 
 	return nil, fmt.Errorf("no provider found for tool: %s", toolID)
 }
-

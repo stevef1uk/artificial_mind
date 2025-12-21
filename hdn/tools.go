@@ -1243,7 +1243,7 @@ func (s *APIServer) submitToDroneCI(code, language, image string) (map[string]in
 func (s *APIServer) fallbackSSHExecution(code, language, image string) (map[string]interface{}, error) {
 	log.Printf("🔧 [SSH-FALLBACK] Starting SSH fallback execution")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second) // 10 minutes for code validation
 	defer cancel()
 
 	// Respect quiet mode to suppress noisy environment dumps produced by 'set' in some scripts
