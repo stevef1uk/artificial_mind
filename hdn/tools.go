@@ -1269,7 +1269,7 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string) (map[stri
 	writeCmd := fmt.Sprintf("bash --noprofile --norc -c 'mkdir -p $(dirname %s) && echo %s | base64 -d > %s'", tempFile, encodedCode, tempFile)
 	log.Printf("🔧 [SSH-FALLBACK] Writing code via SSH (base64 encoded, %d bytes)", len(code))
 
-	sshCmd := exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+	sshCmd := exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
 		"pi@"+rpiHost, writeCmd)
 
 	log.Printf("🔧 [SSH-FALLBACK] Executing SSH write command")
@@ -1505,15 +1505,19 @@ java "$MAIN"
 
 	// Clean up temporary file
 	log.Printf("🔧 [SSH-FALLBACK] Cleaning up temp file: %s", tempFile)
-	cleanupCmd := exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+	cleanupCmd := exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
 		"pi@"+rpiHost, "rm", "-f", tempFile)
 	cleanupCmd.Run() // Best effort cleanup
 
 	// Clean output: remove environment variable dumps and SSH connection messages
+	// Filter SSH messages from both stdout and stderr
+	sshMessagePattern := regexp.MustCompile(`(?i).*(Warning: Permanently added|The authenticity of host|Host key verification failed|Warning:.*known hosts).*`)
+	
+	cleanStderr := stderr
+	cleanStderr = sshMessagePattern.ReplaceAllString(cleanStderr, "")
+	cleanStderr = strings.TrimSpace(cleanStderr)
+	
 	cleanOutput := string(output)
-
-	// Filter out SSH connection messages (these can appear in output despite UserKnownHostsFile=/dev/null)
-	sshMessagePattern := regexp.MustCompile(`(?i)^(Warning: Permanently added|The authenticity of host|Host key verification failed).*$`)
 
 	// Filter out environment variable dumps at the START of output
 	// These appear when bash sources config files despite --noprofile --norc
@@ -1542,10 +1546,11 @@ java "$MAIN"
 			cleanOutput = fmt.Sprintf("Command execution failed - received environment dump instead of program output. Exit code: %d", exitCode)
 		}
 	} else {
-		// Normal filtering: remove env vars and SSH messages from start of output
+		// Normal filtering: remove env vars and SSH messages from anywhere in output
 		for i, line := range lines {
-			// Skip SSH connection messages
-			if sshMessagePattern.MatchString(line) {
+			// Skip SSH connection messages (check both the line and if it's ONLY the SSH message)
+			lineTrimmed := strings.TrimSpace(line)
+			if sshMessagePattern.MatchString(lineTrimmed) || strings.HasPrefix(lineTrimmed, "Warning: Permanently added") {
 				continue
 			}
 
@@ -1576,17 +1581,21 @@ java "$MAIN"
 		// Trim leading/trailing whitespace
 		cleanOutput = strings.TrimSpace(cleanOutput)
 
-		// If after filtering we have nothing but env vars or empty output, and exit code is non-zero, use stderr
-		if (cleanOutput == "" || envVarPattern.MatchString(cleanOutput)) && exitCode != 0 && stderr != "" && strings.TrimSpace(stderr) != "" {
-			log.Printf("⚠️ [SSH-FALLBACK] Filtered output is empty/env-only, using stderr instead")
-			cleanOutput = stderr
+		// If after filtering we have nothing but env vars or empty output, and exit code is non-zero, use cleaned stderr
+		if (cleanOutput == "" || envVarPattern.MatchString(cleanOutput)) && exitCode != 0 && cleanStderr != "" {
+			log.Printf("⚠️ [SSH-FALLBACK] Filtered output is empty/env-only, using cleaned stderr instead")
+			cleanOutput = cleanStderr
 		}
+		
+		// Final pass: remove any remaining SSH messages that might have slipped through
+		cleanOutput = sshMessagePattern.ReplaceAllString(cleanOutput, "")
+		cleanOutput = strings.TrimSpace(cleanOutput)
 	}
 
 	result := map[string]interface{}{
 		"success":     exitCode == 0,
 		"output":      cleanOutput,
-		"error":       stderr,
+		"error":       cleanStderr,
 		"image":       image,
 		"exit_code":   exitCode,
 		"duration_ms": duration.Milliseconds(),
