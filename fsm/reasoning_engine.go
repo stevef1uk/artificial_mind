@@ -9,7 +9,9 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1114,11 +1116,26 @@ If the knowledge is obvious, common knowledge, or not actionable, mark is_worth_
 	interpretURL := fmt.Sprintf("%s/api/v1/interpret", re.hdnURL)
 	reqData := map[string]interface{}{
 		"input": prompt, // API expects "input" not "text"
+		"context": map[string]string{
+			"origin": "fsm", // Mark as background task for LOW priority
+		},
 	}
 
 	reqJSON, err := json.Marshal(reqData)
 	if err != nil {
 		return false, false, fmt.Errorf("failed to marshal assessment request: %w", err)
+	}
+
+	// Rate limiting: Add delay between LLM requests to prevent GPU overload
+	// Default: 5 seconds, configurable via FSM_LLM_REQUEST_DELAY_MS
+	delayMs := 5000
+	if v := strings.TrimSpace(os.Getenv("FSM_LLM_REQUEST_DELAY_MS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			delayMs = n
+		}
+	}
+	if delayMs > 0 {
+		time.Sleep(time.Duration(delayMs) * time.Millisecond)
 	}
 
 	resp, err := re.httpClient.Post(interpretURL, "application/json", bytes.NewReader(reqJSON))

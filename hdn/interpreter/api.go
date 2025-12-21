@@ -60,6 +60,14 @@ func (api *InterpreterAPI) HandleInterpretRequest(w http.ResponseWriter, r *http
 		req.SessionID = fmt.Sprintf("session_%d", time.Now().UnixNano())
 	}
 
+	// Determine priority: LOW for background tasks (FSM, etc.), HIGH for user requests
+	// Check if request comes from FSM or other background services
+	isBackgroundTask := false
+	if origin, ok := req.Context["origin"]; ok && (origin == "fsm" || origin == "background") {
+		isBackgroundTask = true
+		log.Printf("🔵 [INTERPRETER-API] Detected background task (origin: %s), using LOW priority", origin)
+	}
+
 	// Check if this is a complex request that should be processed asynchronously
 	isComplex := api.isComplexRequest(req.Input)
 
@@ -79,7 +87,7 @@ func (api *InterpreterAPI) HandleInterpretRequest(w http.ResponseWriter, r *http
 		// Process in background
 		go func() {
 			ctx := context.Background()
-			result, err := api.interpreter.Interpret(ctx, &req)
+			result, err := api.interpreter.InterpretWithPriority(ctx, &req, !isBackgroundTask)
 			if err != nil {
 				log.Printf("❌ [INTERPRETER-API] Async interpretation failed: %v", err)
 			} else {
@@ -94,7 +102,7 @@ func (api *InterpreterAPI) HandleInterpretRequest(w http.ResponseWriter, r *http
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	result, err := api.interpreter.Interpret(ctx, &req)
+	result, err := api.interpreter.InterpretWithPriority(ctx, &req, !isBackgroundTask)
 	if err != nil {
 		log.Printf("❌ [INTERPRETER-API] Interpretation failed: %v", err)
 		w.Header().Set("Content-Type", "application/json")

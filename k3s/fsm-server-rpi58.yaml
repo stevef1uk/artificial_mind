@@ -102,6 +102,10 @@ spec:
             # GPU Optimization: LLM request throttling (prevents GPU overload)
             - name: LLM_MAX_CONCURRENT_REQUESTS
               value: "2"
+            # GPU Optimization: Delay between FSM LLM requests (milliseconds)
+            # Default: 5000ms (5 seconds). Increase to slow down FSM requests further.
+            - name: FSM_LLM_REQUEST_DELAY_MS
+              value: "5000"
           volumeMounts:
             - name: customer-key
               mountPath: /keys

@@ -1286,7 +1286,12 @@ Return ONLY strict JSON with this shape:
 Candidates JSON: %s`, domain, string(candidatesJSON))
 
 	// HDN /api/v1/interpret expects "input" field, not "text"
-	bodyRequest, _ := json.Marshal(map[string]string{"input": prompt})
+	bodyRequest, _ := json.Marshal(map[string]interface{}{
+		"input": prompt,
+		"context": map[string]string{
+			"origin": "fsm", // Mark as background task for LOW priority
+		},
+	})
 	req, _ := http.NewRequest("POST", url, bytes.NewReader(bodyRequest))
 	req.Header.Set("Content-Type", "application/json")
 	if pid, ok := e.context["project_id"].(string); ok && pid != "" {

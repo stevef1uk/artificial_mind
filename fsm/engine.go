@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"bytes"
@@ -3289,7 +3290,12 @@ func (e *FSMEngine) screenHypothesesWithLLM(hypotheses []Hypothesis, domain stri
 		prompt := fmt.Sprintf("You are an expert research assistant. Rate the following hypothesis for impact and tractability in domain '%s' on a 0.0-1.0 scale. Respond as JSON: {\"score\": <0-1>, \"reason\": \"...\"}. Hypothesis: %s", domain, h.Description)
 
 		// HDN /api/v1/interpret expects "input" field, not "text"
-		payload := map[string]interface{}{"input": prompt}
+		payload := map[string]interface{}{
+			"input": prompt,
+			"context": map[string]string{
+				"origin": "fsm", // Mark as background task for LOW priority
+			},
+		}
 		data, _ := json.Marshal(payload)
 
 		req, _ := http.NewRequest("POST", url, bytes.NewReader(data))
@@ -3297,6 +3303,18 @@ func (e *FSMEngine) screenHypothesesWithLLM(hypotheses []Hypothesis, domain stri
 		req.Header.Set("Content-Type", "application/json")
 		if pid, ok := e.context["project_id"].(string); ok && pid != "" {
 			req.Header.Set("X-Project-ID", pid)
+		}
+
+		// Rate limiting: Add delay between LLM requests to prevent GPU overload
+		// Default: 5 seconds, configurable via FSM_LLM_REQUEST_DELAY_MS
+		delayMs := 5000
+		if v := strings.TrimSpace(os.Getenv("FSM_LLM_REQUEST_DELAY_MS")); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+				delayMs = n
+			}
+		}
+		if delayMs > 0 {
+			time.Sleep(time.Duration(delayMs) * time.Millisecond)
 		}
 
 		resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)

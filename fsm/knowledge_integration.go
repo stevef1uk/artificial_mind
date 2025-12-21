@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -257,6 +258,9 @@ If no useful facts found, return empty array [].`, domain, input, conceptContext
 	interpretURL := fmt.Sprintf("%s/api/v1/interpret", hdnURL)
 	reqData := map[string]interface{}{
 		"input": prompt, // API expects "input" not "text"
+		"context": map[string]string{
+			"origin": "fsm", // Mark as background task for LOW priority
+		},
 	}
 
 	reqJSON, err := json.Marshal(reqData)
@@ -1514,11 +1518,26 @@ If the knowledge is not actionable or useful, mark is_worth_learning=false.`, kn
 	interpretURL := fmt.Sprintf("%s/api/v1/interpret", hdnURL)
 	reqData := map[string]interface{}{
 		"input": prompt, // API expects "input" not "text"
+		"context": map[string]string{
+			"origin": "fsm", // Mark as background task for LOW priority
+		},
 	}
 
 	reqJSON, err := json.Marshal(reqData)
 	if err != nil {
 		return false, false, fmt.Errorf("failed to marshal assessment request: %w", err)
+	}
+
+	// Rate limiting: Add delay between LLM requests to prevent GPU overload
+	// Default: 5 seconds, configurable via FSM_LLM_REQUEST_DELAY_MS
+	delayMs := 5000
+	if v := strings.TrimSpace(os.Getenv("FSM_LLM_REQUEST_DELAY_MS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			delayMs = n
+		}
+	}
+	if delayMs > 0 {
+		time.Sleep(time.Duration(delayMs) * time.Millisecond)
 	}
 
 	client := &http.Client{Timeout: 15 * time.Second}

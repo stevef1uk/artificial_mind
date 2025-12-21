@@ -77,11 +77,16 @@ func (i *Interpreter) GetFlexibleInterpreter() *FlexibleInterpreter {
 
 // Interpret processes natural language input and converts it to structured tasks
 func (i *Interpreter) Interpret(ctx context.Context, req *NaturalLanguageRequest) (*InterpretationResult, error) {
-	log.Printf("🧠 [INTERPRETER] Processing natural language input: %s", req.Input)
+	return i.InterpretWithPriority(ctx, req, false) // Default to LOW priority (will be overridden by API)
+}
+
+// InterpretWithPriority processes natural language input with specified priority
+func (i *Interpreter) InterpretWithPriority(ctx context.Context, req *NaturalLanguageRequest, highPriority bool) (*InterpretationResult, error) {
+	log.Printf("🧠 [INTERPRETER] Processing natural language input: %s (priority: %v)", req.Input, highPriority)
 
 	// Use flexible interpreter if available
 	if i.flexibleInterpreter != nil {
-		flexibleResult, err := i.flexibleInterpreter.Interpret(ctx, req)
+		flexibleResult, err := i.flexibleInterpreter.InterpretWithPriority(ctx, req, highPriority)
 		if err != nil {
 			log.Printf("⚠️ [INTERPRETER] Flexible interpretation failed, falling back to legacy: %v", err)
 		} else {
