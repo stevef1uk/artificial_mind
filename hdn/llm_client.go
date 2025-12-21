@@ -22,7 +22,7 @@ type RequestPriority int
 
 const (
 	PriorityLow  RequestPriority = iota // Background tasks (FSM, learning, etc.)
-	PriorityHigh RequestPriority = iota  // User requests (chat, tools, etc.)
+	PriorityHigh                        // User requests (chat, tools, etc.)
 )
 
 // LLMRequestTicket represents a request waiting for an LLM slot
@@ -92,19 +92,19 @@ func dispatchLLMRequests() {
 			// No high priority requests, check low priority
 		}
 
-		// Check if background LLM work is disabled
+		// Check if background LLM work is disabled (check once per loop, not blocking)
 		disableBackgroundLLM := strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "1" || 
 		                         strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "true"
 		
-		// Only process low priority if no high priority requests and background LLM is enabled
-		if disableBackgroundLLM {
-			// Skip low priority requests - just wait briefly and check high priority again
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-		
 		select {
 		case ticket := <-lowPriorityQueue:
+			// If background LLM is disabled, reject low priority requests immediately
+			if disableBackgroundLLM {
+				log.Printf("🔒 [LLM] Rejecting low priority request (background LLM disabled)")
+				// Don't close ticket.Acquired - this will cause it to timeout
+				// Don't put it back in queue, just let it timeout naturally
+				continue
+			}
 			// Double-check high priority queue before serving low priority
 			select {
 			case highTicket := <-highPriorityQueue:
