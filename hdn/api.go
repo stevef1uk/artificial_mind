@@ -636,10 +636,11 @@ func (a *ConversationalLLMAdapter) GenerateResponse(ctx context.Context, prompt 
 }
 
 // ClassifyText implements the conversational LLMClientInterface
+// Uses HIGH priority for user-facing chat requests
 func (a *ConversationalLLMAdapter) ClassifyText(ctx context.Context, text string, categories []string) (string, float64, error) {
 	// Simple classification using the LLM
 	prompt := fmt.Sprintf("Classify the following text into one of these categories: %s\n\nText: %s\n\nCategory:", strings.Join(categories, ", "), text)
-	response, err := a.client.callLLM(prompt)
+	response, err := a.client.callLLMWithContextAndPriority(ctx, prompt, PriorityHigh)
 	if err != nil {
 		return "", 0.0, err
 	}
@@ -666,10 +667,11 @@ func (a *ConversationalLLMAdapter) ClassifyText(ctx context.Context, text string
 }
 
 // ExtractEntities implements the conversational LLMClientInterface
+// Uses HIGH priority for user-facing chat requests
 func (a *ConversationalLLMAdapter) ExtractEntities(ctx context.Context, text string, entityTypes []string) (map[string]string, error) {
 	// Simple entity extraction using the LLM
 	prompt := fmt.Sprintf("Extract entities from the following text. Look for: %s\n\nText: %s\n\nReturn as JSON with entity type as key and value as the extracted text.", strings.Join(entityTypes, ", "), text)
-	response, err := a.client.callLLM(prompt)
+	response, err := a.client.callLLMWithContextAndPriority(ctx, prompt, PriorityHigh)
 	if err != nil {
 		return make(map[string]string), err
 	}
