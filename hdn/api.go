@@ -205,6 +205,7 @@ type IntelligentExecutionRequest struct {
 	MaxRetries      int               `json:"max_retries"`
 	Timeout         int               `json:"timeout"`
 	ProjectID       string            `json:"project_id,omitempty"`
+	Priority        string            `json:"priority,omitempty"` // "high" or "low", defaults to "high" for user requests
 }
 
 type IntelligentExecutionResponse struct {
@@ -2293,6 +2294,12 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
 
+	// Determine priority: default to high for user API requests, unless explicitly set to low
+	highPriority := true // Default to high priority for user-facing API requests
+	if req.Priority == "low" {
+		highPriority = false
+	}
+
 	result, err := executor.ExecuteTaskIntelligently(ctx, &ExecutionRequest{
 		TaskName:        req.TaskName,
 		Description:     req.Description,
@@ -2301,6 +2308,7 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 		ForceRegenerate: req.ForceRegenerate,
 		MaxRetries:      req.MaxRetries,
 		Timeout:         req.Timeout,
+		HighPriority:    highPriority,
 	})
 
 	if err != nil {

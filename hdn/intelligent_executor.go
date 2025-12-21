@@ -92,6 +92,7 @@ type ExecutionRequest struct {
 	ForceRegenerate bool              `json:"force_regenerate"`
 	MaxRetries      int               `json:"max_retries"`
 	Timeout         int               `json:"timeout"`
+	HighPriority    bool              `json:"high_priority"` // true for user requests, false for background tasks
 }
 
 // IntelligentExecutionResult represents the result of intelligent execution
@@ -634,7 +635,12 @@ Rules:
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	response, err := ie.llmClient.callLLMWithContext(ctx, prompt)
+	// Use priority from request (defaults to high for user requests)
+	priority := PriorityLow
+	if req.HighPriority {
+		priority = PriorityHigh
+	}
+	response, err := ie.llmClient.callLLMWithContextAndPriority(ctx, prompt, priority)
 	if err != nil {
 		log.Printf("❌ [INTELLIGENT] LLM safety analysis failed: %v", err)
 		// Use reasonable defaults instead of overly conservative ones
@@ -732,7 +738,12 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 		}
 
 		// Call LLM directly to avoid verbose wrappers
-		response, err := ie.llmClient.callLLM(prompt)
+		// Use priority from request (defaults to high for user requests)
+		priority := PriorityLow
+		if req.HighPriority {
+			priority = PriorityHigh
+		}
+		response, err := ie.llmClient.callLLMWithContextAndPriority(ctx, prompt, priority)
 		result := &IntelligentExecutionResult{
 			Success:         err == nil,
 			Result:          response,
@@ -1026,7 +1037,12 @@ Respond with only one word: "simple" or "complex"`,
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	response, err := ie.llmClient.callLLMWithContext(ctx, prompt)
+	// Use priority from request (defaults to high for user requests)
+	priority := PriorityLow
+	if req.HighPriority {
+		priority = PriorityHigh
+	}
+	response, err := ie.llmClient.callLLMWithContextAndPriority(ctx, prompt, priority)
 	if err != nil {
 		return "", err
 	}
@@ -2357,7 +2373,13 @@ func (ie *IntelligentExecutor) fixCodeWithLLM(originalCode *GeneratedCode, valid
 	fixPrompt := ie.buildFixPrompt(originalCode, validationResult, req)
 
 	// Call LLM to fix the code
-	response, err := ie.llmClient.callLLM(fixPrompt)
+	// Use priority from request (defaults to high for user requests)
+	priority := PriorityLow
+	if req.HighPriority {
+		priority = PriorityHigh
+	}
+	ctx := context.Background()
+	response, err := ie.llmClient.callLLMWithContextAndPriority(ctx, fixPrompt, priority)
 	if err != nil {
 		return nil, fmt.Errorf("LLM fix call failed: %v", err)
 	}

@@ -146,6 +146,16 @@ func dispatchLLMRequests() {
 func acquireLLMSlot(ctx context.Context, priority RequestPriority, timeout time.Duration) bool {
 	initLLMSemaphore()
 	
+	// Check if background LLM is disabled - reject low priority requests immediately
+	if priority == PriorityLow {
+		disableBackgroundLLM := strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "1" || 
+		                         strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "true"
+		if disableBackgroundLLM {
+			log.Printf("🔒 [LLM] Rejecting low priority request immediately (background LLM disabled)")
+			return false
+		}
+	}
+	
 	ticket := &LLMRequestTicket{
 		Priority: priority,
 		Acquired: make(chan struct{}),
