@@ -1500,8 +1500,15 @@ java "$MAIN"
 	}
 
 	log.Printf("🔧 [SSH-FALLBACK] Output length: %d bytes", len(output))
+	if len(output) > 0 && len(output) < 2000 {
+		previewLen := 500
+		if len(output) < previewLen {
+			previewLen = len(output)
+		}
+		log.Printf("🔧 [SSH-FALLBACK] Raw output (first %d chars): %s", previewLen, string(output[:previewLen]))
+	}
 	if stderr != "" {
-		log.Printf("🔧 [SSH-FALLBACK] Stderr: %s", stderr)
+		log.Printf("🔧 [SSH-FALLBACK] Raw stderr: %s", stderr)
 	}
 
 	// Clean up temporary file
