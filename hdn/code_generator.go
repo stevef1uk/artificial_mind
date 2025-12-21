@@ -64,13 +64,33 @@ func (cg *CodeGenerator) GenerateCode(req *CodeGenerationRequest) (*CodeGenerati
 		}, nil
 	}
 
-	// Extract code from response
-	code, err := cg.extractCodeFromResponse(response, req.Language)
-	if err != nil {
-		return &CodeGenerationResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to extract code: %v", err),
-		}, nil
+	// Extract code from response (with retry if wrong language detected)
+	var code string
+	maxRetries := 2
+	for retry := 0; retry < maxRetries; retry++ {
+		var extractErr error
+		code, extractErr = cg.extractCodeFromResponse(response, req.Language)
+		if extractErr != nil {
+			// If wrong language detected, retry code generation with stronger prompt
+			if strings.Contains(extractErr.Error(), "LLM generated") && strings.Contains(extractErr.Error(), "when") && retry < maxRetries-1 {
+				log.Printf("🔄 [CODEGEN] Wrong language detected, retrying code generation (attempt %d/%d)", retry+1, maxRetries)
+				// Enhance prompt with stronger language requirement
+				enhancedPrompt := prompt + "\n\n🚨🚨🚨 CRITICAL REMINDER: You MUST generate " + req.Language + " code ONLY! The previous attempt generated the wrong language and was rejected! 🚨🚨🚨"
+				response, err = cg.llmClient.callLLM(enhancedPrompt)
+				if err != nil {
+					return &CodeGenerationResponse{
+						Success: false,
+						Error:   fmt.Sprintf("Failed to generate code: %v", err),
+					}, nil
+				}
+				continue // Retry extraction
+			}
+			return &CodeGenerationResponse{
+				Success: false,
+				Error:   fmt.Sprintf("Failed to extract code: %v", extractErr),
+			}, nil
+		}
+		break // Success
 	}
 
 	// Clean up the code to remove test cases and error handling
@@ -603,6 +623,28 @@ func (cg *CodeGenerator) extractCodeFromResponse(response, language string) (str
 
 	if code == "" {
 		return "", fmt.Errorf("extracted code is empty")
+	}
+
+	// CRITICAL: Validate that extracted code matches the requested language
+	// If JavaScript was requested but Python code was generated, reject it
+	if (language == "javascript" || language == "js") {
+		// Check for Python syntax in JavaScript code
+		if strings.Contains(code, "import ") && (strings.Contains(code, "def ") || strings.Contains(code, "import json") || strings.Contains(code, "import statistics")) {
+			// This looks like Python code, not JavaScript
+			log.Printf("❌ [CODEGEN] LLM generated Python code when JavaScript was requested!")
+			log.Printf("❌ [CODEGEN] Code preview (first 200 chars): %s", func() string {
+				if len(code) > 200 {
+					return code[:200]
+				}
+				return code
+			}())
+			return "", fmt.Errorf("LLM generated Python code when JavaScript was requested - code contains Python syntax (import statements with def, import json, import statistics)")
+		}
+		// Check for other Python indicators
+		if strings.Contains(code, "def ") || strings.Contains(code, "if __name__") || strings.Contains(code, "print(") {
+			log.Printf("❌ [CODEGEN] LLM generated Python code when JavaScript was requested!")
+			return "", fmt.Errorf("LLM generated Python code when JavaScript was requested - code contains Python syntax (def, if __name__, print)")
+		}
 	}
 
 	// Filter out code from wrong language - if we asked for Python, remove Go code blocks

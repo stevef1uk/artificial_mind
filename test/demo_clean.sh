@@ -13,6 +13,10 @@ echo
 # Configuration
 API_URL="http://localhost:8081"
 
+# Track test failures
+FAILED_TESTS=0
+TOTAL_TESTS=0
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -96,6 +100,10 @@ api_request() {
 	# Show the response summary
     echo "📊 Result: $success | Task: $task_name | Language: $language | Cached: $used_cached | Time: ${execution_time}ms"
     
+    # Track this test
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    local test_passed=true
+    
     # Show the actual code output or error
     if [ "$success" = "true" ]; then
         if [ -n "$result" ] && [ "$result" != "null" ]; then
@@ -111,11 +119,19 @@ api_request() {
                 else
                     print_warning "⚠️  Validation FAILED - Expected: $expected_pattern"
                     print_warning "⚠️  Got: $result"
+                    test_passed=false
                 fi
             fi
         else
             # Success but no result - this might be okay for some tasks
-            print_warning "⚠️  Execution succeeded but no output returned"
+            # Only fail if we expected a pattern (meaning we expected output)
+            if [ -n "$expected_pattern" ]; then
+                print_warning "⚠️  Execution succeeded but no output returned"
+                test_passed=false
+            else
+                print_warning "⚠️  Execution succeeded but no output returned"
+                # Don't fail if no pattern expected - might be intentional
+            fi
         fi
     elif [ "$success" = "false" ] && [ -n "$error" ]; then
         echo "📋 Error: $error"
@@ -125,13 +141,27 @@ api_request() {
             print_success "✅ Validation PASSED (Safety block working)"
         elif [ -n "$expected_pattern" ]; then
             print_warning "⚠️  Validation FAILED - Expected: $expected_pattern"
+            test_passed=false
+        else
+            # Failure without expected pattern is a failure
+            test_passed=false
         fi
     else
         print_warning "❌ Execution failed (success=false, no error message)"
+        test_passed=false
+    fi
+    
+    # Track failures
+    if [ "$test_passed" = "false" ]; then
+        FAILED_TESTS=$((FAILED_TESTS + 1))
     fi
     
     echo
-    return 0
+    if [ "$test_passed" = "true" ]; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 # Function to show capabilities count only
@@ -403,7 +433,25 @@ main() {
     print_success "This demonstrates true artificial intelligence - the ability to learn,"
     print_success "adapt, build capabilities from nothing, and verify correctness!"
     echo
+    
+    # Print test summary
+    echo
+    print_step "Summary" "Test Results"
+    echo "📊 Total tests: $TOTAL_TESTS"
+    if [ $FAILED_TESTS -eq 0 ]; then
+        print_success "✅ All tests PASSED ($TOTAL_TESTS/$TOTAL_TESTS)"
+        echo
+        return 0
+    else
+        print_error "❌ Some tests FAILED: $FAILED_TESTS/$TOTAL_TESTS"
+        echo
+        return 1
+    fi
 }
 
 # Run the demonstration
 main "$@"
+exit_code=$?
+
+# Exit with appropriate code
+exit $exit_code

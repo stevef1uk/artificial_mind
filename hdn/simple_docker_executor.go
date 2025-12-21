@@ -258,21 +258,30 @@ func (sde *SimpleDockerExecutor) ExecuteCode(ctx context.Context, req *DockerExe
 	exitCode := 0
 	errorMsg := ""
 
-	// Check for common Python error patterns
-	if strings.Contains(outputStr, "Traceback") ||
-		strings.Contains(outputStr, "Error:") ||
-		strings.Contains(outputStr, "Exception:") ||
-		strings.Contains(outputStr, "SyntaxError") ||
-		strings.Contains(outputStr, "NameError") ||
-		strings.Contains(outputStr, "ImportError") ||
-		strings.Contains(outputStr, "ModuleNotFoundError") {
+	// Check for common Python error patterns in both stdout and stderr
+	// Python errors can appear in either stream
+	combinedOutput := outputStr
+	if strings.TrimSpace(errStr) != "" {
+		combinedOutput = outputStr + "\n" + errStr
+	}
+	
+	if strings.Contains(combinedOutput, "Traceback") ||
+		strings.Contains(combinedOutput, "Error:") ||
+		strings.Contains(combinedOutput, "Exception:") ||
+		strings.Contains(combinedOutput, "SyntaxError") ||
+		strings.Contains(combinedOutput, "NameError") ||
+		strings.Contains(combinedOutput, "ImportError") ||
+		strings.Contains(combinedOutput, "ModuleNotFoundError") {
 		success = false
 		exitCode = 1
-		errorMsg = "Python execution failed: " + outputStr
-		log.Printf("❌ [DOCKER] Python execution failed: %s", outputStr)
+		errorMsg = "Python execution failed: " + combinedOutput
+		log.Printf("❌ [DOCKER] Python execution failed: %s", combinedOutput)
 	} else {
 		log.Printf("✅ [DOCKER] Python execution successful")
 		log.Printf("📊 [DOCKER] Output: %s", outputStr)
+		if strings.TrimSpace(errStr) != "" {
+			log.Printf("📊 [DOCKER] stderr (warnings): %s", errStr)
+		}
 	}
 
 	// Store files in Redis only if execution was successful and not a validation attempt
@@ -732,16 +741,21 @@ else:
 		`, sde.getFileExtensionFromFile(codeFile), sde.getFileExtensionFromFile(codeFile)))
 		}
 	} else {
-		// For other languages, run the code and copy generated files
+		// For other languages (JavaScript, etc.), run the code and copy generated files
+		// Use bash for non-quiet mode to support set -o pipefail if needed
+		shellCmd := "sh"
+		if !quiet {
+			shellCmd = "bash"
+		}
 		if quiet {
-			args = append(args, "sh", "-c", fmt.Sprintf(`
-            set -eu; set -o pipefail
+			args = append(args, shellCmd, "-c", fmt.Sprintf(`
+            set -eu
             cd /app && 
             mkdir -p /app/data && 
             %s /app/code.%s
         `, cmd, sde.getFileExtensionFromFile(codeFile)))
 		} else {
-			args = append(args, "sh", "-c", fmt.Sprintf(`
+			args = append(args, shellCmd, "-c", fmt.Sprintf(`
 			set -eu
 			cd /app && 
 			mkdir -p /app/data && 

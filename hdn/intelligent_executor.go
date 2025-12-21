@@ -1343,6 +1343,13 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 			log.Printf("✅ [INTELLIGENT] Found compatible cached code for task: %s", req.TaskName)
 			result.UsedCachedCode = true
 
+			// Sanitize cached code (e.g., inject missing imports)
+			if strings.EqualFold(req.Language, "python") {
+				cachedCode.Code = sanitizeGeneratedPythonCode(cachedCode.Code)
+			} else if strings.EqualFold(req.Language, "go") {
+				cachedCode.Code = sanitizeGeneratedGoCode(cachedCode.Code)
+			}
+
 			// Test the cached code with current parameters
 			validationResult := ie.validateCode(ctx, cachedCode, req, workflowID)
 			result.ValidationSteps = append(result.ValidationSteps, validationResult)
@@ -1435,6 +1442,29 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		}
 	}
 
+	// Add guidance for reading context parameters from environment variables (for JavaScript)
+	if (req.Language == "javascript" || req.Language == "js") && req.Context != nil && len(req.Context) > 0 {
+		// Check if there are numeric or string parameters that should be read from environment
+		hasParams := false
+		for k, v := range req.Context {
+			if k != "input" && k != "artifact_names" && v != "" {
+				hasParams = true
+				break
+			}
+		}
+		if hasParams {
+			enhancedDesc += "\n\n🚨 CRITICAL FOR JAVASCRIPT - READING CONTEXT PARAMETERS:\n- You MUST read ALL context parameters from environment variables using process.env\n- DO NOT hardcode values - the parameters will be different each time!\n- Example: const count = parseInt(process.env.count || '10', 10);  // Read 'count' from environment, default to '10'\n- Example: const dataStr = process.env.data || process.env.input || ''; const data = dataStr.split(',').map(Number);\n- Convert string values to appropriate types (parseInt() for integers, parseFloat() for floats, split() for arrays)\n- The context provides these parameters: " + func() string {
+				params := []string{}
+				for k := range req.Context {
+					if k != "input" && k != "artifact_names" {
+						params = append(params, k)
+					}
+				}
+				return strings.Join(params, ", ")
+			}() + "\n- DO NOT hardcode these values - read them from process.env!"
+		}
+	}
+
 	codeGenReq := &CodeGenerationRequest{
 		TaskName:    req.TaskName,
 		Description: enhancedDesc,
@@ -1496,6 +1526,14 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 				if fixErr != nil {
 					log.Printf("❌ [INTELLIGENT] Code fixing failed: %v", fixErr)
 					continue
+				}
+				// Re-sanitize fixed code (e.g., ensure main() is called for Python)
+				if fixedCode != nil {
+					if strings.EqualFold(req.Language, "python") {
+						fixedCode.Code = sanitizeGeneratedPythonCode(fixedCode.Code)
+					} else if strings.EqualFold(req.Language, "go") {
+						fixedCode.Code = sanitizeGeneratedGoCode(fixedCode.Code)
+					}
 				}
 				generatedCode = fixedCode
 				log.Printf("✅ [INTELLIGENT] Code fixed, retrying validation")
@@ -2189,6 +2227,31 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 
 	validationStep.Output = result.Output
 	validationStep.Message = "Code execution successful"
+
+	// Check if output is empty but task likely requires output
+	// For tasks that should produce output (like printing results), empty output indicates a problem
+	if strings.TrimSpace(result.Output) == "" {
+		// Check if this is a task that should produce output
+		// Most intelligent execution tasks should produce some output
+		shouldHaveOutput := strings.Contains(strings.ToLower(req.Description), "print") ||
+			strings.Contains(strings.ToLower(req.Description), "output") ||
+			strings.Contains(strings.ToLower(req.Description), "result") ||
+			strings.Contains(strings.ToLower(req.Description), "calculate") ||
+			strings.Contains(strings.ToLower(req.Description), "generate") ||
+			strings.Contains(strings.ToLower(req.Description), "return") ||
+			strings.Contains(strings.ToLower(req.Description), "prime") ||
+			strings.Contains(strings.ToLower(req.Description), "statistic") ||
+			strings.Contains(strings.ToLower(req.Description), "matrix")
+
+		if shouldHaveOutput {
+			log.Printf("❌ [VALIDATION] Code executed successfully but produced no output (task requires output)")
+			validationStep.Success = false
+			validationStep.Error = "Code executed successfully but produced no output"
+			validationStep.Message = "Code execution succeeded but no output was produced"
+			return validationStep
+		}
+	}
+
 	log.Printf("✅ [VALIDATION] Code execution successful")
 	log.Printf("📊 [VALIDATION] Output: %s", result.Output)
 
@@ -2329,7 +2392,33 @@ func (ie *IntelligentExecutor) fixCodeWithLLM(originalCode *GeneratedCode, valid
 func (ie *IntelligentExecutor) buildFixPrompt(originalCode *GeneratedCode, validationResult ValidationStep, req *ExecutionRequest) string {
 	// Build language-specific guidance
 	languageGuidance := ""
-	if originalCode.Language == "go" {
+	if originalCode.Language == "javascript" || originalCode.Language == "js" {
+		languageGuidance = `
+🚨 CRITICAL FOR JAVASCRIPT CODE FIXES:
+- Read the compilation error message CAREFULLY - it tells you exactly what's wrong!
+- Common JavaScript errors:
+  * "Identifier 'X' has already been declared" - Variable X is declared twice (e.g., "let x;" then "let x = [];")
+    - FIX: Remove the duplicate declaration - if you already declared it with "let x, y, z;", don't declare it again with "let x = [];"
+    - Use assignment instead: "x = [];" (not "let x = [];")
+  * "SyntaxError: Cannot use import statement outside a module" - Don't use ES6 import syntax in Node.js without package.json
+    - FIX: Use "require()" instead of "import", or use CommonJS syntax
+  * "ReferenceError: X is not defined" - Variable used before declaration or typo
+  * "TypeError: Cannot read property 'X' of undefined" - Object is undefined before accessing property
+- If you see "has already been declared":
+  - Check if the variable was declared in a "let x, y, z;" statement at the top
+  - If yes, use assignment "x = value;" instead of redeclaring "let x = value;"
+  - Example: If you have "let mean, median, mode, stdDev;" at the top, use "mode = [];" not "let mode = [];"
+- CRITICAL: Read data from environment variables using process.env, NOT hardcode values!
+  - WRONG: "const data = [1, 2, 3, 4, 5];" (hardcoded!)
+  - CORRECT: "const dataStr = process.env.data || process.env.input || ''; const data = dataStr.split(',').map(Number);"
+  - The context provides parameters like 'data' or 'input' - read them from process.env!
+- After fixing, verify:
+  - ✅ No duplicate variable declarations
+  - ✅ All variables are properly declared before use
+  - ✅ Data is read from process.env, not hardcoded
+  - ✅ Code uses console.log() for output (not print())
+`
+	} else if originalCode.Language == "go" {
 		languageGuidance = `
 🚨 CRITICAL FOR GO CODE FIXES:
 - Read the compilation error message CAREFULLY - it tells you exactly what's wrong!
@@ -2493,6 +2582,85 @@ func (ie *IntelligentExecutor) formatContext(context map[string]string) string {
 // sanitizeGeneratedPythonCode patches common issues in generated CSV analysis scripts
 func sanitizeGeneratedPythonCode(code string) string {
 	fixed := code
+
+	// CRITICAL: Inject missing standard library imports that are used but not imported
+	// This fixes common issues where LLM generates code using os.getenv() without importing os
+	importsToAdd := []string{}
+
+	// Check for os.getenv, os.environ, os.path, etc.
+	if (strings.Contains(fixed, "os.getenv") || strings.Contains(fixed, "os.environ") ||
+		strings.Contains(fixed, "os.path") || strings.Contains(fixed, "os.")) &&
+		!strings.Contains(fixed, "import os") && !strings.Contains(fixed, "from os") {
+		importsToAdd = append(importsToAdd, "import os")
+	}
+
+	// Check for json.dumps, json.loads, etc.
+	if (strings.Contains(fixed, "json.dumps") || strings.Contains(fixed, "json.loads") ||
+		strings.Contains(fixed, "json.")) &&
+		!strings.Contains(fixed, "import json") && !strings.Contains(fixed, "from json") {
+		importsToAdd = append(importsToAdd, "import json")
+	}
+
+	// Check for math.sqrt, math.pi, etc.
+	if (strings.Contains(fixed, "math.sqrt") || strings.Contains(fixed, "math.pi") ||
+		strings.Contains(fixed, "math.")) &&
+		!strings.Contains(fixed, "import math") && !strings.Contains(fixed, "from math") {
+		importsToAdd = append(importsToAdd, "import math")
+	}
+
+	// Check for sys.argv, sys.exit, etc.
+	if (strings.Contains(fixed, "sys.argv") || strings.Contains(fixed, "sys.exit") ||
+		strings.Contains(fixed, "sys.")) &&
+		!strings.Contains(fixed, "import sys") && !strings.Contains(fixed, "from sys") {
+		importsToAdd = append(importsToAdd, "import sys")
+	}
+
+	// Add missing imports at the top of the file (after any shebang)
+	if len(importsToAdd) > 0 {
+		lines := strings.Split(fixed, "\n")
+		var newLines []string
+		importsAdded := false
+
+		for i, line := range lines {
+			// Keep shebang if present
+			if i == 0 && strings.HasPrefix(line, "#!") {
+				newLines = append(newLines, line)
+				continue
+			}
+
+			// Add imports before first non-comment, non-blank line
+			if !importsAdded && strings.TrimSpace(line) != "" && !strings.HasPrefix(strings.TrimSpace(line), "#") {
+				// Check if there are already imports here
+				if strings.HasPrefix(strings.TrimSpace(line), "import ") || strings.HasPrefix(strings.TrimSpace(line), "from ") {
+					// Add our imports before existing imports
+					for _, imp := range importsToAdd {
+						newLines = append(newLines, imp)
+					}
+					newLines = append(newLines, line)
+				} else {
+					// No imports yet, add them here
+					for _, imp := range importsToAdd {
+						newLines = append(newLines, imp)
+					}
+					newLines = append(newLines, line)
+				}
+				importsAdded = true
+			} else {
+				newLines = append(newLines, line)
+			}
+		}
+
+		// If we never found a place to add imports (all blank/comments), add at the end
+		if !importsAdded {
+			for _, imp := range importsToAdd {
+				newLines = append(newLines, imp)
+			}
+		}
+
+		fixed = strings.Join(newLines, "\n")
+		log.Printf("✅ [SANITIZE] Injected missing Python imports: %v", importsToAdd)
+	}
+
 	// Ensure describe includes all columns for robust stats
 	fixed = strings.ReplaceAll(fixed, ".describe()", ".describe(include='all')")
 
@@ -2511,6 +2679,35 @@ func sanitizeGeneratedPythonCode(code string) string {
 	fixed = reSessionIDInt2.ReplaceAllString(fixed, "")
 	// Remove any remaining session_id assignments that aren't needed
 	reSessionIDAny := regexp.MustCompile(`(?m)^\s*session_id\s*=\s*os\.getenv\(['"]session_id['"][^)]*\)`)
+	fixed = reSessionIDAny.ReplaceAllString(fixed, "")
+
+	// CRITICAL: Ensure main() is called if it's defined
+	// Many LLMs generate "def main():" but forget to call it
+	if strings.Contains(fixed, "def main():") || strings.Contains(fixed, "def main(") {
+		// Check if main() is already being called
+		if !strings.Contains(fixed, "if __name__ == '__main__':") && !strings.Contains(fixed, "main()") {
+			// Add call to main() at the end
+			fixed = fixed + "\n\nif __name__ == '__main__':\n    main()\n"
+			log.Printf("✅ [SANITIZE] Added missing main() call for Python code")
+		} else if strings.Contains(fixed, "if __name__ == '__main__':") && !strings.Contains(fixed, "    main()") {
+			// The guard is there but main() isn't called - add it
+			lines := strings.Split(fixed, "\n")
+			var newLines []string
+			for i, line := range lines {
+				newLines = append(newLines, line)
+				if strings.Contains(line, "if __name__ == '__main__':") {
+					// Add main() call on next line
+					newLines = append(newLines, "    main()")
+					// Skip next line if it's already there
+					if i+1 < len(lines) && strings.Contains(lines[i+1], "main()") {
+						continue
+					}
+				}
+			}
+			fixed = strings.Join(newLines, "\n")
+			log.Printf("✅ [SANITIZE] Added missing main() call inside if __name__ guard")
+		}
+	}
 	fixed = reSessionIDAny.ReplaceAllString(fixed, "")
 
 	// If a dict is saved via to_csv, wrap it in DataFrame first
