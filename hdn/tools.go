@@ -1509,8 +1509,11 @@ java "$MAIN"
 		"pi@"+rpiHost, "rm", "-f", tempFile)
 	cleanupCmd.Run() // Best effort cleanup
 
-	// Clean output: remove environment variable dumps that may appear from bash configuration
+	// Clean output: remove environment variable dumps and SSH connection messages
 	cleanOutput := string(output)
+
+	// Filter out SSH connection messages (these can appear in output despite UserKnownHostsFile=/dev/null)
+	sshMessagePattern := regexp.MustCompile(`(?i)^(Warning: Permanently added|The authenticity of host|Host key verification failed).*$`)
 
 	// Filter out environment variable dumps at the START of output
 	// These appear when bash sources config files despite --noprofile --norc
@@ -1539,8 +1542,13 @@ java "$MAIN"
 			cleanOutput = fmt.Sprintf("Command execution failed - received environment dump instead of program output. Exit code: %d", exitCode)
 		}
 	} else {
-		// Normal filtering: remove env vars from start of output
+		// Normal filtering: remove env vars and SSH messages from start of output
 		for i, line := range lines {
+			// Skip SSH connection messages
+			if sshMessagePattern.MatchString(line) {
+				continue
+			}
+
 			// Check if this line looks like an environment variable
 			if envVarPattern.MatchString(line) {
 				// If we see BASH_EXECUTION_STRING=set, we're definitely in an env dump
