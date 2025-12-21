@@ -48,6 +48,9 @@ spec:
               value: "test1234"
             - name: WEAVIATE_URL
               value: "http://weaviate.agi.svc.cluster.local:8080"
+            # Disable background processing for testing
+            - name: ENABLE_AUTO_EXECUTOR
+              value: "false"
             # GPU Optimization: Reduced monitor concurrency limits
             - name: MONITOR_MAX_CONCURRENT_GOALS
               value: "2"

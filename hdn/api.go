@@ -3158,11 +3158,28 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 	go func(req HierarchicalTaskRequest, wfID string) {
 		// For async execution, we need to create a mock request to check UI status
 		// Since this is async, we'll use general slot only
+		// Wait for a slot with timeout instead of immediately rejecting
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		
 		select {
 		case s.executionSemaphore <- struct{}{}:
 			defer func() { <-s.executionSemaphore }()
-		default:
-			log.Printf("❌ [API] Async execution rejected - too many concurrent executions")
+		case <-ctx.Done():
+			log.Printf("❌ [API] Async execution rejected - timeout waiting for execution slot after 60s")
+			// Update workflow status to failed
+			key := fmt.Sprintf("workflow:%s", wfID)
+			if val, err := s.redis.Get(context.Background(), key).Result(); err == nil {
+				var rec map[string]any
+				if json.Unmarshal([]byte(val), &rec) == nil {
+					rec["status"] = "failed"
+					rec["error"] = "Timeout waiting for execution slot"
+					rec["updated_at"] = time.Now().Format(time.RFC3339)
+					if b, err := json.Marshal(rec); err == nil {
+						_ = s.redis.Set(context.Background(), key, string(b), 24*time.Hour).Err()
+					}
+				}
+			}
 			return
 		}
 

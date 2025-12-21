@@ -508,8 +508,12 @@ func main() {
 	// Start curiosity goal consumer in background
 	go monitor.startCuriosityGoalConsumer()
 
-	// Start auto-executor in background
-	go monitor.startAutoExecutor()
+	// Start auto-executor in background (can be disabled via ENABLE_AUTO_EXECUTOR env var)
+	if os.Getenv("ENABLE_AUTO_EXECUTOR") != "false" {
+		go monitor.startAutoExecutor()
+	} else {
+		log.Println("⏸️ Auto-executor disabled via ENABLE_AUTO_EXECUTOR=false")
+	}
 
 	// Start server
 	fmt.Println("🚀 HDN Monitor UI starting on :8082")

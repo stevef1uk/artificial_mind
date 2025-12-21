@@ -32,7 +32,7 @@ spec:
             - name: DISABLE_NEWS_POLLER
               value: "true"
             - name: AUTONOMY
-              value: "true"
+              value: "false"
             # Align LLM configuration with HDN
             - name: LLM_PROVIDER
               value: "local"
