@@ -1264,9 +1264,9 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string) (map[stri
 	log.Printf("🔧 [SSH-FALLBACK] Creating temp file: %s", tempFile)
 
 	// Write code to temporary file on RPI via SSH using base64 to avoid escaping issues
-	// Use bash --noprofile --norc to prevent environment dumps from .bashrc
+	// Use sh to prevent environment dumps
 	encodedCode := base64.StdEncoding.EncodeToString([]byte(code))
-	writeCmd := fmt.Sprintf("bash --noprofile --norc -c 'mkdir -p $(dirname %s) && echo %s | base64 -d > %s'", tempFile, encodedCode, tempFile)
+	writeCmd := fmt.Sprintf("sh -c 'mkdir -p $(dirname %s) && echo %s | base64 -d > %s'", tempFile, encodedCode, tempFile)
 	log.Printf("🔧 [SSH-FALLBACK] Writing code via SSH (base64 encoded, %d bytes)", len(code))
 
 	sshCmd := exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
@@ -1340,9 +1340,10 @@ else
 fi
 `, tempFile, tempFile)
 		}
-		// Use --noprofile --norc to avoid sourcing .bashrc/.bash_profile which may dump environment
-		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"pi@"+rpiHost, "bash", "--noprofile", "--norc", "-c", goHostCmd)
+		// Use sh instead of bash to avoid environment dumps on error
+		// Redirect any potential env dumps to /dev/null and ensure clean output
+		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+			"pi@"+rpiHost, "sh", "-c", goHostCmd)
 
 	case "python":
 		// Execute Python directly on the host in a venv; install detected packages; run the script
@@ -1367,9 +1368,9 @@ python3 -m venv "$VENV" >/dev/null 2>&1 || true
 python -m pip install --upgrade pip >/dev/null 2>&1 || true
 %spython %s`, pkgLine, tempFile)
 		}
-		// Use --noprofile --norc to avoid sourcing .bashrc/.bash_profile which may dump environment
-		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"pi@"+rpiHost, "bash", "--noprofile", "--norc", "-c", hostCmd)
+		// Use sh instead of bash to avoid environment dumps on error
+		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+			"pi@"+rpiHost, "sh", "-c", hostCmd)
 
 	case "bash":
 		// Run shell script directly on the host
@@ -1379,9 +1380,9 @@ python -m pip install --upgrade pip >/dev/null 2>&1 || true
 		} else {
 			bashHostCmd = fmt.Sprintf("set -euo pipefail\nsh %s\n", tempFile)
 		}
-		// Use --noprofile --norc to avoid sourcing .bashrc/.bash_profile which may dump environment
-		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"pi@"+rpiHost, "bash", "--noprofile", "--norc", "-c", bashHostCmd)
+		// Use sh instead of bash to avoid environment dumps on error
+		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+			"pi@"+rpiHost, "sh", "-c", bashHostCmd)
 
 	case "javascript", "js", "node":
 		// Try Docker first (if available), then fall back to direct execution
@@ -1415,9 +1416,9 @@ else
 fi
 `, tempFile, tempFile)
 		}
-		// Use --noprofile --norc to avoid sourcing .bashrc/.bash_profile which may dump environment
-		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"pi@"+rpiHost, "bash", "--noprofile", "--norc", "-c", jsHostCmd)
+		// Use sh instead of bash to avoid environment dumps on error
+		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+			"pi@"+rpiHost, "sh", "-c", jsHostCmd)
 
 	case "java":
 		// Execute Java directly on the host using system JDK
@@ -1447,9 +1448,9 @@ MAIN=${SRC%%.java}
 java "$MAIN"
 `, tempFile, tempFile)
 		}
-		// Use -c instead of -lc to avoid sourcing .bashrc/.bash_profile which may dump environment
-		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"pi@"+rpiHost, "bash", "--noprofile", "--norc", "-c", javaHostCmd)
+		// Use sh instead of bash to avoid environment dumps on error
+		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+			"pi@"+rpiHost, "sh", "-c", javaHostCmd)
 
 	default:
 		// Fallback: run as a shell command directly on host
@@ -1459,9 +1460,9 @@ java "$MAIN"
 		} else {
 			wrapped = fmt.Sprintf("set -euo pipefail\n{ %s; }\n", code)
 		}
-		// Use --noprofile --norc to avoid sourcing .bashrc/.bash_profile which may dump environment
-		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"pi@"+rpiHost, "bash", "--noprofile", "--norc", "-c", wrapped)
+		// Use sh instead of bash to avoid environment dumps on error
+		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+			"pi@"+rpiHost, "sh", "-c", wrapped)
 	}
 
 	log.Printf("🔧 [SSH-FALLBACK] Executing host command via SSH")
@@ -1535,15 +1536,77 @@ java "$MAIN"
 		}
 	}
 
-	// If more than 80% of lines are environment variables, treat as error
-	// This indicates the command failed and bash dumped environment instead
+	// If more than 80% of lines are environment variables, try to extract actual output/errors
 	if totalLines > 0 && float64(envVarCount)/float64(totalLines) > 0.8 {
-		log.Printf("⚠️ [SSH-FALLBACK] Output appears to be mostly environment variables (%d/%d lines), likely command failure", envVarCount, totalLines)
-		// If we have stderr, prefer that (but filter SSH messages first); otherwise indicate the issue
-		if cleanStderr != "" && strings.TrimSpace(cleanStderr) != "" {
-			cleanOutput = cleanStderr
+		log.Printf("⚠️ [SSH-FALLBACK] Output appears to be mostly environment variables (%d/%d lines, exit code: %d)", envVarCount, totalLines, exitCode)
+		
+		// Try to extract actual output/errors from the environment dump
+		actualOutputLines := []string{}
+		
+		for _, line := range lines {
+			lineTrimmed := strings.TrimSpace(line)
+			// Skip empty lines, env vars, and SSH messages
+			if lineTrimmed == "" || 
+			   envVarPattern.MatchString(lineTrimmed) || 
+			   sshMessagePattern.MatchString(lineTrimmed) ||
+			   strings.HasPrefix(lineTrimmed, "Warning: Permanently added") {
+				continue
+			}
+			
+			// Keep lines that look like actual output or errors
+			actualOutputLines = append(actualOutputLines, line)
+		}
+		
+		if len(actualOutputLines) > 0 {
+			cleanOutput = strings.Join(actualOutputLines, "\n")
+			log.Printf("✅ [SSH-FALLBACK] Extracted %d lines of actual output from environment dump (exit code: %d)", len(actualOutputLines), exitCode)
+			
+			// If exit code is non-zero and we have stderr with more info, prefer stderr
+			if exitCode != 0 && cleanStderr != "" && strings.TrimSpace(cleanStderr) != "" {
+				// Check if stderr has error messages that aren't just SSH warnings
+				stderrLines := strings.Split(cleanStderr, "\n")
+				nonSSHStderr := []string{}
+				for _, line := range stderrLines {
+					lineTrimmed := strings.TrimSpace(line)
+					if lineTrimmed != "" && 
+					   !sshMessagePattern.MatchString(lineTrimmed) &&
+					   !strings.HasPrefix(lineTrimmed, "Warning: Permanently added") {
+						nonSSHStderr = append(nonSSHStderr, line)
+					}
+				}
+				if len(nonSSHStderr) > 0 {
+					cleanOutput = strings.Join(nonSSHStderr, "\n")
+					log.Printf("📋 [SSH-FALLBACK] Using stderr output (%d lines) as it contains error information", len(nonSSHStderr))
+				}
+			}
 		} else {
-			cleanOutput = fmt.Sprintf("Command execution failed - received environment dump instead of program output. Exit code: %d", exitCode)
+			// No actual output found
+			if exitCode == 0 {
+				log.Printf("⚠️ [SSH-FALLBACK] No actual output found, but exit code is 0 - treating as empty output")
+				cleanOutput = ""
+			} else {
+				// Exit code is non-zero and no output extracted - use stderr or generic message
+				if cleanStderr != "" && strings.TrimSpace(cleanStderr) != "" {
+					// Filter SSH messages from stderr
+					stderrLines := strings.Split(cleanStderr, "\n")
+					nonSSHStderr := []string{}
+					for _, line := range stderrLines {
+						lineTrimmed := strings.TrimSpace(line)
+						if lineTrimmed != "" && 
+						   !sshMessagePattern.MatchString(lineTrimmed) &&
+						   !strings.HasPrefix(lineTrimmed, "Warning: Permanently added") {
+							nonSSHStderr = append(nonSSHStderr, line)
+						}
+					}
+					if len(nonSSHStderr) > 0 {
+						cleanOutput = strings.Join(nonSSHStderr, "\n")
+					} else {
+						cleanOutput = fmt.Sprintf("Command execution failed (exit code: %d) - no error output captured", exitCode)
+					}
+				} else {
+					cleanOutput = fmt.Sprintf("Command execution failed (exit code: %d) - received environment dump instead of program output", exitCode)
+				}
+			}
 		}
 	} else {
 		// Normal filtering: remove env vars and SSH messages from anywhere in output
