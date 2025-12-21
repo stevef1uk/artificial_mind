@@ -625,10 +625,10 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 		return "", err
 	}
 
-	// Create HTTP request
+	// Create HTTP request with context to allow cancellation
 	log.Printf("🌐 [LLM] Making request to: %s", apiURL)
 	log.Printf("🌐 [LLM] Request data: %s", string(jsonData))
-	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", err
 	}
@@ -648,7 +648,7 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 	log.Printf("🌐 [LLM] Sending HTTP request to %s | provider=%s | model=%s | timeout=%s | payload_bytes=%d\nPayload Preview: %s",
 		apiURL, c.config.LLMProvider, c.getModelName(), c.httpClient.Timeout.String(), len(jsonData), string(payloadPreview))
 
-	// Make the request
+	// Make the request (will respect context cancellation)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		log.Printf("❌ [LLM] HTTP request failed: %v", err)

@@ -1309,8 +1309,9 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string) (map[stri
 	./app
 	`, tempFile)
 		}
+		// Use -c instead of -lc to avoid sourcing .bashrc/.bash_profile which may dump environment
 		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"pi@"+rpiHost, "bash", "-lc", goHostCmd)
+			"pi@"+rpiHost, "bash", "-c", goHostCmd)
 
 	case "python":
 		// Execute Python directly on the host in a venv; install detected packages; run the script
@@ -1335,8 +1336,9 @@ python3 -m venv "$VENV" >/dev/null 2>&1 || true
 python -m pip install --upgrade pip >/dev/null 2>&1 || true
 %spython %s`, pkgLine, tempFile)
 		}
+		// Use -c instead of -lc to avoid sourcing .bashrc/.bash_profile which may dump environment
 		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"pi@"+rpiHost, "bash", "-lc", hostCmd)
+			"pi@"+rpiHost, "bash", "-c", hostCmd)
 
 	case "bash":
 		// Run shell script directly on the host
@@ -1346,8 +1348,9 @@ python -m pip install --upgrade pip >/dev/null 2>&1 || true
 		} else {
 			bashHostCmd = fmt.Sprintf("set -euo pipefail\nsh %s\n", tempFile)
 		}
+		// Use -c instead of -lc to avoid sourcing .bashrc/.bash_profile which may dump environment
 		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"pi@"+rpiHost, "bash", "-lc", bashHostCmd)
+			"pi@"+rpiHost, "bash", "-c", bashHostCmd)
 
 	case "java":
 		// Execute Java directly on the host using system JDK
@@ -1377,8 +1380,9 @@ MAIN=${SRC%%.java}
 java "$MAIN"
 `, tempFile, tempFile)
 		}
+		// Use -c instead of -lc to avoid sourcing .bashrc/.bash_profile which may dump environment
 		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"pi@"+rpiHost, "bash", "-lc", javaHostCmd)
+			"pi@"+rpiHost, "bash", "-c", javaHostCmd)
 
 	default:
 		// Fallback: run as a shell command directly on host
@@ -1388,8 +1392,9 @@ java "$MAIN"
 		} else {
 			wrapped = fmt.Sprintf("set -euo pipefail\n{ %s; }\n", code)
 		}
+		// Use -c instead of -lc to avoid sourcing .bashrc/.bash_profile which may dump environment
 		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"pi@"+rpiHost, "bash", "-lc", wrapped)
+			"pi@"+rpiHost, "bash", "-c", wrapped)
 	}
 
 	log.Printf("🔧 [SSH-FALLBACK] Executing host command via SSH")

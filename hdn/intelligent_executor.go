@@ -2113,7 +2113,8 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 			env[k] = v
 		}
 	}
-	env["QUIET"] = "0"
+	// Use QUIET mode to suppress environment dumps from SSH shell initialization
+	env["QUIET"] = "1"
 
 	// Create Docker execution request
 	// (removed: unused dockerReq)
