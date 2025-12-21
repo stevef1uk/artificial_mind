@@ -5,15 +5,174 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 // --------- LLM Client ---------
+
+// RequestPriority indicates the priority of an LLM request
+type RequestPriority int
+
+const (
+	PriorityLow  RequestPriority = iota // Background tasks (FSM, learning, etc.)
+	PriorityHigh RequestPriority = iota  // User requests (chat, tools, etc.)
+)
+
+// LLMRequestTicket represents a request waiting for an LLM slot
+type LLMRequestTicket struct {
+	Priority RequestPriority
+	Acquired chan struct{} // Closed when slot is acquired
+	Cancel   <-chan struct{} // Context cancellation channel
+}
+
+// Global priority queue system for LLM requests
+var (
+	llmRequestSemaphore chan struct{}
+	llmSemaphoreOnce    sync.Once
+	highPriorityQueue   chan *LLMRequestTicket
+	lowPriorityQueue    chan *LLMRequestTicket
+	queueDispatcherOnce sync.Once
+)
+
+// initLLMSemaphore initializes the global LLM request semaphore with priority queue
+// This limits how many LLM requests can be in-flight simultaneously
+// User requests get priority over background tasks
+func initLLMSemaphore() {
+	llmSemaphoreOnce.Do(func() {
+		maxConcurrentLLM := 2 // Conservative default: only 2 concurrent LLM requests
+		if maxStr := os.Getenv("LLM_MAX_CONCURRENT_REQUESTS"); maxStr != "" {
+			if max, err := strconv.Atoi(maxStr); err == nil && max > 0 {
+				maxConcurrentLLM = max
+			}
+		}
+		llmRequestSemaphore = make(chan struct{}, maxConcurrentLLM)
+		
+		// Initialize priority queues (buffered to prevent blocking)
+		highPriorityQueue = make(chan *LLMRequestTicket, 100)
+		lowPriorityQueue = make(chan *LLMRequestTicket, 100)
+		
+		log.Printf("🔒 [LLM] Initialized LLM request semaphore with max %d concurrent requests", maxConcurrentLLM)
+		log.Printf("🔒 [LLM] Priority queue enabled: user requests get priority over background tasks")
+		
+		// Start the queue dispatcher
+		go dispatchLLMRequests()
+	})
+}
+
+// dispatchLLMRequests continuously dispatches requests from priority queues
+// Always serves high-priority requests first, then low-priority
+func dispatchLLMRequests() {
+	for {
+		// Always check high priority queue first
+		select {
+		case ticket := <-highPriorityQueue:
+			// High priority: try to acquire immediately
+			select {
+			case llmRequestSemaphore <- struct{}{}:
+				close(ticket.Acquired)
+			case <-ticket.Cancel:
+				// Request was cancelled, skip
+			default:
+				// No slot available, put back in queue (will retry)
+				select {
+				case highPriorityQueue <- ticket:
+				case <-ticket.Cancel:
+					// Request was cancelled while re-queuing
+				}
+			}
+			continue // Go back to check high priority again
+		default:
+			// No high priority requests, check low priority
+		}
+
+		// Only process low priority if no high priority requests
+		select {
+		case ticket := <-lowPriorityQueue:
+			// Double-check high priority queue before serving low priority
+			select {
+			case highTicket := <-highPriorityQueue:
+				// High priority request arrived, serve it first
+				select {
+				case llmRequestSemaphore <- struct{}{}:
+					close(highTicket.Acquired)
+				case <-highTicket.Cancel:
+					// High priority request was cancelled
+				}
+				// Put low priority ticket back
+				select {
+				case lowPriorityQueue <- ticket:
+				case <-ticket.Cancel:
+				}
+			default:
+				// No high priority requests, serve low priority
+				select {
+				case llmRequestSemaphore <- struct{}{}:
+					close(ticket.Acquired)
+				case <-ticket.Cancel:
+					// Request was cancelled
+				default:
+					// No slot available, put back in queue
+					select {
+					case lowPriorityQueue <- ticket:
+					case <-ticket.Cancel:
+					}
+				}
+			}
+		case <-time.After(100 * time.Millisecond):
+			// Brief sleep to prevent busy-waiting
+		}
+	}
+}
+
+// acquireLLMSlot acquires an LLM slot with the given priority
+// Returns true if acquired, false if cancelled or timed out
+func acquireLLMSlot(ctx context.Context, priority RequestPriority, timeout time.Duration) bool {
+	initLLMSemaphore()
+	
+	ticket := &LLMRequestTicket{
+		Priority: priority,
+		Acquired: make(chan struct{}),
+		Cancel:   ctx.Done(),
+	}
+	
+	// Enqueue based on priority
+	var queue chan *LLMRequestTicket
+	if priority == PriorityHigh {
+		queue = highPriorityQueue
+		log.Printf("🔒 [LLM] Enqueuing HIGH priority request")
+	} else {
+		queue = lowPriorityQueue
+		log.Printf("🔒 [LLM] Enqueuing LOW priority request")
+	}
+	
+	// Enqueue the request
+	select {
+	case queue <- ticket:
+		// Successfully enqueued
+	case <-ctx.Done():
+		return false
+	}
+	
+	// Wait for slot acquisition or cancellation
+	select {
+	case <-ticket.Acquired:
+		log.Printf("🔒 [LLM] Acquired LLM request slot (priority: %v)", priority)
+		return true
+	case <-ctx.Done():
+		log.Printf("🔒 [LLM] Request cancelled while waiting for slot")
+		return false
+	case <-time.After(timeout):
+		log.Printf("🔒 [LLM] Timed out waiting for LLM slot")
+		return false
+	}
+}
 
 type LLMClient struct {
 	config     DomainConfig
@@ -361,26 +520,44 @@ func NewMockLLMClient() *LLMClient {
 }
 
 func (c *LLMClient) callLLM(prompt string) (string, error) {
-	// Mock responses for testing
-	if c.config.LLMProvider == "mock" {
-		return c.getMockResponse(prompt)
-	}
-
-	// For real providers, use the actual implementation
-	return c.callLLMReal(prompt)
+	// Default to low priority for background tasks
+	ctx := context.Background()
+	return c.callLLMWithContextAndPriority(ctx, prompt, PriorityLow)
 }
 
 func (c *LLMClient) callLLMWithContext(ctx context.Context, prompt string) (string, error) {
+	// Default to low priority for background tasks
+	return c.callLLMWithContextAndPriority(ctx, prompt, PriorityLow)
+}
+
+// callLLMWithContextAndPriority calls LLM with context and priority
+func (c *LLMClient) callLLMWithContextAndPriority(ctx context.Context, prompt string, priority RequestPriority) (string, error) {
 	// Mock responses for testing
 	if c.config.LLMProvider == "mock" {
 		return c.getMockResponse(prompt)
 	}
 
-	// For real providers, use the actual implementation with context
-	return c.callLLMRealWithContext(ctx, prompt)
+	// For real providers, use the actual implementation with context and priority
+	return c.callLLMRealWithContextAndPriority(ctx, prompt, priority)
 }
 
 func (c *LLMClient) callLLMReal(prompt string) (string, error) {
+	// Use background context with low priority
+	ctx := context.Background()
+	return c.callLLMRealWithContextAndPriority(ctx, prompt, PriorityLow)
+}
+
+// callLLMRealWithContextAndPriority calls LLM with context and priority
+func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, prompt string, priority RequestPriority) (string, error) {
+	// Initialize semaphore if not already done
+	initLLMSemaphore()
+	
+	// Acquire semaphore slot with priority
+	if !acquireLLMSlot(ctx, priority, c.httpClient.Timeout) {
+		return "", fmt.Errorf("failed to acquire LLM slot (cancelled or timed out)")
+	}
+	defer func() { <-llmRequestSemaphore }()
+	
 	log.Printf("🌐 [LLM] Making API call to provider: %s", c.config.LLMProvider)
 	log.Printf("🌐 [LLM] Timeout: %v", c.httpClient.Timeout)
 
@@ -587,143 +764,8 @@ func (c *LLMClient) getMockResponse(prompt string) (string, error) {
 }
 
 func (c *LLMClient) callLLMRealWithContext(ctx context.Context, prompt string) (string, error) {
-	log.Printf("🌐 [LLM] Making API call to provider: %s", c.config.LLMProvider)
-	log.Printf("🌐 [LLM] Timeout: %v", c.httpClient.Timeout)
-
-	// Determine the API endpoint based on provider
-	var apiURL string
-	var apiKey string
-
-	switch c.config.LLMProvider {
-	case "openai":
-		apiURL = "https://api.openai.com/v1/chat/completions"
-		apiKey = c.config.LLMAPIKey
-		log.Printf("🌐 [LLM] Using OpenAI API")
-	case "anthropic":
-		apiURL = "https://api.anthropic.com/v1/messages"
-		apiKey = c.config.LLMAPIKey
-		log.Printf("🌐 [LLM] Using Anthropic API")
-	case "local", "ollama":
-		// For local models, use Ollama. Allow override via settings["ollama_url"].
-		if url, ok := c.config.Settings["ollama_url"]; ok && strings.TrimSpace(url) != "" {
-			apiURL = normalizeOllamaURL(strings.TrimSpace(url))
-		} else {
-			apiURL = "http://localhost:11434/api/chat"
-		}
-		apiKey = ""
-		log.Printf("🌐 [LLM] Using Ollama local API at %s", apiURL)
-	default:
-		log.Printf("❌ [LLM] Unsupported provider: %s", c.config.LLMProvider)
-		return "", fmt.Errorf("unsupported LLM provider: %s", c.config.LLMProvider)
-	}
-
-	// Prepare the request based on provider
-	var jsonData []byte
-	var err error
-
-	if c.config.LLMProvider == "local" {
-		// Ollama uses a different format
-		ollamaRequest := map[string]interface{}{
-			"model": c.getModelName(),
-			"messages": []map[string]string{
-				{"role": "user", "content": prompt},
-			},
-			"stream": false,
-		}
-		jsonData, err = json.Marshal(ollamaRequest)
-	} else {
-		// OpenAI/Anthropic format
-		request := map[string]interface{}{
-			"model": c.getModelName(),
-			"messages": []map[string]string{
-				{"role": "user", "content": prompt},
-			},
-			"max_tokens": 1000,
-		}
-		jsonData, err = json.Marshal(request)
-	}
-
-	if err != nil {
-		log.Printf("❌ [LLM] Failed to marshal request: %v", err)
-		return "", fmt.Errorf("failed to marshal request: %v", err)
-	}
-
-	// Create HTTP request with context
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		log.Printf("❌ [LLM] Failed to create request: %v", err)
-		return "", fmt.Errorf("failed to create request: %v", err)
-	}
-
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-	if apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	}
-
-	// Make the request with context
-	client := &http.Client{Timeout: c.httpClient.Timeout}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("❌ [LLM] Request failed: %v", err)
-		return "", fmt.Errorf("request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// Check for context cancellation
-	select {
-	case <-ctx.Done():
-		log.Printf("❌ [LLM] Request cancelled: %v", ctx.Err())
-		return "", ctx.Err()
-	default:
-	}
-
-	// Read response
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("❌ [LLM] Failed to read response: %v", err)
-		return "", fmt.Errorf("failed to read response: %v", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("❌ [LLM] API returned error: %d %s", resp.StatusCode, string(body))
-		return "", fmt.Errorf("API returned error: %d %s", resp.StatusCode, string(body))
-	}
-
-	// Parse response based on provider
-	if c.config.LLMProvider == "local" {
-		// Ollama response format
-		var ollamaResp map[string]interface{}
-		if err := json.Unmarshal(body, &ollamaResp); err != nil {
-			log.Printf("❌ [LLM] Failed to parse Ollama response: %v", err)
-			return "", fmt.Errorf("failed to parse response: %v", err)
-		}
-
-		if message, ok := ollamaResp["message"].(map[string]interface{}); ok {
-			if content, ok := message["content"].(string); ok {
-				return content, nil
-			}
-		}
-		return "", fmt.Errorf("unexpected Ollama response format")
-	} else {
-		// OpenAI/Anthropic response format
-		var apiResp map[string]interface{}
-		if err := json.Unmarshal(body, &apiResp); err != nil {
-			log.Printf("❌ [LLM] Failed to parse API response: %v", err)
-			return "", fmt.Errorf("failed to parse response: %v", err)
-		}
-
-		if choices, ok := apiResp["choices"].([]interface{}); ok && len(choices) > 0 {
-			if choice, ok := choices[0].(map[string]interface{}); ok {
-				if message, ok := choice["message"].(map[string]interface{}); ok {
-					if content, ok := message["content"].(string); ok {
-						return content, nil
-					}
-				}
-			}
-		}
-		return "", fmt.Errorf("unexpected API response format")
-	}
+	// Default to low priority for background tasks
+	return c.callLLMRealWithContextAndPriority(ctx, prompt, PriorityLow)
 }
 
 func containsString(s, substr string) bool {

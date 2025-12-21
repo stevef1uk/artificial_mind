@@ -836,9 +836,9 @@ func (m *MonitorService) chatAPI(c *gin.Context) {
 
 	jsonData, _ := json.Marshal(chatReq)
 
-	// Create HTTP client with timeout
+	// Create HTTP client with timeout (3 minutes for chat - allows multiple LLM calls)
 	client := &http.Client{
-		Timeout: 120 * time.Second, // 2 minute timeout for LLM responses
+		Timeout: 180 * time.Second, // 3 minute timeout for chat (multiple LLM calls)
 	}
 
 	resp, err := client.Post(m.hdnURL+"/api/v1/chat", "application/json", bytes.NewBuffer(jsonData))

@@ -48,6 +48,18 @@ spec:
               value: "test1234"
             - name: WEAVIATE_URL
               value: "http://weaviate.agi.svc.cluster.local:8080"
+            # GPU Optimization: Reduced monitor concurrency limits
+            - name: MONITOR_MAX_CONCURRENT_GOALS
+              value: "2"
+            - name: MONITOR_LLM_WORKER_TIMEOUT_SECONDS
+              value: "120"
+            # GPU Optimization: LLM request throttling (prevents GPU overload)
+            - name: LLM_MAX_CONCURRENT_REQUESTS
+              value: "2"
+            - name: LLM_TIMEOUT
+              value: "120s"
+            - name: LLM_TIMEOUT_SECONDS
+              value: "120"
             - name: SECURE_CUSTOMER_PRIVATE_PATH
               value: "/keys/customer_private.pem"
             - name: SECURE_VENDOR_TOKEN

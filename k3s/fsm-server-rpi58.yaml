@@ -78,17 +78,30 @@ spec:
               value: "http://hdn-server-rpi58.agi.svc.cluster.local:8080"
             - name: WEAVIATE_URL
               value: "http://weaviate.agi.svc.cluster.local:8080"
-            # FSM bootstrap tuning for faster Wikipedia growth
+            # GPU Optimization: Reduced FSM concurrency limits
+            - name: FSM_MAX_ACTIVE_GOALS
+              value: "2"
+            - name: FSM_MAX_CONCURRENT_HYP_TESTS
+              value: "1"
+            # GPU Optimization: Reduced bootstrap rates to prevent GPU overload
             - name: FSM_BOOTSTRAP_MAX_DEPTH
               value: "3"
             - name: FSM_BOOTSTRAP_MAX_NODES
               value: "200000"
             - name: FSM_BOOTSTRAP_RPM
-              value: "60"
+              value: "30"
             - name: FSM_BOOTSTRAP_SEED_BATCH
-              value: "20"
+              value: "2"
             - name: FSM_BOOTSTRAP_COOLDOWN_HOURS
               value: "0"
+            # GPU Optimization: LLM timeout reduction
+            - name: LLM_TIMEOUT
+              value: "120s"
+            - name: LLM_TIMEOUT_SECONDS
+              value: "120"
+            # GPU Optimization: LLM request throttling (prevents GPU overload)
+            - name: LLM_MAX_CONCURRENT_REQUESTS
+              value: "2"
           volumeMounts:
             - name: customer-key
               mountPath: /keys

@@ -1266,7 +1266,7 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		req.MaxRetries = ie.maxRetries
 	}
 	if req.Timeout == 0 {
-		req.Timeout = 600
+		req.Timeout = 120 // Reduced from 600 to prevent long-running requests and GPU overload
 	}
 
 	result := &IntelligentExecutionResult{
@@ -3237,7 +3237,7 @@ func (ie *IntelligentExecutor) executeProgramDirectly(ctx context.Context, req *
 		req.MaxRetries = ie.maxRetries
 	}
 	if req.Timeout == 0 {
-		req.Timeout = 600
+		req.Timeout = 120 // Reduced from 600 to prevent long-running requests and GPU overload
 	}
 
 	result := &IntelligentExecutionResult{

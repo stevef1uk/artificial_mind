@@ -3588,7 +3588,7 @@
                 const response = await axios.post('/api/chat', {
                     message: message,
                     session_id: sessionId
-                }, { timeout: 120000 });
+                }, { timeout: 180000 }); // 3 minutes - chat makes multiple LLM calls
                 
                 // Display the response
                 const responseDiv = document.getElementById('thoughts-chat-response');

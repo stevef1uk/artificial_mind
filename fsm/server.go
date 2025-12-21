@@ -129,12 +129,59 @@ func LoadServerConfig(configPath string) (*ServerConfig, error) {
 }
 
 func main() {
-	// Load .env file if it exists
-	if err := godotenv.Load(); err != nil {
+	// Load .env file if it exists - look in project root
+	// Try multiple locations: AGI_PROJECT_ROOT, current dir, or walk up from binary/working dir
+	var envPath string
+	
+	// Check AGI_PROJECT_ROOT environment variable first (most reliable)
+	if projectRoot := os.Getenv("AGI_PROJECT_ROOT"); projectRoot != "" {
+		candidate := filepath.Join(projectRoot, ".env")
+		if _, err := os.Stat(candidate); err == nil {
+			envPath = candidate
+		}
+	}
+	
+	// If not found, try walking up from executable location
+	if envPath == "" {
+		if execPath, err := os.Executable(); err == nil {
+			dir := filepath.Dir(execPath)
+			for dir != filepath.Dir(dir) {
+				candidate := filepath.Join(dir, ".env")
+				if _, err := os.Stat(candidate); err == nil {
+					envPath = candidate
+					break
+				}
+				dir = filepath.Dir(dir)
+			}
+		}
+	}
+	
+	// If still not found, try current working directory and walk up
+	if envPath == "" {
+		if wd, err := os.Getwd(); err == nil {
+			dir := wd
+			for dir != filepath.Dir(dir) {
+				candidate := filepath.Join(dir, ".env")
+				if _, err := os.Stat(candidate); err == nil {
+					envPath = candidate
+					break
+				}
+				dir = filepath.Dir(dir)
+			}
+		}
+	}
+	
+	// Fallback to current directory
+	if envPath == "" {
+		envPath = ".env"
+	}
+	
+	// Try loading the .env file
+	if err := godotenv.Load(envPath); err != nil {
 		// .env file is optional, so we don't treat this as an error
 		log.Printf("No .env file found or error loading: %v", err)
 	} else {
-		log.Printf("Loaded .env file")
+		log.Printf("Loaded .env file from: %s", envPath)
 	}
 
 	var (

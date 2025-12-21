@@ -49,8 +49,14 @@ func NewFlexibleInterpreter(llmAdapter *FlexibleLLMAdapter, toolProvider ToolPro
 }
 
 // Interpret processes natural language input using flexible interpretation
+// Uses high priority by default (assumes user requests unless context indicates otherwise)
 func (f *FlexibleInterpreter) Interpret(ctx context.Context, req *NaturalLanguageRequest) (*FlexibleInterpretationResult, error) {
-	log.Printf("🧠 [FLEXIBLE-INTERPRETER] Processing natural language input: %s", req.Input)
+	return f.InterpretWithPriority(ctx, req, true) // Default to high priority for user requests
+}
+
+// InterpretWithPriority processes natural language input with specified priority
+func (f *FlexibleInterpreter) InterpretWithPriority(ctx context.Context, req *NaturalLanguageRequest, highPriority bool) (*FlexibleInterpretationResult, error) {
+	log.Printf("🧠 [FLEXIBLE-INTERPRETER] Processing natural language input: %s (priority: %v)", req.Input, highPriority)
 
 	// Get available tools
 	tools, err := f.toolProvider.GetAvailableTools(ctx)
@@ -59,8 +65,8 @@ func (f *FlexibleInterpreter) Interpret(ctx context.Context, req *NaturalLanguag
 		tools = []Tool{} // Continue with empty tools list
 	}
 
-	// Process with flexible LLM
-	response, err := f.llmAdapter.ProcessNaturalLanguage(req.Input, tools)
+	// Process with flexible LLM using priority
+	response, err := f.llmAdapter.ProcessNaturalLanguageWithPriority(req.Input, tools, highPriority)
 	if err != nil {
 		return &FlexibleInterpretationResult{
 			Success:   false,
@@ -159,9 +165,15 @@ func (f *FlexibleInterpreter) Interpret(ctx context.Context, req *NaturalLanguag
 }
 
 // InterpretAndExecute processes and executes natural language input
+// Uses high priority by default (assumes user requests)
 func (f *FlexibleInterpreter) InterpretAndExecute(ctx context.Context, req *NaturalLanguageRequest) (*FlexibleInterpretationResult, error) {
-	// First interpret
-	result, err := f.Interpret(ctx, req)
+	return f.InterpretAndExecuteWithPriority(ctx, req, true) // Default to high priority for user requests
+}
+
+// InterpretAndExecuteWithPriority processes and executes with specified priority
+func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Context, req *NaturalLanguageRequest, highPriority bool) (*FlexibleInterpretationResult, error) {
+	// First interpret with priority
+	result, err := f.InterpretWithPriority(ctx, req, highPriority)
 	if err != nil {
 		return result, err
 	}

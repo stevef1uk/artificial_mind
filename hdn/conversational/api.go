@@ -1,6 +1,7 @@
 package conversational
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,16 +12,26 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// SlotAcquisitionFunc is a function type for acquiring execution slots
+type SlotAcquisitionFunc func(r *http.Request) (release func(), acquired bool)
+
 // ConversationalAPI handles HTTP requests for conversational interactions
 type ConversationalAPI struct {
 	conversationalLayer *ConversationalLayer
+	acquireSlot         SlotAcquisitionFunc // Optional: for execution slot management
 }
 
 // NewConversationalAPI creates a new conversational API handler
 func NewConversationalAPI(conversationalLayer *ConversationalLayer) *ConversationalAPI {
 	return &ConversationalAPI{
 		conversationalLayer: conversationalLayer,
+		acquireSlot:         nil, // No slot management by default
 	}
+}
+
+// SetSlotAcquisition sets the function to acquire execution slots
+func (api *ConversationalAPI) SetSlotAcquisition(acquire SlotAcquisitionFunc) {
+	api.acquireSlot = acquire
 }
 
 // RegisterRoutes registers the conversational API routes
@@ -59,6 +70,20 @@ func (api *ConversationalAPI) handleChat(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Acquire execution slot if slot management is enabled (shares slot with Tools entry)
+	var release func()
+	if api.acquireSlot != nil {
+		var acquired bool
+		release, acquired = api.acquireSlot(r)
+		if !acquired {
+			api.writeErrorResponse(w, "Server busy - too many concurrent executions. Please try again later.", http.StatusTooManyRequests)
+			return
+		}
+		if release != nil {
+			defer release()
+		}
+	}
+
 	var req ConversationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		api.writeErrorResponse(w, "Invalid JSON", http.StatusBadRequest)
@@ -79,10 +104,18 @@ func (api *ConversationalAPI) handleChat(w http.ResponseWriter, r *http.Request)
 		req.Context = make(map[string]string)
 	}
 
-	// Process the message
+	// Process the message with timeout context (3 minutes for chat - allows multiple LLM calls)
 	ctx := r.Context()
-	response, err := api.conversationalLayer.ProcessMessage(ctx, &req)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	
+	response, err := api.conversationalLayer.ProcessMessage(ctxWithTimeout, &req)
 	if err != nil {
+		if ctxWithTimeout.Err() == context.DeadlineExceeded {
+			log.Printf("⏱️ [CONVERSATIONAL-API] Chat request timed out after 3 minutes")
+			api.writeErrorResponse(w, "Request timed out - the chat system is processing multiple steps. Please try a simpler question or try again later.", http.StatusRequestTimeout)
+			return
+		}
 		log.Printf("❌ [CONVERSATIONAL-API] Failed to process message: %v", err)
 		api.writeErrorResponse(w, "Failed to process message", http.StatusInternalServerError)
 		return

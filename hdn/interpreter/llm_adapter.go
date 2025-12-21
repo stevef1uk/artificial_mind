@@ -1,6 +1,7 @@
 package interpreter
 
 import (
+	"context"
 	"fmt"
 	"log"
 )
@@ -28,18 +29,40 @@ func NewLLMAdapter(llmClient LLMClientWrapperInterface) *LLMAdapter {
 }
 
 // GenerateResponse implements the LLMClientInterface
-func (a *LLMAdapter) GenerateResponse(prompt string, context map[string]string) (string, error) {
-	log.Printf("🤖 [INTERPRETER-LLM] Generating response for prompt length: %d", len(prompt))
+// Uses low priority by default (for background tasks)
+func (a *LLMAdapter) GenerateResponse(prompt string, ctxMap map[string]string) (string, error) {
+	return a.GenerateResponseWithPriority(prompt, ctxMap, false)
+}
+
+// GenerateResponseWithPriority implements priority-aware LLM generation
+func (a *LLMAdapter) GenerateResponseWithPriority(prompt string, ctxMap map[string]string, highPriority bool) (string, error) {
+	log.Printf("🤖 [INTERPRETER-LLM] Generating response for prompt length: %d (priority: %v)", len(prompt), highPriority)
 
 	// Add context to the prompt if provided
 	enhancedPrompt := prompt
-	if len(context) > 0 {
+	if len(ctxMap) > 0 {
 		enhancedPrompt += "\n\nAdditional Context:\n"
-		for k, v := range context {
+		for k, v := range ctxMap {
 			enhancedPrompt += fmt.Sprintf("- %s: %s\n", k, v)
 		}
 	}
 
+	// Check if wrapper supports priority (using reflection to avoid circular dependency)
+	// The wrapper should implement CallLLMWithContextAndPriority
+	if priorityWrapper, ok := a.llmClient.(interface {
+		CallLLMWithContextAndPriority(ctx context.Context, prompt string, highPriority bool) (string, error)
+	}); ok {
+		reqCtx := context.Background()
+		response, err := priorityWrapper.CallLLMWithContextAndPriority(reqCtx, enhancedPrompt, highPriority)
+		if err != nil {
+			log.Printf("❌ [INTERPRETER-LLM] LLM generation failed: %v", err)
+			return "", fmt.Errorf("LLM generation failed: %v", err)
+		}
+		log.Printf("✅ [INTERPRETER-LLM] Generated response length: %d", len(response))
+		return response, nil
+	}
+
+	// Fallback to standard method
 	response, err := a.llmClient.CallLLM(enhancedPrompt)
 	if err != nil {
 		log.Printf("❌ [INTERPRETER-LLM] LLM generation failed: %v", err)

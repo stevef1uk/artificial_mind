@@ -276,17 +276,33 @@ type DomainConfig struct {
 
 // LLMClientWrapper wraps the existing LLMClient to implement the interpreter interface
 type LLMClientWrapper struct {
-	client *LLMClient
+	client   *LLMClient
+	priority RequestPriority // Priority for LLM requests (defaults to low for background tasks)
 }
 
 // CallLLM implements the interpreter interface
+// Uses low priority by default (for background tasks)
 func (w *LLMClientWrapper) CallLLM(prompt string) (string, error) {
 	// Guard against uninitialized client to avoid nil dereference panics
 	if w == nil || w.client == nil {
 		return "", fmt.Errorf("LLM client not initialized")
 	}
-	// Call the underlying LLM directly for interpretation (no execution wrapper)
-	return w.client.callLLM(prompt)
+	// Use default priority (low) for backward compatibility
+	ctx := context.Background()
+	return w.client.callLLMWithContextAndPriority(ctx, prompt, PriorityLow)
+}
+
+// CallLLMWithContextAndPriority calls LLM with context and priority
+// highPriority=true for user requests, false for background tasks
+func (w *LLMClientWrapper) CallLLMWithContextAndPriority(ctx context.Context, prompt string, highPriority bool) (string, error) {
+	if w == nil || w.client == nil {
+		return "", fmt.Errorf("LLM client not initialized")
+	}
+	var priority RequestPriority = PriorityLow
+	if highPriority {
+		priority = PriorityHigh
+	}
+	return w.client.callLLMWithContextAndPriority(ctx, prompt, priority)
 }
 
 type APIServer struct {
@@ -602,6 +618,8 @@ func (s *APIServer) initializeConversationalLayer() {
 
 	// Initialize conversational API
 	s.conversationalAPI = conversational.NewConversationalAPI(s.conversationalLayer)
+	// Enable execution slot sharing between Chat and Tools entry
+	s.conversationalAPI.SetSlotAcquisition(s.acquireExecutionSlot)
 
 	log.Printf("💬 [API] Conversational interface initialized with real LLM")
 }
@@ -612,8 +630,9 @@ type ConversationalLLMAdapter struct {
 }
 
 // GenerateResponse implements the conversational LLMClientInterface
+// Uses HIGH priority for user-facing chat requests
 func (a *ConversationalLLMAdapter) GenerateResponse(ctx context.Context, prompt string, maxTokens int) (string, error) {
-	return a.client.callLLM(prompt)
+	return a.client.callLLMWithContextAndPriority(ctx, prompt, PriorityHigh)
 }
 
 // ClassifyText implements the conversational LLMClientInterface
@@ -2249,7 +2268,7 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 		req.MaxRetries = 3
 	}
 	if req.Timeout == 0 {
-		req.Timeout = 600
+		req.Timeout = 120 // Reduced from 600 to prevent long-running requests
 	}
 
 	// Create intelligent executor with planner integration
@@ -2268,8 +2287,8 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 		s.redisAddr,
 	)
 
-	// Execute intelligently with timeout
-	ctx, cancel := context.WithTimeout(r.Context(), 600*time.Second)
+	// Execute intelligently with timeout (reduced from 600s to prevent GPU overload)
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
 
 	result, err := executor.ExecuteTaskIntelligently(ctx, &ExecutionRequest{
@@ -5057,8 +5076,8 @@ func getMaxConcurrentExecutions() int {
 			return max
 		}
 	}
-	// Default to 8 for increased local concurrency
-	return 8
+	// Default to 3 for conservative GPU usage (prevents overload)
+	return 3
 }
 
 // isUIRequest checks if the request is from the UI based on headers or context

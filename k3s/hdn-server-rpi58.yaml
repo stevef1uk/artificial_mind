@@ -53,7 +53,9 @@ spec:
             - name: LLM_MODEL
               value: "Qwen2.5-VL-7B-Instruct:latest"
             - name: LLM_TIMEOUT_SECONDS
-              value: "600"
+              value: "120"
+            - name: LLM_TIMEOUT
+              value: "120s"
             - name: OLLAMA_BASE_URL
               value: "http://192.168.1.45:11434/api/chat"
             - name: HDN_URL
@@ -80,8 +82,12 @@ spec:
               value: "true"
             - name: EXECUTION_METHOD
               value: "ssh"
+            # GPU Optimization: Reduced concurrent execution limits
             - name: HDN_MAX_CONCURRENT_EXECUTIONS
-              value: "8"
+              value: "3"
+            # GPU Optimization: LLM request throttling (prevents GPU overload)
+            - name: LLM_MAX_CONCURRENT_REQUESTS
+              value: "2"
             - name: RPI_HOST
               value: "192.168.1.63"
           livenessProbe:

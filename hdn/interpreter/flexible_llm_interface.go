@@ -53,14 +53,34 @@ func NewFlexibleLLMAdapter(llmClient LLMClientInterface) *FlexibleLLMAdapter {
 }
 
 // ProcessNaturalLanguage processes natural language input with tool awareness
+// Uses default (low) priority for backward compatibility
 func (f *FlexibleLLMAdapter) ProcessNaturalLanguage(input string, availableTools []Tool) (*FlexibleLLMResponse, error) {
-	log.Printf("🤖 [FLEXIBLE-LLM] Processing natural language input: %s", input)
+	return f.ProcessNaturalLanguageWithPriority(input, availableTools, false)
+}
+
+// ProcessNaturalLanguageWithPriority processes natural language input with tool awareness and priority
+// highPriority=true for user requests, false for background tasks
+func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, availableTools []Tool, highPriority bool) (*FlexibleLLMResponse, error) {
+	log.Printf("🤖 [FLEXIBLE-LLM] Processing natural language input: %s (priority: %v)", input, highPriority)
 	log.Printf("🤖 [FLEXIBLE-LLM] Available tools: %d", len(availableTools))
 
 	// Build tool-aware prompt
 	prompt := f.buildToolAwarePrompt(input, availableTools)
 
-	// Call the LLM
+	// Call the LLM - check if the client supports priority
+	if priorityClient, ok := f.llmClient.(interface {
+		GenerateResponseWithPriority(prompt string, context map[string]string, highPriority bool) (string, error)
+	}); ok {
+		// Use priority-aware method
+		response, err := priorityClient.GenerateResponseWithPriority(prompt, map[string]string{}, highPriority)
+		if err != nil {
+			return nil, fmt.Errorf("failed to call LLM: %v", err)
+		}
+		log.Printf("✅ [FLEXIBLE-LLM] Generated response length: %d", len(response))
+		return f.parseFlexibleResponse(response)
+	}
+
+	// Fallback to standard method (low priority)
 	response, err := f.llmClient.GenerateResponse(prompt, map[string]string{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to call LLM: %v", err)
