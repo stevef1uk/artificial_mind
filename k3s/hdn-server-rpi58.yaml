@@ -51,7 +51,7 @@ spec:
             - name: LLM_PROVIDER
               value: "local"
             - name: LLM_MODEL
-              value: "Qwen2.5-VL-7B-Instruct:latest"
+              value: "gemma3:latest"
             - name: LLM_TIMEOUT_SECONDS
               value: "120"
             - name: LLM_TIMEOUT

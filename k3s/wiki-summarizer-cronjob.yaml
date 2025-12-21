@@ -30,7 +30,7 @@ spec:
                 - name: LLM_ENDPOINT
                   value: "http://192.168.1.45:11434/api/generate"
                 - name: LLM_MODEL
-                  value: "Qwen2.5-VL-7B-Instruct:latest"
+                  value: "gemma3:latest"
                 - name: BATCH_SIZE
                   value: "5"
                 - name: MAX_WORDS

@@ -37,7 +37,7 @@ spec:
             - name: LLM_PROVIDER
               value: "local"
             - name: LLM_MODEL
-              value: "Qwen2.5-VL-7B-Instruct:latest"
+              value: "gemma3:latest"
             - name: OLLAMA_BASE_URL
               value: "http://192.168.1.45:11434/api/chat"
             - name: OLLAMA_URL

@@ -2,7 +2,7 @@
 llm:
   provider: local
   settings:
-    model: Qwen2.5-VL-7B-Instruct:latest
+    model: gemma3:latest
     ollama_url: http://192.168.1.45:11434/api/chat
 hdn_url: http://hdn-server.agi.svc.cluster.local:8081
 principles_url: http://principles-server.agi.svc.cluster.local:8080
