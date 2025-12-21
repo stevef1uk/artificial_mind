@@ -92,7 +92,17 @@ func dispatchLLMRequests() {
 			// No high priority requests, check low priority
 		}
 
-		// Only process low priority if no high priority requests
+		// Check if background LLM work is disabled
+		disableBackgroundLLM := strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "1" || 
+		                         strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "true"
+		
+		// Only process low priority if no high priority requests and background LLM is enabled
+		if disableBackgroundLLM {
+			// Skip low priority requests - just wait briefly and check high priority again
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+		
 		select {
 		case ticket := <-lowPriorityQueue:
 			// Double-check high priority queue before serving low priority

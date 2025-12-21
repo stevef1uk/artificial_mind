@@ -86,8 +86,12 @@ spec:
             - name: HDN_MAX_CONCURRENT_EXECUTIONS
               value: "10"
             # GPU Optimization: LLM request throttling (prevents GPU overload)
+            # Set to 1 to disable background LLM work - only user requests will be processed
             - name: LLM_MAX_CONCURRENT_REQUESTS
-              value: "2"
+              value: "1"
+            # Disable background LLM work (FSM, learning, etc.) - only process user requests
+            - name: DISABLE_BACKGROUND_LLM
+              value: "1"
             - name: RPI_HOST
               value: "192.168.1.63"
           livenessProbe:
