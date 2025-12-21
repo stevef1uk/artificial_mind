@@ -5849,6 +5849,17 @@ func (m *MonitorService) startAutoExecutor() {
 			log.Printf("🧹 Auto-executor: cleaned up processed goals map")
 		case <-ticker.C:
 			log.Printf("🔄 Auto-executor: tick received, checking for goals...")
+			// Check if auto-executor is paused via Redis flag or environment variable
+			if m.redisClient != nil {
+				if paused, _ := m.redisClient.Get(context.Background(), "auto_executor:paused").Result(); paused == "1" {
+					log.Printf("⏸️ Auto-executor: paused via Redis flag, skipping this cycle")
+					continue
+				}
+			}
+			if os.Getenv("ENABLE_AUTO_EXECUTOR") == "false" {
+				log.Printf("⏸️ Auto-executor: disabled via ENABLE_AUTO_EXECUTOR=false, skipping this cycle")
+				continue
+			}
 			// Back-pressure: skip auto-execute if HDN saturated
 			if m.isHDNSaturated() {
 				log.Printf("⏸️ Auto-executor: HDN saturated, skipping this cycle")

@@ -82,9 +82,9 @@ spec:
               value: "true"
             - name: EXECUTION_METHOD
               value: "ssh"
-            # GPU Optimization: Reduced concurrent execution limits
+            # GPU Optimization: Reduced concurrent execution limits (increased for testing)
             - name: HDN_MAX_CONCURRENT_EXECUTIONS
-              value: "3"
+              value: "10"
             # GPU Optimization: LLM request throttling (prevents GPU overload)
             - name: LLM_MAX_CONCURRENT_REQUESTS
               value: "2"
