@@ -1482,14 +1482,15 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	}
 
 	codeGenReq := &CodeGenerationRequest{
-		TaskName:    req.TaskName,
-		Description: enhancedDesc,
-		Language:    req.Language,
-		Context:     filteredCtx,
-		Tags:        []string{"intelligent_execution", "auto_generated"},
-		Executable:  true,
-		Tools:       relevantTools,
-		ToolAPIURL:  ie.hdnBaseURL,
+		TaskName:     req.TaskName,
+		Description:  enhancedDesc,
+		Language:     req.Language,
+		Context:      filteredCtx,
+		Tags:         []string{"intelligent_execution", "auto_generated"},
+		Executable:   true,
+		Tools:        relevantTools,
+		ToolAPIURL:   ie.hdnBaseURL,
+		HighPriority: req.HighPriority, // Pass priority from execution request
 	}
 
 	codeGenResult, err := ie.codeGenerator.GenerateCode(codeGenReq)
@@ -3516,12 +3517,13 @@ func (ie *IntelligentExecutor) executeProgramDirectly(ctx context.Context, req *
 	}
 
 	codeGenReq := &CodeGenerationRequest{
-		TaskName:    req.TaskName,
-		Description: enhancedDesc,
-		Language:    req.Language,
-		Context:     filteredCtx,
-		Tags:        []string{"intelligent_execution", "auto_generated", "chained"},
-		Executable:  true,
+		TaskName:     req.TaskName,
+		Description:  enhancedDesc,
+		Language:     req.Language,
+		Context:      filteredCtx,
+		Tags:         []string{"intelligent_execution", "auto_generated", "chained"},
+		Executable:   true,
+		HighPriority: req.HighPriority, // Pass priority from execution request
 	}
 
 	// Create a specific prompt for Go programs that need to parse JSON

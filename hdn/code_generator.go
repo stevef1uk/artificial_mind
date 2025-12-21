@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -23,6 +24,7 @@ type CodeGenerationRequest struct {
 	Executable  bool              `json:"executable"`
 	Tools       []Tool            `json:"tools,omitempty"`        // Available tools to use
 	ToolAPIURL  string            `json:"tool_api_url,omitempty"` // Base URL for tool API
+	HighPriority bool             `json:"high_priority"`          // true for user requests, false for background tasks
 }
 
 // CodeGenerationResponse represents the response from code generation
@@ -55,8 +57,13 @@ func (cg *CodeGenerator) GenerateCode(req *CodeGenerationRequest) (*CodeGenerati
 		}
 	}
 
-	// Call Ollama to generate code
-	response, err := cg.llmClient.callLLM(prompt)
+	// Call LLM to generate code with priority
+	ctx := context.Background()
+	priority := PriorityLow
+	if req.HighPriority {
+		priority = PriorityHigh
+	}
+	response, err := cg.llmClient.callLLMWithContextAndPriority(ctx, prompt, priority)
 	if err != nil {
 		return &CodeGenerationResponse{
 			Success: false,
@@ -76,7 +83,12 @@ func (cg *CodeGenerator) GenerateCode(req *CodeGenerationRequest) (*CodeGenerati
 				log.Printf("🔄 [CODEGEN] Wrong language detected, retrying code generation (attempt %d/%d)", retry+1, maxRetries)
 				// Enhance prompt with stronger language requirement
 				enhancedPrompt := prompt + "\n\n🚨🚨🚨 CRITICAL REMINDER: You MUST generate " + req.Language + " code ONLY! The previous attempt generated the wrong language and was rejected! 🚨🚨🚨"
-				response, err = cg.llmClient.callLLM(enhancedPrompt)
+				ctx := context.Background()
+				priority := PriorityLow
+				if req.HighPriority {
+					priority = PriorityHigh
+				}
+				response, err = cg.llmClient.callLLMWithContextAndPriority(ctx, enhancedPrompt, priority)
 				if err != nil {
 					return &CodeGenerationResponse{
 						Success: false,
