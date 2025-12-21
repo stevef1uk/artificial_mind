@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -1260,9 +1263,11 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string) (map[stri
 	tempFile := fmt.Sprintf("/home/pi/.hdn/tmp/drone_code_%d.%s", time.Now().UnixNano(), getFileExtension(language))
 	log.Printf("🔧 [SSH-FALLBACK] Creating temp file: %s", tempFile)
 
-	// Write code to temporary file on RPI via SSH
-	writeCmd := fmt.Sprintf("mkdir -p $(dirname %s) && cat > %s << 'EOF'\n%s\nEOF", tempFile, tempFile, code)
-	log.Printf("🔧 [SSH-FALLBACK] Writing code via SSH command: %s", writeCmd[:100]+"...")
+	// Write code to temporary file on RPI via SSH using base64 to avoid escaping issues
+	// Use bash --noprofile --norc to prevent environment dumps from .bashrc
+	encodedCode := base64.StdEncoding.EncodeToString([]byte(code))
+	writeCmd := fmt.Sprintf("bash --noprofile --norc -c 'mkdir -p $(dirname %s) && echo %s | base64 -d > %s'", tempFile, encodedCode, tempFile)
+	log.Printf("🔧 [SSH-FALLBACK] Writing code via SSH (base64 encoded, %d bytes)", len(code))
 
 	sshCmd := exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
 		"pi@"+rpiHost, writeCmd)
@@ -1280,34 +1285,60 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string) (map[stri
 
 	switch language {
 	case "go":
-		// Execute Go directly on the RPI host without Docker
+		// Try Docker first (preferred), then fall back to direct execution
 		var goHostCmd string
 		if quietMode {
 			goHostCmd = fmt.Sprintf(`set -eu
-WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
-mkdir -p "$WORK"
-cp %s "$WORK"/main.go
-cd "$WORK"
-# Ensure Go is on PATH for non-interactive SSH shells
-export PATH="$PATH:/usr/local/go/bin:/home/pi/go/bin:/usr/local/bin:/usr/bin"
-if ! command -v go >/dev/null 2>&1; then echo 'go not installed on host' >&2; exit 127; fi
-if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
-GOFLAGS= go build -o app ./main.go || exit 1
-./app
-`, tempFile)
+# Try Docker first (preferred for isolation and consistency)
+if command -v docker >/dev/null 2>&1; then
+	WORK="$(mktemp -d /home/pi/.hdn/go_docker_tmp_XXXXXX)"
+	mkdir -p "$WORK"
+	cp %s "$WORK"/main.go
+	cd "$WORK"
+	if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
+	docker run --rm -v "$WORK":/app -w /app golang:1.21-alpine sh -c "go mod tidy >/dev/null 2>&1 && go build -o app ./main.go && ./app" 2>&1
+else
+	# Fallback to direct execution if Docker not available
+	WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
+	mkdir -p "$WORK"
+	cp %s "$WORK"/main.go
+	cd "$WORK"
+	export PATH="$PATH:/usr/local/go/bin:/home/pi/go/bin:/usr/local/bin:/usr/bin"
+	if ! command -v go >/dev/null 2>&1; then 
+		echo 'go not installed on host and Docker not available' >&2
+		exit 127
+	fi
+	if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
+	GOFLAGS= go build -o app ./main.go || exit 1
+	./app
+fi
+`, tempFile, tempFile)
 		} else {
 			goHostCmd = fmt.Sprintf(`set -euo pipefail
-WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
-mkdir -p "$WORK"
-cp %s "$WORK"/main.go
-cd "$WORK"
-# Ensure Go is on PATH for non-interactive SSH shells
-export PATH="$PATH:/usr/local/go/bin:/home/pi/go/bin:/usr/local/bin:/usr/bin"
-if ! command -v go >/dev/null 2>&1; then echo 'go not installed on host' >&2; exit 127; fi
-if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
-GOFLAGS= go build -o app ./main.go || exit 1
-./app
-`, tempFile)
+# Try Docker first (preferred for isolation and consistency)
+if command -v docker >/dev/null 2>&1; then
+	WORK="$(mktemp -d /home/pi/.hdn/go_docker_tmp_XXXXXX)"
+	mkdir -p "$WORK"
+	cp %s "$WORK"/main.go
+	cd "$WORK"
+	if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
+	docker run --rm -v "$WORK":/app -w /app golang:1.21-alpine sh -c "go mod tidy >/dev/null 2>&1 && go build -o app ./main.go && ./app" 2>&1
+else
+	# Fallback to direct execution if Docker not available
+	WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
+	mkdir -p "$WORK"
+	cp %s "$WORK"/main.go
+	cd "$WORK"
+	export PATH="$PATH:/usr/local/go/bin:/home/pi/go/bin:/usr/local/bin:/usr/bin"
+	if ! command -v go >/dev/null 2>&1; then 
+		echo 'go not installed on host and Docker not available' >&2
+		exit 127
+	fi
+	if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
+	GOFLAGS= go build -o app ./main.go || exit 1
+	./app
+fi
+`, tempFile, tempFile)
 		}
 		// Use --noprofile --norc to avoid sourcing .bashrc/.bash_profile which may dump environment
 		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
@@ -1353,20 +1384,38 @@ python -m pip install --upgrade pip >/dev/null 2>&1 || true
 			"pi@"+rpiHost, "bash", "--noprofile", "--norc", "-c", bashHostCmd)
 
 	case "javascript", "js", "node":
-		// Execute JavaScript/Node.js directly on the host
+		// Try Docker first (if available), then fall back to direct execution
 		var jsHostCmd string
 		if quietMode {
 			jsHostCmd = fmt.Sprintf(`set -eu
-if ! command -v node >/dev/null 2>&1; then echo 'node not installed on host' >&2; exit 127; fi
-node %s
-`, tempFile)
+# Try Docker first (preferred for isolation and consistency)
+if command -v docker >/dev/null 2>&1; then
+	docker run --rm -v %s:/app/code.js node:18-slim node /app/code.js 2>&1
+else
+	# Fallback to direct execution if Docker not available
+	if ! command -v node >/dev/null 2>&1; then 
+		echo 'node not installed on host and Docker not available' >&2
+		exit 127
+	fi
+	node %s
+fi
+`, tempFile, tempFile)
 		} else {
 			jsHostCmd = fmt.Sprintf(`set -euo pipefail
-if ! command -v node >/dev/null 2>&1; then echo 'node not installed on host' >&2; exit 127; fi
-node %s
-`, tempFile)
+# Try Docker first (preferred for isolation and consistency)
+if command -v docker >/dev/null 2>&1; then
+	docker run --rm -v %s:/app/code.js node:18-slim node /app/code.js 2>&1
+else
+	# Fallback to direct execution if Docker not available
+	if ! command -v node >/dev/null 2>&1; then 
+		echo 'node not installed on host and Docker not available' >&2
+		exit 127
+	fi
+	node %s
+fi
+`, tempFile, tempFile)
 		}
-		// Use -c instead of -lc to avoid sourcing .bashrc/.bash_profile which may dump environment
+		// Use --noprofile --norc to avoid sourcing .bashrc/.bash_profile which may dump environment
 		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
 			"pi@"+rpiHost, "bash", "--noprofile", "--norc", "-c", jsHostCmd)
 
@@ -1417,26 +1466,39 @@ java "$MAIN"
 
 	log.Printf("🔧 [SSH-FALLBACK] Executing host command via SSH")
 	startTime := time.Now()
-	output, err := execCmd.Output()
-	duration := time.Since(startTime)
-	log.Printf("🔧 [SSH-FALLBACK] Host execution completed in %v", duration)
 
-	exitCode := 0
+	// Capture stdout and stderr separately for better error handling
+	var stdoutBuf, stderrBuf bytes.Buffer
+	execCmd.Stdout = &stdoutBuf
+	execCmd.Stderr = &stderrBuf
+
+	err := execCmd.Run()
+	duration := time.Since(startTime)
+
+	var output []byte
 	var stderr string
+	exitCode := 0
+
 	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			exitCode = exitError.ExitCode()
-			stderr = string(exitError.Stderr)
-			log.Printf("❌ [SSH-FALLBACK] Command failed with exit code %d: %s", exitCode, stderr)
+			stderr = stderrBuf.String()
+			output = stdoutBuf.Bytes()
+			log.Printf("❌ [SSH-FALLBACK] Command failed with exit code %d", exitCode)
+			if stderr != "" {
+				log.Printf("❌ [SSH-FALLBACK] Error output: %s", stderr)
+			}
 		} else {
 			log.Printf("❌ [SSH-FALLBACK] SSH execution failed: %v", err)
 			return nil, fmt.Errorf("SSH execution failed: %v", err)
 		}
 	} else {
+		output = stdoutBuf.Bytes()
+		stderr = stderrBuf.String()
 		log.Printf("✅ [SSH-FALLBACK] Command executed successfully")
 	}
 
-	log.Printf("🔧 [SSH-FALLBACK] Output: %s", string(output))
+	log.Printf("🔧 [SSH-FALLBACK] Output length: %d bytes", len(output))
 	if stderr != "" {
 		log.Printf("🔧 [SSH-FALLBACK] Stderr: %s", stderr)
 	}
@@ -1447,8 +1509,71 @@ java "$MAIN"
 		"pi@"+rpiHost, "rm", "-f", tempFile)
 	cleanupCmd.Run() // Best effort cleanup
 
-	// Output is already clean when using set -eu instead of set -euo pipefail
+	// Clean output: remove environment variable dumps that may appear from bash configuration
 	cleanOutput := string(output)
+
+	// Filter out environment variable dumps at the START of output
+	// These appear when bash sources config files despite --noprofile --norc
+	lines := strings.Split(cleanOutput, "\n")
+	filteredLines := []string{}
+	envVarPattern := regexp.MustCompile(`^[A-Z_][A-Z0-9_]*=.*$`)
+	envDumpDetected := false
+	envVarCount := 0
+	totalLines := len(lines)
+
+	// First pass: detect if this is primarily an environment dump
+	for _, line := range lines {
+		if envVarPattern.MatchString(line) {
+			envVarCount++
+		}
+	}
+
+	// If more than 80% of lines are environment variables, treat as error
+	// This indicates the command failed and bash dumped environment instead
+	if totalLines > 0 && float64(envVarCount)/float64(totalLines) > 0.8 {
+		log.Printf("⚠️ [SSH-FALLBACK] Output appears to be mostly environment variables (%d/%d lines), likely command failure", envVarCount, totalLines)
+		// If we have stderr, prefer that; otherwise indicate the issue
+		if stderr != "" && strings.TrimSpace(stderr) != "" {
+			cleanOutput = stderr
+		} else {
+			cleanOutput = fmt.Sprintf("Command execution failed - received environment dump instead of program output. Exit code: %d", exitCode)
+		}
+	} else {
+		// Normal filtering: remove env vars from start of output
+		for i, line := range lines {
+			// Check if this line looks like an environment variable
+			if envVarPattern.MatchString(line) {
+				// If we see BASH_EXECUTION_STRING=set, we're definitely in an env dump
+				if strings.Contains(line, "BASH_EXECUTION_STRING=set") || strings.Contains(line, "BASH_VERSION=") {
+					envDumpDetected = true
+				}
+				// Skip environment variable lines only if we're still at the start
+				if envDumpDetected && i < len(lines)/2 {
+					continue
+				}
+			}
+
+			// Once we see a non-env line after detecting env dump, stop filtering
+			if envDumpDetected && !envVarPattern.MatchString(line) && strings.TrimSpace(line) != "" {
+				envDumpDetected = false
+			}
+
+			// Keep the line if we're not filtering or it's not an env var
+			if !envDumpDetected || !envVarPattern.MatchString(line) {
+				filteredLines = append(filteredLines, line)
+			}
+		}
+
+		cleanOutput = strings.Join(filteredLines, "\n")
+		// Trim leading/trailing whitespace
+		cleanOutput = strings.TrimSpace(cleanOutput)
+
+		// If after filtering we have nothing but env vars or empty output, and exit code is non-zero, use stderr
+		if (cleanOutput == "" || envVarPattern.MatchString(cleanOutput)) && exitCode != 0 && stderr != "" && strings.TrimSpace(stderr) != "" {
+			log.Printf("⚠️ [SSH-FALLBACK] Filtered output is empty/env-only, using stderr instead")
+			cleanOutput = stderr
+		}
+	}
 
 	result := map[string]interface{}{
 		"success":     exitCode == 0,
