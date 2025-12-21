@@ -1539,9 +1539,9 @@ java "$MAIN"
 	// This indicates the command failed and bash dumped environment instead
 	if totalLines > 0 && float64(envVarCount)/float64(totalLines) > 0.8 {
 		log.Printf("⚠️ [SSH-FALLBACK] Output appears to be mostly environment variables (%d/%d lines), likely command failure", envVarCount, totalLines)
-		// If we have stderr, prefer that; otherwise indicate the issue
-		if stderr != "" && strings.TrimSpace(stderr) != "" {
-			cleanOutput = stderr
+		// If we have stderr, prefer that (but filter SSH messages first); otherwise indicate the issue
+		if cleanStderr != "" && strings.TrimSpace(cleanStderr) != "" {
+			cleanOutput = cleanStderr
 		} else {
 			cleanOutput = fmt.Sprintf("Command execution failed - received environment dump instead of program output. Exit code: %d", exitCode)
 		}
@@ -1580,16 +1580,35 @@ java "$MAIN"
 		cleanOutput = strings.Join(filteredLines, "\n")
 		// Trim leading/trailing whitespace
 		cleanOutput = strings.TrimSpace(cleanOutput)
+		
+		// Final pass: remove any remaining SSH messages that might have slipped through
+		cleanOutput = sshMessagePattern.ReplaceAllString(cleanOutput, "")
+		cleanOutput = strings.TrimSpace(cleanOutput)
+		
+		// Final safety check: if output is ONLY an SSH message (or starts with one), treat as empty
+		outputLines := strings.Split(cleanOutput, "\n")
+		nonSSHLines := []string{}
+		for _, line := range outputLines {
+			lineTrimmed := strings.TrimSpace(line)
+			if lineTrimmed != "" && !sshMessagePattern.MatchString(lineTrimmed) && !strings.HasPrefix(lineTrimmed, "Warning: Permanently added") {
+				nonSSHLines = append(nonSSHLines, line)
+			}
+		}
+		if len(nonSSHLines) == 0 && len(outputLines) > 0 {
+			log.Printf("⚠️ [SSH-FALLBACK] Output contains only SSH messages, treating as empty")
+			cleanOutput = ""
+		} else {
+			cleanOutput = strings.Join(nonSSHLines, "\n")
+		}
 
 		// If after filtering we have nothing but env vars or empty output, and exit code is non-zero, use cleaned stderr
 		if (cleanOutput == "" || envVarPattern.MatchString(cleanOutput)) && exitCode != 0 && cleanStderr != "" {
 			log.Printf("⚠️ [SSH-FALLBACK] Filtered output is empty/env-only, using cleaned stderr instead")
 			cleanOutput = cleanStderr
+			// One more pass to ensure no SSH messages in stderr
+			cleanOutput = sshMessagePattern.ReplaceAllString(cleanOutput, "")
+			cleanOutput = strings.TrimSpace(cleanOutput)
 		}
-		
-		// Final pass: remove any remaining SSH messages that might have slipped through
-		cleanOutput = sshMessagePattern.ReplaceAllString(cleanOutput, "")
-		cleanOutput = strings.TrimSpace(cleanOutput)
 	}
 
 	result := map[string]interface{}{
