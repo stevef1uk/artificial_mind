@@ -38,41 +38,65 @@ type WeaviateObject struct {
 	Additional struct {
 		ID string `json:"id"`
 	} `json:"_additional"`
-	Title      string                 `json:"title"`
-	Text       string                 `json:"text"`
-	Source     string                 `json:"source"`
-	URL        string                 `json:"url"`
-	Timestamp  string                 `json:"timestamp"`
-	Properties map[string]interface{} `json:"properties,omitempty"`
+	Text      string `json:"text"`
+	Timestamp string `json:"timestamp"`
+	Metadata  string `json:"metadata"` // JSON string containing title, source, url, etc.
 }
 
 // SearchArticles implements VectorDBClient interface for Weaviate
 func (c *WeaviateClient) SearchArticles(ctx context.Context, limit int, filters map[string]interface{}) ([]wikipediaArticle, error) {
-	where := map[string]interface{}{
-		"source": "wikipedia",
-	}
+	// Note: Weaviate doesn't support filtering on nested JSON fields directly in where clause
+	// So we'll fetch all and filter in code, or use a different approach
+	where := map[string]interface{}{}
 
-	objects, err := c.SearchObjects(ctx, limit, where)
+	objects, err := c.SearchObjects(ctx, limit*2, where) // Fetch more to account for filtering
 	if err != nil {
 		return nil, err
 	}
 
 	var articles []wikipediaArticle
 	for _, obj := range objects {
+		// Parse metadata JSON string
+		var metadataMap map[string]interface{}
+		if obj.Metadata != "" {
+			if err := json.Unmarshal([]byte(obj.Metadata), &metadataMap); err != nil {
+				// Skip objects with invalid metadata
+				continue
+			}
+		} else {
+			metadataMap = make(map[string]interface{})
+		}
+
+		// Filter for wikipedia source
+		source, _ := metadataMap["source"].(string)
+		if source != "wikipedia" {
+			continue
+		}
+
+		// Extract title and URL from metadata
+		title, _ := metadataMap["title"].(string)
+		url, _ := metadataMap["url"].(string)
+
+		// Build metadata map for article
 		metadata := map[string]interface{}{
-			"title":  obj.Title,
-			"source": obj.Source,
-			"url":    obj.URL,
+			"title":  title,
+			"source": source,
+			"url":    url,
 		}
 
 		article := wikipediaArticle{
 			ID:        obj.Additional.ID,
-			Title:     obj.Title,
+			Title:     title,
 			Text:      obj.Text,
 			Metadata:  metadata,
 			Timestamp: obj.Timestamp,
 		}
 		articles = append(articles, article)
+
+		// Stop when we have enough articles
+		if len(articles) >= limit {
+			break
+		}
 	}
 
 	return articles, nil
@@ -89,17 +113,17 @@ func (c *WeaviateClient) UpdateArticleSummary(ctx context.Context, articleID, su
 
 // SearchObjects searches for objects in Weaviate
 func (c *WeaviateClient) SearchObjects(ctx context.Context, limit int, where map[string]interface{}) ([]WeaviateObject, error) {
+	// For AgiWiki class, we only query text, timestamp, and metadata
+	// The metadata is a JSON string that contains title, source, url, etc.
 	query := map[string]interface{}{
 		"query": fmt.Sprintf(`
 		{
 			Get {
 				%s(limit: %d%s) {
 					_additional { id }
-					title
 					text
-					source
-					url
 					timestamp
+					metadata
 				}
 			}
 		}`, c.Class, limit, c.buildWhereClause(where)),
@@ -168,16 +192,12 @@ func (c *WeaviateClient) UpdateObject(ctx context.Context, objectID string, prop
 }
 
 // buildWhereClause builds a GraphQL where clause from filters
+// Note: For AgiWiki, we can't filter on nested metadata fields directly,
+// so filtering is done in SearchArticles after parsing metadata
 func (c *WeaviateClient) buildWhereClause(where map[string]interface{}) string {
-	if len(where) == 0 {
-		return ""
-	}
-
-	// For now, just use the first condition (source filter)
-	for key, value := range where {
-		return fmt.Sprintf(`, where: { path: ["%s"], operator: Equal, valueString: "%v" }`, key, value)
-	}
-
+	// For AgiWiki class, we don't use where clause since metadata is a JSON string
+	// and Weaviate doesn't support filtering on nested JSON fields in where clause
+	// Filtering is done in SearchArticles after parsing the metadata
 	return ""
 }
 
