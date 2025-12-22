@@ -689,8 +689,18 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 		code, _ := getString(params, "code")
 		language, _ := getString(params, "language")
 		image, _ := getString(params, "image")
+		envJSON, _ := getString(params, "environment")
 
-		log.Printf("🔧 [SSH-TOOL] Parameters: language=%s, image=%s, code_length=%d", language, image, len(code))
+		// Parse environment variables from JSON
+		var env map[string]string
+		if envJSON != "" {
+			if err := json.Unmarshal([]byte(envJSON), &env); err != nil {
+				log.Printf("⚠️ [SSH-TOOL] Failed to parse environment JSON: %v", err)
+				env = nil
+			}
+		}
+
+		log.Printf("🔧 [SSH-TOOL] Parameters: language=%s, image=%s, code_length=%d, env_vars=%d", language, image, len(code), len(env))
 
 		if strings.TrimSpace(code) == "" {
 			log.Printf("❌ [SSH-TOOL] No code provided")
@@ -733,7 +743,7 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 
 		// Additionally execute locally (SSH) to provide immediate run output
 		log.Printf("🔧 [SSH-TOOL] Attempting SSH fallback execution")
-		localRun, execErr := s.fallbackSSHExecution(code, language, image)
+		localRun, execErr := s.fallbackSSHExecution(code, language, image, env)
 		if execErr != nil {
 			log.Printf("❌ [SSH-TOOL] SSH execution failed: %v", execErr)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -1239,11 +1249,11 @@ func (s *APIServer) submitToDroneCI(code, language, image string) (map[string]in
 
 	// If we get here, all Drone CI URLs failed
 	// Fallback to SSH execution on RPI host
-	return s.fallbackSSHExecution(code, language, image)
+	return s.fallbackSSHExecution(code, language, image, nil)
 }
 
 // fallbackSSHExecution executes code on RPI host via SSH
-func (s *APIServer) fallbackSSHExecution(code, language, image string) (map[string]interface{}, error) {
+func (s *APIServer) fallbackSSHExecution(code, language, image string, env map[string]string) (map[string]interface{}, error) {
 	log.Printf("🔧 [SSH-FALLBACK] Starting SSH fallback execution")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second) // 10 minutes for code validation
@@ -1286,6 +1296,26 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string) (map[stri
 	switch language {
 	case "go":
 		// Try Docker first (preferred), then fall back to direct execution
+		// Build environment variable flags for Docker
+		envFlags := ""
+		if env != nil && len(env) > 0 {
+			for k, v := range env {
+				// Escape single quotes in value
+				escapedValue := strings.ReplaceAll(v, "'", "'\"'\"'")
+				envFlags += fmt.Sprintf(" -e %s='%s'", k, escapedValue)
+			}
+		}
+		
+		// Build environment variable exports for direct execution
+		envExports := ""
+		if env != nil && len(env) > 0 {
+			for k, v := range env {
+				// Escape single quotes in value
+				escapedValue := strings.ReplaceAll(v, "'", "'\"'\"'")
+				envExports += fmt.Sprintf("export %s='%s'\n", k, escapedValue)
+			}
+		}
+		
 		var goHostCmd string
 		if quietMode {
 			goHostCmd = fmt.Sprintf(`set -eu
@@ -1296,7 +1326,7 @@ if command -v docker >/dev/null 2>&1; then
 	cp %s "$WORK"/main.go
 	cd "$WORK"
 	if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
-	docker run --rm -v "$WORK":/app -w /app golang:1.21-alpine sh -c "go mod tidy >/dev/null 2>&1 && go build -o app ./main.go && ./app" 2>&1
+	docker run --rm%s -v "$WORK":/app -w /app golang:1.21-alpine sh -c "go mod tidy >/dev/null 2>&1 && go build -o app ./main.go && ./app" 2>&1
 else
 	# Fallback to direct execution if Docker not available
 	WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
@@ -1304,7 +1334,7 @@ else
 	cp %s "$WORK"/main.go
 	cd "$WORK"
 	export PATH="$PATH:/usr/local/go/bin:/home/pi/go/bin:/usr/local/bin:/usr/bin"
-	if ! command -v go >/dev/null 2>&1; then 
+%s	if ! command -v go >/dev/null 2>&1; then 
 		echo 'go not installed on host and Docker not available' >&2
 		exit 127
 	fi
@@ -1312,7 +1342,7 @@ else
 	GOFLAGS= go build -o app ./main.go || exit 1
 	./app
 fi
-`, tempFile, tempFile)
+`, tempFile, envFlags, tempFile, envExports)
 		} else {
 			goHostCmd = fmt.Sprintf(`set -euo pipefail
 # Try Docker first (preferred for isolation and consistency)
@@ -1322,7 +1352,7 @@ if command -v docker >/dev/null 2>&1; then
 	cp %s "$WORK"/main.go
 	cd "$WORK"
 	if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
-	docker run --rm -v "$WORK":/app -w /app golang:1.21-alpine sh -c "go mod tidy >/dev/null 2>&1 && go build -o app ./main.go && ./app" 2>&1
+	docker run --rm%s -v "$WORK":/app -w /app golang:1.21-alpine sh -c "go mod tidy >/dev/null 2>&1 && go build -o app ./main.go && ./app" 2>&1
 else
 	# Fallback to direct execution if Docker not available
 	WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
@@ -1330,7 +1360,7 @@ else
 	cp %s "$WORK"/main.go
 	cd "$WORK"
 	export PATH="$PATH:/usr/local/go/bin:/home/pi/go/bin:/usr/local/bin:/usr/bin"
-	if ! command -v go >/dev/null 2>&1; then 
+%s	if ! command -v go >/dev/null 2>&1; then 
 		echo 'go not installed on host and Docker not available' >&2
 		exit 127
 	fi
@@ -1338,7 +1368,7 @@ else
 	GOFLAGS= go build -o app ./main.go || exit 1
 	./app
 fi
-`, tempFile, tempFile)
+`, tempFile, envFlags, tempFile, envExports)
 		}
 		// Use sh instead of bash to avoid environment dumps on error
 		// Redirect any potential env dumps to /dev/null and ensure clean output

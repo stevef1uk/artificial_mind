@@ -310,7 +310,7 @@ func (ie *IntelligentExecutor) filterRelevantTools(tools []Tool, req *ExecutionR
 }
 
 // executeWithSSHTool executes code using the SSH executor tool
-func (ie *IntelligentExecutor) executeWithSSHTool(ctx context.Context, code, language string) (*DockerExecutionResponse, error) {
+func (ie *IntelligentExecutor) executeWithSSHTool(ctx context.Context, code, language string, env map[string]string) (*DockerExecutionResponse, error) {
 	// Determine if the SSH executor is enabled on this platform
 	execMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
 	isARM64 := runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64"
@@ -387,6 +387,13 @@ func (ie *IntelligentExecutor) executeWithSSHTool(ctx context.Context, code, lan
 		"language": language,
 		"image":    ie.getImageForLanguage(language),
 		"timeout":  300, // 5 minutes timeout
+	}
+	// Add environment variables if provided
+	if env != nil && len(env) > 0 {
+		envJSON, err := json.Marshal(env)
+		if err == nil {
+			params["environment"] = string(envJSON)
+		}
 	}
 
 	// Call the SSH executor tool
@@ -1379,7 +1386,7 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 				} else {
 					// Use direct Docker executor for file storage (cached code)
 					log.Printf("🎯 [INTELLIGENT] Final execution using direct Docker executor for file storage (cached code)")
-					if finalResult, derr := ie.executeWithSSHTool(ctx, cachedCode.Code, req.Language); derr != nil {
+					if finalResult, derr := ie.executeWithSSHTool(ctx, cachedCode.Code, req.Language, nil); derr != nil {
 						log.Printf("⚠️ [INTELLIGENT] Final execution failed: %v", derr)
 					} else if finalResult.Success {
 						log.Printf("✅ [INTELLIGENT] Final execution successful, files stored")
@@ -1591,7 +1598,7 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	// Skip tool registration and use direct Docker executor for file storage
 	// This avoids the 404 tool errors and uses the working Docker execution system
 	log.Printf("🎯 [INTELLIGENT] Final execution using direct Docker executor for file storage")
-	if finalResult, derr := ie.executeWithSSHTool(ctx, generatedCode.Code, req.Language); derr != nil {
+	if finalResult, derr := ie.executeWithSSHTool(ctx, generatedCode.Code, req.Language, nil); derr != nil {
 		log.Printf("⚠️ [INTELLIGENT] Final execution failed: %v", derr)
 	} else if finalResult.Success {
 		log.Printf("✅ [INTELLIGENT] Final execution successful, files stored")
@@ -2183,7 +2190,7 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 
 	if useSSH {
 		log.Printf("🧪 [VALIDATION] Using SSH executor for validation")
-		result, err = ie.executeWithSSHTool(ctx, code.Code, code.Language)
+		result, err = ie.executeWithSSHTool(ctx, code.Code, code.Language, env)
 	} else {
 		log.Printf("🧪 [VALIDATION] Using Docker executor for validation")
 		// Use direct Docker execution
