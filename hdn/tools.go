@@ -1295,21 +1295,7 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string, env map[s
 
 	switch language {
 	case "go":
-		// Try Docker first (preferred), then fall back to direct execution
-		// Build environment variable flags for Docker
-		// Use double quotes and escape properly for shell execution
-		envFlags := ""
-		if env != nil && len(env) > 0 {
-			for k, v := range env {
-				// Escape for shell: escape $, `, ", and \
-				escapedValue := strings.ReplaceAll(v, "\\", "\\\\")
-				escapedValue = strings.ReplaceAll(escapedValue, "$", "\\$")
-				escapedValue = strings.ReplaceAll(escapedValue, "`", "\\`")
-				escapedValue = strings.ReplaceAll(escapedValue, "\"", "\\\"")
-				// Use double quotes to allow special characters
-				envFlags += fmt.Sprintf(" -e %s=\"%s\"", k, escapedValue)
-			}
-		}
+		// Run Go code directly on the host (no Docker) using the system toolchain
 
 		// Build environment variable exports for direct execution
 		// Use double quotes and escape properly for shell execution
@@ -1329,56 +1315,34 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string, env map[s
 		var goHostCmd string
 		if quietMode {
 			goHostCmd = fmt.Sprintf(`set -eu
-# Try Docker first (preferred for isolation and consistency)
-if command -v docker >/dev/null 2>&1; then
-	WORK="$(mktemp -d /home/pi/.hdn/go_docker_tmp_XXXXXX)"
-	mkdir -p "$WORK"
-	cp %s "$WORK"/main.go
-	cd "$WORK"
-	if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
-	docker run --rm%s -v "$WORK":/app -w /app golang:1.21-alpine sh -c 'go mod tidy >/dev/null 2>&1 && go build -o app ./main.go && ./app' 2>&1
-else
-	# Fallback to direct execution if Docker not available
-	WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
-	mkdir -p "$WORK"
-	cp %s "$WORK"/main.go
-	cd "$WORK"
-	export PATH="$PATH:/usr/local/go/bin:/home/pi/go/bin:/usr/local/bin:/usr/bin"
-%s	if ! command -v go >/dev/null 2>&1; then 
-		echo 'go not installed on host and Docker not available' >&2
-		exit 127
-	fi
-	if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
-	GOFLAGS= go build -o app ./main.go || exit 1
-	./app
+WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
+mkdir -p "$WORK"
+cp %s "$WORK"/main.go
+cd "$WORK"
+export PATH="$PATH:/usr/local/go/bin:/home/pi/go/bin:/usr/local/bin:/usr/bin"
+%sif ! command -v go >/dev/null 2>&1; then 
+	echo 'go not installed on host' >&2
+	exit 127
 fi
-`, tempFile, envFlags, tempFile, envExports)
+if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
+GOFLAGS= go build -o app ./main.go || exit 1
+./app
+`, tempFile, envExports)
 		} else {
 			goHostCmd = fmt.Sprintf(`set -euo pipefail
-# Try Docker first (preferred for isolation and consistency)
-if command -v docker >/dev/null 2>&1; then
-	WORK="$(mktemp -d /home/pi/.hdn/go_docker_tmp_XXXXXX)"
-	mkdir -p "$WORK"
-	cp %s "$WORK"/main.go
-	cd "$WORK"
-	if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
-	docker run --rm%s -v "$WORK":/app -w /app golang:1.21-alpine sh -c 'go mod tidy >/dev/null 2>&1 && go build -o app ./main.go && ./app' 2>&1
-else
-	# Fallback to direct execution if Docker not available
-	WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
-	mkdir -p "$WORK"
-	cp %s "$WORK"/main.go
-	cd "$WORK"
-	export PATH="$PATH:/usr/local/go/bin:/home/pi/go/bin:/usr/local/bin:/usr/bin"
-%s	if ! command -v go >/dev/null 2>&1; then 
-		echo 'go not installed on host and Docker not available' >&2
-		exit 127
-	fi
-	if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
-	GOFLAGS= go build -o app ./main.go || exit 1
-	./app
+WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
+mkdir -p "$WORK"
+cp %s "$WORK"/main.go
+cd "$WORK"
+export PATH="$PATH:/usr/local/go/bin:/home/pi/go/bin:/usr/local/bin:/usr/bin"
+%sif ! command -v go >/dev/null 2>&1; then 
+	echo 'go not installed on host' >&2
+	exit 127
 fi
-`, tempFile, envFlags, tempFile, envExports)
+if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
+GOFLAGS= go build -o app ./main.go || exit 1
+./app
+`, tempFile, envExports)
 		}
 		// Use a clean environment with sh to avoid user shell hooks (like dump_bash_state) and env dumps
 		execCmd = exec.CommandContext(
