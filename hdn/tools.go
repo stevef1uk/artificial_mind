@@ -1300,8 +1300,13 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string, env map[s
 		// Build environment variable exports for direct execution
 		// Use double quotes and escape properly for shell execution
 		envExports := ""
+		hasPrevOutput := false
 		if env != nil && len(env) > 0 {
 			for k, v := range env {
+				// Track if we have previous_output available for chained executions
+				if strings.EqualFold(k, "previous_output") && strings.TrimSpace(v) != "" {
+					hasPrevOutput = true
+				}
 				// Escape for shell: escape $, `, ", and \
 				escapedValue := strings.ReplaceAll(v, "\\", "\\\\")
 				escapedValue = strings.ReplaceAll(escapedValue, "$", "\\$")
@@ -1310,6 +1315,14 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string, env map[s
 				// Use double quotes to allow special characters
 				envExports += fmt.Sprintf("export %s=\"%s\"\n", k, escapedValue)
 			}
+		}
+
+		// When previous_output is available (chained programs), pipe it to the Go program via stdin
+		// This matches the expectation of chained JSON → Go consumers that read from stdin.
+		runCmd := "./app"
+		if hasPrevOutput {
+			// Use printf to avoid adding extra newlines or quotes
+			runCmd = "printf '%s' \"$previous_output\" | ./app"
 		}
 
 		var goHostCmd string
@@ -1326,8 +1339,8 @@ export PATH="$PATH:/usr/local/go/bin:/home/pi/go/bin:/usr/local/bin:/usr/bin"
 fi
 if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
 GOFLAGS= go build -o app ./main.go || exit 1
-./app
-`, tempFile, envExports)
+%s
+`, tempFile, envExports, runCmd)
 		} else {
 			goHostCmd = fmt.Sprintf(`set -euo pipefail
 WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
@@ -1341,8 +1354,8 @@ export PATH="$PATH:/usr/local/go/bin:/home/pi/go/bin:/usr/local/bin:/usr/bin"
 fi
 if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
 GOFLAGS= go build -o app ./main.go || exit 1
-./app
-`, tempFile, envExports)
+%s
+`, tempFile, envExports, runCmd)
 		}
 		// Use a clean environment with sh to avoid user shell hooks (like dump_bash_state) and env dumps
 		execCmd = exec.CommandContext(
