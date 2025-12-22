@@ -532,6 +532,11 @@ func (e *FSMEngine) processEvent(eventName string, event map[string]interface{})
 	transition, exists := stateConfig.On[eventName]
 	if !exists {
 		log.Printf("❌ No transition found for event %s in state %s", eventName, e.currentState)
+		// For timer_tick events, execute actions even if no transition
+		if eventName == "timer_tick" {
+			log.Printf("⏰ Timer tick in state %s with no transition - executing state actions", e.currentState)
+			e.executeStateActions(stateConfig, event)
+		}
 		return // No transition for this event
 	}
 
@@ -541,7 +546,21 @@ func (e *FSMEngine) processEvent(eventName string, event map[string]interface{})
 	if transition.Guard != "" {
 		if !e.evaluateGuard(transition.Guard, event) {
 			log.Printf("Guard %s failed for event %s", transition.Guard, eventName)
-			return
+			// For timer_tick events, execute actions even if guard fails
+			if eventName == "timer_tick" {
+				log.Printf("⏰ Timer tick guard failed in state %s - executing state actions anyway", e.currentState)
+				e.executeStateActions(stateConfig, event)
+				// For critical transitions, proceed anyway to ensure progress
+				if (e.currentState == "evaluate" && transition.Next == "learn") ||
+					(e.currentState == "reason" && transition.Next == "reason_continue") {
+					log.Printf("🔄 Proceeding with %s -> %s transition despite guard failure to ensure progress", e.currentState, transition.Next)
+					// Continue to transition below
+				} else {
+					return
+				}
+			} else {
+				return
+			}
 		}
 	}
 
@@ -574,9 +593,7 @@ func (e *FSMEngine) transitionTo(newState string, reason string, event map[strin
 	// Execute actions for new state
 	stateConfig := e.findStateConfig(newState)
 	if stateConfig != nil {
-		for _, action := range stateConfig.Actions {
-			e.executeAction(action, event)
-		}
+		e.executeStateActions(stateConfig, event)
 	}
 
 	// Save state
@@ -619,6 +636,16 @@ func (e *FSMEngine) getStateDescription(state string) string {
 		return desc
 	}
 	return "Processing in " + state
+}
+
+// executeStateActions executes all actions for a state
+func (e *FSMEngine) executeStateActions(stateConfig *StateConfig, event map[string]interface{}) {
+	if stateConfig == nil {
+		return
+	}
+	for _, action := range stateConfig.Actions {
+		e.executeAction(action, event)
+	}
 }
 
 // executeAction executes a single action
@@ -3343,54 +3370,121 @@ Now rate this hypothesis:`, domain, h.Description)
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		
+
 		// DEBUG: Log raw LLM response for diagnosis
-		log.Printf("🔍 [HYP-SCREEN] Raw LLM response for hypothesis '%s': Status=%d, Body=%s", 
-			h.Description[:min(50, len(h.Description))], resp.StatusCode, string(body))
-		
+		bodyPreview := string(body)
+		if len(bodyPreview) > 500 {
+			bodyPreview = bodyPreview[:500] + "..."
+		}
+		log.Printf("🔍 [HYP-SCREEN] Raw LLM response for hypothesis '%s': Status=%d, Body=%s",
+			h.Description[:min(50, len(h.Description))], resp.StatusCode, bodyPreview)
+
 		if resp.StatusCode != http.StatusOK {
 			log.Printf("⚠️ [HYP-SCREEN] LLM screening status %d: %s (allowing by default)", resp.StatusCode, string(body))
 			approved = append(approved, h)
 			continue
 		}
 
-		// Try to parse JSON { score, reason }
-		var out map[string]interface{}
+		// Parse the HDN interpreter response (structured format)
+		var interpretResp map[string]interface{}
 		score := 0.0
 		parseMethod := "none"
-		
-		if err := json.Unmarshal(body, &out); err == nil {
-			// Successfully parsed JSON
-			parseMethod = "json"
-			if v, ok := out["score"].(float64); ok {
-				score = v
-				log.Printf("✅ [HYP-SCREEN] Parsed score from JSON: %.2f (reason: %v)", score, out["reason"])
-			} else {
-				// JSON parsed but no score field
-				log.Printf("⚠️ [HYP-SCREEN] JSON parsed but no 'score' field found. Keys: %v", getMapKeys(out))
-				// Try alternative field names
-				if v, ok := out["rating"].(float64); ok {
-					score = v
-					log.Printf("✅ [HYP-SCREEN] Found 'rating' field instead: %.2f", score)
-				} else if v, ok := out["value"].(float64); ok {
-					score = v
-					log.Printf("✅ [HYP-SCREEN] Found 'value' field instead: %.2f", score)
+
+		if err := json.Unmarshal(body, &interpretResp); err != nil {
+			log.Printf("⚠️ [HYP-SCREEN] Failed to parse response JSON: %v", err)
+		} else {
+			// HDN returns structured response with tasks/message fields
+			// Extract JSON score from task descriptions or message
+			var scoreJSON string
+
+			// Try to get JSON from task descriptions first (most likely location)
+			if tasks, ok := interpretResp["tasks"].([]interface{}); ok && len(tasks) > 0 {
+				for _, t := range tasks {
+					if task, ok := t.(map[string]interface{}); ok {
+						// Check description field
+						if desc, ok := task["description"].(string); ok && desc != "" {
+							scoreJSON = desc
+							break
+						}
+					}
 				}
 			}
-		} else {
+
+			// Fallback to text_response field (if available) - check this before message
+			if scoreJSON == "" {
+				if textResp, ok := interpretResp["text_response"].(string); ok && textResp != "" {
+					scoreJSON = textResp
+					log.Printf("🔍 [HYP-SCREEN] Found text_response field: %s", textResp[:min(100, len(textResp))])
+				}
+			}
+
+			// Fallback to message field (but skip if it's just "Text response provided")
+			if scoreJSON == "" {
+				if msg, ok := interpretResp["message"].(string); ok && msg != "" && msg != "Text response provided" {
+					scoreJSON = msg
+					log.Printf("🔍 [HYP-SCREEN] Found message field: %s", msg[:min(100, len(msg))])
+				}
+			}
+
+			// Extract JSON from the text (the LLM response may contain JSON embedded in text)
+			if scoreJSON != "" {
+				start := strings.Index(scoreJSON, "{")
+				end := strings.LastIndex(scoreJSON, "}")
+				if start >= 0 && end > start {
+					scoreJSON = scoreJSON[start : end+1]
+				}
+			}
+
+			// Try to parse the extracted JSON
+			if scoreJSON != "" {
+				var scoreObj map[string]interface{}
+				if err := json.Unmarshal([]byte(scoreJSON), &scoreObj); err == nil {
+					parseMethod = "json_extracted"
+					if v, ok := scoreObj["score"].(float64); ok {
+						score = v
+						log.Printf("✅ [HYP-SCREEN] Parsed score from extracted JSON: %.2f (reason: %v)", score, scoreObj["reason"])
+					} else {
+						// Try alternative field names
+						if v, ok := scoreObj["rating"].(float64); ok {
+							score = v
+							log.Printf("✅ [HYP-SCREEN] Found 'rating' field instead: %.2f", score)
+						} else if v, ok := scoreObj["value"].(float64); ok {
+							score = v
+							log.Printf("✅ [HYP-SCREEN] Found 'value' field instead: %.2f", score)
+						} else {
+							log.Printf("⚠️ [HYP-SCREEN] Extracted JSON but no score field. Keys: %v", getMapKeys(scoreObj))
+						}
+					}
+				} else {
+					log.Printf("⚠️ [HYP-SCREEN] Failed to parse extracted JSON: %v", err)
+				}
+			}
+
+			// Direct check: maybe the response has score at top level (unlikely but possible)
+			if score == 0.0 {
+				if v, ok := interpretResp["score"].(float64); ok {
+					score = v
+					parseMethod = "json_direct"
+					log.Printf("✅ [HYP-SCREEN] Found score at top level: %.2f", score)
+				}
+			}
+		}
+
+		// Fallback to text extraction if JSON parsing failed
+		if score == 0.0 {
 			// JSON parse failed, try fallback text extraction
 			parseMethod = "text_fallback"
 			s := string(body)
-			log.Printf("⚠️ [HYP-SCREEN] JSON parse failed, trying text extraction. Error: %v", err)
-			
+			log.Printf("⚠️ [HYP-SCREEN] JSON parsing failed, trying text extraction from response body")
+
 			// Improved text extraction: look for patterns like "score: 0.7" or "0.75" or "score=0.8"
 			// Try regex-like patterns
 			if strings.Contains(s, "score") || strings.Contains(s, "rating") {
 				// Look for number after "score" or "rating"
 				parts := strings.Fields(s)
 				for i, part := range parts {
-					if (strings.Contains(strings.ToLower(part), "score") || 
-						strings.Contains(strings.ToLower(part), "rating")) && 
+					if (strings.Contains(strings.ToLower(part), "score") ||
+						strings.Contains(strings.ToLower(part), "rating")) &&
 						i+1 < len(parts) {
 						// Next part might be the number
 						var val float64
@@ -3402,7 +3496,7 @@ Now rate this hypothesis:`, domain, h.Description)
 					}
 				}
 			}
-			
+
 			// Fallback: try to extract any number between 0 and 1
 			if score == 0.0 {
 				for i := 0; i < len(s); i++ {
@@ -3418,14 +3512,14 @@ Now rate this hypothesis:`, domain, h.Description)
 			}
 		}
 
-		log.Printf("📊 [HYP-SCREEN] Final score: %.2f (method: %s, threshold: %.2f) for hypothesis: %s", 
+		log.Printf("📊 [HYP-SCREEN] Final score: %.2f (method: %s, threshold: %.2f) for hypothesis: %s",
 			score, parseMethod, threshold, h.Description[:min(80, len(h.Description))])
 
 		if score >= threshold {
 			approved = append(approved, h)
 			log.Printf("✅ [HYP-SCREEN] Hypothesis APPROVED (score %.2f >= threshold %.2f)", score, threshold)
 		} else {
-			log.Printf("🛑 [HYP-SCREEN] Hypothesis FILTERED (score %.2f < threshold %.2f): %s", 
+			log.Printf("🛑 [HYP-SCREEN] Hypothesis FILTERED (score %.2f < threshold %.2f): %s",
 				score, threshold, h.Description[:min(80, len(h.Description))])
 		}
 	}

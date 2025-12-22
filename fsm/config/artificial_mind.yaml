@@ -447,8 +447,10 @@ states:
       curiosity_goals_generated:
         next: reason
       timer_tick:
-        next: archive  # Timeout evaluation and archive
+        next: learn  # After evaluation, transition to learn to extract facts and generate hypotheses
         guard: "evaluation_timeout"
+      # Fallback: transition to learn on timer_tick even if timeout guard fails (after actions execute)
+      # This ensures the system progresses to learn state for fact extraction
 
   - name: archive
     description: "Checkpoint episode and update domain knowledge"
