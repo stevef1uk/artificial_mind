@@ -96,6 +96,25 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools []Tool) string {
 	var prompt strings.Builder
 
+	// Check if this is a scoring/evaluation request - force text response
+	lowerInput := strings.ToLower(input)
+	isScoringRequest := strings.Contains(lowerInput, "rate this hypothesis") ||
+		strings.Contains(lowerInput, "score") && strings.Contains(lowerInput, "0.0 to 1.0") ||
+		strings.Contains(lowerInput, "evaluating hypotheses") ||
+		strings.Contains(lowerInput, "return only the json score") ||
+		strings.Contains(lowerInput, "simple scoring task")
+
+	if isScoringRequest {
+		// For scoring requests, use a simpler prompt that forces text/JSON response
+		prompt.WriteString("You are evaluating a hypothesis. This is a simple scoring task.\n\n")
+		prompt.WriteString("CRITICAL: You MUST respond with type \"text\" containing ONLY a JSON object.\n")
+		prompt.WriteString("Do NOT use tools. Do NOT create tasks. Just return the JSON score.\n\n")
+		prompt.WriteString("User Input: ")
+		prompt.WriteString(input)
+		prompt.WriteString("\n\nRespond with: {\"type\": \"text\", \"content\": \"<your JSON score here>\"}")
+		return prompt.String()
+	}
+
 	prompt.WriteString("You are an AI assistant that helps users achieve goals with concrete actions. ")
 	prompt.WriteString("ALWAYS prefer using available tools over generating code. Only generate code if no tool can accomplish the task.\n\n")
 

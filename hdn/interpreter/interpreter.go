@@ -184,7 +184,7 @@ func (i *Interpreter) convertFlexibleToLegacy(flexibleResult *FlexibleInterpreta
 		tasks = []InterpretedTask{}
 	}
 
-	return &InterpretationResult{
+	result := &InterpretationResult{
 		Success:       flexibleResult.Success,
 		Tasks:         tasks,
 		Message:       flexibleResult.Message,
@@ -192,6 +192,20 @@ func (i *Interpreter) convertFlexibleToLegacy(flexibleResult *FlexibleInterpreta
 		InterpretedAt: flexibleResult.InterpretedAt,
 		Metadata:      flexibleResult.Metadata,
 	}
+
+	// Preserve text_response field for text responses
+	if flexibleResult.ResponseType == ResponseTypeText && flexibleResult.TextResponse != "" {
+		if result.Metadata == nil {
+			result.Metadata = make(map[string]interface{})
+		}
+		result.Metadata["text_response"] = flexibleResult.TextResponse
+		// Also put it in message if message is just "Text response provided"
+		if result.Message == "Text response provided" {
+			result.Message = flexibleResult.TextResponse
+		}
+	}
+
+	return result
 }
 
 // detectMultiStepRequest determines if the input contains multiple tasks

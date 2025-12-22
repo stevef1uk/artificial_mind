@@ -3315,24 +3315,31 @@ func (e *FSMEngine) screenHypothesesWithLLM(hypotheses []Hypothesis, domain stri
 
 	for _, h := range hypotheses {
 		// Improved prompt with clearer instructions and examples
-		prompt := fmt.Sprintf(`You are an expert research assistant evaluating hypotheses for testing.
+		// CRITICAL: Use explicit instruction to return JSON directly, not a task
+		// Request text response type explicitly to bypass tool_call preference
+		prompt := fmt.Sprintf(`You are evaluating a hypothesis. This is a SIMPLE SCORING TASK that requires NO tools, NO actions, and NO queries. Just return a JSON score.
 
-TASK: Rate this hypothesis on a scale of 0.0 to 1.0 based on:
+CRITICAL: You MUST respond with type "text" containing ONLY a JSON object. Do NOT use tools. Do NOT create tasks. This is a pure evaluation task.
+
+Rate this hypothesis on a scale of 0.0 to 1.0:
 - IMPACT: How valuable would confirming this hypothesis be? (0.0 = no value, 1.0 = very valuable)
 - TRACTABILITY: How testable/verifiable is this hypothesis? (0.0 = untestable, 1.0 = easily testable)
 
 Domain: %s
 Hypothesis: %s
 
-IMPORTANT: Respond ONLY with valid JSON in this exact format:
-{"score": 0.75, "reason": "Brief explanation of your rating"}
+You MUST respond with type "text" containing ONLY this JSON (no other text):
+{"type": "text", "content": "{\"score\": 0.75, \"reason\": \"Brief explanation\"}"}
+
+Or if the system requires direct JSON, return:
+{"score": 0.75, "reason": "Brief explanation"}
 
 Examples:
 - High impact, testable: {"score": 0.8, "reason": "High value and easily testable"}
 - Medium impact, testable: {"score": 0.6, "reason": "Moderate value, testable"}
 - Low impact or untestable: {"score": 0.3, "reason": "Low value or difficult to test"}
 
-Now rate this hypothesis:`, domain, h.Description)
+Now return ONLY the JSON score (no tools, no tasks, just the score):`, domain, h.Description)
 
 		// HDN /api/v1/interpret expects "input" field, not "text"
 		payload := map[string]interface{}{
@@ -3398,13 +3405,18 @@ Now rate this hypothesis:`, domain, h.Description)
 			var scoreJSON string
 
 			// Try to get JSON from task descriptions first (most likely location)
+			// But only if it contains JSON, not just task instructions
 			if tasks, ok := interpretResp["tasks"].([]interface{}); ok && len(tasks) > 0 {
 				for _, t := range tasks {
 					if task, ok := t.(map[string]interface{}); ok {
-						// Check description field
+						// Check description field - look for JSON in it
 						if desc, ok := task["description"].(string); ok && desc != "" {
-							scoreJSON = desc
-							break
+							// Check if description contains JSON (has { and })
+							if strings.Contains(desc, "{") && strings.Contains(desc, "score") {
+								scoreJSON = desc
+								log.Printf("🔍 [HYP-SCREEN] Found task description with potential JSON: %s", desc[:min(200, len(desc))])
+								break
+							}
 						}
 					}
 				}
@@ -3415,6 +3427,16 @@ Now rate this hypothesis:`, domain, h.Description)
 				if textResp, ok := interpretResp["text_response"].(string); ok && textResp != "" {
 					scoreJSON = textResp
 					log.Printf("🔍 [HYP-SCREEN] Found text_response field: %s", textResp[:min(100, len(textResp))])
+				}
+			}
+
+			// Check metadata for text_response (legacy format stores it there)
+			if scoreJSON == "" {
+				if metadata, ok := interpretResp["metadata"].(map[string]interface{}); ok {
+					if textResp, ok := metadata["text_response"].(string); ok && textResp != "" {
+						scoreJSON = textResp
+						log.Printf("🔍 [HYP-SCREEN] Found text_response in metadata: %s", textResp[:min(100, len(textResp))])
+					}
 				}
 			}
 
