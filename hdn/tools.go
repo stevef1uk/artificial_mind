@@ -1310,7 +1310,7 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string, env map[s
 				envFlags += fmt.Sprintf(" -e %s=\"%s\"", k, escapedValue)
 			}
 		}
-		
+
 		// Build environment variable exports for direct execution
 		// Use double quotes and escape properly for shell execution
 		envExports := ""
@@ -1325,7 +1325,7 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string, env map[s
 				envExports += fmt.Sprintf("export %s=\"%s\"\n", k, escapedValue)
 			}
 		}
-		
+
 		var goHostCmd string
 		if quietMode {
 			goHostCmd = fmt.Sprintf(`set -eu
@@ -1380,10 +1380,20 @@ else
 fi
 `, tempFile, envFlags, tempFile, envExports)
 		}
-		// Use sh instead of bash to avoid environment dumps on error
-		// Redirect any potential env dumps to /dev/null and ensure clean output
-		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
-			"pi@"+rpiHost, "sh", "-c", goHostCmd)
+		// Use a clean environment with sh to avoid user shell hooks (like dump_bash_state) and env dumps
+		execCmd = exec.CommandContext(
+			ctx,
+			"ssh",
+			"-o", "StrictHostKeyChecking=no",
+			"-o", "UserKnownHostsFile=/dev/null",
+			"-o", "LogLevel=ERROR",
+			"pi@"+rpiHost,
+			"env", "-i",
+			"PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+			"HOME=/home/pi",
+			"USER=pi",
+			"sh", "-c", goHostCmd,
+		)
 
 	case "python":
 		// Execute Python directly on the host in a venv; install detected packages; run the script
@@ -1408,9 +1418,20 @@ python3 -m venv "$VENV" >/dev/null 2>&1 || true
 python -m pip install --upgrade pip >/dev/null 2>&1 || true
 %spython %s`, pkgLine, tempFile)
 		}
-		// Use sh instead of bash to avoid environment dumps on error
-		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
-			"pi@"+rpiHost, "sh", "-c", hostCmd)
+		// Use a clean environment with sh to avoid user shell hooks and env dumps
+		execCmd = exec.CommandContext(
+			ctx,
+			"ssh",
+			"-o", "StrictHostKeyChecking=no",
+			"-o", "UserKnownHostsFile=/dev/null",
+			"-o", "LogLevel=ERROR",
+			"pi@"+rpiHost,
+			"env", "-i",
+			"PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+			"HOME=/home/pi",
+			"USER=pi",
+			"sh", "-c", hostCmd,
+		)
 
 	case "bash":
 		// Run shell script directly on the host
@@ -1420,9 +1441,20 @@ python -m pip install --upgrade pip >/dev/null 2>&1 || true
 		} else {
 			bashHostCmd = fmt.Sprintf("set -euo pipefail\nsh %s\n", tempFile)
 		}
-		// Use sh instead of bash to avoid environment dumps on error
-		execCmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
-			"pi@"+rpiHost, "sh", "-c", bashHostCmd)
+		// Use a clean environment with sh to avoid user shell hooks and env dumps
+		execCmd = exec.CommandContext(
+			ctx,
+			"ssh",
+			"-o", "StrictHostKeyChecking=no",
+			"-o", "UserKnownHostsFile=/dev/null",
+			"-o", "LogLevel=ERROR",
+			"pi@"+rpiHost,
+			"env", "-i",
+			"PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+			"HOME=/home/pi",
+			"USER=pi",
+			"sh", "-c", bashHostCmd,
+		)
 
 	case "javascript", "js", "node":
 		// Try Docker first (if available), then fall back to direct execution
@@ -1560,11 +1592,11 @@ java "$MAIN"
 	// Clean output: remove environment variable dumps and SSH connection messages
 	// Filter SSH messages from both stdout and stderr
 	sshMessagePattern := regexp.MustCompile(`(?i).*(Warning: Permanently added|The authenticity of host|Host key verification failed|Warning:.*known hosts).*`)
-	
+
 	cleanStderr := stderr
 	cleanStderr = sshMessagePattern.ReplaceAllString(cleanStderr, "")
 	cleanStderr = strings.TrimSpace(cleanStderr)
-	
+
 	cleanOutput := string(output)
 
 	// Filter out environment variable dumps at the START of output
@@ -1586,28 +1618,28 @@ java "$MAIN"
 	// If more than 80% of lines are environment variables, try to extract actual output/errors
 	if totalLines > 0 && float64(envVarCount)/float64(totalLines) > 0.8 {
 		log.Printf("⚠️ [SSH-FALLBACK] Output appears to be mostly environment variables (%d/%d lines, exit code: %d)", envVarCount, totalLines, exitCode)
-		
+
 		// Try to extract actual output/errors from the environment dump
 		actualOutputLines := []string{}
-		
+
 		for _, line := range lines {
 			lineTrimmed := strings.TrimSpace(line)
 			// Skip empty lines, env vars, and SSH messages
-			if lineTrimmed == "" || 
-			   envVarPattern.MatchString(lineTrimmed) || 
-			   sshMessagePattern.MatchString(lineTrimmed) ||
-			   strings.HasPrefix(lineTrimmed, "Warning: Permanently added") {
+			if lineTrimmed == "" ||
+				envVarPattern.MatchString(lineTrimmed) ||
+				sshMessagePattern.MatchString(lineTrimmed) ||
+				strings.HasPrefix(lineTrimmed, "Warning: Permanently added") {
 				continue
 			}
-			
+
 			// Keep lines that look like actual output or errors
 			actualOutputLines = append(actualOutputLines, line)
 		}
-		
+
 		if len(actualOutputLines) > 0 {
 			cleanOutput = strings.Join(actualOutputLines, "\n")
 			log.Printf("✅ [SSH-FALLBACK] Extracted %d lines of actual output from environment dump (exit code: %d)", len(actualOutputLines), exitCode)
-			
+
 			// If exit code is non-zero and we have stderr with more info, prefer stderr
 			if exitCode != 0 && cleanStderr != "" && strings.TrimSpace(cleanStderr) != "" {
 				// Check if stderr has error messages that aren't just SSH warnings
@@ -1615,9 +1647,9 @@ java "$MAIN"
 				nonSSHStderr := []string{}
 				for _, line := range stderrLines {
 					lineTrimmed := strings.TrimSpace(line)
-					if lineTrimmed != "" && 
-					   !sshMessagePattern.MatchString(lineTrimmed) &&
-					   !strings.HasPrefix(lineTrimmed, "Warning: Permanently added") {
+					if lineTrimmed != "" &&
+						!sshMessagePattern.MatchString(lineTrimmed) &&
+						!strings.HasPrefix(lineTrimmed, "Warning: Permanently added") {
 						nonSSHStderr = append(nonSSHStderr, line)
 					}
 				}
@@ -1639,9 +1671,9 @@ java "$MAIN"
 					nonSSHStderr := []string{}
 					for _, line := range stderrLines {
 						lineTrimmed := strings.TrimSpace(line)
-						if lineTrimmed != "" && 
-						   !sshMessagePattern.MatchString(lineTrimmed) &&
-						   !strings.HasPrefix(lineTrimmed, "Warning: Permanently added") {
+						if lineTrimmed != "" &&
+							!sshMessagePattern.MatchString(lineTrimmed) &&
+							!strings.HasPrefix(lineTrimmed, "Warning: Permanently added") {
 							nonSSHStderr = append(nonSSHStderr, line)
 						}
 					}
@@ -1690,11 +1722,11 @@ java "$MAIN"
 		cleanOutput = strings.Join(filteredLines, "\n")
 		// Trim leading/trailing whitespace
 		cleanOutput = strings.TrimSpace(cleanOutput)
-		
+
 		// Final pass: remove any remaining SSH messages that might have slipped through
 		cleanOutput = sshMessagePattern.ReplaceAllString(cleanOutput, "")
 		cleanOutput = strings.TrimSpace(cleanOutput)
-		
+
 		// Final safety check: if output is ONLY an SSH message (or starts with one), treat as empty
 		outputLines := strings.Split(cleanOutput, "\n")
 		nonSSHLines := []string{}
