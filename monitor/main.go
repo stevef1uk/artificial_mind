@@ -376,6 +376,7 @@ func main() {
 	r.GET("/chat", monitor.chatPage)
 	r.GET("/thinking", monitor.thinkingPanel)
 	r.POST("/api/chat", monitor.chatAPI)
+	r.POST("/api/v1/chat", monitor.chatAPI) // Proxy chat API to HDN
 
 	// Chat sessions API (proxy to HDN)
 	r.GET("/api/v1/chat/sessions", monitor.getChatSessions)
@@ -820,22 +821,43 @@ func (m *MonitorService) chatPage(c *gin.Context) {
 
 // chatAPI handles chat requests
 func (m *MonitorService) chatAPI(c *gin.Context) {
-	var req struct {
-		Message   string `json:"message"`
-		SessionID string `json:"session_id"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	// Check if this is the v1 API endpoint (full JSON response) or old endpoint (text only)
+	isV1API := strings.HasPrefix(c.Request.URL.Path, "/api/v1/chat")
+	
+	// Read the request body
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
 		return
 	}
-
-	// Forward the request to the HDN server's chat endpoint
-	// Use the full chat endpoint with show_thinking to generate thought events
-	chatReq := map[string]interface{}{
-		"message":       req.Message,
-		"session_id":    req.SessionID,
-		"show_thinking": true, // Enable thought generation
+	
+	var chatReq map[string]interface{}
+	
+	if isV1API {
+		// For v1 API, parse the full request
+		if err := json.Unmarshal(body, &chatReq); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+			return
+		}
+		// Ensure show_thinking is enabled if not specified
+		if _, ok := chatReq["show_thinking"]; !ok {
+			chatReq["show_thinking"] = true
+		}
+	} else {
+		// For old API, use the old format
+		var req struct {
+			Message   string `json:"message"`
+			SessionID string `json:"session_id"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+			return
+		}
+		chatReq = map[string]interface{}{
+			"message":       req.Message,
+			"session_id":    req.SessionID,
+			"show_thinking": true,
+		}
 	}
 
 	jsonData, _ := json.Marshal(chatReq)
@@ -855,29 +877,34 @@ func (m *MonitorService) chatAPI(c *gin.Context) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read response"})
 		return
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		c.JSON(http.StatusBadGateway, gin.H{"error": string(body)})
+		c.JSON(http.StatusBadGateway, gin.H{"error": string(respBody)})
 		return
 	}
 
-	// Parse JSON response and return just the text
+	// For v1 API, return full JSON response
+	if isV1API {
+		c.Data(http.StatusOK, "application/json", respBody)
+		return
+	}
+
+	// For old API, return just the text (backward compatibility)
 	var chatResponse map[string]interface{}
-	if err := json.Unmarshal(body, &chatResponse); err == nil {
-		// Extract response text from JSON
+	if err := json.Unmarshal(respBody, &chatResponse); err == nil {
 		if responseText, ok := chatResponse["response"].(string); ok {
 			c.String(http.StatusOK, responseText)
 			return
 		}
 	}
 
-	// Fallback: return as-is (might be plain text or JSON)
-	c.String(http.StatusOK, string(body))
+	// Fallback: return as-is
+	c.String(http.StatusOK, string(respBody))
 }
 
 // getChatSessions proxies chat sessions request to HDN

@@ -188,6 +188,16 @@ func (s *APIServer) registerTool(ctx context.Context, t Tool) error {
 	}
 	log.Printf("✅ [REGISTER-TOOL] Successfully registered tool %s in Redis", t.ID)
 
+	// Also register the tool as a capability for the planner
+	if s.plannerIntegration != nil {
+		capability := ConvertToolToCapability(t)
+		if err := s.plannerIntegration.RegisterCapability(capability); err != nil {
+			log.Printf("⚠️ [REGISTER-TOOL] Failed to register tool %s as capability: %v", t.ID, err)
+		} else {
+			log.Printf("✅ [REGISTER-TOOL] Successfully registered tool %s as capability for planner", t.ID)
+		}
+	}
+
 	// Best-effort event emission
 	if s.eventBus != nil {
 		typeName := "agi.tool.discovered"
@@ -205,6 +215,30 @@ func (s *APIServer) registerTool(ctx context.Context, t Tool) error {
 		_ = s.eventBus.Publish(ctx, evt)
 	}
 	return nil
+}
+
+// registerExistingToolsAsCapabilities registers all existing tools as capabilities for the planner
+func (s *APIServer) registerExistingToolsAsCapabilities(ctx context.Context) {
+	if s.plannerIntegration == nil {
+		log.Printf("⚠️ [REGISTER-TOOLS-AS-CAPABILITIES] Planner integration not available, skipping")
+		return
+	}
+
+	tools, err := s.listTools(ctx)
+	if err != nil {
+		log.Printf("⚠️ [REGISTER-TOOLS-AS-CAPABILITIES] Failed to list tools: %v", err)
+		return
+	}
+
+	log.Printf("🔧 [REGISTER-TOOLS-AS-CAPABILITIES] Registering %d existing tools as capabilities", len(tools))
+	for _, tool := range tools {
+		capability := ConvertToolToCapability(tool)
+		if err := s.plannerIntegration.RegisterCapability(capability); err != nil {
+			log.Printf("⚠️ [REGISTER-TOOLS-AS-CAPABILITIES] Failed to register tool %s as capability: %v", tool.ID, err)
+		} else {
+			log.Printf("✅ [REGISTER-TOOLS-AS-CAPABILITIES] Registered tool %s as capability", tool.ID)
+		}
+	}
 }
 
 // listTools returns all tools in the registry

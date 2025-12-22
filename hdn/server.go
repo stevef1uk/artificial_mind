@@ -294,6 +294,9 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 	// Bootstrap seed tools (from file or defaults) and gate via principles
 	server.BootstrapSeedTools(context.Background())
 
+	// Register any existing tools as capabilities (in case tools were registered before planner integration)
+	server.registerExistingToolsAsCapabilities(context.Background())
+
 	// Start server
 	fmt.Printf("Starting HTN API Server on %s:%d\n", config.Server.Host, config.Server.Port)
 	log.Printf("🚀 [HDN] Starting HDN Server with PROJECT_ID support - Version 2025-09-25")

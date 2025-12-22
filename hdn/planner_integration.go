@@ -890,6 +890,84 @@ func ConvertDynamicActionToCapability(action *DynamicAction) *planner.Capability
 	}
 }
 
+// ConvertToolToCapability converts a Tool to a planner Capability
+func ConvertToolToCapability(tool Tool) *planner.Capability {
+	// Convert input schema to input signature
+	inputSig := make(map[string]string)
+	for k, v := range tool.InputSchema {
+		inputSig[k] = v
+	}
+
+	// Convert output schema to outputs list
+	outputs := make([]string, 0, len(tool.OutputSchema))
+	for k := range tool.OutputSchema {
+		outputs = append(outputs, k)
+	}
+
+	// Create effects map from outputs
+	effects := make(map[string]interface{})
+	for _, output := range outputs {
+		effects[output] = true
+	}
+
+	// Determine language from tool execution spec or default to "tool"
+	language := "tool"
+	if tool.Exec != nil {
+		if tool.Exec.Type == "cmd" {
+			// Try to infer language from command path
+			if strings.Contains(tool.Exec.Cmd, "python") {
+				language = "python"
+			} else if strings.Contains(tool.Exec.Cmd, "node") {
+				language = "javascript"
+			} else if strings.Contains(tool.Exec.Cmd, "go") {
+				language = "go"
+			}
+		} else if tool.Exec.Type == "image" {
+			language = "docker"
+		}
+	}
+
+	// Use tool name as task name, or ID if name is empty
+	taskName := tool.Name
+	if taskName == "" {
+		taskName = tool.ID
+	}
+
+	// Create entrypoint - for tools, use the tool ID as the entrypoint
+	entrypoint := tool.ID
+	if tool.Exec != nil && tool.Exec.Type == "cmd" {
+		entrypoint = tool.Exec.Cmd
+	} else if tool.Exec != nil && tool.Exec.Type == "image" {
+		entrypoint = tool.Exec.Image
+	}
+
+	return &planner.Capability{
+		ID:         tool.ID,
+		TaskName:   taskName,
+		Entrypoint: entrypoint,
+		Language:   language,
+		InputSig:   inputSig,
+		Outputs:    outputs,
+		Preconds:   []string{}, // Tools don't have explicit preconditions
+		Effects:    effects,
+		Score:      0.85, // High confidence for system tools
+		CreatedAt:  tool.CreatedAt,
+		LastUsed:   time.Now(),
+		Validation: map[string]interface{}{
+			"tool_id":      tool.ID,
+			"safety_level": tool.SafetyLevel,
+			"permissions":   tool.Permissions,
+			"exec_type": func() string {
+				if tool.Exec != nil {
+					return tool.Exec.Type
+				}
+				return "builtin"
+			}(),
+		},
+		Permissions: tool.Permissions,
+	}
+}
+
 // categorizeRequestForSafety uses LLM to intelligently categorize a request for safety evaluation
 func (pi *PlannerIntegration) categorizeRequestForSafety(userRequest, taskName, description string, context map[string]string) (map[string]interface{}, error) {
 	// Use the intelligent executor's LLM client if available

@@ -2825,40 +2825,95 @@
                 return;
             }
             
+            // Detect if request is code-related
+            const codeKeywords = ['code', 'program', 'function', 'script', 'write', 'create', 'generate', 'implement', 'build', 'compile', 'execute', 'run'];
+            const inputLower = input.toLowerCase();
+            const isCodeRequest = codeKeywords.some(keyword => inputLower.includes(keyword)) || 
+                                  inputLower.includes('python') || inputLower.includes('javascript') || 
+                                  inputLower.includes('go ') || inputLower.includes('java ') ||
+                                  inputLower.includes('rust') || inputLower.includes('c++');
+            
             try {
                 console.log('Setting loading state...');
                 resultDiv.innerHTML = '<div class="loading">Executing request...</div>';
                 
-                console.log('Input length:', input.length);
-                console.log('Description for API:', input);
-                console.log('Making API call to /api/v1/intelligent/execute...');
-                const response = await axios.post('/api/v1/intelligent/execute', {
-                    task_name: "artifact_task",
-                    description: input,
-                    context: {
-                        artifacts_wrapper: "true",
-                        force_regenerate: "true",
-                        ...(project ? { project_id: project } : {})
-                    },
-                    language: "go",
-                    force_regenerate: true,
-                    max_retries: 3
-                }, { timeout: 300000 });
-
-                console.log('Intelligent execution response:', response.data);
-                console.log('Response status:', response.status);
-                console.log('Response headers:', response.headers);
+                let response;
+                let sessionId = null;
                 
-                // Display the formatted response directly
-                try {
-                    displayExecutionResponse(response.data);
-                    console.log('displayExecutionResponse called successfully');
-                } catch (error) {
-                    console.error('Error in displayExecutionResponse:', error);
-                    resultDiv.innerHTML = `<div class="error">Error displaying response: ${error.message}</div>`;
+                if (isCodeRequest) {
+                    // Code-related requests use intelligent execution
+                    console.log('Detected code request, using /api/v1/intelligent/execute...');
+                    response = await axios.post('/api/v1/intelligent/execute', {
+                        task_name: "artifact_task",
+                        description: input,
+                        context: {
+                            artifacts_wrapper: "true",
+                            force_regenerate: "true",
+                            ...(project ? { project_id: project } : {})
+                        },
+                        language: "go",
+                        force_regenerate: true,
+                        max_retries: 3
+                    }, { timeout: 300000 });
+                    
+                    console.log('Intelligent execution response:', response.data);
+                    // Display the formatted response directly
+                    try {
+                        displayExecutionResponse(response.data);
+                        console.log('displayExecutionResponse called successfully');
+                    } catch (error) {
+                        console.error('Error in displayExecutionResponse:', error);
+                        resultDiv.innerHTML = `<div class="error">Error displaying response: ${error.message}</div>`;
+                    }
+                    // Refresh projects if available
+                    try { await loadProjects(); } catch (e) {}
+                } else {
+                    // Non-code requests use chat API with thinking enabled
+                    console.log('Detected non-code request, using /api/v1/chat with thinking...');
+                    response = await axios.post('/api/v1/chat', {
+                        message: input,
+                        show_thinking: true,
+                        context: project ? { project_id: project } : {}
+                    }, { timeout: 180000 });
+                    
+                    sessionId = response.data.session_id;
+                    console.log('Chat response:', response.data);
+                    console.log('Session ID:', sessionId);
+                    
+                    // Display chat response
+                    const responseText = response.data.response || 'No response received';
+                    const confidence = response.data.confidence || 0;
+                    resultDiv.innerHTML = `
+                        <div class="workflow-item">
+                            <div class="step-header">
+                                <span class="step-name">Chat Response</span>
+                                <span class="step-status status-completed">COMPLETED</span>
+                            </div>
+                            <div class="step-description">Request: ${input}</div>
+                            <div class="step-output">
+                                <p><strong>Response (confidence: ${(confidence * 100).toFixed(0)}%):</strong></p>
+                                <p style="white-space: pre-wrap; word-wrap: break-word;">${responseText}</p>
+                                ${sessionId ? `<p style="margin-top: 10px; color: #666; font-size: 0.9em;">
+                                    <strong>Session ID:</strong> ${sessionId}<br>
+                                    <em>View Chain of Thought in the "💭 Chain of Thought" tab</em>
+                                </p>` : ''}
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Refresh session list and auto-select this session
+                    if (sessionId && typeof loadThoughtsSessions === 'function') {
+                        await loadThoughtsSessions();
+                        const sessionSelect = document.getElementById('thoughts-session-select');
+                        if (sessionSelect) {
+                            sessionSelect.value = sessionId;
+                            // Auto-load thoughts for this session
+                            if (typeof loadThoughts === 'function') {
+                                await loadThoughts();
+                            }
+                        }
+                    }
                 }
-                // Refresh projects if available
-                try { await loadProjects(); } catch (e) {}
                 
             } catch (error) {
                 // Suppress noisy axios console errors; render user-friendly UI instead
@@ -2869,14 +2924,14 @@
                     resultDiv.innerHTML = `
                         <div class="workflow-item">
                             <div class="step-header">
-                                <span class="step-name">Intelligent Execution</span>
+                                <span class="step-name">${isCodeRequest ? 'Intelligent Execution' : 'Chat'}</span>
                                 <span class="step-status status-completed">COMPLETED</span>
                             </div>
                             <div class="step-description">Request: ${input}</div>
                             <div class="step-output">
                                 <p><strong>✅ Execution completed successfully!</strong></p>
-                                <p>Your request has been processed and artifacts have been created.</p>
-                                <p>Check the <strong>Projects</strong> tab to see the generated files and results.</p>
+                                <p>Your request has been processed${isCodeRequest ? ' and artifacts have been created' : ''}.</p>
+                                ${isCodeRequest ? '<p>Check the <strong>Projects</strong> tab to see the generated files and results.</p>' : ''}
                                 <p><em>Note: UI display issue prevented immediate result showing, but execution was successful.</em></p>
                             </div>
                         </div>
