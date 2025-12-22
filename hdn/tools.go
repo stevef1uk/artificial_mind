@@ -1580,8 +1580,8 @@ java "$MAIN"
 	// These appear when bash sources config files despite --noprofile --norc
 	lines := strings.Split(cleanOutput, "\n")
 	filteredLines := []string{}
-	envVarPattern := regexp.MustCompile(`^[A-Z_][A-Z0-9_]*=.*$`)
-	envDumpDetected := false
+	// Match env vars with single quotes, double quotes, or no quotes: VAR='value', VAR="value", VAR=value
+	envVarPattern := regexp.MustCompile(`^[A-Z_][A-Z0-9_]*=['"].*['"]$|^[A-Z_][A-Z0-9_]*=[^=]*$`)
 	envVarCount := 0
 	totalLines := len(lines)
 
@@ -1666,34 +1666,48 @@ java "$MAIN"
 		}
 	} else {
 		// Normal filtering: remove env vars and SSH messages from anywhere in output
-		for i, line := range lines {
-			// Skip SSH connection messages (check both the line and if it's ONLY the SSH message)
+		// More aggressive: filter env vars at the start until we see actual program output
+		inEnvDump := false
+		
+		for _, line := range lines {
 			lineTrimmed := strings.TrimSpace(line)
+			
+			// Skip SSH connection messages
 			if sshMessagePattern.MatchString(lineTrimmed) || strings.HasPrefix(lineTrimmed, "Warning: Permanently added") {
 				continue
 			}
 
 			// Check if this line looks like an environment variable
-			if envVarPattern.MatchString(line) {
-				// If we see BASH_EXECUTION_STRING=set, we're definitely in an env dump
-				if strings.Contains(line, "BASH_EXECUTION_STRING=set") || strings.Contains(line, "BASH_VERSION=") {
-					envDumpDetected = true
+			isEnvVar := envVarPattern.MatchString(lineTrimmed)
+			
+			if isEnvVar {
+				// Common env vars that indicate we're in a dump
+				if strings.HasPrefix(lineTrimmed, "HOME=") || 
+					strings.HasPrefix(lineTrimmed, "PATH=") ||
+					strings.HasPrefix(lineTrimmed, "USER=") ||
+					strings.HasPrefix(lineTrimmed, "PWD=") ||
+					strings.HasPrefix(lineTrimmed, "PS1=") ||
+					strings.HasPrefix(lineTrimmed, "PS2=") ||
+					strings.HasPrefix(lineTrimmed, "IFS=") ||
+					strings.HasPrefix(lineTrimmed, "OPTIND=") ||
+					strings.HasPrefix(lineTrimmed, "PPID=") {
+					inEnvDump = true
+					continue // Skip this env var line
 				}
-				// Skip environment variable lines only if we're still at the start
-				if envDumpDetected && i < len(lines)/2 {
-					continue
-				}
 			}
-
-			// Once we see a non-env line after detecting env dump, stop filtering
-			if envDumpDetected && !envVarPattern.MatchString(line) && strings.TrimSpace(line) != "" {
-				envDumpDetected = false
+			
+			// If we see actual output (not an env var), mark that we've left the env dump
+			if !isEnvVar && lineTrimmed != "" {
+				inEnvDump = false
 			}
-
-			// Keep the line if we're not filtering or it's not an env var
-			if !envDumpDetected || !envVarPattern.MatchString(line) {
-				filteredLines = append(filteredLines, line)
+			
+			// Skip env vars only if we're still in the dump phase (before seeing real output)
+			if inEnvDump && isEnvVar {
+				continue
 			}
+			
+			// Keep all non-env-var lines, and env vars that appear after real output
+			filteredLines = append(filteredLines, line)
 		}
 
 		cleanOutput = strings.Join(filteredLines, "\n")
