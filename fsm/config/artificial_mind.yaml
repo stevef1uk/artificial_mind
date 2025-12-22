@@ -372,6 +372,8 @@ states:
     on:
       execution_finished:
         next: observe
+      allowed:
+        next: act  # Pre-execution check passed, continue execution (no state change)
       curiosity_goals_generated:
         next: reason
       execution_failed:
@@ -381,6 +383,9 @@ states:
         guard: "execution_timeout"
       principles_blocked:
         next: archive
+      new_input:
+        next: perceive  # Handle new input by going to perceive
+        guard: "input_validation"
       news_relations:
         next: perceive
         guard: "input_validation"
