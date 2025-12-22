@@ -470,7 +470,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			}
 		}
 		
-		// Create a very direct tool call instruction
+		// Create a very direct tool call instruction for Neo4j
 		directQuery := fmt.Sprintf("Query your knowledge base about '%s'. Use the mcp_get_concept tool with name='%s' and domain='General' to retrieve information.", coreQuery, coreQuery)
 		log.Printf("🔍 [CONVERSATIONAL] Simplified knowledge query: %s (extracted from: %s)", directQuery, searchText)
 		interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, directQuery, hdnContext)
@@ -486,12 +486,138 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			}
 		}
 		
+		// Check if Neo4j returned any results
+		hasNeo4jResults := false
+		if interpretResult != nil {
+			// First check metadata for tool result (if available)
+			if interpretResult.Metadata != nil {
+				if toolSuccess, ok := interpretResult.Metadata["tool_success"].(bool); ok && toolSuccess {
+					// Check if tool_result is in metadata (if available)
+					if toolResult, ok := interpretResult.Metadata["tool_result"].(map[string]interface{}); ok {
+						if count, ok := toolResult["count"].(float64); ok && count > 0 {
+							hasNeo4jResults = true
+						} else if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
+							hasNeo4jResults = true
+						}
+					}
+				}
+			}
+			
+			// If not found in metadata, check the interpreted text for result patterns
+			// Tool results are appended to interpreted text as "Tool result: map[count:0 results:[]]"
+			if !hasNeo4jResults {
+				if interpreted, ok := interpretResult.Interpreted.(string); ok {
+					lowerInterpreted := strings.ToLower(interpreted)
+					// Check for patterns indicating NO results
+					if strings.Contains(lowerInterpreted, "count:0") || 
+					   strings.Contains(lowerInterpreted, "results:[]") ||
+					   strings.Contains(lowerInterpreted, "count: 0") ||
+					   strings.Contains(lowerInterpreted, "no results") ||
+					   strings.Contains(lowerInterpreted, "returned 0 rows") {
+						hasNeo4jResults = false
+					} else if strings.Contains(lowerInterpreted, "count:") {
+						// If count is mentioned and not 0, we likely have results
+						// Extract number after "count:" to check
+						if idx := strings.Index(lowerInterpreted, "count:"); idx >= 0 {
+							remainder := lowerInterpreted[idx+6:]
+							// Look for a number > 0
+							if strings.Contains(remainder, "1") || strings.Contains(remainder, "2") || 
+							   strings.Contains(remainder, "3") || strings.Contains(remainder, "4") ||
+							   strings.Contains(remainder, "5") || strings.Contains(remainder, "6") ||
+							   strings.Contains(remainder, "7") || strings.Contains(remainder, "8") ||
+							   strings.Contains(remainder, "9") {
+								hasNeo4jResults = true
+							}
+						}
+					}
+				}
+			}
+		}
+		
+		// If Neo4j returned no results, try RAG search on Weaviate for episodic memory and news
+		if !hasNeo4jResults {
+			log.Printf("🔍 [CONVERSATIONAL] Neo4j returned no results, trying RAG search on Weaviate for: %s", coreQuery)
+			
+			// Try searching episodic memory (AgiEpisodes) and news (WikipediaArticle)
+			ragQuery := fmt.Sprintf("Search episodic memory and news articles about '%s'. Use the mcp_search_weaviate tool with query='%s', collection='AgiEpisodes', and limit=10 to find relevant information.", coreQuery, coreQuery)
+			ragResult, ragErr := cl.hdnClient.InterpretNaturalLanguage(ctx, ragQuery, hdnContext)
+			if ragErr == nil && ragResult != nil {
+				// Check if RAG search found results
+				hasRAGResults := false
+				if ragResult.Metadata != nil {
+					if toolSuccess, ok := ragResult.Metadata["tool_success"].(bool); ok && toolSuccess {
+						if toolResult, ok := ragResult.Metadata["tool_result"].(map[string]interface{}); ok {
+							if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
+								hasRAGResults = true
+								log.Printf("✅ [CONVERSATIONAL] RAG search found %d results in episodic memory", len(results))
+							}
+						}
+					}
+				}
+				
+				// If RAG found results, combine with Neo4j results (even if empty)
+				if hasRAGResults {
+					// Also try WikipediaArticle collection for news items
+					newsQuery := fmt.Sprintf("Search news articles about '%s'. Use the mcp_search_weaviate tool with query='%s', collection='WikipediaArticle', and limit=10 to find relevant information.", coreQuery, coreQuery)
+					newsResult, newsErr := cl.hdnClient.InterpretNaturalLanguage(ctx, newsQuery, hdnContext)
+					if newsErr == nil && newsResult != nil {
+						// Combine results from both sources
+						combinedData := map[string]interface{}{
+							"neo4j_result": interpretResult,
+							"episodic_memory": ragResult,
+							"news_articles": newsResult,
+							"source": "neo4j_and_rag",
+						}
+						
+						// Track RAG tool usage
+						if ragResult.Metadata != nil {
+							if toolID, ok := ragResult.Metadata["tool_used"].(string); ok && toolID != "" {
+								cl.reasoningTrace.AddToolInvoked(toolID)
+							}
+						}
+						if newsResult.Metadata != nil {
+							if toolID, ok := newsResult.Metadata["tool_used"].(string); ok && toolID != "" {
+								cl.reasoningTrace.AddToolInvoked(toolID)
+							}
+						}
+						
+						return &ActionResult{
+							Type:    "knowledge_result",
+							Success: true,
+							Data:    combinedData,
+						}, nil
+					}
+					
+					// If news search failed, still return episodic memory results
+					combinedData := map[string]interface{}{
+						"neo4j_result": interpretResult,
+						"episodic_memory": ragResult,
+						"source": "neo4j_and_rag",
+					}
+					
+					if ragResult.Metadata != nil {
+						if toolID, ok := ragResult.Metadata["tool_used"].(string); ok && toolID != "" {
+							cl.reasoningTrace.AddToolInvoked(toolID)
+						}
+					}
+					
+					return &ActionResult{
+						Type:    "knowledge_result",
+						Success: true,
+						Data:    combinedData,
+					}, nil
+				}
+			} else {
+				log.Printf("⚠️ [CONVERSATIONAL] RAG search failed: %v", ragErr)
+			}
+		}
+		
 		return &ActionResult{
 			Type:    "knowledge_result",
 			Success: true,
 			Data: map[string]interface{}{
 				"result": interpretResult,
-				"source": "hdn_natural_language",
+				"source": "neo4j",
 			},
 		}, nil
 
