@@ -155,6 +155,27 @@ func (api *InterpreterAPI) isComplexRequest(input string) bool {
 		}
 	}
 
+	// Exclude scoring/rating requests from async processing (e.g., hypothesis screening)
+	scoringPatterns := []string{
+		"rate this hypothesis",
+		"rate this",
+		"score:",
+		"\"score\"",
+		"rating:",
+		"rate on a scale",
+		"0.0 to 1.0",
+		"0-1 scale",
+		"evaluating hypotheses",
+		"rate.*hypothesis",
+		"score.*hypothesis",
+	}
+
+	for _, pattern := range scoringPatterns {
+		if strings.Contains(lowerInput, pattern) {
+			return false // Process scoring requests synchronously
+		}
+	}
+
 	// Check for complex request patterns
 	complexPatterns := []string{
 		"compare.*performance",
