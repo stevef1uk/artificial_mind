@@ -4,7 +4,7 @@
 # This can be run manually or as a startup job
 # Works with local HDN server (no kubectl required)
 
-HDN_URL="${HDN_URL:-http://localhost:8081}"
+HDN_URL="${HDN_URL:-http://localhost:8080}"
 
 echo "🔧 Bootstrapping tools in HDN server (Local)..."
 echo "Using HDN URL: $HDN_URL"
