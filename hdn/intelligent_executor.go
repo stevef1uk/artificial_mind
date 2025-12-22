@@ -2339,6 +2339,7 @@ func isRequestUnsafeStatic(req *ExecutionRequest) string {
 	patterns := []string{
 		"delete all files", "wipe all files", "format disk", "rm -rf /",
 		"destroy database", "exfiltrate", "ransomware", "dd if=/dev/zero",
+		"deletes all files", "deleting all files", "delete all file", // variations
 	}
 	for _, p := range patterns {
 		if strings.Contains(lowerTask, p) {
@@ -2349,6 +2350,7 @@ func isRequestUnsafeStatic(req *ExecutionRequest) string {
 	adultPatterns := []string{
 		"inappropriate content", "adults only", "adult content", "porn", "xxx",
 		"nsfw", "explicit sexual", "erotic",
+		"inappropriate", "for adults only", "adults-only", // variations
 	}
 	for _, p := range adultPatterns {
 		if strings.Contains(lowerTask, p) {
@@ -3181,8 +3183,19 @@ func (ie *IntelligentExecutor) executeChainedPrograms(ctx context.Context, req *
 
 		// Extract output from this program
 		if output, ok := programResult.Result.(string); ok {
-			lastOutput = output
-			allOutputs = append(allOutputs, output)
+			// Clean the output to extract only JSON (remove env vars, SSH messages, etc.)
+			// This is critical for chained programs where prog1 output feeds prog2
+			cleanedOutput := extractJSONFromOutput(output)
+			if cleanedOutput != "" {
+				lastOutput = cleanedOutput
+				allOutputs = append(allOutputs, cleanedOutput)
+				log.Printf("🔗 [CHAINED] Extracted clean output from program %d: %s", i+1, cleanedOutput)
+			} else {
+				// Fallback: use original output if JSON extraction failed
+				lastOutput = output
+				allOutputs = append(allOutputs, output)
+				log.Printf("⚠️ [CHAINED] Could not extract JSON from program %d output, using raw output", i+1)
+			}
 		}
 
 		// Store generated code
@@ -3432,6 +3445,154 @@ func (ie *IntelligentExecutor) parseProgramRequirements(description, programName
 
 	// Final fallback
 	return fmt.Sprintf("Generate %s", programName), "python"
+}
+
+// extractJSONFromOutput extracts clean JSON from program output, removing env vars and other noise
+func extractJSONFromOutput(output string) string {
+	if output == "" {
+		return ""
+	}
+	
+	// Remove common environment variable patterns
+	lines := strings.Split(output, "\n")
+	var jsonLines []string
+	inJSON := false
+	
+	for _, line := range lines {
+		lineTrimmed := strings.TrimSpace(line)
+		
+		// Skip empty lines
+		if lineTrimmed == "" {
+			continue
+		}
+		
+		// Skip environment variable dumps (VAR='value' or VAR="value")
+		if matched, _ := regexp.MatchString(`^[A-Z_][A-Z0-9_]*=['"]`, lineTrimmed); matched {
+			continue
+		}
+		
+		// Skip SSH messages
+		if strings.Contains(lineTrimmed, "Warning: Permanently added") ||
+			strings.Contains(lineTrimmed, "Host key verification") {
+			continue
+		}
+		
+		// Look for JSON start (either { or [)
+		if strings.HasPrefix(lineTrimmed, "{") || strings.HasPrefix(lineTrimmed, "[") {
+			inJSON = true
+			jsonLines = append(jsonLines, lineTrimmed)
+			// If it's a single-line JSON, we're done
+			if strings.HasSuffix(lineTrimmed, "}") || strings.HasSuffix(lineTrimmed, "]") {
+				break
+			}
+			continue
+		}
+		
+		// If we're in JSON, collect lines until we find the end
+		if inJSON {
+			jsonLines = append(jsonLines, lineTrimmed)
+			if strings.HasSuffix(lineTrimmed, "}") || strings.HasSuffix(lineTrimmed, "]") {
+				break
+			}
+		}
+	}
+	
+	if len(jsonLines) == 0 {
+		// Fallback: try to find JSON anywhere in the output by looking for { or [
+		// Find the first { or [ and extract until matching } or ]
+		startIdx := -1
+		var openChar, closeChar byte
+		for i, char := range output {
+			if char == '{' {
+				startIdx = i
+				openChar = '{'
+				closeChar = '}'
+				break
+			} else if char == '[' {
+				startIdx = i
+				openChar = '['
+				closeChar = ']'
+				break
+			}
+		}
+		
+		if startIdx >= 0 {
+			// Find matching closing brace/bracket
+			depth := 0
+			endIdx := -1
+			for i := startIdx; i < len(output); i++ {
+				if output[i] == openChar {
+					depth++
+				} else if output[i] == closeChar {
+					depth--
+					if depth == 0 {
+						endIdx = i
+						break
+					}
+				}
+			}
+			if endIdx > startIdx {
+				extracted := output[startIdx : endIdx+1]
+				// Validate extracted JSON
+				var test interface{}
+				if err := json.Unmarshal([]byte(extracted), &test); err == nil {
+					return extracted
+				}
+			}
+		}
+		
+		return ""
+	}
+	
+	// Join JSON lines and validate
+	jsonStr := strings.Join(jsonLines, "\n")
+	
+	// Validate it's valid JSON
+	var test interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &test); err == nil {
+		return jsonStr
+	}
+	
+	// If validation failed, try to extract just the JSON object/array
+	// Remove everything before first { or [
+	startIdx := -1
+	for i, char := range jsonStr {
+		if char == '{' || char == '[' {
+			startIdx = i
+			break
+		}
+	}
+	if startIdx >= 0 {
+		// Find matching closing brace/bracket
+		openChar := jsonStr[startIdx]
+		closeChar := '}'
+		if openChar == '[' {
+			closeChar = ']'
+		}
+		depth := 0
+		endIdx := -1
+		for i := startIdx; i < len(jsonStr); i++ {
+			if jsonStr[i] == openChar {
+				depth++
+			} else if jsonStr[i] == closeChar {
+				depth--
+				if depth == 0 {
+					endIdx = i
+					break
+				}
+			}
+		}
+		if endIdx > startIdx {
+			extracted := jsonStr[startIdx : endIdx+1]
+			// Validate extracted JSON
+			var test2 interface{}
+			if err := json.Unmarshal([]byte(extracted), &test2); err == nil {
+				return extracted
+			}
+		}
+	}
+	
+	return ""
 }
 
 // extractProgramDescription extracts the description for a specific program
