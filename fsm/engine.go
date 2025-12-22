@@ -3273,11 +3273,20 @@ func (e *FSMEngine) createHypothesisTestingGoals(hypotheses []Hypothesis, domain
 			CreatedAt:   time.Now(),
 		}
 
-		// Filter out generic/useless goals before adding
-		if e.isGenericHypothesisGoal(goal) {
-			filteredCount++
-			log.Printf("🚫 Filtered out generic hypothesis goal: %s", goal.Description)
-			continue
+		// Skip generic filter for LLM-approved hypotheses - they've already been screened
+		// Only apply generic filter if the hypothesis wasn't screened (shouldn't happen, but safety check)
+		// Since these hypotheses passed LLM screening with scores >= threshold, trust the LLM's judgment
+		// and allow them through even if they match generic patterns
+		if len(approved) == 0 || len(uniqueApproved) == 0 {
+			// Fallback: if somehow no hypotheses were approved, still check generic filter
+			if e.isGenericHypothesisGoal(goal) {
+				filteredCount++
+				log.Printf("🚫 Filtered out generic hypothesis goal (no LLM approval): %s", goal.Description)
+				continue
+			}
+		} else {
+			// Hypothesis was LLM-approved, so trust the screening and allow it through
+			log.Printf("✅ Allowing LLM-approved hypothesis through (score >= threshold): %s", hypothesis.Description[:min(80, len(hypothesis.Description))])
 		}
 
 		k := e.createDedupKey(goal)
