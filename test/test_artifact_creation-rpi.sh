@@ -172,7 +172,8 @@ CHAINED_REQ='{
     "artifacts_wrapper": "true",
     "artifact_names": "prog1.py,prog2.go"
   },
-  "language": "python"
+  "language": "python",
+  "priority": "high"
 }'
 
 CHAINED_JSON="$TMP_DIR/int_exec_chained.json"
