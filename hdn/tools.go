@@ -1297,22 +1297,32 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string, env map[s
 	case "go":
 		// Try Docker first (preferred), then fall back to direct execution
 		// Build environment variable flags for Docker
+		// Use double quotes and escape properly for shell execution
 		envFlags := ""
 		if env != nil && len(env) > 0 {
 			for k, v := range env {
-				// Escape single quotes in value
-				escapedValue := strings.ReplaceAll(v, "'", "'\"'\"'")
-				envFlags += fmt.Sprintf(" -e %s='%s'", k, escapedValue)
+				// Escape for shell: escape $, `, ", and \
+				escapedValue := strings.ReplaceAll(v, "\\", "\\\\")
+				escapedValue = strings.ReplaceAll(escapedValue, "$", "\\$")
+				escapedValue = strings.ReplaceAll(escapedValue, "`", "\\`")
+				escapedValue = strings.ReplaceAll(escapedValue, "\"", "\\\"")
+				// Use double quotes to allow special characters
+				envFlags += fmt.Sprintf(" -e %s=\"%s\"", k, escapedValue)
 			}
 		}
 		
 		// Build environment variable exports for direct execution
+		// Use double quotes and escape properly for shell execution
 		envExports := ""
 		if env != nil && len(env) > 0 {
 			for k, v := range env {
-				// Escape single quotes in value
-				escapedValue := strings.ReplaceAll(v, "'", "'\"'\"'")
-				envExports += fmt.Sprintf("export %s='%s'\n", k, escapedValue)
+				// Escape for shell: escape $, `, ", and \
+				escapedValue := strings.ReplaceAll(v, "\\", "\\\\")
+				escapedValue = strings.ReplaceAll(escapedValue, "$", "\\$")
+				escapedValue = strings.ReplaceAll(escapedValue, "`", "\\`")
+				escapedValue = strings.ReplaceAll(escapedValue, "\"", "\\\"")
+				// Use double quotes to allow special characters
+				envExports += fmt.Sprintf("export %s=\"%s\"\n", k, escapedValue)
 			}
 		}
 		
@@ -1326,7 +1336,7 @@ if command -v docker >/dev/null 2>&1; then
 	cp %s "$WORK"/main.go
 	cd "$WORK"
 	if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
-	docker run --rm%s -v "$WORK":/app -w /app golang:1.21-alpine sh -c "go mod tidy >/dev/null 2>&1 && go build -o app ./main.go && ./app" 2>&1
+	docker run --rm%s -v "$WORK":/app -w /app golang:1.21-alpine sh -c 'go mod tidy >/dev/null 2>&1 && go build -o app ./main.go && ./app' 2>&1
 else
 	# Fallback to direct execution if Docker not available
 	WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
@@ -1352,7 +1362,7 @@ if command -v docker >/dev/null 2>&1; then
 	cp %s "$WORK"/main.go
 	cd "$WORK"
 	if ! ls go.mod >/dev/null 2>&1; then go mod init tmpmod >/dev/null 2>&1 || true; fi
-	docker run --rm%s -v "$WORK":/app -w /app golang:1.21-alpine sh -c "go mod tidy >/dev/null 2>&1 && go build -o app ./main.go && ./app" 2>&1
+	docker run --rm%s -v "$WORK":/app -w /app golang:1.21-alpine sh -c 'go mod tidy >/dev/null 2>&1 && go build -o app ./main.go && ./app' 2>&1
 else
 	# Fallback to direct execution if Docker not available
 	WORK="$(mktemp -d /home/pi/.hdn/go_tmp_XXXXXX)"
