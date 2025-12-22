@@ -116,7 +116,9 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 	}
 
 	prompt.WriteString("You are an AI assistant that helps users achieve goals with concrete actions. ")
-	prompt.WriteString("ALWAYS prefer using available tools over generating code. Only generate code if no tool can accomplish the task.\n\n")
+	prompt.WriteString("CRITICAL: ALWAYS prefer using available tools over generating code. Only generate code if no tool can accomplish the task.\n")
+	prompt.WriteString("When a request is generic (like 'Execute a task'), analyze what the task likely requires and use the most appropriate tool.\n")
+	prompt.WriteString("For example: file operations → use file tools, web requests → use HTTP tools, system commands → use exec tool.\n\n")
 
 	prompt.WriteString("Available Tools:\n")
 	for _, tool := range availableTools {
@@ -140,11 +142,15 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 
 	// Enhanced guidance for tool usage
 	prompt.WriteString("Rules:\n")
-	prompt.WriteString("- ALWAYS try to use available tools first before generating code.\n")
+	prompt.WriteString("- CRITICAL: ALWAYS try to use available tools first before generating code.\n")
+	prompt.WriteString("- If the request is vague or generic, infer the most likely tool needed and use it with reasonable default parameters.\n")
 	prompt.WriteString("- For knowledge queries: use mcp_query_neo4j, mcp_get_concept, or mcp_find_related_concepts to query the knowledge base.\n")
 	prompt.WriteString("- For HTTP requests: use tool_http_get with a valid URL.\n")
 	prompt.WriteString("- For file operations: use tool_file_read, tool_file_write, or tool_ls.\n")
 	prompt.WriteString("- For system operations: use tool_exec with appropriate commands.\n")
+	prompt.WriteString("- For directory listing: use tool_ls with path parameter (default to '.' or '/tmp' if not specified).\n")
+	prompt.WriteString("- For reading files: use tool_file_read with path parameter (infer common paths like /etc/hostname, /tmp, etc. if not specified).\n")
+	prompt.WriteString("- When in doubt about which tool to use, prefer the most specific tool that matches the task description.\n")
 	prompt.WriteString("- If tools are relevant, choose tool_call and set ALL required parameters with realistic values.\n")
 	prompt.WriteString("- For mcp_get_concept: provide 'name' parameter with the concept name.\n")
 	prompt.WriteString("- For mcp_query_neo4j: provide 'query' parameter with a Cypher query.\n")

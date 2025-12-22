@@ -1516,6 +1516,22 @@ func (e *FSMEngine) executeExecuteCapability(action ActionConfig, event map[stri
 		}
 	}
 
+	// Enhance description to encourage tool usage for common operations
+	descLower := strings.ToLower(desc)
+	if strings.Contains(descLower, "file") || strings.Contains(descLower, "read") || strings.Contains(descLower, "write") {
+		if !strings.Contains(descLower, "tool") {
+			desc = desc + " (prefer using file tools like tool_file_read, tool_file_write, or tool_ls)"
+		}
+	} else if strings.Contains(descLower, "http") || strings.Contains(descLower, "url") || strings.Contains(descLower, "fetch") || strings.Contains(descLower, "scrape") {
+		if !strings.Contains(descLower, "tool") {
+			desc = desc + " (prefer using tool_http_get or tool_html_scraper)"
+		}
+	} else if strings.Contains(descLower, "execute") || strings.Contains(descLower, "command") || strings.Contains(descLower, "run") {
+		if !strings.Contains(descLower, "tool") {
+			desc = desc + " (prefer using tool_exec or appropriate tool if available)"
+		}
+	}
+
 	payload := map[string]interface{}{
 		"input":      desc,
 		"context":    ctx,
