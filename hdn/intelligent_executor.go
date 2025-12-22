@@ -1006,10 +1006,46 @@ func (ie *IntelligentExecutor) collectURLsFromContext(ctxMap map[string]string) 
 
 // isComplexTask determines if a task is complex enough to benefit from HTN planning
 func (ie *IntelligentExecutor) isComplexTask(req *ExecutionRequest) bool {
+	// First, check for obvious simple tasks that should NEVER use hierarchical planning
+	descLower := strings.ToLower(req.Description)
+	taskLower := strings.ToLower(req.TaskName)
+	combined := descLower + " " + taskLower
+	
+	// Simple program creation patterns - these are ALWAYS simple
+	simplePatterns := []string{
+		"print",
+		"create.*program",
+		"write.*program",
+		"generate.*program",
+		"create.*go.*program",
+		"write.*go.*program",
+		"create.*python.*program",
+		"write.*python.*program",
+		"simple.*program",
+		"hello.*world",
+		"calculate.*number",
+		"fibonacci",
+		"prime.*number",
+	}
+	
+	for _, pattern := range simplePatterns {
+		matched, _ := regexp.MatchString(pattern, combined)
+		if matched {
+			log.Printf("✅ [INTELLIGENT] Task matches simple pattern '%s' - skipping hierarchical planning", pattern)
+			return false
+		}
+	}
+	
+	// If explicitly marked as simple or traditional, skip hierarchical planning
+	if pref, ok := req.Context["prefer_traditional"]; ok && strings.ToLower(pref) == "true" {
+		log.Printf("✅ [INTELLIGENT] prefer_traditional=true - skipping hierarchical planning")
+		return false
+	}
+	
 	// Use LLM to determine task complexity for more accurate classification
 	complexity, err := ie.classifyTaskComplexity(req)
 	if err != nil {
-		// Fallback to simple classification if LLM fails
+		// Fallback to simple classification if LLM fails (safer default)
 		log.Printf("⚠️ [INTELLIGENT] LLM complexity classification failed: %v, defaulting to simple", err)
 		return false
 	}
@@ -1027,15 +1063,20 @@ Description: %s
 Language: %s
 
 Classification rules:
-- SIMPLE: Basic code generation, single-purpose programs, simple calculations, straightforward implementations
-- COMPLEX: Multi-step workflows, system integrations, architectural decisions, complex business logic, multi-component solutions
+- SIMPLE: Basic code generation, single-purpose programs, simple calculations, straightforward implementations, printing text, creating a single file, simple algorithms
+- COMPLEX: Multi-step workflows, system integrations, architectural decisions, complex business logic, multi-component solutions, multiple files, APIs, databases
+
+🚨 CRITICAL: When in doubt, classify as SIMPLE. Only classify as COMPLEX if the task clearly requires multiple steps, multiple components, or system integration.
 
 Examples:
 - "Write a Python program that prints 'Hello World'" → SIMPLE
-- "Create a Go function that calculates fibonacci numbers" → SIMPLE  
+- "Create a Go program in main.go that prints 'Hello Steve'" → SIMPLE
+- "Create a Go function that calculates fibonacci numbers" → SIMPLE
+- "Create me a Go program" → SIMPLE
 - "Build a REST API with authentication and database integration" → COMPLEX
 - "Design a microservices architecture for e-commerce" → COMPLEX
 - "Create a data pipeline that processes files and sends notifications" → COMPLEX
+- "Create multiple programs that work together" → COMPLEX
 
 Respond with only one word: "simple" or "complex"`,
 		req.TaskName, req.Description, req.Language)
@@ -1366,12 +1407,6 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 			log.Printf("✅ [INTELLIGENT] Found compatible cached code for task: %s", req.TaskName)
 			result.UsedCachedCode = true
 
-			// Sanitize cached code (e.g., inject missing imports)
-			if strings.EqualFold(req.Language, "python") {
-				cachedCode.Code = sanitizeGeneratedPythonCode(cachedCode.Code)
-			} else if strings.EqualFold(req.Language, "go") {
-				cachedCode.Code = sanitizeGeneratedGoCode(cachedCode.Code)
-			}
 
 			// Test the cached code with current parameters
 			validationResult := ie.validateCode(ctx, cachedCode, req, workflowID)
@@ -1431,19 +1466,59 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	// Filter non-functional context keys before sending to codegen
 	filteredCtx := filterCodegenContext(req.Context)
 
-	// Enhance description with matrix operation guidance if needed
+	// Check if this is a simple task BEFORE enhancing description
+	// Simple tasks should not get matrix/environment variable guidance added
+	// Use LLM classification instead of string matching for more accurate detection
+	isSimpleTask := false
+	descPreviewLen := 100
+	if len(req.Description) < descPreviewLen {
+		descPreviewLen = len(req.Description)
+	}
+	log.Printf("📝 [INTELLIGENT] Checking for simple task using LLM - description: %s", req.Description[:descPreviewLen])
+	
+	// Use LLM to classify task complexity - reuse the existing classifier
+	complexity, err := ie.classifyTaskComplexity(req)
+	if err != nil {
+		// Fallback: if LLM fails, use quick string matching as backup
+		log.Printf("⚠️ [INTELLIGENT] LLM classification failed: %v, using string matching fallback", err)
+		simpleDescLower := strings.ToLower(req.Description)
+		if (strings.Contains(simpleDescLower, "print") || strings.Contains(simpleDescLower, "prints")) &&
+			!strings.Contains(simpleDescLower, "matrix") &&
+			!strings.Contains(simpleDescLower, "json") &&
+			!strings.Contains(simpleDescLower, "read") &&
+			!strings.Contains(simpleDescLower, "file") &&
+			!strings.Contains(simpleDescLower, "calculate") &&
+			!strings.Contains(simpleDescLower, "process") &&
+			!strings.Contains(simpleDescLower, "parse") &&
+			!strings.Contains(simpleDescLower, "operation") {
+			isSimpleTask = true
+			log.Printf("📝 [INTELLIGENT] String matching fallback: Detected simple task")
+		}
+	} else {
+		isSimpleTask = (complexity == "simple")
+		if isSimpleTask {
+			log.Printf("📝 [INTELLIGENT] LLM classified as simple task - skipping description enhancement")
+		} else {
+			log.Printf("📝 [INTELLIGENT] LLM classified as complex task - will enhance description if needed")
+		}
+	}
+
+	// Enhance description with matrix operation guidance if needed (skip for simple tasks)
 	enhancedDesc := req.Description
-	if strings.Contains(strings.ToLower(enhancedDesc), "matrix") ||
-		(req.Context != nil && (req.Context["matrix1"] != "" || req.Context["matrix2"] != "")) {
-		if req.Language == "go" {
-			enhancedDesc += "\n\n🚨 CRITICAL FOR GO MATRIX OPERATIONS:\n- You MUST read matrices from environment variables using os.Getenv(\"matrix1\") and os.Getenv(\"matrix2\")\n- Parse the JSON string format (e.g., \"[[1,2],[3,4]]\") using encoding/json\n- DO NOT hardcode matrix values - the matrices will be different each time!\n- CRITICAL: Matrix type in Go is [][]int (slice of slices), NOT [][][]int (3D array)!\n- Example: var matrix1 [][]int; matrix1Str := os.Getenv(\"matrix1\"); json.Unmarshal([]byte(matrix1Str), &matrix1)\n- 🚨 CRITICAL: For matrix ADDITION, add corresponding elements: result[i][j] = matrix1[i][j] + matrix2[i][j]\n- Example: [[1,2],[3,4]] + [[5,6],[7,8]] = [[1+5,2+6],[3+7,4+8]] = [[6,8],[10,12]]\n- Function signature for matrix addition: func addMatrices(matrix1 [][]int, matrix2 [][]int) [][]int\n- You MUST import \"os\" for os.Getenv() and \"encoding/json\" for json.Unmarshal()\n- DO NOT import \"strconv\" unless you actually use it - unused imports cause compilation errors!\n- 🚨 CRITICAL OUTPUT FORMAT: When printing matrix results, print each ROW on a SEPARATE line using fmt.Println()\n- Example: For result [[6,8],[10,12]], you MUST print:\n  fmt.Println(result[0])  // prints [6 8]\n  fmt.Println(result[1])  // prints [10 12]\n- DO NOT print fmt.Println(result) - that prints the entire matrix as [[6 8] [10 12]] on one line!\n- DO NOT use fmt.Printf with %v for the entire matrix - print each row separately!\n- The output must be: [6 8] on first line, [10 12] on second line (two separate lines)\n- Use a loop: for i := 0; i < len(result); i++ { fmt.Println(result[i]) }"
-		} else if req.Language == "python" {
-			enhancedDesc += "\n\n🚨 CRITICAL FOR PYTHON MATRIX OPERATIONS:\n- You MUST read matrices from environment variables using os.getenv(\"matrix1\") and os.getenv(\"matrix2\")\n- Parse the JSON string format (e.g., \"[[1,2],[3,4]]\") using json.loads()\n- DO NOT hardcode matrix values - the matrices will be different each time!\n- Example: matrix1 = json.loads(os.getenv(\"matrix1\"))"
+	if !isSimpleTask {
+		if strings.Contains(strings.ToLower(enhancedDesc), "matrix") ||
+			(req.Context != nil && (req.Context["matrix1"] != "" || req.Context["matrix2"] != "")) {
+			if req.Language == "go" {
+				enhancedDesc += "\n\n🚨 CRITICAL FOR GO MATRIX OPERATIONS:\n- You MUST read matrices from environment variables using os.Getenv(\"matrix1\") and os.Getenv(\"matrix2\")\n- Parse the JSON string format (e.g., \"[[1,2],[3,4]]\") using encoding/json\n- DO NOT hardcode matrix values - the matrices will be different each time!\n- CRITICAL: Matrix type in Go is [][]int (slice of slices), NOT [][][]int (3D array)!\n- Example: var matrix1 [][]int; matrix1Str := os.Getenv(\"matrix1\"); json.Unmarshal([]byte(matrix1Str), &matrix1)\n- 🚨 CRITICAL: For matrix ADDITION, add corresponding elements: result[i][j] = matrix1[i][j] + matrix2[i][j]\n- Example: [[1,2],[3,4]] + [[5,6],[7,8]] = [[1+5,2+6],[3+7,4+8]] = [[6,8],[10,12]]\n- Function signature for matrix addition: func addMatrices(matrix1 [][]int, matrix2 [][]int) [][]int\n- You MUST import \"os\" for os.Getenv() and \"encoding/json\" for json.Unmarshal()\n- DO NOT import \"strconv\" unless you actually use it - unused imports cause compilation errors!\n- 🚨 CRITICAL OUTPUT FORMAT: When printing matrix results, print each ROW on a SEPARATE line using fmt.Println()\n- Example: For result [[6,8],[10,12]], you MUST print:\n  fmt.Println(result[0])  // prints [6 8]\n  fmt.Println(result[1])  // prints [10 12]\n- DO NOT print fmt.Println(result) - that prints the entire matrix as [[6 8] [10 12]] on one line!\n- DO NOT use fmt.Printf with %v for the entire matrix - print each row separately!\n- The output must be: [6 8] on first line, [10 12] on second line (two separate lines)\n- Use a loop: for i := 0; i < len(result); i++ { fmt.Println(result[i]) }"
+			} else if req.Language == "python" {
+				enhancedDesc += "\n\n🚨 CRITICAL FOR PYTHON MATRIX OPERATIONS:\n- You MUST read matrices from environment variables using os.getenv(\"matrix1\") and os.getenv(\"matrix2\")\n- Parse the JSON string format (e.g., \"[[1,2],[3,4]]\") using json.loads()\n- DO NOT hardcode matrix values - the matrices will be different each time!\n- Example: matrix1 = json.loads(os.getenv(\"matrix1\"))"
+			}
 		}
 	}
 
 	// Add guidance for reading context parameters from environment variables (for Python)
-	if req.Language == "python" && req.Context != nil && len(req.Context) > 0 {
+	// Skip for simple tasks
+	if !isSimpleTask && req.Language == "python" && req.Context != nil && len(req.Context) > 0 {
 		// Check if there are numeric or string parameters that should be read from environment
 		hasParams := false
 		for k, v := range req.Context {
@@ -1466,7 +1541,8 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	}
 
 	// Add guidance for reading context parameters from environment variables (for JavaScript)
-	if (req.Language == "javascript" || req.Language == "js") && req.Context != nil && len(req.Context) > 0 {
+	// Skip for simple tasks
+	if !isSimpleTask && (req.Language == "javascript" || req.Language == "js") && req.Context != nil && len(req.Context) > 0 {
 		// Check if there are numeric or string parameters that should be read from environment
 		hasParams := false
 		for k, v := range req.Context {
@@ -1514,14 +1590,6 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	}
 
 	generatedCode := codeGenResult.Code
-	// Language-specific code sanitization
-	if generatedCode != nil {
-		if strings.EqualFold(req.Language, "python") {
-			generatedCode.Code = sanitizeGeneratedPythonCode(generatedCode.Code)
-		} else if strings.EqualFold(req.Language, "go") {
-			generatedCode.Code = sanitizeGeneratedGoCode(generatedCode.Code)
-		}
-	}
 	log.Printf("✅ [INTELLIGENT] Generated code successfully")
 
 	// Step 4: Validate and iterate on the generated code
@@ -1550,14 +1618,6 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 				if fixErr != nil {
 					log.Printf("❌ [INTELLIGENT] Code fixing failed: %v", fixErr)
 					continue
-				}
-				// Re-sanitize fixed code (e.g., ensure main() is called for Python)
-				if fixedCode != nil {
-					if strings.EqualFold(req.Language, "python") {
-						fixedCode.Code = sanitizeGeneratedPythonCode(fixedCode.Code)
-					} else if strings.EqualFold(req.Language, "go") {
-						fixedCode.Code = sanitizeGeneratedGoCode(fixedCode.Code)
-					}
 				}
 				generatedCode = fixedCode
 				log.Printf("✅ [INTELLIGENT] Code fixed, retrying validation")
@@ -2611,204 +2671,45 @@ func (ie *IntelligentExecutor) formatContext(context map[string]string) string {
 	return strings.Join(parts, "\n")
 }
 
-// sanitizeGeneratedPythonCode patches common issues in generated CSV analysis scripts
-func sanitizeGeneratedPythonCode(code string) string {
-	fixed := code
-
-	// CRITICAL: Inject missing standard library imports that are used but not imported
-	// This fixes common issues where LLM generates code using os.getenv() without importing os
-	importsToAdd := []string{}
-
-	// Check for os.getenv, os.environ, os.path, etc.
-	if (strings.Contains(fixed, "os.getenv") || strings.Contains(fixed, "os.environ") ||
-		strings.Contains(fixed, "os.path") || strings.Contains(fixed, "os.")) &&
-		!strings.Contains(fixed, "import os") && !strings.Contains(fixed, "from os") {
-		importsToAdd = append(importsToAdd, "import os")
-	}
-
-	// Check for json.dumps, json.loads, etc.
-	if (strings.Contains(fixed, "json.dumps") || strings.Contains(fixed, "json.loads") ||
-		strings.Contains(fixed, "json.")) &&
-		!strings.Contains(fixed, "import json") && !strings.Contains(fixed, "from json") {
-		importsToAdd = append(importsToAdd, "import json")
-	}
-
-	// Check for math.sqrt, math.pi, etc.
-	if (strings.Contains(fixed, "math.sqrt") || strings.Contains(fixed, "math.pi") ||
-		strings.Contains(fixed, "math.")) &&
-		!strings.Contains(fixed, "import math") && !strings.Contains(fixed, "from math") {
-		importsToAdd = append(importsToAdd, "import math")
-	}
-
-	// Check for sys.argv, sys.exit, etc.
-	if (strings.Contains(fixed, "sys.argv") || strings.Contains(fixed, "sys.exit") ||
-		strings.Contains(fixed, "sys.")) &&
-		!strings.Contains(fixed, "import sys") && !strings.Contains(fixed, "from sys") {
-		importsToAdd = append(importsToAdd, "import sys")
-	}
-
-	// Add missing imports at the top of the file (after any shebang)
-	if len(importsToAdd) > 0 {
-		lines := strings.Split(fixed, "\n")
-		var newLines []string
-		importsAdded := false
-
-		for i, line := range lines {
-			// Keep shebang if present
-			if i == 0 && strings.HasPrefix(line, "#!") {
-				newLines = append(newLines, line)
-				continue
-			}
-
-			// Add imports before first non-comment, non-blank line
-			if !importsAdded && strings.TrimSpace(line) != "" && !strings.HasPrefix(strings.TrimSpace(line), "#") {
-				// Check if there are already imports here
-				if strings.HasPrefix(strings.TrimSpace(line), "import ") || strings.HasPrefix(strings.TrimSpace(line), "from ") {
-					// Add our imports before existing imports
-					for _, imp := range importsToAdd {
-						newLines = append(newLines, imp)
-					}
-					newLines = append(newLines, line)
-				} else {
-					// No imports yet, add them here
-					for _, imp := range importsToAdd {
-						newLines = append(newLines, imp)
-					}
-					newLines = append(newLines, line)
-				}
-				importsAdded = true
-			} else {
-				newLines = append(newLines, line)
-			}
-		}
-
-		// If we never found a place to add imports (all blank/comments), add at the end
-		if !importsAdded {
-			for _, imp := range importsToAdd {
-				newLines = append(newLines, imp)
-			}
-		}
-
-		fixed = strings.Join(newLines, "\n")
-		log.Printf("✅ [SANITIZE] Injected missing Python imports: %v", importsToAdd)
-	}
-
-	// Ensure describe includes all columns for robust stats
-	fixed = strings.ReplaceAll(fixed, ".describe()", ".describe(include='all')")
-
-	// Remove unsafe subprocess and os.system usages proactively
-	// This prevents safety loops by stripping lines that invoke external commands
-	reUnsafe := regexp.MustCompile(`(?m)^.*(subprocess\.|os\.system\().*$`)
-	fixed = reUnsafe.ReplaceAllString(fixed, "")
-
-	// Fix session_id references that try to convert to int
-	// Pattern: session_id = int(os.getenv('session_id', 'default'))
-	// Replace with: session_id = os.getenv('session_id', 'default') or remove if not needed
-	reSessionIDInt := regexp.MustCompile(`(?m)^\s*session_id\s*=\s*int\(os\.getenv\(['"]session_id['"],\s*['"][^'"]*['"]\)\)`)
-	fixed = reSessionIDInt.ReplaceAllString(fixed, "")
-	// Also handle variations like session_id = int(os.getenv("session_id", default))
-	reSessionIDInt2 := regexp.MustCompile(`(?m)^\s*session_id\s*=\s*int\(os\.getenv\(["']session_id["'],\s*[^)]+\)\)`)
-	fixed = reSessionIDInt2.ReplaceAllString(fixed, "")
-	// Remove any remaining session_id assignments that aren't needed
-	reSessionIDAny := regexp.MustCompile(`(?m)^\s*session_id\s*=\s*os\.getenv\(['"]session_id['"][^)]*\)`)
-	fixed = reSessionIDAny.ReplaceAllString(fixed, "")
-
-	// CRITICAL: Ensure main() is called if it's defined
-	// Many LLMs generate "def main():" but forget to call it
-	if strings.Contains(fixed, "def main():") || strings.Contains(fixed, "def main(") {
-		// Check if main() is already being called (not just defined)
-		// Use regex to find main() calls that are NOT part of "def main()"
-		hasMainCall := regexp.MustCompile(`(?:^|\n)\s*main\(\)|if __name__.*:\s*\n\s*main\(\)`).MatchString(fixed)
-		hasNameGuard := strings.Contains(fixed, "if __name__ == '__main__':")
-
-		if !hasNameGuard && !hasMainCall {
-			// Add call to main() at the end
-			fixed = fixed + "\n\nif __name__ == '__main__':\n    main()\n"
-			log.Printf("✅ [SANITIZE] Added missing main() call for Python code")
-		} else if hasNameGuard && !hasMainCall {
-			// The guard is there but main() isn't called - add it
-			lines := strings.Split(fixed, "\n")
-			var newLines []string
-			for i, line := range lines {
-				newLines = append(newLines, line)
-				if strings.Contains(line, "if __name__ == '__main__':") {
-					// Add main() call on next line
-					newLines = append(newLines, "    main()")
-					// Skip next line if it's already there
-					if i+1 < len(lines) && strings.Contains(lines[i+1], "main()") {
-						continue
-					}
-				}
-			}
-			fixed = strings.Join(newLines, "\n")
-			log.Printf("✅ [SANITIZE] Added missing main() call inside if __name__ guard")
-		}
-	}
-	fixed = reSessionIDAny.ReplaceAllString(fixed, "")
-
-	// If a dict is saved via to_csv, wrap it in DataFrame first
-	// Replace patterns like: <name>.to_csv(path) where <name> may be a dict
-	// Heuristic: ensure imports ONLY if pandas operations are actually used
-	// Check if code uses pandas operations (pd., pandas., .to_csv, DataFrame, etc.)
-	usesPandas := strings.Contains(fixed, ".to_csv(") ||
-		strings.Contains(fixed, "pd.") ||
-		strings.Contains(fixed, "pandas.") ||
-		strings.Contains(fixed, "DataFrame") ||
-		strings.Contains(fixed, ".describe(") ||
-		strings.Contains(fixed, ".read_csv(") ||
-		strings.Contains(fixed, ".to_excel(")
-
-	if usesPandas {
-		ensureImports := []string{"import pandas as pd"}
-		for _, imp := range ensureImports {
-			if !strings.Contains(fixed, imp) {
-				fixed = imp + "\n" + fixed
-			}
-		}
-	}
-
-	// Heuristic rewrite: summary_stats = {...}; summary_stats.to_csv(...) -> pd.DataFrame(summary_stats).to_csv(...)
-	reToCSV := regexp.MustCompile(`(?m)^(\s*)([A-Za-z_][A-Za-z0-9_]*)\.to_csv\(([^)]*)\)`) // captures var.to_csv(args)
-	fixed = reToCSV.ReplaceAllString(fixed, `${1}pd.DataFrame(\2).to_csv(\3)`)
-
-	return fixed
-}
-
-// sanitizeGeneratedGoCode fixes common issues in generated Go code
-// It does NOT add missing imports - the LLM retry mechanism should handle that
-func sanitizeGeneratedGoCode(code string) string {
-	fixed := code
-
-	// Fix common JSON type assertion errors: JSON numbers are float64, not int64
-	// Pattern: data["key"].(int64) -> data["key"].(float64)
-	// This handles both simple assertions and ones with ok checks
-	reInt64Assertion := regexp.MustCompile(`(\w+)\["([^"]+)"\]\.\(int64\)`)
-	fixed = reInt64Assertion.ReplaceAllString(fixed, `${1}["${2}"].(float64)`)
-
-	return fixed
-}
 
 // inferLanguageFromRequest tries to determine the intended programming language
 // from the task name, description, and context. Returns empty string if unknown.
 func (ie *IntelligentExecutor) inferLanguageFromRequest(req *ExecutionRequest) string {
+	// Context override - check this first as it's most explicit
+	if lang, ok := req.Context["language"]; ok && strings.TrimSpace(lang) != "" {
+		return strings.ToLower(strings.TrimSpace(lang))
+	}
+
 	// Strong hints in description
 	desc := strings.ToLower(strings.TrimSpace(req.Description))
+	
+	// Check for Python first (more specific patterns)
+	if strings.Contains(desc, "python") || strings.Contains(desc, "py script") ||
+		strings.Contains(desc, "python program") || strings.Contains(desc, "python code") ||
+		strings.Contains(desc, ".py") {
+		return "python"
+	}
+	
+	// Check for Go
 	if strings.Contains(desc, " go ") || strings.HasPrefix(desc, "go ") || strings.HasSuffix(desc, " in go") ||
 		strings.Contains(desc, " in golang") || strings.Contains(desc, "golang") ||
-		strings.Contains(desc, "main.go") {
+		strings.Contains(desc, "main.go") || strings.Contains(desc, "go program") ||
+		strings.Contains(desc, "go code") || strings.Contains(desc, ".go") {
 		return "go"
 	}
 
 	// Hints in task name
 	task := strings.ToLower(strings.TrimSpace(req.TaskName))
+	
+	// Check for Python in task name
+	if strings.Contains(task, "python") || strings.Contains(task, ".py") {
+		return "python"
+	}
+	
+	// Check for Go in task name
 	if strings.Contains(task, "go ") || strings.Contains(task, " golang") ||
 		strings.Contains(task, ".go") || strings.Contains(task, "golang") {
 		return "go"
-	}
-
-	// Context override
-	if lang, ok := req.Context["language"]; ok && strings.TrimSpace(lang) != "" {
-		return strings.ToLower(strings.TrimSpace(lang))
 	}
 
 	return ""
@@ -2851,12 +2752,14 @@ func filterCodegenContext(in map[string]string) map[string]string {
 	if len(in) == 0 {
 		return in
 	}
-	// Keys to drop
+	// Keys to drop - these are system/metadata keys that confuse the LLM
 	drop := map[string]bool{
 		"session_id":         true,
 		"project_id":         true,
 		"artifact_names":     true,
 		"save_code_filename": true,
+		"artifacts_wrapper":  true,  // System flag, not needed for code generation
+		"force_regenerate":   true,   // System flag, not needed for code generation
 		// Common leakage aliases
 		"saveCodeFilename": true,
 		"artifacts":        true,
@@ -3728,13 +3631,6 @@ func (ie *IntelligentExecutor) executeProgramDirectly(ctx context.Context, req *
 		result.Error = "No code generated"
 		result.ExecutionTime = time.Since(start)
 		return result, nil
-	}
-
-	// Language-specific code sanitization
-	if strings.EqualFold(req.Language, "python") {
-		generatedCode.Code = sanitizeGeneratedPythonCode(generatedCode.Code)
-	} else if strings.EqualFold(req.Language, "go") {
-		generatedCode.Code = sanitizeGeneratedGoCode(generatedCode.Code)
 	}
 
 	// Validate and iterate on the generated code (retry loop for chained programs)

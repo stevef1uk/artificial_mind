@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -105,7 +106,9 @@ func (cg *CodeGenerator) GenerateCode(req *CodeGenerationRequest) (*CodeGenerati
 		break // Success
 	}
 
-	// Clean up the code to remove test cases and error handling
+	// Minimal cleanup: only remove markdown code fences (safe operation)
+	// Do NOT post-process imports or modify code structure - let the LLM generate correct code
+	// If there are issues, the validation/fix mechanism will handle them
 	code = cg.cleanGeneratedCode(code, req.Language)
 
 	// Create GeneratedCode object
@@ -159,146 +162,21 @@ func (cg *CodeGenerator) cleanGeneratedCode(code, language string) string {
 	}
 	cleaned := strings.TrimSpace(trimmed)
 
-	// For Python, check for and remove unused heavy dependencies
-	if language == "python" || language == "py" {
-		heavyDeps := []string{"pandas", "numpy", "matplotlib", "scipy", "sklearn", "seaborn", "plotly", "tensorflow", "torch"}
-		foundHeavy := []string{}
-		lines := strings.Split(cleaned, "\n")
-		var filteredLines []string
-
-		log.Printf("🔍 [CODEGEN] Checking %d lines for unused heavy dependencies (code preview: %s)", len(lines), func() string {
-			preview := cleaned
-			if len(preview) > 200 {
-				preview = preview[:200] + "..."
-			}
-			return preview
-		}())
-
-		for _, line := range lines {
-			lineTrimmed := strings.TrimSpace(line)
-			shouldRemove := false
-
-			// Check if this line imports a heavy dependency
-			for _, dep := range heavyDeps {
-				// Match: "import pandas", "import pandas as pd", "from pandas import", etc.
-				// Use regex-like matching: check if line starts with import/from and contains the dep name
-				isImportLine := strings.HasPrefix(lineTrimmed, "import") || strings.HasPrefix(lineTrimmed, "from")
-				containsDep := strings.Contains(lineTrimmed, dep)
-
-				if isImportLine && containsDep {
-					// Additional check: make sure it's actually importing this specific package
-					// Match patterns like: "import pandas", "import pandas as pd", "from pandas import"
-					matches := false
-					if strings.HasPrefix(lineTrimmed, fmt.Sprintf("import %s", dep)) {
-						matches = true
-					} else if strings.HasPrefix(lineTrimmed, fmt.Sprintf("from %s", dep)) {
-						matches = true
-					} else if strings.HasPrefix(lineTrimmed, "import") {
-						// Check for "import pandas as pd" or "import pandas"
-						parts := strings.Fields(lineTrimmed)
-						if len(parts) >= 2 && parts[1] == dep {
-							matches = true
-						}
-					} else if strings.HasPrefix(lineTrimmed, "from") {
-						// Check for "from pandas import ..."
-						parts := strings.Fields(lineTrimmed)
-						if len(parts) >= 2 && parts[1] == dep {
-							matches = true
-						}
-					}
-
-					if matches {
-						log.Printf("🔍 [CODEGEN] Found import of %s: %s", dep, lineTrimmed)
-						// Check if the dependency is actually used in the code
-						used := false
-						// Also check for common aliases (pd for pandas, np for numpy, etc.)
-						aliases := map[string]string{"pandas": "pd", "numpy": "np", "matplotlib": "plt", "scipy": "sp"}
-						alias := ""
-						if a, ok := aliases[dep]; ok {
-							alias = a
-							// Extract alias from "import pandas as pd"
-							if strings.Contains(lineTrimmed, " as ") {
-								parts := strings.Fields(lineTrimmed)
-								for i, part := range parts {
-									if part == "as" && i+1 < len(parts) {
-										alias = parts[i+1]
-										break
-									}
-								}
-							}
-						}
-
-						for _, codeLine := range lines {
-							codeLineTrimmed := strings.TrimSpace(codeLine)
-							// Skip import lines when checking usage
-							if strings.HasPrefix(codeLineTrimmed, "import") || strings.HasPrefix(codeLineTrimmed, "from") {
-								continue
-							}
-							// Check for direct usage: pandas., pandas(, etc.
-							if strings.Contains(codeLine, dep+".") ||
-								strings.Contains(codeLine, fmt.Sprintf("%s(", dep)) ||
-								strings.Contains(codeLine, fmt.Sprintf(" %s ", dep)) ||
-								strings.Contains(codeLine, fmt.Sprintf("=%s", dep)) ||
-								strings.Contains(codeLine, fmt.Sprintf("(%s", dep)) {
-								used = true
-								preview := codeLineTrimmed
-								if len(preview) > 50 {
-									preview = preview[:50]
-								}
-								log.Printf("✅ [CODEGEN] %s is used in: %s", dep, preview)
-								break
-							}
-							// Check for alias usage: pd., np., etc.
-							if alias != "" && (strings.Contains(codeLine, alias+".") ||
-								strings.Contains(codeLine, fmt.Sprintf("%s(", alias)) ||
-								strings.Contains(codeLine, fmt.Sprintf(" %s ", alias)) ||
-								strings.Contains(codeLine, fmt.Sprintf("=%s", alias)) ||
-								strings.Contains(codeLine, fmt.Sprintf("(%s", alias))) {
-								used = true
-								preview := codeLineTrimmed
-								if len(preview) > 50 {
-									preview = preview[:50]
-								}
-								log.Printf("✅ [CODEGEN] %s is used via alias %s in: %s", dep, alias, preview)
-								break
-							}
-						}
-						if !used {
-							shouldRemove = true
-							foundHeavy = append(foundHeavy, dep)
-							log.Printf("⚠️ [CODEGEN] Removing unused heavy dependency import: %s (line: %s)", dep, lineTrimmed)
-						}
-					}
-				}
-			}
-
-			if !shouldRemove {
-				filteredLines = append(filteredLines, line)
-			}
-		}
-
-		if len(foundHeavy) > 0 {
-			cleaned = strings.Join(filteredLines, "\n")
-			log.Printf("⚠️ [CODEGEN] Removed %d unused heavy dependency import(s): %v", len(foundHeavy), foundHeavy)
-		} else {
-			// Check if any heavy deps are imported (even if used) and warn
-			for _, dep := range heavyDeps {
-				if strings.Contains(cleaned, fmt.Sprintf("import %s", dep)) ||
-					strings.Contains(cleaned, fmt.Sprintf("from %s", dep)) {
-					foundHeavy = append(foundHeavy, dep)
-				}
-			}
-			if len(foundHeavy) > 0 {
-				log.Printf("⚠️ [CODEGEN] Generated Python code includes heavy dependencies: %v - this will cause slow execution!", foundHeavy)
-			}
-		}
-	}
-
+	// No post-processing - let the LLM generate correct code
+	// If there are issues, the validation/fix mechanism will handle them
 	return cleaned
 }
 
 // buildCodeGenerationPrompt creates a prompt for code generation
 func (cg *CodeGenerator) buildCodeGenerationPrompt(req *CodeGenerationRequest) string {
+	log.Printf("📝 [CODEGEN] Building prompt for task: %s, language: %s, description length: %d", req.TaskName, req.Language, len(req.Description))
+	log.Printf("📝 [CODEGEN] Description (first 200 chars): %s", func() string {
+		if len(req.Description) > 200 {
+			return req.Description[:200]
+		}
+		return req.Description
+	}())
+	
 	// Special case for daily_summary - generate a simple placeholder
 	if strings.EqualFold(req.TaskName, "daily_summary") {
 		return `Generate a simple Python script that prints a placeholder message for daily summary generation.
@@ -309,264 +187,123 @@ Just print a message indicating this is a placeholder.
 Code:`
 	}
 
-	contextStr := ""
-	filePathInfo := ""
-
-	if len(req.Context) > 0 {
-		contextStr = "\nContext:\n"
-		for k, v := range req.Context {
-			contextStr += fmt.Sprintf("- %s: %s\n", k, v)
-			// Check if this looks like a data file reference
-			if (strings.Contains(strings.ToLower(k), "data") ||
-				strings.Contains(strings.ToLower(k), "file") ||
-				strings.Contains(strings.ToLower(k), "source") ||
-				strings.Contains(strings.ToLower(k), "input")) &&
-				strings.Contains(v, ".") && !strings.Contains(v, " ") {
-				filePathInfo += fmt.Sprintf("\nIMPORTANT: The file '%s' is available at '/app/data/%s' in the container.\n", v, v)
-			}
-		}
-	}
-
-	tagsStr := ""
-	if len(req.Tags) > 0 {
-		tagsStr = fmt.Sprintf("\nTags: %s\n", strings.Join(req.Tags, ", "))
-	}
-
-	// Build tool information section
-	toolsSection := ""
-	if len(req.Tools) > 0 && req.ToolAPIURL != "" {
-		toolsSection = "\n\n🔧 AVAILABLE TOOLS - USE THESE INSTEAD OF DUMMY DATA:\n"
-		toolsSection += "🚨 CRITICAL: If the task requires functionality that matches these tools, you MUST use the tools instead of generating dummy implementations.\n"
-		toolsSection += "🚨 CRITICAL: For web scraping tasks, you MUST use tool_html_scraper - NEVER use http.Get() or requests.get()!\n"
-		toolsSection += fmt.Sprintf("Tool API Base URL: %s\n\n", req.ToolAPIURL)
-		toolsSection += "⚠️ IMPORTANT: 'tool_html_scraper' is NOT a Python function or module!\n"
-		toolsSection += "⚠️ You MUST make HTTP POST requests to the tool API endpoint shown below.\n"
-		toolsSection += "⚠️ DO NOT try to import or call 'tool_html_scraper' as a function - it will cause 'name not defined' errors!\n\n"
-
-		for _, tool := range req.Tools {
-			toolsSection += fmt.Sprintf("Tool: %s (%s)\n", tool.ID, tool.Name)
-			toolsSection += fmt.Sprintf("Description: %s\n", tool.Description)
-			if len(tool.InputSchema) > 0 {
-				toolsSection += "Parameters:\n"
-				for param, paramType := range tool.InputSchema {
-					toolsSection += fmt.Sprintf("  - %s (%s)\n", param, paramType)
+	// Special handling for very simple print tasks - make the prompt extremely explicit
+	// Check for simple print patterns: "print X", "create program that prints X", etc.
+	// IMPORTANT: Use req.Description directly, not cleanDesc, because we want to detect simple tasks
+	// before any JSON cleaning happens
+	descLower := strings.ToLower(req.Description)
+	log.Printf("📝 [CODEGEN] Checking for simple print task - descLower contains 'print': %v", strings.Contains(descLower, "print"))
+	isSimplePrintTask := (strings.Contains(descLower, "print") || strings.Contains(descLower, "prints")) &&
+		!strings.Contains(descLower, "matrix") &&
+		!strings.Contains(descLower, "json") &&
+		!strings.Contains(descLower, "read") &&
+		!strings.Contains(descLower, "file") &&
+		!strings.Contains(descLower, "calculate") &&
+		!strings.Contains(descLower, "process") &&
+		!strings.Contains(descLower, "parse") &&
+		!strings.Contains(descLower, "operation") &&
+		!strings.Contains(descLower, "chained") &&
+		!strings.Contains(descLower, "sequential")
+	
+	if isSimplePrintTask && req.Language == "go" {
+		// Extract what to print from description - try both single and double quotes
+		// Also handle patterns like "prints 'X'", "print 'X'", "prints X", etc.
+		printTarget := ""
+		
+		// Try to extract from single quotes first
+		if strings.Contains(req.Description, "'") {
+			// Find text between single quotes
+			startIdx := strings.Index(req.Description, "'")
+			if startIdx >= 0 {
+				endIdx := strings.Index(req.Description[startIdx+1:], "'")
+				if endIdx >= 0 {
+					printTarget = req.Description[startIdx+1 : startIdx+1+endIdx]
 				}
 			}
-			toolsSection += fmt.Sprintf("Call: POST %s/api/v1/tools/%s/invoke\n", req.ToolAPIURL, tool.ID)
-			toolsSection += "Request Body: JSON object with parameters\n\n"
 		}
+		
+		// If no single quotes, try double quotes
+		if printTarget == "" && strings.Contains(req.Description, "\"") {
+			startIdx := strings.Index(req.Description, "\"")
+			if startIdx >= 0 {
+				endIdx := strings.Index(req.Description[startIdx+1:], "\"")
+				if endIdx >= 0 {
+					printTarget = req.Description[startIdx+1 : startIdx+1+endIdx]
+				}
+			}
+		}
+		
+		// If still no target, try to extract after "prints" or "print"
+		if printTarget == "" {
+			descLower := strings.ToLower(req.Description)
+			if idx := strings.Index(descLower, "prints "); idx >= 0 {
+				afterPrints := req.Description[idx+7:] // Skip "prints "
+				// Take the next word or phrase
+				afterPrints = strings.TrimSpace(afterPrints)
+				// Remove common words like "just", "the", "a", "an"
+				words := strings.Fields(afterPrints)
+				var filteredWords []string
+				skipWords := map[string]bool{"just": true, "the": true, "a": true, "an": true, "that": true}
+				for _, word := range words {
+					if !skipWords[strings.ToLower(word)] {
+						filteredWords = append(filteredWords, word)
+					}
+				}
+				if len(filteredWords) > 0 {
+					// Take up to 5 words as the print target
+					maxWords := 5
+					if len(filteredWords) < maxWords {
+						maxWords = len(filteredWords)
+					}
+					printTarget = strings.Join(filteredWords[:maxWords], " ")
+				}
+			}
+		}
+		
+		// If we found a print target, use the simple prompt
+		if printTarget != "" {
+			log.Printf("📝 [CODEGEN] Detected simple print task - generating explicit prompt for: %s (language: %s)", printTarget, req.Language)
+			lang := req.Language
+			if lang == "" {
+				// If language is not specified, don't use the simple prompt - let the normal prompt handle it
+				log.Printf("⚠️ [CODEGEN] Language not specified for simple print task, using normal prompt")
+			} else if lang == "go" {
+				return fmt.Sprintf(`Create a Go program that prints: %s
 
-		// Add examples for common languages
-		toolsSection += "EXAMPLES:\n\n"
+Return only the Go code in a markdown code block.`, printTarget)
+			} else if lang == "python" || lang == "py" {
+				return fmt.Sprintf(`Create a Python program that prints: %s
 
-		// Python example - MUST use tool_html_scraper for web scraping
-		toolsSection += "Python - Call HTML Scraper (USE THIS FOR WEB SCRAPING!):\n"
-		toolsSection += "```python\n"
-		toolsSection += "import requests\n"
-		toolsSection += "import json\n"
-		toolsSection += "import os\n"
-		toolsSection += "def main():\n"
-		toolsSection += "    # 🚨 CRITICAL: tool_html_scraper is NOT a Python function - you MUST make HTTP POST requests!\n"
-		toolsSection += "    # Get the tool API URL from environment or use the hardcoded value below\n"
-		toolsSection += fmt.Sprintf("    TOOL_API_URL = os.getenv('TOOL_API_URL', '%s')\n", req.ToolAPIURL)
-		toolsSection += "    url = 'https://www.bbc.com/news/technology'\n"
-		toolsSection += "    # Make HTTP POST request to the tool API - DO NOT call tool_html_scraper() as a function!\n"
-		toolsSection += "    response = requests.post(f'{TOOL_API_URL}/api/v1/tools/tool_html_scraper/invoke',\n"
-		toolsSection += "        json={'url': url})\n"
-		toolsSection += "    data = response.json()\n"
-		toolsSection += "    # Extract items array - each item has 'tag', 'text', 'attributes'\n"
-		toolsSection += "    items = data.get('items', [])\n"
-		toolsSection += "    for item in items:\n"
-		toolsSection += "        tag = item.get('tag', '')\n"
-		toolsSection += "        text = item.get('text', '')\n"
-		toolsSection += "        # Extract headlines (h1/h2/h3 tags with substantial text)\n"
-		toolsSection += "        if tag in ['h1', 'h2', 'h3'] and len(text) > 20:\n"
-		toolsSection += "            print(text)\n"
-		toolsSection += "if __name__ == '__main__':\n"
-		toolsSection += "    main()\n"
-		toolsSection += "```\n\n"
-
-		// Go example - MUST use tool_html_scraper for web scraping
-		toolsSection += "Go - Call HTML Scraper (USE THIS FOR WEB SCRAPING!):\n"
-		toolsSection += "```go\n"
-		toolsSection += "package main\n"
-		toolsSection += "import (\n"
-		toolsSection += "    \"bytes\"\n"
-		toolsSection += "    \"encoding/json\"\n"
-		toolsSection += "    \"fmt\"\n"
-		toolsSection += "    \"io\"\n"
-		toolsSection += "    \"net/http\"\n"
-		toolsSection += "    \"os\"\n"
-		toolsSection += "    \"strings\"\n"
-		toolsSection += ")\n"
-		toolsSection += "func main() {\n"
-		toolsSection += "    // 🚨 CRITICAL: tool_html_scraper is NOT a Go function - you MUST make HTTP POST requests!\n"
-		toolsSection += "    // Get the tool API URL from environment or use the hardcoded value below\n"
-		toolsSection += fmt.Sprintf("    toolAPIURL := os.Getenv(\"TOOL_API_URL\")\n")
-		toolsSection += fmt.Sprintf("    if toolAPIURL == \"\" {\n")
-		toolsSection += fmt.Sprintf("        toolAPIURL = \"%s\"\n", req.ToolAPIURL)
-		toolsSection += "    }\n"
-		toolsSection += "    url := \"https://www.bbc.com/news/technology\"\n"
-		toolsSection += "    // Make HTTP POST request to the tool API - DO NOT call tool_html_scraper() as a function!\n"
-		toolsSection += "    jsonData, _ := json.Marshal(map[string]string{\"url\": url})\n"
-		toolsSection += "    resp, _ := http.Post(toolAPIURL+\"/api/v1/tools/tool_html_scraper/invoke\",\n"
-		toolsSection += "        \"application/json\", bytes.NewBuffer(jsonData))\n"
-		toolsSection += "    defer resp.Body.Close()\n"
-		toolsSection += "    body, _ := io.ReadAll(resp.Body)\n"
-		toolsSection += "    var result map[string]interface{}\n"
-		toolsSection += "    json.Unmarshal(body, &result)\n"
-		toolsSection += "    // Extract items array - each item has 'tag', 'text', 'attributes'\n"
-		toolsSection += "    items, _ := result[\"items\"].([]interface{})\n"
-		toolsSection += "    for _, item := range items {\n"
-		toolsSection += "        if itemMap, ok := item.(map[string]interface{}); ok {\n"
-		toolsSection += "            text, _ := itemMap[\"text\"].(string)\n"
-		toolsSection += "            tag, _ := itemMap[\"tag\"].(string)\n"
-		toolsSection += "            // Extract headlines (h1/h2/h3 tags with substantial text)\n"
-		toolsSection += "            if (tag == \"h1\" || tag == \"h2\" || tag == \"h3\") && len(text) > 20 {\n"
-		toolsSection += "                fmt.Println(text)\n"
-		toolsSection += "            }\n"
-		toolsSection += "        }\n"
-		toolsSection += "    }\n"
-		toolsSection += "}\n"
-		toolsSection += "```\n\n"
+Return only the Python code in a markdown code block.`, printTarget)
+			}
+		}
 	}
 
-	return fmt.Sprintf(`🚫 CRITICAL RESTRICTION - MUST FOLLOW:
-- NEVER use Docker commands (docker run, docker build, docker exec, etc.) - Docker is NOT available
-- NEVER use subprocess.run with docker commands - this will cause FileNotFoundError
-- NEVER use os.system with docker commands - this will fail
-- You are already running inside a container, do NOT try to create more containers
+	// Simple, direct prompt - let the LLM handle everything
+	// Only clean up obvious JSON blobs in description
+	cleanDesc := req.Description
+	if strings.Contains(cleanDesc, `{"interpreted_at"`) {
+		// Try to extract description from JSON blob
+		re := regexp.MustCompile(`"description":"([^"]*)"`)
+		matches := re.FindStringSubmatch(cleanDesc)
+		if len(matches) > 1 {
+			cleanDesc = matches[1]
+		}
+	}
 
-🚨🚨🚨 CRITICAL LANGUAGE REQUIREMENT - THIS IS THE MOST IMPORTANT RULE 🚨🚨🚨:
-- You MUST generate %s code ONLY - do NOT generate code in any other language!
-- You MUST NOT include code from other languages in your response!
-- You MUST NOT show examples in other languages!
-- You MUST NOT include "go" or "package main" or "func main()" if generating Python code!
-- You MUST NOT include "import pandas" or "def main()" if generating Go code!
-- If the task mentions a filename with an extension (.py, .go, .js, etc.), the extension determines the language
-- The filename extension MUST match the language you generate:
-  * .py = Python code ONLY - NO Go code, NO JavaScript code, NO other languages!
-  * .go = Go code ONLY - NO Python code, NO JavaScript code, NO other languages!
-  * .js = JavaScript code ONLY - NO Python code, NO Go code, NO other languages!
-  * .java = Java code ONLY - NO other languages!
-- DO NOT generate Python code when asked for .go files!
-- DO NOT generate Go code when asked for .py files!
-- DO NOT mix languages - if you generate Python, generate ONLY Python from start to finish!
-- DO NOT mix languages - if you generate Go, generate ONLY Go from start to finish!
-- Your response should contain ONLY %s code - nothing else!
-- If you include code from another language, the system will FAIL!
+	contextStr := ""
+	if len(req.Context) > 0 {
+		contextStr = "\n\nContext:\n"
+		for k, v := range req.Context {
+			contextStr += fmt.Sprintf("- %s: %s\n", k, v)
+		}
+	}
 
-🚨 CRITICAL FOR GO CODE - CODE MUST COMPILE:
-- For Go: ALWAYS start with package main and import statements
-- For Go: You MUST include ALL required imports - if you use json.Unmarshal, you MUST import "encoding/json"
-- For Go: You MUST include ALL required imports - if you use io.ReadAll, you MUST import "io"
-- For Go: You MUST include ALL required imports - if you use fmt.Println, you MUST import "fmt"
-- For Go: You MUST include ALL required imports - if you use os.Stdin, you MUST import "os"
-- For Go: You MUST include ALL required imports - if you use log.Fatal or log.Println, you MUST import "log"
-- For Go: The code MUST compile with "go build" - missing imports will cause compilation errors!
-- For Go: 🚨 CRITICAL: You MUST NOT include any unused imports! Go compiler treats unused imports as ERRORS!
-- For Go: Before adding an import, verify you actually USE a function from that package in your code!
-- For Go: Import checklist - only import what you use:
-  * "encoding/json" - ONLY if you use json.Unmarshal, json.Marshal, or json.* functions
-  * "io" - ONLY if you use io.ReadAll, io.WriteString, or other io.* functions
-  * "fmt" - ONLY if you use fmt.Println, fmt.Printf, fmt.Print, or other fmt.* functions
-  * "os" - ONLY if you use os.Stdin, os.Getenv, os.Exit, or other os.* functions
-  * "log" - ONLY if you use log.Fatal, log.Println, log.Printf, or other log.* functions
-- For Go: Use proper Go syntax - NO nested function calls like strings.ReplaceAll(strings.ReplaceAll(...))
-- For Go: Use standard library functions correctly: json.Unmarshal, io.ReadAll, fmt.Println
-- For Go: Keep code simple and readable - avoid deeply nested calls
-- For Go: If reading JSON, use: jsonBytes, _ := io.ReadAll(os.Stdin) then json.Unmarshal(jsonBytes, &data)
-- For Go: Before returning code, verify:
-  1. Every function used has its package imported
-  2. Every import is actually used in the code
-  3. No unused imports remain
-  4. No unused variables remain
+	return fmt.Sprintf(`Generate %s code for this task:
 
-🚨🚨🚨 YOU ARE GENERATING %s CODE - NOTHING ELSE! 🚨🚨🚨
-Generate clean, executable %s code for this task.
-Your response must contain ONLY %s code - no other languages, no examples in other languages, no mixed code!
+%s%s
 
-Task: %s
-Description: %s%s%s%s
-
-UNIQUE TASK ID: %s_%d
-
-Generate ONLY the core functionality:
-1. Define the main function(s) needed
-2. Add basic comments
-3. Include necessary imports (prefer standard library when possible)
-4. The main execution should run the core task and PRINT the result
-
-IMPORTANT: 
-- 🚨 CRITICAL: The program MUST compile and run without errors!
-- For Go: The code MUST compile with "go build" - ALL imports MUST be included (encoding/json for json.Unmarshal, io for io.ReadAll, fmt for fmt.Println, os for os.Stdin, etc.)
-- For Go: If you use ANY function from a package, you MUST import that package - missing imports will cause compilation failures!
-- 🚨 CRITICAL FOR GO: You MUST NOT include any unused imports! Go compiler treats unused imports as ERRORS, not warnings!
-- 🚨 CRITICAL FOR GO: Only import packages you actually USE in the code - do NOT import "strconv", "strings", "os", etc. unless you actually use functions from those packages!
-- The program must compile cleanly with the language's standard compiler with no unused variables or imports
-- Use ONLY the standard library unless explicitly requested otherwise
-- Use ASCII identifiers only (no non-ASCII names)
-- If tools are available above, you MUST use them instead of dummy data
-- Do NOT create hardcoded dummy data when tools can fetch real data
-- 🚨 CRITICAL: For web scraping tasks, you MUST use tool_html_scraper - NEVER use http.Get() or direct HTTP calls!
-- 🚨 CRITICAL: If the task says "scrape" or "extract" from a website, you MUST use tool_html_scraper, NOT http.Get()
-- 🚨 CRITICAL: If the task says "summarize trends", you must BOTH scrape AND analyze/filter/categorize the results
-- 🚨 CRITICAL: 'tool_html_scraper' is NOT a function or module - you MUST make HTTP POST requests to the tool API endpoint!
-- 🚨 CRITICAL: DO NOT try to import or call 'tool_html_scraper' as a function - use requests.post() or http.Post() instead!
-- For file operations: use tool_file_read or tool_file_write if available
-- Only perform direct network calls if no tool is available (but tool_html_scraper IS available for web scraping!)
-- The code must include a print statement to output the result
-  * For Go: use fmt.Print() or fmt.Println() (NOT the built-in print() function). Ensure you import "fmt" and "io" packages if using io.ReadAll()
-  * For Python: use print()
-  * For JavaScript: use console.log()
-- Use the correct file paths for any data files (see IMPORTANT notes above)
-- For mathematical tasks, create appropriate functions and print the results
-- 🚨 CRITICAL FOR MATHEMATICAL TASKS: If the context provides parameters (like matrix1, matrix2, count, number, etc.), you MUST read them from the context/environment variables - DO NOT hardcode values!
-- 🚨 CRITICAL FOR MATRIX OPERATIONS: If context contains matrix1, matrix2, or similar parameters, you MUST parse them from environment variables or context - DO NOT hardcode matrix values!
-- 🚨 CRITICAL FOR GO MATRIX OPERATIONS: Read matrices from environment variables (os.Getenv("matrix1"), os.Getenv("matrix2")) and parse the JSON/string format - DO NOT hardcode matrix values!
-- 🚨 CRITICAL FOR GO MATRIX ADDITION: For matrix addition, add corresponding elements: result[i][j] = matrix1[i][j] + matrix2[i][j] - Example: [[1,2],[3,4]] + [[5,6],[7,8]] = [[6,8],[10,12]] NOT [[6,9],[9,12]]!
-- 🚨 CRITICAL FOR GO MATRIX OUTPUT FORMAT: Print each ROW on a SEPARATE line - DO NOT print the entire matrix! Use: for i := 0; i < len(result); i++ { fmt.Println(result[i]) } - This prints [6 8] on first line and [10 12] on second line!
-- 🚨 CRITICAL FOR PYTHON MATRIX OPERATIONS: Read matrices from environment variables (os.getenv("matrix1"), os.getenv("matrix2")) and parse the JSON/string format - DO NOT hardcode matrix values!
-- For data processing tasks, create functions that process the data and print the results
-- Don't create test functions or validation functions - create the actual functionality
-- 🚨 CRITICAL: MINIMIZE external dependencies - use standard library modules when possible!
-- 🚨 CRITICAL FOR PYTHON: DO NOT import pandas, numpy, matplotlib, scipy, sklearn, or any other heavy data science libraries unless the task EXPLICITLY requires data analysis, machine learning, or complex numerical computations!
-- 🚨 CRITICAL FOR PYTHON: For simple tasks like generating prime numbers, calculating statistics, or basic math - use ONLY the standard library (math, random, statistics, etc.)!
-- 🚨 CRITICAL FOR PYTHON: Installing pandas/numpy takes MINUTES and is SLOW - only use if you absolutely need DataFrame operations or advanced numerical computing!
-- 🚨 CRITICAL FOR PYTHON: For prime numbers, use simple loops and the math module - DO NOT use pandas!
-- 🚨 CRITICAL FOR PYTHON: For basic statistics, use the statistics module - DO NOT use pandas or numpy!
-- 🚨 CRITICAL FOR PYTHON: For matrix operations, you can use simple lists - DO NOT use numpy unless the task explicitly requires it!
-- NEVER use input() or any user input functions - use the context parameters directly
-- NEVER ask for user input - the code should run automatically with the given context
-- NEVER use Docker commands (docker run, docker build, etc.) - Docker is not available in the execution environment
-
-DO NOT include:
-- Test cases
-- Error handling with print statements
-- Example usage with different inputs
-- Validation code that runs automatically
-- Any code that prints error messages
-- Functions that test or validate - create the actual functionality
-- 🚨 Heavy data science libraries (pandas, numpy, matplotlib, scipy, sklearn) unless the task EXPLICITLY requires them!
-- 🚨 Unnecessary imports that will cause slow package installation!
-- input() or any user input functions
-- Any code that waits for user interaction
-- Docker commands (docker run, docker build, etc.) - Docker is not available
-- Any comments mentioning Docker, containers, or containerization
-- Any references to Docker in comments or strings
-
-The code should run once and print only the expected result. Ensure it compiles without errors before returning.
-
-🚨🚨🚨 FINAL REMINDER: Generate ONLY %s code - NO other languages! 🚨🚨🚨
-If you include any code from another language (Python when asked for Go, Go when asked for Python, etc.), the system will FAIL!
-
-🚨 CRITICAL: You MUST return CODE, NOT JSON! Do NOT return task planning JSON!
-🚨 CRITICAL: Your response MUST start with a code block marker (three backticks followed by the language)
-🚨 CRITICAL: Do NOT return JSON like {"task": "...", "subtasks": [...]} - return CODE!
-
-%s
-
-Code (ONLY %s code wrapped in markdown code blocks, nothing else):`, req.Language, req.TaskName, req.Description, contextStr, filePathInfo, tagsStr, req.TaskName, time.Now().UnixNano(), toolsSection, req.Language)
+Return only the code in a markdown code block.`, req.Language, cleanDesc, contextStr)
 }
 
 // extractCodeFromResponse extracts code from the LLM response
@@ -693,42 +430,11 @@ func (cg *CodeGenerator) extractCodeFromResponse(response, language string) (str
 			log.Printf("⚠️ [CODEGEN] Filtered out Go code from Python response")
 		}
 	} else if language == "go" {
-		// Remove Python code blocks (import pandas, def main, etc.)
-		lines := strings.Split(code, "\n")
-		var filteredLines []string
-		inPythonBlock := false
-		for _, line := range lines {
-			lineTrimmed := strings.TrimSpace(line)
-			// Detect Python code blocks
-			if (strings.HasPrefix(lineTrimmed, "import ") && !strings.Contains(lineTrimmed, "(")) ||
-				strings.HasPrefix(lineTrimmed, "def ") ||
-				strings.HasPrefix(lineTrimmed, "class ") {
-				// Check if this is actually Go import statement
-				if strings.HasPrefix(lineTrimmed, "import (") || strings.HasPrefix(lineTrimmed, "package ") {
-					inPythonBlock = false
-					filteredLines = append(filteredLines, line)
-					continue
-				}
-				inPythonBlock = true
-				continue
-			}
-			// If we're in a Python block, skip until we see Go code
-			if inPythonBlock {
-				// Check if this looks like Go code
-				if strings.HasPrefix(lineTrimmed, "package ") ||
-					strings.HasPrefix(lineTrimmed, "func ") ||
-					strings.HasPrefix(lineTrimmed, "import (") {
-					inPythonBlock = false
-					filteredLines = append(filteredLines, line)
-				}
-				continue
-			}
-			filteredLines = append(filteredLines, line)
-		}
-		if len(filteredLines) > 0 {
-			code = strings.Join(filteredLines, "\n")
-			log.Printf("⚠️ [CODEGEN] Filtered out Python code from Go response")
-		}
+		// For Go code, we should NOT filter anything - Go single-line imports like "import \"fmt\"" 
+		// are valid and should not be confused with Python imports
+		// The only time we'd filter is if there's a clear Python code block mixed in,
+		// but that's very rare and the LLM should generate correct code
+		// So we skip filtering for Go to avoid false positives
 	}
 
 	return code, nil

@@ -573,7 +573,13 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 	initLLMSemaphore()
 	
 	// Acquire semaphore slot with priority
-	if !acquireLLMSlot(ctx, priority, c.httpClient.Timeout) {
+	// For high-priority requests, use a longer timeout to ensure they get through even with background load
+	slotTimeout := c.httpClient.Timeout
+	if priority == PriorityHigh {
+		// High-priority requests get 2x the HTTP timeout to ensure they can wait for slots
+		slotTimeout = c.httpClient.Timeout * 2
+	}
+	if !acquireLLMSlot(ctx, priority, slotTimeout) {
 		return "", fmt.Errorf("failed to acquire LLM slot (cancelled or timed out)")
 	}
 	defer func() { <-llmRequestSemaphore }()
