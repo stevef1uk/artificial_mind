@@ -28,36 +28,68 @@ func NewRealToolProvider(hdnBaseURL string) *RealToolProvider {
 }
 
 // GetAvailableTools returns available tools from HDN server
+// Implements retry logic with exponential backoff to handle transient failures in Kubernetes
 func (r *RealToolProvider) GetAvailableTools(ctx context.Context) ([]Tool, error) {
-	log.Printf("🔧 [REAL-TOOL-PROVIDER] Getting available tools from HDN server")
+	log.Printf("🔧 [REAL-TOOL-PROVIDER] Getting available tools from HDN server at %s", r.hdnBaseURL)
 
-	// Call HDN server's tools endpoint
+	// Call HDN server's tools endpoint with retry logic
 	url := fmt.Sprintf("%s/api/v1/tools", r.hdnBaseURL)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %v", err)
+
+	maxRetries := 3
+	backoff := 500 * time.Millisecond
+
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			log.Printf("🔄 [REAL-TOOL-PROVIDER] Retry attempt %d/%d after %v", attempt+1, maxRetries, backoff)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoff):
+				// Continue with retry
+			}
+			backoff *= 2 // Exponential backoff
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to create request: %v", err)
+			continue
+		}
+
+		resp, err := r.httpClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to get tools (attempt %d/%d): %v", attempt+1, maxRetries, err)
+			log.Printf("⚠️ [REAL-TOOL-PROVIDER] %v", lastErr)
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("HDN server returned status %d (attempt %d/%d)", resp.StatusCode, attempt+1, maxRetries)
+			log.Printf("⚠️ [REAL-TOOL-PROVIDER] %v", lastErr)
+			continue
+		}
+
+		var toolsResponse struct {
+			Tools []Tool `json:"tools"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&toolsResponse); err != nil {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("failed to decode tools response (attempt %d/%d): %v", attempt+1, maxRetries, err)
+			log.Printf("⚠️ [REAL-TOOL-PROVIDER] %v", lastErr)
+			continue
+		}
+		resp.Body.Close()
+
+		log.Printf("✅ [REAL-TOOL-PROVIDER] Retrieved %d tools from HDN server", len(toolsResponse.Tools))
+		return toolsResponse.Tools, nil
 	}
 
-	resp, err := r.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get tools: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HDN server returned status %d", resp.StatusCode)
-	}
-
-	var toolsResponse struct {
-		Tools []Tool `json:"tools"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&toolsResponse); err != nil {
-		return nil, fmt.Errorf("failed to decode tools response: %v", err)
-	}
-
-	log.Printf("🔧 [REAL-TOOL-PROVIDER] Retrieved %d tools from HDN server", len(toolsResponse.Tools))
-	return toolsResponse.Tools, nil
+	// All retries failed
+	log.Printf("❌ [REAL-TOOL-PROVIDER] Failed to get tools after %d attempts: %v", maxRetries, lastErr)
+	return nil, fmt.Errorf("failed to get tools after %d attempts: %v", maxRetries, lastErr)
 }
 
 // ExecuteTool executes a tool through HDN server
