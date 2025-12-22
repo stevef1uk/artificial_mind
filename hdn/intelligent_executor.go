@@ -3502,13 +3502,13 @@ func extractJSONFromOutput(output string) string {
 		// Find the first { or [ and extract until matching } or ]
 		startIdx := -1
 		var openChar, closeChar byte
-		for i, char := range output {
-			if char == '{' {
+		for i := 0; i < len(output); i++ {
+			if output[i] == '{' {
 				startIdx = i
 				openChar = '{'
 				closeChar = '}'
 				break
-			} else if char == '[' {
+			} else if output[i] == '[' {
 				startIdx = i
 				openChar = '['
 				closeChar = ']'
@@ -3556,8 +3556,8 @@ func extractJSONFromOutput(output string) string {
 	// If validation failed, try to extract just the JSON object/array
 	// Remove everything before first { or [
 	startIdx := -1
-	for i, char := range jsonStr {
-		if char == '{' || char == '[' {
+	for i := 0; i < len(jsonStr); i++ {
+		if jsonStr[i] == '{' || jsonStr[i] == '[' {
 			startIdx = i
 			break
 		}
@@ -3565,7 +3565,7 @@ func extractJSONFromOutput(output string) string {
 	if startIdx >= 0 {
 		// Find matching closing brace/bracket
 		openChar := jsonStr[startIdx]
-		closeChar := '}'
+		var closeChar byte = '}'
 		if openChar == '[' {
 			closeChar = ']'
 		}
