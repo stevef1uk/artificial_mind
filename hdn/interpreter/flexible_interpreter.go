@@ -62,7 +62,12 @@ func (f *FlexibleInterpreter) InterpretWithPriority(ctx context.Context, req *Na
 	tools, err := f.toolProvider.GetAvailableTools(ctx)
 	if err != nil {
 		log.Printf("⚠️ [FLEXIBLE-INTERPRETER] Failed to get tools: %v", err)
+		log.Printf("⚠️ [FLEXIBLE-INTERPRETER] Continuing with empty tools list - LLM will generate code instead of using tools")
 		tools = []Tool{} // Continue with empty tools list
+	} else if len(tools) == 0 {
+		log.Printf("⚠️ [FLEXIBLE-INTERPRETER] No tools available - LLM will generate code instead of using tools")
+	} else {
+		log.Printf("✅ [FLEXIBLE-INTERPRETER] Retrieved %d tools for LLM to use", len(tools))
 	}
 
 	// Process with flexible LLM using priority

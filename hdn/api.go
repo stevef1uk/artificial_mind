@@ -5091,8 +5091,13 @@ func (s *APIServer) Start(port int) error {
 	} else {
 		s.hdnBaseURL = fmt.Sprintf("http://localhost:%d", port)
 	}
-	log.Printf("Starting API server on port %d", port)
-	return http.ListenAndServe(addr, s.router)
+	log.Printf("🌐 [HDN] Starting HTTP server on %s (HDN_BASE_URL=%s)", addr, s.hdnBaseURL)
+	log.Printf("🌐 [HDN] Server is now listening for connections...")
+	err := http.ListenAndServe(addr, s.router)
+	if err != nil {
+		log.Printf("❌ [HDN] HTTP server error: %v", err)
+	}
+	return err
 }
 
 // getMaxConcurrentExecutions returns the maximum number of concurrent executions
