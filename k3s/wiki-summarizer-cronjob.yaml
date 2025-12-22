@@ -6,6 +6,8 @@ metadata:
 spec:
   # Run every 2 hours to process Wikipedia articles
   schedule: "0 */2 * * *"
+  concurrencyPolicy: Forbid  # Prevent multiple jobs from running simultaneously
+  startingDeadlineSeconds: 600  # Skip if more than 10 minutes late
   jobTemplate:
     spec:
       template:
