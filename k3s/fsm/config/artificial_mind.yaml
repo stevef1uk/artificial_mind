@@ -11,7 +11,7 @@ agent:
   max_concurrent_hypotheses: 5
   confidence_threshold: 0.4  # More conservative: up from 0.3
   risk_threshold: 0.7
-  hypothesis_screen_threshold: 0.6
+  hypothesis_screen_threshold: 0.35
 
 # Graduated confidence thresholds for different processing tiers
 confidence_tiers:

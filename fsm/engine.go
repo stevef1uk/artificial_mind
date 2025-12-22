@@ -3287,7 +3287,25 @@ func (e *FSMEngine) screenHypothesesWithLLM(hypotheses []Hypothesis, domain stri
 	}
 
 	for _, h := range hypotheses {
-		prompt := fmt.Sprintf("You are an expert research assistant. Rate the following hypothesis for impact and tractability in domain '%s' on a 0.0-1.0 scale. Respond as JSON: {\"score\": <0-1>, \"reason\": \"...\"}. Hypothesis: %s", domain, h.Description)
+		// Improved prompt with clearer instructions and examples
+		prompt := fmt.Sprintf(`You are an expert research assistant evaluating hypotheses for testing.
+
+TASK: Rate this hypothesis on a scale of 0.0 to 1.0 based on:
+- IMPACT: How valuable would confirming this hypothesis be? (0.0 = no value, 1.0 = very valuable)
+- TRACTABILITY: How testable/verifiable is this hypothesis? (0.0 = untestable, 1.0 = easily testable)
+
+Domain: %s
+Hypothesis: %s
+
+IMPORTANT: Respond ONLY with valid JSON in this exact format:
+{"score": 0.75, "reason": "Brief explanation of your rating"}
+
+Examples:
+- High impact, testable: {"score": 0.8, "reason": "High value and easily testable"}
+- Medium impact, testable: {"score": 0.6, "reason": "Moderate value, testable"}
+- Low impact or untestable: {"score": 0.3, "reason": "Low value or difficult to test"}
+
+Now rate this hypothesis:`, domain, h.Description)
 
 		// HDN /api/v1/interpret expects "input" field, not "text"
 		payload := map[string]interface{}{
@@ -3319,14 +3337,19 @@ func (e *FSMEngine) screenHypothesesWithLLM(hypotheses []Hypothesis, domain stri
 
 		resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 		if err != nil {
-			log.Printf("⚠️ LLM screening request failed: %v (allowing by default)", err)
+			log.Printf("⚠️ [HYP-SCREEN] LLM screening request failed: %v (allowing by default)", err)
 			approved = append(approved, h)
 			continue
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		
+		// DEBUG: Log raw LLM response for diagnosis
+		log.Printf("🔍 [HYP-SCREEN] Raw LLM response for hypothesis '%s': Status=%d, Body=%s", 
+			h.Description[:min(50, len(h.Description))], resp.StatusCode, string(body))
+		
 		if resp.StatusCode != http.StatusOK {
-			log.Printf("⚠️ LLM screening status %d: %s (allowing by default)", resp.StatusCode, string(body))
+			log.Printf("⚠️ [HYP-SCREEN] LLM screening status %d: %s (allowing by default)", resp.StatusCode, string(body))
 			approved = append(approved, h)
 			continue
 		}
@@ -3334,31 +3357,76 @@ func (e *FSMEngine) screenHypothesesWithLLM(hypotheses []Hypothesis, domain stri
 		// Try to parse JSON { score, reason }
 		var out map[string]interface{}
 		score := 0.0
+		parseMethod := "none"
+		
 		if err := json.Unmarshal(body, &out); err == nil {
+			// Successfully parsed JSON
+			parseMethod = "json"
 			if v, ok := out["score"].(float64); ok {
 				score = v
+				log.Printf("✅ [HYP-SCREEN] Parsed score from JSON: %.2f (reason: %v)", score, out["reason"])
+			} else {
+				// JSON parsed but no score field
+				log.Printf("⚠️ [HYP-SCREEN] JSON parsed but no 'score' field found. Keys: %v", getMapKeys(out))
+				// Try alternative field names
+				if v, ok := out["rating"].(float64); ok {
+					score = v
+					log.Printf("✅ [HYP-SCREEN] Found 'rating' field instead: %.2f", score)
+				} else if v, ok := out["value"].(float64); ok {
+					score = v
+					log.Printf("✅ [HYP-SCREEN] Found 'value' field instead: %.2f", score)
+				}
 			}
 		} else {
-			// Fallback: try to extract a number between 0 and 1 from plain text
+			// JSON parse failed, try fallback text extraction
+			parseMethod = "text_fallback"
 			s := string(body)
-			for i := 0; i < len(s); i++ {
-				// quick scan for patterns like 0.7 or 1.0
-				if s[i] >= '0' && s[i] <= '9' {
-					// Very simple parse; ignore errors
-					var val float64
-					fmt.Sscanf(s[i:], "%f", &val)
-					if val >= 0 && val <= 1 {
-						score = val
-						break
+			log.Printf("⚠️ [HYP-SCREEN] JSON parse failed, trying text extraction. Error: %v", err)
+			
+			// Improved text extraction: look for patterns like "score: 0.7" or "0.75" or "score=0.8"
+			// Try regex-like patterns
+			if strings.Contains(s, "score") || strings.Contains(s, "rating") {
+				// Look for number after "score" or "rating"
+				parts := strings.Fields(s)
+				for i, part := range parts {
+					if (strings.Contains(strings.ToLower(part), "score") || 
+						strings.Contains(strings.ToLower(part), "rating")) && 
+						i+1 < len(parts) {
+						// Next part might be the number
+						var val float64
+						if _, err := fmt.Sscanf(parts[i+1], "%f", &val); err == nil && val >= 0 && val <= 1 {
+							score = val
+							log.Printf("✅ [HYP-SCREEN] Extracted score from text after keyword: %.2f", score)
+							break
+						}
+					}
+				}
+			}
+			
+			// Fallback: try to extract any number between 0 and 1
+			if score == 0.0 {
+				for i := 0; i < len(s); i++ {
+					if s[i] >= '0' && s[i] <= '9' {
+						var val float64
+						if _, err := fmt.Sscanf(s[i:], "%f", &val); err == nil && val >= 0 && val <= 1 {
+							score = val
+							log.Printf("✅ [HYP-SCREEN] Extracted score from text (simple scan): %.2f", score)
+							break
+						}
 					}
 				}
 			}
 		}
 
+		log.Printf("📊 [HYP-SCREEN] Final score: %.2f (method: %s, threshold: %.2f) for hypothesis: %s", 
+			score, parseMethod, threshold, h.Description[:min(80, len(h.Description))])
+
 		if score >= threshold {
 			approved = append(approved, h)
+			log.Printf("✅ [HYP-SCREEN] Hypothesis APPROVED (score %.2f >= threshold %.2f)", score, threshold)
 		} else {
-			log.Printf("🛑 Hypothesis filtered by LLM (score=%.2f < %.2f): %s", score, threshold, h.Description)
+			log.Printf("🛑 [HYP-SCREEN] Hypothesis FILTERED (score %.2f < threshold %.2f): %s", 
+				score, threshold, h.Description[:min(80, len(h.Description))])
 		}
 	}
 
@@ -3378,6 +3446,15 @@ func getFloat64(m map[string]interface{}, key string, defaultValue float64) floa
 		return val
 	}
 	return defaultValue
+}
+
+// getMapKeys returns all keys from a map as a slice
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // HypothesisTestResult represents the result of testing a hypothesis
