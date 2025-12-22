@@ -3131,12 +3131,13 @@ func (ie *IntelligentExecutor) executeChainedPrograms(ctx context.Context, req *
 
 		// Create execution request for this program
 		programReq := &ExecutionRequest{
-			TaskName:    program.Name,
-			Description: program.Description,
-			Context:     program.Context,
-			Language:    program.Language,
-			MaxRetries:  req.MaxRetries,
-			Timeout:     req.Timeout,
+			TaskName:     program.Name,
+			Description:  program.Description,
+			Context:      program.Context,
+			Language:     program.Language,
+			MaxRetries:   req.MaxRetries,
+			Timeout:      req.Timeout,
+			HighPriority: req.HighPriority, // Pass priority through to chained programs
 		}
 
 		// Add previous output as input if this isn't the first program
@@ -3534,7 +3535,16 @@ func (ie *IntelligentExecutor) executeProgramDirectly(ctx context.Context, req *
 	}
 
 	// Create a specific prompt for Go programs that need to parse JSON
-	if req.Language == "go" && strings.Contains(strings.ToLower(enhancedDesc), "json") {
+	// Check multiple conditions: description contains "json", OR it's a chained prog2 that reads from stdin
+	isChainedProg2 := (strings.HasPrefix(req.TaskName, "chained_prog2") || strings.HasPrefix(req.TaskName, "prog2")) && req.Language == "go"
+	hasPreviousOutput := filteredCtx != nil && filteredCtx["previous_output"] != ""
+	needsJSONParsing := req.Language == "go" && (strings.Contains(strings.ToLower(enhancedDesc), "json") || 
+		strings.Contains(strings.ToLower(enhancedDesc), "read") || 
+		strings.Contains(strings.ToLower(enhancedDesc), "stdin") ||
+		isChainedProg2 ||
+		hasPreviousOutput)
+	
+	if needsJSONParsing {
 		// Add specific instructions for JSON parsing in Go with a complete working example
 		codeGenReq.Description = enhancedDesc + "\n\n🚨 CRITICAL: You MUST copy this EXACT code - including ALL imports:\n\npackage main\n\nimport (\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"io\"\n\t\"os\"\n\t\"strings\"\n)\n\nfunc main() {\n\t// Read JSON from stdin - EXACTLY this line, no variations!\n\tjsonBytes, _ := io.ReadAll(os.Stdin)\n\t\n\t// CRITICAL: Trim whitespace and newlines from input\n\tjsonStr := strings.TrimSpace(string(jsonBytes))\n\t\n\t// Unmarshal into map[string]interface{}\n\tvar data map[string]interface{}\n\tjson.Unmarshal([]byte(jsonStr), &data)\n\t\n\t// Extract number as float64, then convert to int\n\t// Use type assertion with ok check to avoid panic\n\tif numVal, ok := data[\"number\"].(float64); ok {\n\t\tnumber := int(numVal)\n\t\t// Calculate result (multiply by 2)\n\t\tresult := number * 2\n\t\t// Print ONLY the number, no labels\n\t\tfmt.Println(result)\n\t}\n}\n\n🚨 CRITICAL RULES - DO NOT DEVIATE:\n- MUST include ALL 5 imports: \"encoding/json\", \"fmt\", \"io\", \"os\", \"strings\"\n- MUST use: io.ReadAll(os.Stdin) - NOT log.Std(), NOT stdin, NOT anything else!\n- MUST trim whitespace: jsonStr := strings.TrimSpace(string(jsonBytes))\n- MUST import \"encoding/json\" to use json.Unmarshal - this is REQUIRED!\n- MUST import \"strings\" to use strings.TrimSpace - this is REQUIRED!\n- MUST import \"os\" package to access os.Stdin\n- MUST use type assertion with ok check: if numVal, ok := data[\"number\"].(float64); ok {\n- DO NOT use direct type assertion without ok check - it will panic if the value is nil!\n- DO NOT use log.Std() or any other function - ONLY os.Stdin!"
 	}
