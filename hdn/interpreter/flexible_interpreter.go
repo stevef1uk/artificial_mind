@@ -184,6 +184,7 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 	}
 
 	// If it's a tool call, validate and execute it
+	log.Printf("🔍 [FLEXIBLE-INTERPRETER] InterpretAndExecuteWithPriority: checking for tool call. result.ToolCall=%v, result.ResponseType=%s", result.ToolCall != nil, result.ResponseType)
 	if result.ToolCall != nil {
 		log.Printf("🔧 [FLEXIBLE-INTERPRETER] Executing tool: %s with parameters: %+v", result.ToolCall.ToolID, result.ToolCall.Parameters)
 		// Validate the tool ID against available tools to avoid invoking non-existent endpoints

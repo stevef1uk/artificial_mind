@@ -397,45 +397,76 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			log.Printf("✅ [CONVERSATIONAL] Using original message for extraction: %s", originalMessage)
 		}
 		
-		// Look for "What is X?" or "What are X?" patterns
+		// Look for "What is X?", "What are X?", "Who is X?", "Who are X?" patterns
 		lowerText := strings.ToLower(searchText)
-		if idx := strings.Index(lowerText, "what is "); idx >= 0 {
-			start := idx + len("what is ")
-			end := len(searchText)
-			// Find end of concept (period, question mark, or end of string)
-			for i := start; i < len(searchText); i++ {
-				if searchText[i] == '.' || searchText[i] == '?' || searchText[i] == '!' {
-					end = i
-					break
+		extractPattern := func(pattern string) string {
+			if idx := strings.Index(lowerText, pattern); idx >= 0 {
+				start := idx + len(pattern)
+				end := len(searchText)
+				// Find end of concept (period, question mark, or end of string)
+				for i := start; i < len(searchText); i++ {
+					if searchText[i] == '.' || searchText[i] == '?' || searchText[i] == '!' {
+						end = i
+						break
+					}
+				}
+				extracted := strings.TrimSpace(searchText[start:end])
+				if extracted != "" {
+					return extracted
 				}
 			}
-			coreQuery = strings.TrimSpace(searchText[start:end])
-			log.Printf("✅ [CONVERSATIONAL] Extracted concept name from 'What is' pattern: '%s'", coreQuery)
-		} else if idx := strings.Index(lowerText, "what are "); idx >= 0 {
-			start := idx + len("what are ")
-			end := len(searchText)
-			for i := start; i < len(searchText); i++ {
-				if searchText[i] == '.' || searchText[i] == '?' || searchText[i] == '!' {
-					end = i
-					break
-				}
-			}
-			coreQuery = strings.TrimSpace(searchText[start:end])
-			log.Printf("✅ [CONVERSATIONAL] Extracted concept name from 'What are' pattern: '%s'", coreQuery)
+			return ""
 		}
 		
-		// If we couldn't extract, try to get first word or short phrase from queryText
+		// Try different patterns in order of specificity
+		coreQuery = extractPattern("who is ")
+		if coreQuery != "" {
+			log.Printf("✅ [CONVERSATIONAL] Extracted concept name from 'Who is' pattern: '%s'", coreQuery)
+		} else {
+			coreQuery = extractPattern("who are ")
+			if coreQuery != "" {
+				log.Printf("✅ [CONVERSATIONAL] Extracted concept name from 'Who are' pattern: '%s'", coreQuery)
+			} else {
+				coreQuery = extractPattern("what is ")
+				if coreQuery != "" {
+					log.Printf("✅ [CONVERSATIONAL] Extracted concept name from 'What is' pattern: '%s'", coreQuery)
+				} else {
+					coreQuery = extractPattern("what are ")
+					if coreQuery != "" {
+						log.Printf("✅ [CONVERSATIONAL] Extracted concept name from 'What are' pattern: '%s'", coreQuery)
+					}
+				}
+			}
+		}
+		
+		// If we couldn't extract from patterns, try to get meaningful phrase from searchText (original message)
 		if coreQuery == "" {
-			// Take first meaningful word/phrase (up to 20 chars or first punctuation)
-			words := strings.Fields(queryText)
-			if len(words) > 0 {
-				coreQuery = words[0]
-				// Capitalize if needed
+			// Remove common question words and extract the main subject
+			words := strings.Fields(searchText)
+			// Skip common question words at the start
+			skipWords := map[string]bool{"who": true, "what": true, "where": true, "when": true, "why": true, "how": true, "is": true, "are": true, "the": true, "a": true, "an": true}
+			startIdx := 0
+			for i, word := range words {
+				if !skipWords[strings.ToLower(word)] {
+					startIdx = i
+					break
+				}
+			}
+			// Take up to 3 words (for names like "Lindsay Foreman" or "John Smith")
+			if startIdx < len(words) {
+				endIdx := startIdx + 3
+				if endIdx > len(words) {
+					endIdx = len(words)
+				}
+				coreQuery = strings.Join(words[startIdx:endIdx], " ")
+				// Capitalize first letter
 				if len(coreQuery) > 0 {
 					coreQuery = strings.ToUpper(coreQuery[:1]) + coreQuery[1:]
 				}
+				log.Printf("✅ [CONVERSATIONAL] Extracted concept name from fallback: '%s'", coreQuery)
 			} else {
 				coreQuery = "Unknown"
+				log.Printf("⚠️ [CONVERSATIONAL] Could not extract concept name, using 'Unknown'")
 			}
 		}
 		
