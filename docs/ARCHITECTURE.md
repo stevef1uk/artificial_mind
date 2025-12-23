@@ -147,6 +147,14 @@ graph TB
     class PI plannerClass
 ```
 
+### Recent Capabilities (Implemented)
+
+- **Thinking Mode & Conversational Layer**: Full chat interface with real-time thought streaming, session history, and Chain-of-Thought views in the Monitor UI (proxied via HDN `/api/v1/chat*` APIs).
+- **Activity Log & FSM Monitoring**: Human-readable activity log, reasoning traces, hypotheses, curiosity goals, and episodes exposed via FSM HTTP endpoints and surfaced in the Monitor UI.
+- **Learning Focus & Meta-Learning**: Outcome-based goal learning, enhanced goal scoring, focused learning strategy, meta-learning about the learning process, and improved semantic concept discovery (see sections below).
+- **Multi-Modal Memory System**: Unified working memory (Redis), episodic memory (Qdrant), and semantic/domain knowledge (Neo4j) integrated into HDN, FSM, and Planner flows.
+- **Daily Summary Pipeline**: Nightly FSM-triggered HDN execution that generates and persists daily summaries, exposed through dedicated Monitor API endpoints and UI panel.
+
 ## 🧩 Core Components
 
 ### New: Advanced Reasoning Layer and Knowledge Inference
@@ -249,6 +257,7 @@ For a deeper, HDN-specific architecture diagram and narrative, see `hdn_architec
   - Workflow artifact management
   - Capability code previews with modal viewer
   - Project dashboard: create/view projects, link workflows, view artifacts
+  - Activity Log panel: human-readable activity stream for FSM activity, reasoning, hypotheses, and learning episodes
   - **Chain of Thought Tab**: Explore AI reasoning process with:
     - Session management with message previews
     - Thought visualization with timestamps, confidence, and metadata

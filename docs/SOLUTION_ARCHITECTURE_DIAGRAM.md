@@ -4,99 +4,110 @@
 
 This diagram represents the high-level architecture of an Artificial Mind (Artificial Mind) system that combines ethical decision-making, hierarchical planning, intelligent code generation, and self-aware learning capabilities.
 
-## Architecture Diagram
+## Architecture Diagram (Updated)
 
 ```mermaid
 graph TB
-    %% External Layer
+    %% External Interface Layer
     subgraph "External Interface Layer"
-        User[👤 User Interface]
-        Monitor[📊 Monitoring Dashboard]
+        User[👤 User / Client Apps]
+        Monitor[📊 Monitor UI<br/>Dashboard & Chain-of-Thought]
     end
 
-    %% Core AI Layer
-    subgraph "AI Cognition & Control Layer"
-        FSM[🧠 FSM Engine<br/>State Management & Reasoning]
-        Principles[🔒 Principles Server<br/>Ethical Decision Making]
-        GoalManager[🎯 Goal Manager<br/>Self-Model & Learning]
+    %% Cognition & Control Layer
+    subgraph "Cognition & Control Layer"
+        FSM[🧠 FSM Engine<br/>Reasoning & Autonomy]
+        GoalMgr[🎯 Goal / Self-Model Manager<br/>Goals, Outcomes, Meta-Learning]
+        Principles[🔒 Principles Server<br/>Ethical Rules (8080)]
     end
 
     %% Planning & Execution Layer
     subgraph "Planning & Execution Layer"
-        HDN[🌐 HDN API<br/>Hierarchical Decision Network]
-        Planner[📋 Planner/Evaluator<br/>Workflow Orchestration]
-        Executor[🤖 Intelligent Executor<br/>Code Generation & Execution]
+        HDN[🌐 HDN API Server (8081)<br/>Tasks, Chat, Tools, Memory]
+        Planner[📋 Planner Evaluator<br/>Hierarchical Workflows]
+        Executor[🤖 Intelligent Executor<br/>Code Gen & Execution]
     end
 
-    %% AI Services Layer
-    subgraph "AI Services Layer"
-        LLM[🤖 LLM Services<br/>Code Generation & Analysis]
-        Reasoning[💭 Reasoning Engine<br/>Knowledge Inference]
-        Knowledge[📚 Knowledge Integration<br/>Domain Knowledge & Learning]
+    %% Knowledge, Reasoning & MCP Layer
+    subgraph "Knowledge & Reasoning Layer"
+        Reasoning[💭 Reasoning Engine<br/>Curiosity & Hypotheses]
+        MCP[🔌 MCP Knowledge Server<br/>Neo4j / Weaviate Tools]
+        LLM[🤖 LLM Provider(s)<br/>OpenAI / Anthropic / Local]
     end
 
-    %% Data & Storage Layer
-    subgraph "Data & Storage Layer"
-        Redis[(💾 Redis<br/>Working Memory & Cache)]
-        Qdrant[(🔍 Qdrant<br/>Episodic Memory)]
+    %% Memory & Data Layer
+    subgraph "Memory & Data Layer"
+        Redis[(💾 Redis<br/>Working Memory, Goals, State)]
+        Qdrant[(🔍 Qdrant<br/>Episodic Memory / RAG)]
         Neo4j[(🕸️ Neo4j<br/>Domain Knowledge Graph)]
     end
 
-    %% Infrastructure Layer
+    %% Infrastructure & Integration Layer
     subgraph "Infrastructure Layer"
         Docker[🐳 Docker<br/>Execution Sandbox]
-        NATS[📡 NATS<br/>Event Bus]
+        NATS[📡 NATS Event Bus<br/>agi.events.*]
+        Daily[📅 Daily Summary Pipeline<br/>Nightly FSM → HDN job]
     end
 
-    %% External Connections
-    User -->|Task Requests| HDN
-    User -->|Policy Rules| Principles
-    User -->|Monitoring| Monitor
+    %% External Flows
+    User -->|Chat, Tasks, Tools| HDN
+    User -->|Policy Config| Principles
+    User -->|Status, Traces, Activity| Monitor
 
-    %% AI Layer Connections
-    FSM <-->|Delegate Tasks| HDN
-    FSM <-->|Ethical Checks| Principles
-    FSM <-->|Goal Management| GoalManager
-    GoalManager -->|Active Goals| Redis
+    %% Cognition & Control Flows
+    FSM <-->|Delegate Complex Tasks| HDN
+    FSM -->|Reasoning State, Curiosity Goals| Reasoning
+    FSM -->|Ethical Check Requests| Principles
+    FSM -->|Goal Outcomes| GoalMgr
+    GoalMgr -->|Goal Scores & Focus Areas| FSM
+    GoalMgr -->|Goal Stats & Meta-Learning| Redis
 
-    %% Planning Layer Connections
-    HDN -->|Plan & Execute| Planner
-    HDN -->|Code Generation| Executor
+    %% Planning & Execution Flows
+    HDN -->|Hierarchical Plans| Planner
+    Planner -->|Workflow Orchestration| Executor
+    HDN -->|Intelligent Execute / Tools| Executor
+    Executor -->|Code & Results| Docker
+    Executor -->|Working State & Capabilities| Redis
+
+    %% Knowledge & Reasoning Flows
+    Reasoning -->|Knowledge Queries| HDN
+    HDN -->|/api/v1/knowledge/*| Neo4j
+    HDN -->|MCP JSON-RPC| MCP
+    MCP -->|Graph / Vector Queries| Neo4j
+    MCP -->|Vector / Hybrid Search| Qdrant
+    Executor -->|Code Gen, Fix, Safety| LLM
+    Reasoning -->|Hypothesis Screening| LLM
+
+    %% Memory & Data Flows
+    HDN -->|Sessions, State, Tools, Projects| Redis
+    FSM -->|Beliefs, Goals, Curiosity Data| Redis
+    Planner -->|Episodes & Feedback| Qdrant
+    HDN -->|Episodic Traces| Qdrant
+    Neo4j -->|Domain Constraints & Concepts| Reasoning
+
+    %% Event Bus & Observability
+    FSM -->|Perception, Reasoning, Learning Events| NATS
+    HDN -->|Task, Tool, Memory Events| NATS
     Planner -->|Workflow Events| NATS
-    Executor -->|Execution Results| NATS
-
-    %% AI Services Connections
-    Executor -->|Code Generation| LLM
-    Executor -->|Safety Analysis| LLM
-    FSM -->|Knowledge Queries| Reasoning
-    Reasoning -->|Domain Knowledge| Knowledge
-    Knowledge -->|Knowledge Graph| Neo4j
-
-    %% Data Layer Connections
-    HDN -->|Working Memory| Redis
-    Planner -->|Episodic Memory| Qdrant
-    Executor -->|Code Storage| Redis
-    Executor -->|Safe Execution| Docker
-
-    %% Event Bus Connections
-    HDN -->|Events| NATS
-    FSM -->|Events| NATS
-    Monitor -->|Subscribe| NATS
+    Monitor -->|Subscribe, Render Dashboards| NATS
+    Daily -->|Summary Requests| HDN
+    HDN -->|Daily Summary JSON| Redis
+    Monitor -->|Daily Summary API| Redis
 
     %% Styling
-    classDef externalClass fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    classDef aiClass fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    classDef planningClass fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
-    classDef servicesClass fill:#fff3e0,stroke:#f57c00,stroke-width:2px
-    classDef dataClass fill:#fce4ec,stroke:#c2185b,stroke-width:2px
-    classDef infraClass fill:#f1f8e9,stroke:#689f38,stroke-width:2px
+    classDef externalClass fill:#e3f2fd,stroke:#1976d2,stroke-width:1.5px
+    classDef cognitionClass fill:#f3e5f5,stroke:#7b1fa2,stroke-width:1.5px
+    classDef planningClass fill:#e8f5e8,stroke:#388e3c,stroke-width:1.5px
+    classDef knowledgeClass fill:#fff3e0,stroke:#f57c00,stroke-width:1.5px
+    classDef memoryClass fill:#fce4ec,stroke:#c2185b,stroke-width:1.5px
+    classDef infraClass fill:#f1f8e9,stroke:#689f38,stroke-width:1.5px
 
     class User,Monitor externalClass
-    class FSM,Principles,GoalManager aiClass
+    class FSM,GoalMgr,Principles cognitionClass
     class HDN,Planner,Executor planningClass
-    class LLM,Reasoning,Knowledge servicesClass
-    class Redis,Qdrant,Neo4j dataClass
-    class Docker,NATS infraClass
+    class Reasoning,MCP,LLM knowledgeClass
+    class Redis,Qdrant,Neo4j memoryClass
+    class Docker,NATS,Daily infraClass
 ```
 
 ## Key Architectural Layers

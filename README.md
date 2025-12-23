@@ -51,6 +51,8 @@ The Artificial Mind system consists of several interconnected components that wo
 - **Semantic Concept Discovery** - LLM-based concept extraction with understanding
 - **Intelligent Knowledge Filtering** - LLM-based assessment of novelty and value to prevent storing obvious/duplicate knowledge
 - **Session Management** - Conversation sessions with message previews and thought history
+- **Daily Summary Pipeline** - Nightly autonomous analysis that produces a human-readable daily summary of system activity
+- **Multi-Modal Memory System** - Unified working, episodic (Qdrant), and semantic (Neo4j) memory used for planning, reasoning, and learning
 
 ---
 
