@@ -109,6 +109,14 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		conversationContext = make(map[string]interface{})
 	}
 
+	// Merge explicit request context (from UI/API) into conversation context
+	if req.Context != nil {
+		for k, v := range req.Context {
+			// Prefer explicit request context values over stored ones
+			conversationContext[k] = v
+		}
+	}
+
 	cl.reasoningTrace.AddStep("context_loading", "Loaded conversation context", map[string]interface{}{
 		"context_keys": len(conversationContext),
 	})
@@ -252,6 +260,28 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 
 // determineAction determines what action to take based on intent and context
 func (cl *ConversationalLayer) determineAction(ctx context.Context, intent *Intent, context map[string]interface{}) (*Action, error) {
+	// Optional flag: conversation_only=true → avoid Neo4j/RAG knowledge queries
+	conversationOnly := false
+	if val, ok := context["conversation_only"]; ok {
+		if s, ok := val.(string); ok && strings.ToLower(s) == "true" {
+			conversationOnly = true
+		}
+	}
+
+	// If conversation_only is enabled, always fall back to general conversation,
+	// regardless of the parsed intent type. This ensures we don't trigger tools,
+	// code execution, or Neo4j/RAG when the user wants pure conversational recall.
+	if conversationOnly {
+		return &Action{
+			Type: "general_conversation",
+			Goal: intent.Goal,
+			Parameters: map[string]interface{}{
+				"message": intent.OriginalMessage,
+				"mode":    "conversation_only",
+			},
+		}, nil
+	}
+
 	switch intent.Type {
 	case "query":
 		return &Action{
@@ -320,7 +350,22 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 
 	// Convert context to string map for HDN
 	hdnContext := make(map[string]string)
+	forceKnowledgeQuery := false
+	knowledgeSources := "neo4j"
 	for k, v := range context {
+		// Capture force_knowledge_query / knowledge_sources hints (may be non-string)
+		if k == "force_knowledge_query" {
+			if b, ok := v.(bool); ok && b {
+				forceKnowledgeQuery = true
+			} else if s, ok := v.(string); ok && strings.ToLower(s) == "true" {
+				forceKnowledgeQuery = true
+			}
+		}
+		if k == "knowledge_sources" {
+			if s, ok := v.(string); ok && s != "" {
+				knowledgeSources = strings.ToLower(s)
+			}
+		}
 		if str, ok := v.(string); ok {
 			hdnContext[k] = str
 		} else {
@@ -342,6 +387,9 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 
 	switch action.Type {
 	case "knowledge_query":
+		if forceKnowledgeQuery {
+			log.Printf("🧠 [CONVERSATIONAL] Force knowledge query enabled (sources=%s) - running combined Neo4j + RAG flow", knowledgeSources)
+		}
 		// Use HDN's natural language interpretation for knowledge queries (allows tool usage)
 		// For knowledge queries, use a simpler query format to encourage tool usage
 		// Extract the core query from the goal or use the original message
@@ -538,48 +586,48 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			}
 		}
 		
-		// If Neo4j returned no results, try RAG search on Weaviate for episodic memory and news
-		if !hasNeo4jResults {
-			log.Printf("🔍 [CONVERSATIONAL] Neo4j returned no results, trying RAG search on Weaviate for: %s", coreQuery)
-			
-			// Use the extracted core query directly for better precision
-			// This ensures we search for the specific term (e.g., "bondi") rather than the full question
-			ragQueryText := strings.ToLower(strings.TrimSpace(coreQuery))
-			if ragQueryText == "" || ragQueryText == "unknown" {
-				// If extraction failed, try to extract from original message
-				ragQueryText = strings.ToLower(strings.TrimSpace(searchText))
-				// Remove common question words
-				words := strings.Fields(ragQueryText)
-				filtered := make([]string, 0)
-				skipWords := map[string]bool{"who": true, "what": true, "where": true, "when": true, "why": true, "how": true, 
-					"is": true, "are": true, "the": true, "a": true, "an": true, "tell": true, "me": true, "about": true}
-				for _, word := range words {
-					if !skipWords[word] && len(word) > 2 {
-						filtered = append(filtered, word)
-					}
-				}
-				if len(filtered) > 0 {
-					ragQueryText = strings.Join(filtered, " ")
+		// Regardless of Neo4j results, also try RAG search on Weaviate for episodic memory and news.
+		// This ensures we can combine structured knowledge (Neo4j) with episodic/news evidence.
+		log.Printf("🔍 [CONVERSATIONAL] Attempting RAG search on Weaviate for: %s (hasNeo4jResults=%v)", coreQuery, hasNeo4jResults)
+		
+		// Use the extracted core query directly for better precision
+		// This ensures we search for the specific term (e.g., "bondi") rather than the full question
+		ragQueryText := strings.ToLower(strings.TrimSpace(coreQuery))
+		if ragQueryText == "" || ragQueryText == "unknown" {
+			// If extraction failed, try to extract from original message
+			ragQueryText = strings.ToLower(strings.TrimSpace(searchText))
+			// Remove common question words
+			words := strings.Fields(ragQueryText)
+			filtered := make([]string, 0)
+			skipWords := map[string]bool{"who": true, "what": true, "where": true, "when": true, "why": true, "how": true,
+				"is": true, "are": true, "the": true, "a": true, "an": true, "tell": true, "me": true, "about": true}
+			for _, word := range words {
+				if !skipWords[word] && len(word) > 2 {
+					filtered = append(filtered, word)
 				}
 			}
-			
-			if ragQueryText == "" {
-				log.Printf("⚠️ [CONVERSATIONAL] Could not extract query for RAG search, skipping")
-				// Return Neo4j results even if empty
-				return &ActionResult{
-					Type:    "knowledge_result",
-					Success: true,
-					Data:    map[string]interface{}{"neo4j_result": interpretResult, "source": "neo4j_only"},
-				}, nil
+			if len(filtered) > 0 {
+				ragQueryText = strings.Join(filtered, " ")
 			}
-			
-			log.Printf("🔍 [CONVERSATIONAL] RAG search query: '%s' (extracted from: '%s')", ragQueryText, searchText)
-			
-			// Try searching episodic memory (AgiEpisodes) and news (WikipediaArticle)
-			// Use very small limit (3) to get only the most relevant results
-			ragQuery := fmt.Sprintf("Search episodic memory and news articles about '%s'. Use the mcp_search_weaviate tool with query='%s', collection='AgiEpisodes', and limit=3 to find relevant information.", ragQueryText, ragQueryText)
-			ragResult, ragErr := cl.hdnClient.InterpretNaturalLanguage(ctx, ragQuery, hdnContext)
-			if ragErr == nil && ragResult != nil {
+		}
+		
+		if ragQueryText == "" {
+			log.Printf("⚠️ [CONVERSATIONAL] Could not extract query for RAG search, returning Neo4j-only results")
+			// Return Neo4j results (if any)
+			return &ActionResult{
+				Type:    "knowledge_result",
+				Success: true,
+				Data:    map[string]interface{}{"neo4j_result": interpretResult, "source": "neo4j_only"},
+			}, nil
+		}
+		
+		log.Printf("🔍 [CONVERSATIONAL] RAG search query: '%s' (extracted from: '%s')", ragQueryText, searchText)
+		
+		// Try searching episodic memory (AgiEpisodes) and news (WikipediaArticle)
+		// Use very small limit (3) to get only the most relevant results
+		ragQuery := fmt.Sprintf("Search episodic memory and news articles about '%s'. Use the mcp_search_weaviate tool with query='%s', collection='AgiEpisodes', and limit=3 to find relevant information.", ragQueryText, ragQueryText)
+		ragResult, ragErr := cl.hdnClient.InterpretNaturalLanguage(ctx, ragQuery, hdnContext)
+		if ragErr == nil && ragResult != nil {
 				// Check if RAG search found results
 				hasRAGResults := false
 				if ragResult.Metadata != nil {
@@ -593,63 +641,58 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 					}
 				}
 				
-				// If RAG found results, combine with Neo4j results (even if empty)
-				if hasRAGResults {
-					// Also try WikipediaArticle collection for news items
-					// Use the same improved query text for consistency
-					// Use very small limit (3) to get only the most relevant results
-					newsQuery := fmt.Sprintf("Search news articles about '%s'. Use the mcp_search_weaviate tool with query='%s', collection='WikipediaArticle', and limit=3 to find relevant information.", ragQueryText, ragQueryText)
-					newsResult, newsErr := cl.hdnClient.InterpretNaturalLanguage(ctx, newsQuery, hdnContext)
-					if newsErr == nil && newsResult != nil {
-						// Combine results from both sources
-						combinedData := map[string]interface{}{
-							"neo4j_result": interpretResult,
-							"episodic_memory": ragResult,
-							"news_articles": newsResult,
-							"source": "neo4j_and_rag",
-						}
-						
-						// Track RAG tool usage
-						if ragResult.Metadata != nil {
-							if toolID, ok := ragResult.Metadata["tool_used"].(string); ok && toolID != "" {
-								cl.reasoningTrace.AddToolInvoked(toolID)
+				// Always try WikipediaArticle collection for news items, even if episodic memory has no results
+				// Use the same improved query text for consistency
+				// Use very small limit (3) to get only the most relevant results
+				newsQuery := fmt.Sprintf("Search news articles about '%s'. Use the mcp_search_weaviate tool with query='%s', collection='WikipediaArticle', and limit=3 to find relevant information.", ragQueryText, ragQueryText)
+				newsResult, newsErr := cl.hdnClient.InterpretNaturalLanguage(ctx, newsQuery, hdnContext)
+
+				// Determine if news search returned any results
+				hasNewsResults := false
+				if newsErr == nil && newsResult != nil && newsResult.Metadata != nil {
+					if toolSuccess, ok := newsResult.Metadata["tool_success"].(bool); ok && toolSuccess {
+						if toolResult, ok := newsResult.Metadata["tool_result"].(map[string]interface{}); ok {
+							if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
+								hasNewsResults = true
+								log.Printf("✅ [CONVERSATIONAL] RAG search found %d results in news articles (WikipediaArticle)", len(results))
 							}
 						}
-						if newsResult.Metadata != nil {
-							if toolID, ok := newsResult.Metadata["tool_used"].(string); ok && toolID != "" {
-								cl.reasoningTrace.AddToolInvoked(toolID)
-							}
-						}
-						
-						return &ActionResult{
-							Type:    "knowledge_result",
-							Success: true,
-							Data:    combinedData,
-						}, nil
 					}
-					
-					// If news search failed, still return episodic memory results
+				}
+
+				// If either episodic memory or news search found results, combine with Neo4j (even if Neo4j was empty)
+			if hasRAGResults || hasNewsResults {
 					combinedData := map[string]interface{}{
 						"neo4j_result": interpretResult,
-						"episodic_memory": ragResult,
-						"source": "neo4j_and_rag",
+						"source":       "neo4j_and_rag",
 					}
-					
-					if ragResult.Metadata != nil {
+					if hasRAGResults {
+						combinedData["episodic_memory"] = ragResult
+					}
+					if hasNewsResults {
+						combinedData["news_articles"] = newsResult
+					}
+
+					// Track RAG tool usage
+					if ragResult != nil && ragResult.Metadata != nil {
 						if toolID, ok := ragResult.Metadata["tool_used"].(string); ok && toolID != "" {
 							cl.reasoningTrace.AddToolInvoked(toolID)
 						}
 					}
-					
+					if newsResult != nil && newsResult.Metadata != nil {
+						if toolID, ok := newsResult.Metadata["tool_used"].(string); ok && toolID != "" {
+							cl.reasoningTrace.AddToolInvoked(toolID)
+						}
+					}
+
 					return &ActionResult{
 						Type:    "knowledge_result",
 						Success: true,
 						Data:    combinedData,
 					}, nil
 				}
-			} else {
-				log.Printf("⚠️ [CONVERSATIONAL] RAG search failed: %v", ragErr)
-			}
+		} else {
+			log.Printf("⚠️ [CONVERSATIONAL] RAG search failed: %v", ragErr)
 		}
 		
 		return &ActionResult{

@@ -477,11 +477,11 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 
 	// Extract results from the collection and filter by distance
 	var results []map[string]interface{}
-	if collectionData, ok := result.Data.Get[collection]; ok {
-		// ULTRA-STRICT filtering: Primary filter is keyword matching, distance is secondary
-		// Since toyEmbed (hash-based) is unreliable, we rely on exact keyword matching
-		// Distance threshold is very strict (0.25) and keyword matching is MANDATORY
-		maxDistance := 0.25
+		if collectionData, ok := result.Data.Get[collection]; ok {
+		// STRICT BUT LENIENT filtering: keyword matching is primary, distance is secondary
+		// We still prefer high-precision matches but avoid filtering everything out.
+		// Distance threshold is more relaxed (0.6) to account for hash-based embeddings.
+		maxDistance := 0.60
 		
 		// Extract keywords from query for MANDATORY filtering
 		// First, try to extract the actual search term from tool call instructions
@@ -643,8 +643,10 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 				continue
 			}
 			
-			// Step 2: ULTRA-STRICT keyword matching
-			// Since hash-based embeddings are unreliable, keyword matching is PRIMARY
+			// Step 2: Keyword matching (PRIMARY)
+			// Since hash-based embeddings are unreliable, keyword matching remains primary,
+			// but we relax some of the earlier ultra-strict constraints so that relevant
+			// Wikipedia hits are not completely filtered out.
 			if len(keywords) == 0 {
 				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (no keywords to match): %v", item["title"])
 				continue
@@ -664,34 +666,11 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 				titleLower = strings.ToLower(title)
 			}
 			
-			// ULTRA-STRICT: Primary keyword MUST be in title
-			// If there's only one keyword, it MUST be in title
-			// If multiple keywords, at least the first (most important) must be in title
+			// Relaxed rule: primary keyword MUST be in title OR text (for collections with titles),
+			// so good matches in the article body are not discarded.
 			primaryKeyword := keywords[0]
 			primaryInTitle := strings.Contains(titleLower, primaryKeyword)
-			
-			if !primaryInTitle {
-				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (primary keyword '%s' not in title, distance=%.3f): %v", primaryKeyword, distance, title)
-				continue
-			}
-			
-			// Count how many keywords match in title (prefer more matches)
-			titleMatches := 0
-			for _, keyword := range keywords {
-				if strings.Contains(titleLower, keyword) {
-					titleMatches++
-				}
-			}
-			
-			// If we have multiple keywords, require at least 2 to match in title
-			// This ensures we get highly relevant results
-			if len(keywords) > 1 && titleMatches < 2 {
-				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (only %d/%d keywords match in title): %v", titleMatches, len(keywords), title)
-				continue
-			}
-			
-			// Additional check: if text is available, verify keyword appears there too
-			// This helps filter out false positives where keyword appears in title but article is unrelated
+			primaryInText := false
 			if hasText {
 				textLower := strings.ToLower(text)
 				// Check first 1000 chars (more than before to catch context)
@@ -699,16 +678,16 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 				if len(textPreview) > 1000 {
 					textPreview = textPreview[:1000]
 				}
-				
-				// Primary keyword must also appear in text preview
-				if !strings.Contains(textPreview, primaryKeyword) {
-					log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (primary keyword '%s' not in text preview): %v", primaryKeyword, title)
-					continue
-				}
+				primaryInText = strings.Contains(textPreview, primaryKeyword)
+			}
+
+			if !primaryInTitle && !primaryInText {
+				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (primary keyword '%s' not in title or text preview, distance=%.3f): %v", primaryKeyword, distance, title)
+				continue
 			}
 			
-			// Passed all ultra-strict filters
-			log.Printf("✅ [MCP-KNOWLEDGE] Including result (distance=%.3f, %d/%d keywords in title): %v", distance, titleMatches, len(keywords), title)
+			// Passed all filters
+			log.Printf("✅ [MCP-KNOWLEDGE] Including result (distance=%.3f, primary keyword '%s' matched in title/text): %v", distance, primaryKeyword, title)
 			results = append(results, item)
 			
 			// Limit results to requested limit

@@ -164,12 +164,23 @@ func (w *WeaviateAdapter) IndexEpisode(rec *EpisodicRecord, vec []float32) error
 
 func (w *WeaviateAdapter) SearchEpisodes(queryVec []float32, limit int, filters map[string]any) ([]EpisodicRecord, error) {
 	className := sanitizeWeaviateClass(w.collection)
-	// Build GraphQL query for Weaviate
+	// Build GraphQL query for Weaviate using vector similarity
 	whereClause := w.buildWhereClause(filters)
+
+	// Convert query vector to string format for GraphQL nearVector
+	vectorStr := "["
+	for i, v := range queryVec {
+		if i > 0 {
+			vectorStr += ","
+		}
+		vectorStr += fmt.Sprintf("%.6f", v)
+	}
+	vectorStr += "]"
+
 	query := fmt.Sprintf(`
 	{
 		Get {
-            %s(limit: %d%s) {
+            %s(nearVector: {vector: %s}, limit: %d%s) {
 				_additional {
 					id
 					distance
@@ -179,7 +190,7 @@ func (w *WeaviateAdapter) SearchEpisodes(queryVec []float32, limit int, filters 
 				metadata
 			}
 		}
-    }`, className, limit, whereClause)
+    }`, className, vectorStr, limit, whereClause)
 
 	queryData := map[string]interface{}{
 		"query": query,

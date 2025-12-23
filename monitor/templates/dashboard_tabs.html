@@ -817,7 +817,17 @@
                         <label for="project-input">Project (optional):</label>
                         <input type="text" id="project-input" placeholder="Leave blank to auto-create from prompt">
                     </div>
-                    <button class="btn" onclick="executeNaturalLanguage()">Execute</button>
+                    <div class="input-group" style="display:flex; align-items:center; gap:16px; margin-top:8px; flex-wrap:wrap;">
+                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                            <input type="checkbox" id="force-knowledge-rag" />
+                            <span>Use knowledge + RAG (Neo4j + episodic + news)</span>
+                        </label>
+                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                            <input type="checkbox" id="conversation-only" />
+                            <span>Conversation only (ignore Neo4j / RAG)</span>
+                        </label>
+                        <button class="btn" onclick="executeNaturalLanguage()">Execute</button>
+                    </div>
                     <div id="tools-result" style="margin-top: 15px;">
                         <div class="loading">Enter a request and click Execute...</div>
                     </div>
@@ -2808,12 +2818,19 @@
             }
         }
 
+        // Maintain a persistent chat session ID for natural conversations in the Tools UI
+        let toolsChatSessionId = null;
+
         // Execute natural language input
         window.executeNaturalLanguage = async function() {
             console.log('=== EXECUTE NATURAL LANGUAGE CALLED ===');
             const input = document.getElementById('nl-input').value.trim();
             const project = document.getElementById('project-input').value.trim();
             const resultDiv = document.getElementById('tools-result');
+            const forceKnowledgeCheckbox = document.getElementById('force-knowledge-rag');
+            const conversationOnlyCheckbox = document.getElementById('conversation-only');
+            const forceKnowledge = !!(forceKnowledgeCheckbox && forceKnowledgeCheckbox.checked);
+            const conversationOnly = !!(conversationOnlyCheckbox && conversationOnlyCheckbox.checked);
             
             console.log('Input:', input);
             console.log('Project:', project);
@@ -2838,7 +2855,7 @@
                 resultDiv.innerHTML = '<div class="loading">Executing request...</div>';
                 
                 let response;
-                let sessionId = null;
+                let sessionId = toolsChatSessionId || null;
                 
                 if (isCodeRequest) {
                     // Code-related requests use intelligent execution
@@ -2870,13 +2887,26 @@
                 } else {
                     // Non-code requests use chat API with thinking enabled
                     console.log('Detected non-code request, using /api/v1/chat with thinking...');
+                    const context = project ? { project_id: project } : {};
+                    if (conversationOnly) {
+                        // Conversation-only mode: instruct HDN to avoid Neo4j/RAG and stay within conversation
+                        context.conversation_only = "true";
+                    } else if (forceKnowledge) {
+                        // Knowledge + RAG mode: hint HDN to run combined Neo4j + RAG knowledge flow
+                        // Context is a map[string]string on the server side, so use strings here.
+                        context.force_knowledge_query = "true";
+                        context.knowledge_sources = "both"; // episodic + news/Wikipedia
+                    }
                     response = await axios.post('/api/v1/chat', {
                         message: input,
                         show_thinking: true,
-                        context: project ? { project_id: project } : {}
+                        session_id: sessionId || undefined,
+                        context
                     }, { timeout: 180000 });
                     
-                    sessionId = response.data.session_id;
+                    // Persist session for follow-up questions
+                    sessionId = response.data.session_id || sessionId;
+                    toolsChatSessionId = sessionId;
                     console.log('Chat response:', response.data);
                     console.log('Session ID:', sessionId);
                     
