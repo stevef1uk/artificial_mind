@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	mempkg "hdn/memory"
 
@@ -223,8 +226,11 @@ func (s *MCPKnowledgeServer) queryNeo4j(ctx context.Context, args map[string]int
 		// Simple translation: if it's a "what is X" query, convert to Cypher
 		if strings.HasPrefix(strings.ToLower(nlQuery), "what is ") {
 			concept := strings.TrimSpace(strings.TrimPrefix(strings.ToLower(nlQuery), "what is "))
-			query = fmt.Sprintf("MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower($name) RETURN c LIMIT 10")
-			args["name"] = concept
+			// Escape single quotes to prevent Cypher injection
+			escapedConcept := strings.ReplaceAll(concept, "'", "\\'")
+			// Use direct string matching since queryViaHDN doesn't support parameters
+			query = fmt.Sprintf("MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('%s') RETURN c LIMIT 10", escapedConcept)
+			log.Printf("🧠 [MCP-KNOWLEDGE] Translated to Cypher: %s", query)
 		}
 	}
 
@@ -286,29 +292,439 @@ func (s *MCPKnowledgeServer) searchWeaviate(ctx context.Context, args map[string
 	if !ok || query == "" {
 		return nil, fmt.Errorf("query parameter is required")
 	}
+	
+	log.Printf("🔍 [MCP-KNOWLEDGE] searchWeaviate called with query: '%s'", query)
 
 	limit := 10
 	if l, ok := args["limit"].(float64); ok {
 		limit = int(l)
 	}
+	if limit <= 0 {
+		limit = 10
+	}
 
-	_ = "AgiEpisodes" // collection name (can be used if needed)
+	collection := "AgiEpisodes" // default collection
 	if c, ok := args["collection"].(string); ok && c != "" {
-		_ = c // Use collection if provided
+		collection = c
 	}
 
 	if s.vectorDB == nil {
 		return nil, fmt.Errorf("Weaviate not available")
 	}
 
-	// Note: VectorDBAdapter.SearchEpisodes requires a query vector, not text
-	// For now, return a message indicating that text-to-vector conversion is needed
-	// In a full implementation, you would use an embedding model to convert text to vector
+	// Convert text query to vector using toy embedder (same as used elsewhere in the system)
+	// This is a simple hash-based embedding - in production you'd use a real embedding model
+	vec := s.toyEmbed(query, 8)
+
+	// Handle different collection types
+	if collection == "AgiEpisodes" || collection == "AgiWiki" {
+		// Use SearchEpisodes for episodic memory collections
+		results, err := s.vectorDB.SearchEpisodes(vec, limit, map[string]any{})
+		if err != nil {
+			return nil, fmt.Errorf("weaviate search failed: %w", err)
+		}
+
+		// Convert EpisodicRecord to map for JSON response
+		var resultMaps []map[string]interface{}
+		for _, r := range results {
+			resultMaps = append(resultMaps, map[string]interface{}{
+				"text":      r.Text,
+				"timestamp": r.Timestamp,
+				"metadata":  r.Metadata,
+				"session_id": r.SessionID,
+				"outcome":   r.Outcome,
+				"tags":      r.Tags,
+			})
+		}
+
+		return map[string]interface{}{
+			"results": resultMaps,
+			"count":   len(resultMaps),
+			"query":   query,
+			"collection": collection,
+		}, nil
+	} else {
+		// For WikipediaArticle and other collections, use direct Weaviate GraphQL query
+		// This matches the approach used in monitor/main.go
+		return s.searchWeaviateGraphQL(ctx, query, collection, limit, vec)
+	}
+}
+
+// toyEmbed creates a simple deterministic vector for text (same as used in api.go)
+func (s *MCPKnowledgeServer) toyEmbed(text string, dim int) []float32 {
+	vec := make([]float32, dim)
+	hash := 0
+	for _, c := range text {
+		hash = hash*31 + int(c)
+	}
+	for i := 0; i < dim; i++ {
+		vec[i] = float32((hash>>i)&1) * 0.5 // simple binary-like features
+	}
+	return vec
+}
+
+// searchWeaviateGraphQL performs a direct GraphQL query to Weaviate for non-episodic collections
+func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, collection string, limit int, vec []float32) (interface{}, error) {
+	// Get Weaviate URL from vectorDB adapter
+	// We need to construct the GraphQL query directly
+	// For now, we'll need to access the baseURL from the adapter
+	// This is a simplified version - in practice you'd want to expose baseURL from the adapter
+	
+	// Convert vector to string format for GraphQL
+	vectorStr := "["
+	for i, v := range vec {
+		if i > 0 {
+			vectorStr += ","
+		}
+		vectorStr += fmt.Sprintf("%.6f", v)
+	}
+	vectorStr += "]"
+
+	// Build GraphQL query based on collection type
+	// Note: Weaviate's nearVector doesn't support distance threshold in the query itself
+	// We'll filter results after retrieval based on the distance value
+	// For cosine distance: lower is better (0 = identical, 1 = completely different)
+	// We request more results than needed, then filter by distance threshold
+	requestLimit := limit * 2 // Request more to account for filtering
+	
+	var queryStr string
+	if collection == "WikipediaArticle" {
+		queryStr = fmt.Sprintf(`{
+			Get {
+				WikipediaArticle(nearVector: {vector: %s}, limit: %d) {
+					_additional {
+						id
+						distance
+					}
+					title
+					text
+					source
+					timestamp
+					url
+					metadata
+				}
+			}
+		}`, vectorStr, requestLimit)
+	} else {
+		// Generic collection query
+		queryStr = fmt.Sprintf(`{
+			Get {
+				%s(nearVector: {vector: %s}, limit: %d) {
+					_additional {
+						id
+						distance
+					}
+					text
+					timestamp
+					metadata
+				}
+			}
+		}`, collection, vectorStr, requestLimit)
+	}
+
+	// We need Weaviate URL - try to get it from environment or use a default
+	// For now, return an error indicating we need the URL
+	// In practice, you'd want to store the baseURL in MCPKnowledgeServer
+	weaviateURL := os.Getenv("WEAVIATE_URL")
+	if weaviateURL == "" {
+		weaviateURL = "http://localhost:8080"
+	}
+
+	queryData := map[string]interface{}{
+		"query": queryStr,
+	}
+
+	jsonData, err := json.Marshal(queryData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal GraphQL query: %w", err)
+	}
+
+	url := strings.TrimRight(weaviateURL, "/") + "/v1/graphql"
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("weaviate request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("weaviate returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var result struct {
+		Data struct {
+			Get map[string][]map[string]interface{} `json:"Get"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if len(result.Errors) > 0 {
+		return nil, fmt.Errorf("weaviate errors: %v", result.Errors)
+	}
+
+	// Extract results from the collection and filter by distance
+	var results []map[string]interface{}
+	if collectionData, ok := result.Data.Get[collection]; ok {
+		// ULTRA-STRICT filtering: Primary filter is keyword matching, distance is secondary
+		// Since toyEmbed (hash-based) is unreliable, we rely on exact keyword matching
+		// Distance threshold is very strict (0.25) and keyword matching is MANDATORY
+		maxDistance := 0.25
+		
+		// Extract keywords from query for MANDATORY filtering
+		// First, try to extract the actual search term from tool call instructions
+		// The LLM might pass something like "Search... about 'bondi'. Use mcp_search_weaviate with query='bondi'"
+		// We want to extract just "bondi"
+		actualQuery := query
+		
+		// Try multiple patterns to extract the actual search term
+		// Pattern 1: query='...' or query="..."
+		if idx := strings.Index(query, "query='"); idx >= 0 {
+			start := idx + 7
+			end := strings.Index(query[start:], "'")
+			if end > 0 {
+				actualQuery = query[start : start+end]
+				log.Printf("🔍 [MCP-KNOWLEDGE] Extracted query from 'query=' pattern: '%s' (original: '%s')", actualQuery, query)
+			}
+		} else if idx := strings.Index(query, "query=\""); idx >= 0 {
+			start := idx + 7
+			end := strings.Index(query[start:], "\"")
+			if end > 0 {
+				actualQuery = query[start : start+end]
+				log.Printf("🔍 [MCP-KNOWLEDGE] Extracted query from 'query=\"' pattern: '%s' (original: '%s')", actualQuery, query)
+			}
+		} else if idx := strings.Index(query, "about '"); idx >= 0 {
+			// Pattern: "about 'bondi'"
+			start := idx + 7
+			end := strings.Index(query[start:], "'")
+			if end > 0 {
+				actualQuery = query[start : start+end]
+				log.Printf("🔍 [MCP-KNOWLEDGE] Extracted query from 'about' pattern: '%s' (original: '%s')", actualQuery, query)
+			}
+		} else if idx := strings.Index(query, "about \""); idx >= 0 {
+			// Pattern: "about \"bondi\""
+			start := idx + 7
+			end := strings.Index(query[start:], "\"")
+			if end > 0 {
+				actualQuery = query[start : start+end]
+				log.Printf("🔍 [MCP-KNOWLEDGE] Extracted query from 'about \"' pattern: '%s' (original: '%s')", actualQuery, query)
+			}
+		} else {
+			// If no pattern match, try to extract the last meaningful word/phrase
+			// This handles cases where LLM passes "tell me about" instead of "bondi"
+			words := strings.Fields(strings.ToLower(query))
+			skipWords := map[string]bool{
+				"the": true, "a": true, "an": true, "and": true, "or": true, "but": true,
+				"in": true, "on": true, "at": true, "to": true, "for": true, "of": true,
+				"with": true, "by": true, "is": true, "are": true, "was": true, "were": true,
+				"who": true, "what": true, "where": true, "when": true, "why": true, "how": true,
+				"tell": true, "me": true, "about": true, "search": true, "find": true,
+				"use": true, "mcp_search_weaviate": true, "tool": true,
+				"articles": true, "episodic": true, "memory": true, "news": true,
+			}
+			meaningfulWords := make([]string, 0)
+			for _, word := range words {
+				word = strings.Trim(word, ".,!?;:()[]{}'\"")
+				if !skipWords[word] && len(word) > 2 {
+					meaningfulWords = append(meaningfulWords, word)
+				}
+			}
+			if len(meaningfulWords) > 0 {
+				// Use the last 1-2 meaningful words - usually the actual search term
+				// For "tell me about bondi", this would extract "bondi"
+				// For "search for lindsay foreman", this would extract "lindsay foreman"
+				startIdx := len(meaningfulWords) - 2
+				if startIdx < 0 {
+					startIdx = 0
+				}
+				actualQuery = strings.Join(meaningfulWords[startIdx:], " ")
+				log.Printf("🔍 [MCP-KNOWLEDGE] Extracted query from meaningful words: '%s' (original: '%s', all meaningful: %v)", actualQuery, query, meaningfulWords)
+			} else {
+				// If no meaningful words found, the query is invalid - log and use empty
+				log.Printf("⚠️ [MCP-KNOWLEDGE] No meaningful words found in query: '%s' - will filter out all results", query)
+				actualQuery = "" // This will cause all results to be filtered out
+			}
+		}
+		
+		// If extraction failed completely, we can't search - return empty results
+		if actualQuery == "" {
+			log.Printf("⚠️ [MCP-KNOWLEDGE] Query extraction failed completely, returning empty results")
+			return map[string]interface{}{
+				"results":    []map[string]interface{}{},
+				"count":      0,
+				"query":      query,
+				"collection": collection,
+			}, nil
+		}
+		
+		queryLower := strings.ToLower(strings.TrimSpace(actualQuery))
+		queryWords := strings.Fields(queryLower)
+		// Remove common stop words
+		stopWords := map[string]bool{
+			"the": true, "a": true, "an": true, "and": true, "or": true, "but": true,
+			"in": true, "on": true, "at": true, "to": true, "for": true, "of": true,
+			"with": true, "by": true, "is": true, "are": true, "was": true, "were": true,
+			"who": true, "what": true, "where": true, "when": true, "why": true, "how": true,
+			"tell": true, "me": true, "about": true, "search": true, "find": true,
+			"use": true, "mcp_search_weaviate": true, "tool": true,
+		}
+		keywords := make([]string, 0)
+		for _, word := range queryWords {
+			word = strings.Trim(word, ".,!?;:()[]{}'\"")
+			if !stopWords[word] && len(word) > 2 {
+				keywords = append(keywords, word)
+			}
+		}
+		
+		// If no keywords extracted, try to extract from the whole query
+		// But be careful - if the whole query is just stop words, we can't search
+		if len(keywords) == 0 {
+			cleaned := strings.Trim(queryLower, ".,!?;:()[]{}'\"")
+			// Only use whole query if it's a single meaningful word (not a phrase of stop words)
+			words := strings.Fields(cleaned)
+			meaningfulCount := 0
+			for _, word := range words {
+				if !stopWords[word] && len(word) > 2 {
+					meaningfulCount++
+				}
+			}
+			// If there are meaningful words, extract them
+			if meaningfulCount > 0 {
+				meaningful := make([]string, 0)
+				for _, word := range words {
+					if !stopWords[word] && len(word) > 2 {
+						meaningful = append(meaningful, word)
+					}
+				}
+				if len(meaningful) > 0 {
+					keywords = meaningful
+				}
+			} else if len(cleaned) > 2 && len(words) == 1 {
+				// Single word that's not a stop word - use it
+				keywords = []string{cleaned}
+			}
+			// If still no keywords, we'll filter everything out (which is correct)
+		}
+		
+		log.Printf("🔍 [MCP-KNOWLEDGE] Extracted keywords: %v from query: '%s'", keywords, actualQuery)
+		
+		log.Printf("🔍 [MCP-KNOWLEDGE] Filtering with distance <= %.2f and keywords: %v", maxDistance, keywords)
+		
+		for _, item := range collectionData {
+			// Step 1: Check distance threshold (MANDATORY)
+			var distance float64
+			hasDistance := false
+			if additional, ok := item["_additional"].(map[string]interface{}); ok {
+				if d, ok := additional["distance"].(float64); ok {
+					distance = d
+					hasDistance = true
+				}
+			}
+			
+			if !hasDistance {
+				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (no distance): %v", item["title"])
+				continue
+			}
+			
+			if distance > maxDistance {
+				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (distance %.3f > %.2f): %v", distance, maxDistance, item["title"])
+				continue
+			}
+			
+			// Step 2: ULTRA-STRICT keyword matching
+			// Since hash-based embeddings are unreliable, keyword matching is PRIMARY
+			if len(keywords) == 0 {
+				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (no keywords to match): %v", item["title"])
+				continue
+			}
+			
+			// Get title and text for matching
+			title, hasTitle := item["title"].(string)
+			text, hasText := item["text"].(string)
+			
+			if !hasTitle && !hasText {
+				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (no title or text): %v", item)
+				continue
+			}
+			
+			titleLower := ""
+			if hasTitle {
+				titleLower = strings.ToLower(title)
+			}
+			
+			// ULTRA-STRICT: Primary keyword MUST be in title
+			// If there's only one keyword, it MUST be in title
+			// If multiple keywords, at least the first (most important) must be in title
+			primaryKeyword := keywords[0]
+			primaryInTitle := strings.Contains(titleLower, primaryKeyword)
+			
+			if !primaryInTitle {
+				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (primary keyword '%s' not in title, distance=%.3f): %v", primaryKeyword, distance, title)
+				continue
+			}
+			
+			// Count how many keywords match in title (prefer more matches)
+			titleMatches := 0
+			for _, keyword := range keywords {
+				if strings.Contains(titleLower, keyword) {
+					titleMatches++
+				}
+			}
+			
+			// If we have multiple keywords, require at least 2 to match in title
+			// This ensures we get highly relevant results
+			if len(keywords) > 1 && titleMatches < 2 {
+				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (only %d/%d keywords match in title): %v", titleMatches, len(keywords), title)
+				continue
+			}
+			
+			// Additional check: if text is available, verify keyword appears there too
+			// This helps filter out false positives where keyword appears in title but article is unrelated
+			if hasText {
+				textLower := strings.ToLower(text)
+				// Check first 1000 chars (more than before to catch context)
+				textPreview := textLower
+				if len(textPreview) > 1000 {
+					textPreview = textPreview[:1000]
+				}
+				
+				// Primary keyword must also appear in text preview
+				if !strings.Contains(textPreview, primaryKeyword) {
+					log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (primary keyword '%s' not in text preview): %v", primaryKeyword, title)
+					continue
+				}
+			}
+			
+			// Passed all ultra-strict filters
+			log.Printf("✅ [MCP-KNOWLEDGE] Including result (distance=%.3f, %d/%d keywords in title): %v", distance, titleMatches, len(keywords), title)
+			results = append(results, item)
+			
+			// Limit results to requested limit
+			if len(results) >= limit {
+				break
+			}
+		}
+	}
+
+	log.Printf("✅ [MCP-KNOWLEDGE] RAG search returned %d results (after distance filtering) for query: %s", len(results), query)
+
 	return map[string]interface{}{
-		"message": fmt.Sprintf("Text-to-vector search requires embedding conversion. Use query_neo4j for text-based queries, or implement text-to-vector conversion. Requested limit: %d", limit),
-		"query":   query,
-		"limit":   limit,
-		"note":    "To enable text search, implement embedding generation using an LLM or embedding service",
+		"results":    results,
+		"count":      len(results),
+		"query":      query,
+		"collection": collection,
 	}, nil
 }
 

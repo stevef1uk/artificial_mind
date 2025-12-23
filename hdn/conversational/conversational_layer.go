@@ -443,8 +443,12 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		if coreQuery == "" {
 			// Remove common question words and extract the main subject
 			words := strings.Fields(searchText)
-			// Skip common question words at the start
-			skipWords := map[string]bool{"who": true, "what": true, "where": true, "when": true, "why": true, "how": true, "is": true, "are": true, "the": true, "a": true, "an": true}
+			// Skip common question words at the start (including "tell", "me", "about")
+			skipWords := map[string]bool{
+				"who": true, "what": true, "where": true, "when": true, "why": true, "how": true,
+				"is": true, "are": true, "the": true, "a": true, "an": true,
+				"tell": true, "me": true, "about": true, // Add these for "tell me about X" queries
+			}
 			startIdx := 0
 			for i, word := range words {
 				if !skipWords[strings.ToLower(word)] {
@@ -463,7 +467,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				if len(coreQuery) > 0 {
 					coreQuery = strings.ToUpper(coreQuery[:1]) + coreQuery[1:]
 				}
-				log.Printf("✅ [CONVERSATIONAL] Extracted concept name from fallback: '%s'", coreQuery)
+				log.Printf("✅ [CONVERSATIONAL] Extracted concept name from fallback: '%s' (from: '%s')", coreQuery, searchText)
 			} else {
 				coreQuery = "Unknown"
 				log.Printf("⚠️ [CONVERSATIONAL] Could not extract concept name, using 'Unknown'")
@@ -538,8 +542,42 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		if !hasNeo4jResults {
 			log.Printf("🔍 [CONVERSATIONAL] Neo4j returned no results, trying RAG search on Weaviate for: %s", coreQuery)
 			
+			// Use the extracted core query directly for better precision
+			// This ensures we search for the specific term (e.g., "bondi") rather than the full question
+			ragQueryText := strings.ToLower(strings.TrimSpace(coreQuery))
+			if ragQueryText == "" || ragQueryText == "unknown" {
+				// If extraction failed, try to extract from original message
+				ragQueryText = strings.ToLower(strings.TrimSpace(searchText))
+				// Remove common question words
+				words := strings.Fields(ragQueryText)
+				filtered := make([]string, 0)
+				skipWords := map[string]bool{"who": true, "what": true, "where": true, "when": true, "why": true, "how": true, 
+					"is": true, "are": true, "the": true, "a": true, "an": true, "tell": true, "me": true, "about": true}
+				for _, word := range words {
+					if !skipWords[word] && len(word) > 2 {
+						filtered = append(filtered, word)
+					}
+				}
+				if len(filtered) > 0 {
+					ragQueryText = strings.Join(filtered, " ")
+				}
+			}
+			
+			if ragQueryText == "" {
+				log.Printf("⚠️ [CONVERSATIONAL] Could not extract query for RAG search, skipping")
+				// Return Neo4j results even if empty
+				return &ActionResult{
+					Type:    "knowledge_result",
+					Success: true,
+					Data:    map[string]interface{}{"neo4j_result": interpretResult, "source": "neo4j_only"},
+				}, nil
+			}
+			
+			log.Printf("🔍 [CONVERSATIONAL] RAG search query: '%s' (extracted from: '%s')", ragQueryText, searchText)
+			
 			// Try searching episodic memory (AgiEpisodes) and news (WikipediaArticle)
-			ragQuery := fmt.Sprintf("Search episodic memory and news articles about '%s'. Use the mcp_search_weaviate tool with query='%s', collection='AgiEpisodes', and limit=10 to find relevant information.", coreQuery, coreQuery)
+			// Use very small limit (3) to get only the most relevant results
+			ragQuery := fmt.Sprintf("Search episodic memory and news articles about '%s'. Use the mcp_search_weaviate tool with query='%s', collection='AgiEpisodes', and limit=3 to find relevant information.", ragQueryText, ragQueryText)
 			ragResult, ragErr := cl.hdnClient.InterpretNaturalLanguage(ctx, ragQuery, hdnContext)
 			if ragErr == nil && ragResult != nil {
 				// Check if RAG search found results
@@ -558,7 +596,9 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				// If RAG found results, combine with Neo4j results (even if empty)
 				if hasRAGResults {
 					// Also try WikipediaArticle collection for news items
-					newsQuery := fmt.Sprintf("Search news articles about '%s'. Use the mcp_search_weaviate tool with query='%s', collection='WikipediaArticle', and limit=10 to find relevant information.", coreQuery, coreQuery)
+					// Use the same improved query text for consistency
+					// Use very small limit (3) to get only the most relevant results
+					newsQuery := fmt.Sprintf("Search news articles about '%s'. Use the mcp_search_weaviate tool with query='%s', collection='WikipediaArticle', and limit=3 to find relevant information.", ragQueryText, ragQueryText)
 					newsResult, newsErr := cl.hdnClient.InterpretNaturalLanguage(ctx, newsQuery, hdnContext)
 					if newsErr == nil && newsResult != nil {
 						// Combine results from both sources

@@ -2669,11 +2669,113 @@ func (m *MonitorService) ragSearch(c *gin.Context) {
 	if data, ok := res["data"].(map[string]interface{}); ok {
 		if get, ok := data["Get"].(map[string]interface{}); ok {
 			if results, ok := get[collection].([]interface{}); ok {
+				// Apply strict filtering: extract keywords and filter by distance + keyword matching
+				queryLower := strings.ToLower(strings.TrimSpace(q))
+				queryWords := strings.Fields(queryLower)
+				stopWords := map[string]bool{
+					"the": true, "a": true, "an": true, "and": true, "or": true, "but": true,
+					"in": true, "on": true, "at": true, "to": true, "for": true, "of": true,
+					"with": true, "by": true, "is": true, "are": true, "was": true, "were": true,
+					"who": true, "what": true, "where": true, "when": true, "why": true, "how": true,
+					"tell": true, "me": true, "about": true, "search": true, "find": true,
+				}
+				keywords := make([]string, 0)
+				for _, word := range queryWords {
+					word = strings.Trim(word, ".,!?;:()[]{}'\"")
+					if !stopWords[word] && len(word) > 2 {
+						keywords = append(keywords, word)
+					}
+				}
+				// If no keywords, use the whole query (cleaned)
+				if len(keywords) == 0 {
+					cleaned := strings.Trim(queryLower, ".,!?;:()[]{}'\"")
+					if len(cleaned) > 2 {
+						keywords = []string{cleaned}
+					}
+				}
+				
+				// Since hash-based embeddings are unreliable, we rely primarily on keyword matching
+				// Distance threshold is secondary - we use a more lenient threshold and rely on keywords
+				maxDistance := 2.0 // Lenient distance threshold (hash-based embeddings have high variance)
 				points := make([]map[string]interface{}, 0, len(results))
 				for _, result := range results {
 					if item, ok := result.(map[string]interface{}); ok {
+						// Step 1: Check distance threshold
+						var distance float64
+						hasDistance := false
+						if additional, ok := item["_additional"].(map[string]interface{}); ok {
+							if d, ok := additional["distance"].(float64); ok {
+								distance = d
+								hasDistance = true
+							}
+						}
+						// Distance check is secondary - we primarily rely on keyword matching
+						// Only filter out if distance is extremely high (likely completely unrelated)
+						if hasDistance && distance > maxDistance {
+							continue // Filtered out by distance (extremely high)
+						}
+						
+						// Step 2: Keyword matching (MANDATORY)
+						// Get title and text for matching (declare outside if/else for later use)
+						title, hasTitle := item["title"].(string)
+						text, hasText := item["text"].(string)
+						
+						if len(keywords) == 0 {
+							// No keywords extracted - this shouldn't happen, but allow through if distance is reasonable
+							// This handles edge cases where query is all stop words
+							if hasDistance && distance > maxDistance {
+								continue // Filtered out - no keywords and high distance
+							}
+							// Otherwise, allow through (will be filtered by other checks later)
+						} else {
+							
+							titleLower := ""
+							if hasTitle {
+								titleLower = strings.ToLower(title)
+							}
+							textLower := ""
+							if hasText {
+								textLower = strings.ToLower(text)
+							}
+							
+							// Primary keyword MUST be in title OR text (more lenient for collections without titles)
+							primaryKeyword := keywords[0]
+							primaryInTitle := hasTitle && strings.Contains(titleLower, primaryKeyword)
+							primaryInText := hasText && strings.Contains(textLower, primaryKeyword)
+							
+							if !primaryInTitle && !primaryInText {
+								continue // Filtered out - primary keyword not in title or text
+							}
+							
+							// If we have a title, prefer title matches
+							if hasTitle {
+								// If multiple keywords, require at least 2 to match in title
+								if len(keywords) > 1 {
+									titleMatches := 0
+									for _, keyword := range keywords {
+										if strings.Contains(titleLower, keyword) {
+											titleMatches++
+										}
+									}
+									if titleMatches < 2 {
+										continue // Filtered out - not enough keyword matches in title
+									}
+								}
+							}
+							
+							// Additional check: primary keyword must appear in text preview (first 1000 chars) if text exists
+							if hasText && len(text) > 0 {
+								textPreview := textLower
+								if len(textPreview) > 1000 {
+									textPreview = textPreview[:1000]
+								}
+								if !strings.Contains(textPreview, primaryKeyword) {
+									continue // Filtered out - primary keyword not in text preview
+								}
+							}
+						}
+						
 						// Filter out system noise and execution plans
-						text, _ := item["text"].(string)
 						metadata, _ := item["metadata"].(string)
 
 						// Check if this is a Wikipedia article (always allow these)

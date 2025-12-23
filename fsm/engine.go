@@ -2466,7 +2466,28 @@ func (e *FSMEngine) storeNewsEventInWeaviate(event map[string]interface{}) {
 		return
 	}
 
-	// Create Weaviate object
+	// Generate vector embedding for the text (8 dimensions, matching RAG search)
+	// Use the same embedding approach as used elsewhere in the system
+	embedding := e.generateSimpleEmbedding(text, 8)
+
+	// Normalize the vector (L2 normalization for better similarity search)
+	var sumSq float32
+	for _, v := range embedding {
+		sumSq += v * v
+	}
+	if sumSq > 0 {
+		norm := float32(1.0)
+		// Simple sqrt approximation
+		for i := 0; i < 6; i++ {
+			norm = 0.5 * (norm + sumSq/norm)
+		}
+		invNorm := 1.0 / norm
+		for i := range embedding {
+			embedding[i] *= invNorm
+		}
+	}
+
+	// Create Weaviate object with vector
 	weaviateObject := map[string]interface{}{
 		"class": "WikipediaArticle",
 		"properties": map[string]interface{}{
@@ -2477,6 +2498,7 @@ func (e *FSMEngine) storeNewsEventInWeaviate(event map[string]interface{}) {
 			"timestamp": now.Format(time.RFC3339),
 			"metadata":  string(metadataJSON),
 		},
+		"vector": embedding,
 	}
 
 	// Send to Weaviate
