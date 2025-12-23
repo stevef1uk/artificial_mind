@@ -36,10 +36,11 @@ graph TB
     SM[🧠 Self-Model Manager<br/>Goal Tracking & Learning]
     Redis[💾 Redis<br/>Self-Model Data]
     
-    %% LLM Integration
+    %% LLM & MCP Integration
     LLM1[🤖 LLM Client<br/>Safety Categorization]
     LLM2[🤖 LLM Client<br/>Code Generation]
     LLM3[🤖 LLM Client<br/>Code Fixing]
+    MCP[🔌 MCP Knowledge Server<br/>Neo4j / Weaviate Tools]
     
     %% Principles Integration
     PC[🔍 Principles Checker]
@@ -101,13 +102,16 @@ graph TB
     IE --> |Update Beliefs| SM
     IE --> |Track Goals| SM
     
-    %% LLM Integration Flow
+    %% LLM & MCP Integration Flow
     IE --> |1. Safety Analysis| LLM1
     LLM1 --> |Returns safety context| IE
     CG --> |2. Generate Code| LLM2
     LLM2 --> |Returns generated code| CG
     IE --> |3. Fix Code| LLM3
     LLM3 --> |Returns fixed code| IE
+    API --> |Expose MCP JSON-RPC| MCP
+    MCP --> |Knowledge Tools| NATS
+    MCP --> |Graph / Vector Queries| Redis
     
     %% Principles Flow
     IE --> PC
@@ -142,7 +146,7 @@ graph TB
     class PC,HP,WO,BP aiClass
     class CS,Capabilities,Redis,TR storageClass
     class Principles,Rules,Block securityClass
-    class LLM1,LLM2,LLM3 llmClass
+    class LLM1,LLM2,LLM3,MCP llmClass
     class SM selfClass
     class PI plannerClass
 ```
