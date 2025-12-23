@@ -38,13 +38,15 @@ type ToolExecutionResult struct {
 type FlexibleInterpreter struct {
 	llmAdapter   *FlexibleLLMAdapter
 	toolProvider ToolProviderInterface
+	recentToolCalls map[string]time.Time // Loop protection: track recent tool calls
 }
 
 // NewFlexibleInterpreter creates a new flexible interpreter
 func NewFlexibleInterpreter(llmAdapter *FlexibleLLMAdapter, toolProvider ToolProviderInterface) *FlexibleInterpreter {
 	return &FlexibleInterpreter{
-		llmAdapter:   llmAdapter,
-		toolProvider: toolProvider,
+		llmAdapter:     llmAdapter,
+		toolProvider:   toolProvider,
+		recentToolCalls: make(map[string]time.Time),
 	}
 }
 
@@ -186,6 +188,34 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 	// If it's a tool call, validate and execute it
 	log.Printf("🔍 [FLEXIBLE-INTERPRETER] InterpretAndExecuteWithPriority: checking for tool call. result.ToolCall=%v, result.ResponseType=%s", result.ToolCall != nil, result.ResponseType)
 	if result.ToolCall != nil {
+		// Loop protection: Check for rapid repeated identical tool calls
+		toolCallKey := fmt.Sprintf("%s:%v", result.ToolCall.ToolID, result.ToolCall.Parameters)
+		now := time.Now()
+		
+		// Check if we've seen this exact tool call recently (within 2 seconds)
+		if lastSeen, exists := f.recentToolCalls[toolCallKey]; exists {
+			if now.Sub(lastSeen) < 2*time.Second {
+				log.Printf("⚠️ [FLEXIBLE-INTERPRETER] Loop protection: Tool call '%s' with same parameters executed recently (%.2fs ago), skipping to prevent loop", result.ToolCall.ToolID, now.Sub(lastSeen).Seconds())
+				result.ToolExecutionResult = &ToolExecutionResult{
+					Success: false,
+					Error:   fmt.Sprintf("Tool call '%s' executed too recently, possible loop detected", result.ToolCall.ToolID),
+				}
+				result.Message = result.ToolExecutionResult.Error
+				result.Success = false
+				return result, nil
+			}
+		}
+		
+		// Update the recent tool calls map
+		f.recentToolCalls[toolCallKey] = now
+		
+		// Clean up old entries (older than 1 minute for better memory management)
+		for key, timestamp := range f.recentToolCalls {
+			if now.Sub(timestamp) > 1*time.Minute {
+				delete(f.recentToolCalls, key)
+			}
+		}
+		
 		log.Printf("🔧 [FLEXIBLE-INTERPRETER] Executing tool: %s with parameters: %+v", result.ToolCall.ToolID, result.ToolCall.Parameters)
 		// Validate the tool ID against available tools to avoid invoking non-existent endpoints
 		tools, terr := f.toolProvider.GetAvailableTools(ctx)

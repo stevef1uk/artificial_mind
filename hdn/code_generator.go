@@ -59,7 +59,9 @@ func (cg *CodeGenerator) GenerateCode(req *CodeGenerationRequest) (*CodeGenerati
 	}
 
 	// Call LLM to generate code with priority
-	ctx := context.Background()
+	// Use a longer timeout for code generation (10 minutes) to handle backlog situations
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
 	priority := PriorityLow
 	if req.HighPriority {
 		priority = PriorityHigh
