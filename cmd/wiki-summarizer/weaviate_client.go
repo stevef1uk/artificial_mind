@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -104,11 +105,95 @@ func (c *WeaviateClient) SearchArticles(ctx context.Context, limit int, filters 
 
 // UpdateArticleSummary implements VectorDBClient interface for Weaviate
 func (c *WeaviateClient) UpdateArticleSummary(ctx context.Context, articleID, summary string) error {
+	// First, fetch the current object to get its metadata
+	obj, err := c.GetObject(ctx, articleID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch object for update: %w", err)
+	}
+
+	// Parse existing metadata JSON string
+	var metadataMap map[string]interface{}
+	if obj.Metadata != "" {
+		if err := json.Unmarshal([]byte(obj.Metadata), &metadataMap); err != nil {
+			// If metadata is invalid, create a new map
+			metadataMap = make(map[string]interface{})
+		}
+	} else {
+		metadataMap = make(map[string]interface{})
+	}
+
+	// Add summary to metadata
+	metadataMap["summary"] = summary
+
+	// Serialize updated metadata back to JSON
+	metadataJSON, err := json.Marshal(metadataMap)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	// Update the metadata property
 	properties := map[string]interface{}{
-		"summary": summary,
+		"metadata": string(metadataJSON),
 	}
 
 	return c.UpdateObject(ctx, articleID, properties)
+}
+
+// GetObject fetches a single object by ID from Weaviate
+func (c *WeaviateClient) GetObject(ctx context.Context, objectID string) (*WeaviateObject, error) {
+	// Use REST API to get object by ID
+	url := fmt.Sprintf("%s/v1/objects/%s", c.BaseURL, objectID)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		// Read response body for better error messages
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		errorMsg := string(bodyBytes)
+		if errorMsg == "" {
+			errorMsg = "no error details provided"
+		}
+		return nil, fmt.Errorf("weaviate get object failed: %s: %s", resp.Status, errorMsg)
+	}
+
+	var obj struct {
+		ID         string                 `json:"id"`
+		Class      string                 `json:"class"`
+		Properties map[string]interface{} `json:"properties"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&obj); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Convert to WeaviateObject format
+	weaviateObj := &WeaviateObject{
+		Additional: struct {
+			ID string `json:"id"`
+		}{ID: obj.ID},
+	}
+
+	// Extract properties
+	if text, ok := obj.Properties["text"].(string); ok {
+		weaviateObj.Text = text
+	}
+	if timestamp, ok := obj.Properties["timestamp"].(string); ok {
+		weaviateObj.Timestamp = timestamp
+	}
+	if metadata, ok := obj.Properties["metadata"].(string); ok {
+		weaviateObj.Metadata = metadata
+	}
+
+	return weaviateObj, nil
 }
 
 // SearchObjects searches for objects in Weaviate
@@ -185,7 +270,13 @@ func (c *WeaviateClient) UpdateObject(ctx context.Context, objectID string, prop
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("weaviate update failed: %s", resp.Status)
+		// Read response body for better error messages
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		errorMsg := string(bodyBytes)
+		if errorMsg == "" {
+			errorMsg = "no error details provided"
+		}
+		return fmt.Errorf("weaviate update failed: %s: %s", resp.Status, errorMsg)
 	}
 
 	return nil
