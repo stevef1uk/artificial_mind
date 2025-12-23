@@ -5,8 +5,9 @@
         <input id="rag-q" placeholder="query (e.g., physics)" style="flex:2; padding:8px; border:1px solid #e1e8ed; border-radius:6px;"/>
         <input id="rag-limit" type="number" min="1" max="50" value="10" style="width:80px; padding:8px; border:1px solid #e1e8ed; border-radius:6px;"/>
         <select id="rag-collection" style="padding:8px; border:1px solid #e1e8ed; border-radius:6px;">
-            <option value="WikipediaArticle" selected>WikipediaArticle</option>
-            <option value="agi-episodes">agi-episodes</option>
+            <option value="AgiWiki" selected>Wikipedia Articles</option>
+            <option value="WikipediaArticle">BBC News Articles</option>
+            <option value="AgiEpisodes">Episodes</option>
         </select>
         <button class="btn" onclick="runRagSearch()">Search</button>
     </div>

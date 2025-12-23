@@ -283,6 +283,16 @@ func main() {
 
 	r := gin.Default()
 
+	// Add request logging middleware (especially for RAG search)
+	r.Use(func(c *gin.Context) {
+		// Log all requests to /api/rag/search
+		if strings.HasPrefix(c.Request.URL.Path, "/api/rag/search") {
+			log.Printf("🌐 [MIDDLEWARE] RAG Search request detected: %s %s", c.Request.Method, c.Request.URL.String())
+			log.Printf("🌐 [MIDDLEWARE] Query params: %v", c.Request.URL.Query())
+		}
+		c.Next()
+	})
+
 	// Add CORS middleware
 	r.Use(func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
@@ -823,16 +833,16 @@ func (m *MonitorService) chatPage(c *gin.Context) {
 func (m *MonitorService) chatAPI(c *gin.Context) {
 	// Check if this is the v1 API endpoint (full JSON response) or old endpoint (text only)
 	isV1API := strings.HasPrefix(c.Request.URL.Path, "/api/v1/chat")
-	
+
 	// Read the request body
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
 		return
 	}
-	
+
 	var chatReq map[string]interface{}
-	
+
 	if isV1API {
 		// For v1 API, parse the full request
 		if err := json.Unmarshal(body, &chatReq); err != nil {
@@ -2521,13 +2531,25 @@ func (m *MonitorService) getWeaviateRecords(c *gin.Context) {
 
 // ragSearch performs a simple semantic search over Qdrant using a toy embedder (8-dim)
 func (m *MonitorService) ragSearch(c *gin.Context) {
+	// Log immediately when function is called
+	log.Printf("🔍 [RAG-SEARCH] ===== ENTRY POINT REACHED =====")
+	log.Printf("🔍 [RAG-SEARCH] Request URL: %s", c.Request.URL.String())
+	log.Printf("🔍 [RAG-SEARCH] Request Method: %s", c.Request.Method)
+	log.Printf("🔍 [RAG-SEARCH] Query params: %v", c.Request.URL.Query())
+
 	q := strings.TrimSpace(c.Query("q"))
 	limit := c.DefaultQuery("limit", "10")
 	collection := c.DefaultQuery("collection", "WikipediaArticle")
+
+	log.Printf("🔍 [RAG-SEARCH] Parsed - Query: '%s', Collection: '%s', Limit: %s", q, collection, limit)
+
 	if q == "" {
+		log.Printf("❌ [RAG-SEARCH] Missing query parameter")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "q required"})
 		return
 	}
+
+	log.Printf("🔍 [RAG-SEARCH] Starting search for: '%s'", q)
 
 	// toy 8-dim embedding (same as bootstrapper)
 	vec := func(text string) []float32 {
@@ -2669,6 +2691,8 @@ func (m *MonitorService) ragSearch(c *gin.Context) {
 	if data, ok := res["data"].(map[string]interface{}); ok {
 		if get, ok := data["Get"].(map[string]interface{}); ok {
 			if results, ok := get[collection].([]interface{}); ok {
+				log.Printf("🔍 [RAG-SEARCH] Weaviate returned %d raw results for collection '%s'", len(results), collection)
+
 				// Apply strict filtering: extract keywords and filter by distance + keyword matching
 				queryLower := strings.ToLower(strings.TrimSpace(q))
 				queryWords := strings.Fields(queryLower)
@@ -2693,11 +2717,32 @@ func (m *MonitorService) ragSearch(c *gin.Context) {
 						keywords = []string{cleaned}
 					}
 				}
-				
+				log.Printf("🔍 [RAG-SEARCH] Extracted keywords: %v", keywords)
+
+				// Debug: log first result to see what we're getting
+				if len(results) > 0 {
+					if firstItem, ok := results[0].(map[string]interface{}); ok {
+						title := ""
+						text := ""
+						if t, ok := firstItem["title"].(string); ok {
+							title = t
+						}
+						if t, ok := firstItem["text"].(string); ok {
+							if len(t) > 200 {
+								text = t[:200] + "..."
+							} else {
+								text = t
+							}
+						}
+						log.Printf("🔍 [RAG-SEARCH] First result - Title: '%s', Text preview: '%s'", title, text)
+					}
+				}
+
 				// Since hash-based embeddings are unreliable, we rely primarily on keyword matching
 				// Distance threshold is secondary - we use a more lenient threshold and rely on keywords
 				maxDistance := 2.0 // Lenient distance threshold (hash-based embeddings have high variance)
 				points := make([]map[string]interface{}, 0, len(results))
+				filteredCount := 0
 				for _, result := range results {
 					if item, ok := result.(map[string]interface{}); ok {
 						// Step 1: Check distance threshold
@@ -2712,14 +2757,15 @@ func (m *MonitorService) ragSearch(c *gin.Context) {
 						// Distance check is secondary - we primarily rely on keyword matching
 						// Only filter out if distance is extremely high (likely completely unrelated)
 						if hasDistance && distance > maxDistance {
+							filteredCount++
 							continue // Filtered out by distance (extremely high)
 						}
-						
+
 						// Step 2: Keyword matching (MANDATORY)
 						// Get title and text for matching (declare outside if/else for later use)
 						title, hasTitle := item["title"].(string)
 						text, hasText := item["text"].(string)
-						
+
 						if len(keywords) == 0 {
 							// No keywords extracted - this shouldn't happen, but allow through if distance is reasonable
 							// This handles edge cases where query is all stop words
@@ -2728,7 +2774,7 @@ func (m *MonitorService) ragSearch(c *gin.Context) {
 							}
 							// Otherwise, allow through (will be filtered by other checks later)
 						} else {
-							
+
 							titleLower := ""
 							if hasTitle {
 								titleLower = strings.ToLower(title)
@@ -2737,53 +2783,88 @@ func (m *MonitorService) ragSearch(c *gin.Context) {
 							if hasText {
 								textLower = strings.ToLower(text)
 							}
-							
-							// Primary keyword MUST be in title OR text (more lenient for collections without titles)
-							primaryKeyword := keywords[0]
-							primaryInTitle := hasTitle && strings.Contains(titleLower, primaryKeyword)
-							primaryInText := hasText && strings.Contains(textLower, primaryKeyword)
-							
-							if !primaryInTitle && !primaryInText {
-								continue // Filtered out - primary keyword not in title or text
-							}
-							
-							// If we have a title, prefer title matches
-							if hasTitle {
-								// If multiple keywords, require at least 2 to match in title
+
+							// For collections without titles (like AgiWiki), be much more lenient
+							// Since hash-based embeddings are unreliable, we need to trust Weaviate's ranking more
+							if !hasTitle {
+								// For AgiWiki and similar collections without titles:
+								// Since hash embeddings are unreliable, we trust Weaviate's vector similarity ranking
+								// Only filter out if the text is clearly unrelated (very short or system noise)
+								// Don't require keyword matching - trust that Weaviate's ranking is meaningful
+								// This allows results through even if they don't contain exact keywords
+								// (hash embeddings might return semantically related content that doesn't use the same words)
+
+								// Only filter if text is suspiciously short or empty (likely system noise)
+								if !hasText || len(strings.TrimSpace(text)) < 10 {
+									filteredCount++
+									continue // Filtered out - text too short or missing
+								}
+								// Otherwise, allow through - trust Weaviate's ranking
+								// Skip the additional title-based checks below
+								// (the result will be added to points later in the loop)
+							} else {
+								// For collections with titles, use stricter matching
+								// Primary keyword MUST be in title OR text
+								primaryKeyword := keywords[0]
+								primaryInTitle := hasTitle && strings.Contains(titleLower, primaryKeyword)
+								primaryInText := hasText && strings.Contains(textLower, primaryKeyword)
+
+								if !primaryInTitle && !primaryInText {
+									filteredCount++
+									continue // Filtered out - primary keyword not in title or text
+								}
+								// If we have a title, prefer title matches
+								// If multiple keywords, require at least ONE keyword to match in title (more lenient)
+								// OR at least ONE keyword in text (for multi-word queries like "Affine geometry")
 								if len(keywords) > 1 {
 									titleMatches := 0
+									textMatches := 0
 									for _, keyword := range keywords {
 										if strings.Contains(titleLower, keyword) {
 											titleMatches++
 										}
+										if hasText && strings.Contains(textLower, keyword) {
+											textMatches++
+										}
 									}
-									if titleMatches < 2 {
-										continue // Filtered out - not enough keyword matches in title
+									// Require at least 1 keyword in title OR at least 2 keywords total in title+text
+									if titleMatches == 0 && textMatches < 2 {
+										filteredCount++
+										continue // Filtered out - not enough keyword matches
 									}
 								}
 							}
-							
+
 							// Additional check: primary keyword must appear in text preview (first 1000 chars) if text exists
-							if hasText && len(text) > 0 {
-								textPreview := textLower
-								if len(textPreview) > 1000 {
-									textPreview = textPreview[:1000]
-								}
-								if !strings.Contains(textPreview, primaryKeyword) {
-									continue // Filtered out - primary keyword not in text preview
+							// But only for collections with titles and if we don't have a title match
+							if hasTitle && hasText && len(text) > 0 {
+								primaryKeyword := keywords[0]
+								primaryInTitle := strings.Contains(titleLower, primaryKeyword)
+								if !primaryInTitle {
+									textPreview := textLower
+									if len(textPreview) > 1000 {
+										textPreview = textPreview[:1000]
+									}
+									if !strings.Contains(textPreview, primaryKeyword) {
+										filteredCount++
+										continue // Filtered out - primary keyword not in text preview
+									}
 								}
 							}
 						}
-						
+
 						// Filter out system noise and execution plans
 						metadata, _ := item["metadata"].(string)
 
 						// Check if this is a Wikipedia article (always allow these)
 						isWikipedia := strings.Contains(strings.ToLower(metadata), "\"source\":\"wikipedia\"")
 
-						// For AgiWiki collection, all items should be Wikipedia articles
-						// For other collections, apply stricter filtering
-						if collection != "AgiWiki" && !isWikipedia {
+						// For AgiWiki collection, skip the system noise filtering
+						// (we already did minimal filtering above, and AgiWiki should be clean Wikipedia articles)
+						if collection == "AgiWiki" {
+							// Skip system noise checks for AgiWiki - trust Weaviate's results
+						} else if !isWikipedia {
+							// For other collections, apply stricter filtering
 							combinedText := text + " " + metadata
 
 							// Skip goal/task descriptions (short text that looks like task names)
@@ -2851,6 +2932,59 @@ func (m *MonitorService) ragSearch(c *gin.Context) {
 						points = append(points, p)
 					}
 				}
+				log.Printf("🔍 [RAG-SEARCH] Filtered %d results, returning %d results after filtering", filteredCount, len(points))
+
+				// If vector search returned results but all were filtered out (or for AgiWiki, if we got too many unrelated results),
+				// try a fallback text-based search. This helps when hash embeddings are unreliable but the data exists.
+				// For AgiWiki: if we got results but none contain keywords, use text search
+				// For other collections: if all results were filtered, use text search
+				shouldUseFallback := false
+				if len(keywords) > 0 {
+					if collection == "AgiWiki" || collection == "AgiEpisodes" {
+						// For AgiWiki, check if any of the returned results actually contain keywords
+						hasKeywordMatch := false
+						for _, result := range results {
+							if item, ok := result.(map[string]interface{}); ok {
+								text, hasText := item["text"].(string)
+								if hasText {
+									textLower := strings.ToLower(text)
+									for _, keyword := range keywords {
+										if strings.Contains(textLower, keyword) {
+											hasKeywordMatch = true
+											break
+										}
+									}
+									if hasKeywordMatch {
+										break
+									}
+								}
+							}
+						}
+						// If no keyword matches found, use fallback text search
+						if !hasKeywordMatch && len(results) > 0 {
+							shouldUseFallback = true
+							log.Printf("🔍 [RAG-SEARCH] AgiWiki: No keyword matches in vector results, using fallback text search")
+						}
+					} else if len(results) > 0 && len(points) == 0 {
+						// For other collections, use fallback if all results were filtered
+						shouldUseFallback = true
+						log.Printf("🔍 [RAG-SEARCH] All vector results filtered, trying fallback text search")
+					}
+				}
+
+				if shouldUseFallback {
+					log.Printf("🔍 [RAG-SEARCH] Fallback text search with keywords: %v", keywords)
+					fallbackResults, fallbackErr := m.searchWeaviateByText(c.Request.Context(), collection, keywords, limitInt)
+					if fallbackErr != nil {
+						log.Printf("❌ [RAG-SEARCH] Fallback text search error: %v", fallbackErr)
+					} else if len(fallbackResults) > 0 {
+						log.Printf("🔍 [RAG-SEARCH] Fallback text search found %d results", len(fallbackResults))
+						points = fallbackResults
+					} else {
+						log.Printf("🔍 [RAG-SEARCH] Fallback text search returned 0 results")
+					}
+				}
+
 				res = map[string]interface{}{
 					"result": map[string]interface{}{"points": points},
 				}
@@ -2874,6 +3008,120 @@ func (m *MonitorService) ragSearch(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, res)
+}
+
+// searchWeaviateByText performs a text-based keyword search as fallback when vector search fails
+func (m *MonitorService) searchWeaviateByText(ctx context.Context, collection string, keywords []string, limit int) ([]map[string]interface{}, error) {
+	// Build a where clause that requires at least one keyword to appear in text
+	// For collections with title, we want: (title contains keyword1 OR text contains keyword1) OR (title contains keyword2 OR text contains keyword2)
+	// For collections without title, we want: text contains keyword1 OR text contains keyword2
+
+	var whereClause string
+	if collection == "AgiWiki" || collection == "AgiEpisodes" {
+		// For collections without separate title field, search in text only
+		textConditions := []string{}
+		for _, keyword := range keywords {
+			textConditions = append(textConditions, fmt.Sprintf(`{path: ["text"], operator: Like, valueText: "*%s*"}`, keyword))
+		}
+		if len(textConditions) == 1 {
+			whereClause = fmt.Sprintf(`where: %s`, textConditions[0])
+		} else {
+			whereClause = fmt.Sprintf(`where: {operator: Or, operands: [%s]}`, strings.Join(textConditions, ", "))
+		}
+	} else {
+		// For collections with title, search in both title and text
+		// Build conditions: each keyword can match in title OR text, then combine all with OR
+		allConditions := []string{}
+		for _, keyword := range keywords {
+			// For each keyword, create: (title contains keyword OR text contains keyword)
+			keywordCondition := fmt.Sprintf(`{operator: Or, operands: [{path: ["title"], operator: Like, valueText: "*%s*"}, {path: ["text"], operator: Like, valueText: "*%s*"}]}`, keyword, keyword)
+			allConditions = append(allConditions, keywordCondition)
+		}
+		if len(allConditions) == 1 {
+			whereClause = fmt.Sprintf(`where: %s`, allConditions[0])
+		} else {
+			// Combine all keyword conditions with OR
+			whereClause = fmt.Sprintf(`where: {operator: Or, operands: [%s]}`, strings.Join(allConditions, ", "))
+		}
+	}
+
+	fields := m.getCollectionFields(collection)
+	queryStr := fmt.Sprintf(`{Get {%s(%s limit: %d) {_additional {id} %s}}}`, collection, whereClause, limit, fields)
+
+	log.Printf("🔍 [RAG-SEARCH] Fallback query: %s", queryStr)
+
+	queryData := map[string]interface{}{"query": queryStr}
+	queryBytes, _ := json.Marshal(queryData)
+	url := strings.TrimRight(m.weaviateURL, "/") + "/v1/graphql"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(queryBytes))
+	if err != nil {
+		log.Printf("❌ [RAG-SEARCH] Fallback request creation failed: %v", err)
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("❌ [RAG-SEARCH] Fallback request failed: %v", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		log.Printf("❌ [RAG-SEARCH] Fallback search failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+		return nil, fmt.Errorf("weaviate text search failed: %s: %s", resp.Status, string(bodyBytes))
+	}
+
+	var res map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		log.Printf("❌ [RAG-SEARCH] Fallback response decode failed: %v", err)
+		return nil, err
+	}
+
+	if errors, ok := res["errors"].([]interface{}); ok && len(errors) > 0 {
+		log.Printf("❌ [RAG-SEARCH] Fallback search GraphQL errors: %v", errors)
+		return nil, fmt.Errorf("weaviate text search errors: %v", errors)
+	}
+
+	// Extract results and convert to points format
+	var points []map[string]interface{}
+	if data, ok := res["data"].(map[string]interface{}); ok {
+		if get, ok := data["Get"].(map[string]interface{}); ok {
+			if results, ok := get[collection].([]interface{}); ok {
+				log.Printf("🔍 [RAG-SEARCH] Fallback search returned %d raw results from Weaviate", len(results))
+				for _, result := range results {
+					if item, ok := result.(map[string]interface{}); ok {
+						p := map[string]interface{}{"payload": item}
+						if addl, ok := item["_additional"].(map[string]interface{}); ok {
+							if idv, ok := addl["id"]; ok {
+								p["id"] = idv
+							}
+						}
+						points = append(points, p)
+					}
+				}
+			} else {
+				log.Printf("⚠️ [RAG-SEARCH] Fallback search: collection '%s' not found in response", collection)
+			}
+		} else {
+			log.Printf("⚠️ [RAG-SEARCH] Fallback search: 'Get' field not found in response")
+		}
+	} else {
+		log.Printf("⚠️ [RAG-SEARCH] Fallback search: 'data' field not found in response")
+	}
+
+	log.Printf("🔍 [RAG-SEARCH] Fallback search converted to %d points", len(points))
+	return points, nil
+}
+
+// getCollectionFields returns the fields to query for a given collection
+func (m *MonitorService) getCollectionFields(collection string) string {
+	if collection == "AgiEpisodes" || collection == "AgiWiki" {
+		return "text\ntimestamp\nmetadata"
+	} else {
+		return "title\ntext\nsource\ntimestamp\nurl\nmetadata"
+	}
 }
 
 // getNATSInfo returns NATS connection information

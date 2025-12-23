@@ -206,22 +206,29 @@ func (w *WeaviateAdapter) SearchEpisodes(queryVec []float32, limit int, filters 
 
 	resp, err := w.httpClient.Do(req)
 	if err != nil {
+		log.Printf("❌ [WeaviateAdapter] SearchEpisodes HTTP request failed: %v", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("weaviate search failed: %s", resp.Status)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		log.Printf("❌ [WeaviateAdapter] SearchEpisodes failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+		return nil, fmt.Errorf("weaviate search failed: %s: %s", resp.Status, string(bodyBytes))
 	}
 
 	var result WeaviateResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Printf("❌ [WeaviateAdapter] SearchEpisodes failed to decode response: %v", err)
 		return nil, err
 	}
 
 	if len(result.Errors) > 0 {
+		log.Printf("❌ [WeaviateAdapter] SearchEpisodes GraphQL errors: %v", result.Errors)
 		return nil, fmt.Errorf("weaviate errors: %v", result.Errors)
 	}
+
+	log.Printf("🔍 [WeaviateAdapter] SearchEpisodes query successful, class=%s, found %d results", className, len(result.Data.Get[className]))
 
 	// Convert Weaviate objects to EpisodicRecord
 	var episodes []EpisodicRecord
