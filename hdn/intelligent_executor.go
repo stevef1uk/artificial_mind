@@ -845,6 +845,7 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 	descLower := strings.ToLower(req.Description)
 	taskLower := strings.ToLower(req.TaskName)
 	// Consider multiple web-related intents and presence of URLs in context
+	// Also detect explicit tool mentions (e.g., "use tool_http_get", "tool_html_scraper")
 	hasWebIntent := strings.Contains(descLower, "gather information") ||
 		strings.Contains(taskLower, "gather") ||
 		strings.Contains(descLower, "scrape") || strings.Contains(taskLower, "scrape") ||
@@ -856,7 +857,10 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 		strings.Contains(descLower, "screen scraper") || strings.Contains(taskLower, "screen scraper") ||
 		strings.Contains(descLower, "screen-scraper") || strings.Contains(taskLower, "screen-scraper") ||
 		strings.Contains(descLower, "scraper") || strings.Contains(taskLower, "scraper") ||
-		strings.Contains(descLower, "crawler") || strings.Contains(taskLower, "crawler")
+		strings.Contains(descLower, "crawler") || strings.Contains(taskLower, "crawler") ||
+		strings.Contains(descLower, "tool_http_get") || strings.Contains(taskLower, "tool_http_get") ||
+		strings.Contains(descLower, "tool_html_scraper") || strings.Contains(taskLower, "tool_html_scraper") ||
+		strings.Contains(descLower, "use tool") || strings.Contains(taskLower, "use tool")
 
 	// Also trigger if context already includes any URL-like entries
 	urlsInCtx := ie.collectURLsFromContext(req.Context)
@@ -2204,6 +2208,20 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 	start := time.Now()
 	log.Printf("🧪 [VALIDATION] Testing code for task: %s", code.TaskName)
 
+	// Check if task explicitly mentions using a tool - if so, allow HTTP requests
+	// This needs to be done before the safety check so it can see allow_requests in context
+	descLower := strings.ToLower(req.Description)
+	taskLower := strings.ToLower(req.TaskName)
+	if strings.Contains(descLower, "tool_http_get") || strings.Contains(descLower, "tool_html_scraper") ||
+		strings.Contains(descLower, "use tool") || strings.Contains(taskLower, "tool_http_get") ||
+		strings.Contains(taskLower, "tool_html_scraper") || strings.Contains(taskLower, "use tool") {
+		if req.Context == nil {
+			req.Context = make(map[string]string)
+		}
+		req.Context["allow_requests"] = "true"
+		log.Printf("🔓 [VALIDATION] Allowing HTTP requests for tool-calling task")
+	}
+
 	// Static safety check before any execution
 	if unsafeReason := isCodeUnsafeStatic(code.Code, code.Language, req.Context); unsafeReason != "" {
 		return ValidationStep{
@@ -2237,6 +2255,16 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 	}
 	// Use QUIET mode to suppress environment dumps from SSH shell initialization
 	env["QUIET"] = "1"
+	// Pass HDN_URL to validation environment so generated code can call tool APIs if needed
+	if ie.hdnBaseURL != "" {
+		env["HDN_URL"] = ie.hdnBaseURL
+	} else if hdnURL := os.Getenv("HDN_URL"); hdnURL != "" {
+		env["HDN_URL"] = hdnURL
+	}
+	// Copy allow_requests from context to env if it was set above
+	if allowReq, ok := req.Context["allow_requests"]; ok && allowReq == "true" {
+		env["allow_requests"] = "true"
+	}
 
 	// Create Docker execution request
 	// (removed: unused dockerReq)

@@ -565,12 +565,129 @@ func (sde *SimpleDockerExecutor) buildDockerCommand(image, cmd, codeFile, contai
 		}
 	} else if sde.getFileExtensionFromFile(codeFile) == "py" {
 		// For Python, analyze code and generate dynamic requirements.txt
-		if quiet {
+		// Even in quiet mode, we need to install packages if code imports them
+		// Read code file to check for imports
+		codeContent, _ := os.ReadFile(codeFile)
+		codeStr := string(codeContent)
+		needsPackages := strings.Contains(codeStr, "import requests") || strings.Contains(codeStr, "from requests") ||
+			strings.Contains(codeStr, "requests.post") || strings.Contains(codeStr, "requests.get")
+		
+		if quiet && !needsPackages {
+			// Quiet mode and no packages needed - simple execution
 			args = append(args, "sh", "-c", fmt.Sprintf(`
             cd /app && 
             mkdir -p /app/data && 
             python code.%s
         `, sde.getFileExtensionFromFile(codeFile)))
+		} else if quiet && needsPackages {
+			// Quiet mode but packages needed - install silently then run
+			// Use the same package detection logic as non-quiet mode, but redirect output to stderr
+			args = append(args, "sh", "-c", fmt.Sprintf(`
+			set -eu
+			cd /app && 
+			mkdir -p /app/data && 
+			# Analyze the code to determine what packages are actually needed (silently)
+			python3 -c "
+import re
+import sys
+
+# Read the code file
+with open('code.%s', 'r') as f:
+    code = f.read()
+
+# Extract import statements
+imports = re.findall(r'^import\s+([\w.]+)|^from\s+([\w.]+)\s+import', code, re.MULTILINE)
+packages = set()
+
+# Built-in Python modules that don't need to be installed
+builtin_modules = {
+    'csv', 'json', 'os', 'sys', 'time', 'datetime', 'math', 'random', 'collections',
+    'itertools', 'functools', 'operator', 're', 'string', 'io', 'pathlib', 'urllib',
+    'http', 'socket', 'threading', 'multiprocessing', 'subprocess', 'shutil',
+    'glob', 'tempfile', 'zipfile', 'tarfile', 'gzip', 'bz2', 'lzma', 'base64',
+    'hashlib', 'hmac', 'secrets', 'uuid', 'pickle', 'copy', 'pprint', 'traceback',
+    'logging', 'warnings', 'contextlib', 'typing', 'dataclasses', 'enum', 'abc',
+    'argparse', 'configparser', 'getopt', 'optparse', 'fileinput', 'linecache',
+    'cmd', 'shlex', 'readline', 'rlcompleter', 'stat', 'filecmp', 'fnmatch',
+    'glob', 'linecache', 'tempfile', 'shutil', 'zipfile', 'tarfile', 'gzip',
+    'bz2', 'lzma', 'base64', 'binascii', 'quopri', 'uu', 'codecs', 'unicodedata',
+    'stringprep', 'locale', 'gettext', 'calendar', 'collections', 'heapq', 'bisect',
+    'array', 'weakref', 'types', 'copy', 'pprint', 'reprlib', 'enum', 'numbers',
+    'math', 'cmath', 'decimal', 'fractions', 'random', 'statistics', 'itertools',
+    'functools', 'operator', 'pathlib', 'os', 'io', 'time', 'argparse', 'getopt',
+    'logging', 'getpass', 'curses', 'platform', 'errno', 'ctypes', 'threading',
+    'multiprocessing', 'concurrent', 'subprocess', 'sched', 'queue', 'contextvars',
+    '_thread', 'dummy_threading', 'asyncio', 'socket', 'ssl', 'select', 'selectors',
+    'signal', 'mmap', 'readline', 'rlcompleter', 'cmd', 'shlex', 'tkinter',
+    'turtle', 'pdb', 'profile', 'pstats', 'timeit', 'trace', 'tracemalloc',
+    'distutils', 'ensurepip', 'venv', 'zipapp', 'runpy', 'importlib', 'pkgutil',
+    'modulefinder', 'sys', 'builtins', 'warnings', 'contextlib', 'abc', 'atexit',
+    'traceback', 'future_builtins', 'gc', 'inspect', 'site', 'sysconfig', 'ast',
+    'symtable', 'keyword', 'token', 'tokenize', 'tabnanny', 'pyclbr', 'py_compile',
+    'compileall', 'dis', 'pickletools', 'formatter', 'codeop', 'code', 'codecs',
+    'unicodedata', 'stringprep', 'locale', 'gettext', 'calendar', 'collections',
+    'heapq', 'bisect', 'array', 'weakref', 'types', 'copy', 'pprint', 'reprlib',
+    'enum', 'numbers', 'math', 'cmath', 'decimal', 'fractions', 'random',
+    'statistics', 'itertools', 'functools', 'operator', 'pathlib', 'os', 'io',
+    'time', 'argparse', 'getopt', 'logging', 'getpass', 'curses', 'platform',
+    'errno', 'ctypes', 'threading', 'multiprocessing', 'concurrent', 'subprocess',
+    'sched', 'queue', 'contextvars', '_thread', 'dummy_threading', 'asyncio',
+    'socket', 'ssl', 'select', 'selectors', 'signal', 'mmap', 'readline',
+    'rlcompleter', 'cmd', 'shlex', 'tkinter', 'turtle', 'pdb', 'profile', 'pstats',
+    'timeit', 'trace', 'tracemalloc', 'distutils', 'ensurepip', 'venv', 'zipapp',
+    'runpy', 'importlib', 'pkgutil', 'modulefinder', 'sys', 'builtins', 'warnings',
+    'contextlib', 'abc', 'atexit', 'traceback', 'future_builtins', 'gc', 'inspect',
+    'site', 'sysconfig', 'ast', 'symtable', 'keyword', 'token', 'tokenize',
+    'tabnanny', 'pyclbr', 'py_compile', 'compileall', 'dis', 'pickletools',
+    'formatter', 'codeop', 'code'
+}
+
+for imp in imports:
+    package = imp[0] or imp[1]  # Get the package name
+    if package and not package.startswith('_'):
+        # For dotted imports like 'reportlab.pdfgen', use only the first part
+        base_package = package.split('.')[0]
+        # Only add if it's not a built-in module
+        if base_package not in builtin_modules:
+            packages.add(base_package)
+
+# Map common packages to their pip names
+package_map = {
+    'numpy': 'numpy>=1.21.0',
+    'pandas': 'pandas>=1.3.0', 
+    'matplotlib': 'matplotlib>=3.5.0',
+    'reportlab': 'reportlab>=3.6.0',
+    'requests': 'requests>=2.25.0',
+    'beautifulsoup4': 'beautifulsoup4>=4.9.0',
+    'scipy': 'scipy>=1.7.0',
+    'sklearn': 'scikit-learn>=1.0.0',
+    'seaborn': 'seaborn>=0.11.0',
+    'plotly': 'plotly>=5.0.0',
+    'openpyxl': 'openpyxl>=3.0.0',
+    'xlrd': 'xlrd>=2.0.0',
+    'pillow': 'pillow>=8.0.0',
+    'cv2': 'opencv-python>=4.5.0',
+    'tensorflow': 'tensorflow>=2.6.0',
+    'torch': 'torch>=1.9.0',
+    'transformers': 'transformers>=4.0.0'
+}
+
+# Generate requirements.txt only if there are packages
+if packages:
+    with open('requirements.txt', 'w') as f:
+        for package in sorted(packages):
+            if package in package_map:
+                f.write(package_map[package] + '\n')
+            else:
+                # For unknown packages, try the package name as-is
+                f.write(package + '\n')
+" 1>&2 &&
+			# Install only the packages that are actually needed (silently)
+            if [ -f requirements.txt ] && [ -s requirements.txt ]; then
+                pip install -r requirements.txt 1>&2
+			fi &&
+            python code.%s
+        `, sde.getFileExtensionFromFile(codeFile), sde.getFileExtensionFromFile(codeFile)))
 		} else {
 			args = append(args, "sh", "-c", fmt.Sprintf(`
 			set -eu

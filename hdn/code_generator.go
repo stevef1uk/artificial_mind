@@ -299,11 +299,22 @@ Return only the Python code in a markdown code block.`, printTarget)
 		}
 	}
 
+	// Add instructions for tool usage if task mentions tools
+	toolInstructions := ""
+	descLowerForTools := strings.ToLower(cleanDesc)
+	if strings.Contains(descLowerForTools, "tool_") || strings.Contains(descLowerForTools, "use tool") {
+		toolInstructions = "\n\n🚨 CRITICAL: If the task mentions using a tool (like tool_http_get, tool_html_scraper, etc.), DO NOT import it as a Python module. Instead, call the tool via HTTP API:\n"
+		toolInstructions += "- Get HDN_URL from environment: `hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')`\n"
+		toolInstructions += "- Call tool via POST request: `requests.post(f'{hdn_url}/api/v1/tools/{tool_id}/invoke', json={params})`\n"
+		toolInstructions += "- Example for tool_http_get: `requests.post(f'{hdn_url}/api/v1/tools/tool_http_get/invoke', json={'url': 'https://example.com'})`\n"
+		toolInstructions += "- Make sure to import `requests` and `os` modules, and handle the response JSON properly.\n"
+	}
+
 	return fmt.Sprintf(`Generate %s code for this task:
 
-%s%s
+%s%s%s
 
-Return only the code in a markdown code block.`, req.Language, cleanDesc, contextStr)
+Return only the code in a markdown code block.`, req.Language, cleanDesc, contextStr, toolInstructions)
 }
 
 // extractCodeFromResponse extracts code from the LLM response
