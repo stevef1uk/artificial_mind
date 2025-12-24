@@ -25,11 +25,6 @@ spec:
                 secretKeyRef:
                   name: llm-config
                   key: LLM_MODEL
-            - name: OLLAMA_MODEL
-              valueFrom:
-                secretKeyRef:
-                  name: llm-config
-                  key: LLM_MODEL
             - name: OLLAMA_URL
               valueFrom:
                 secretKeyRef:
