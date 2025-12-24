@@ -305,12 +305,113 @@ The Artificial Mind project supports multiple LLM providers. Choose the one that
    ANTHROPIC_MODEL=claude-3-sonnet-20240229
    ```
 
-### Option 4: Mock LLM (Development)
+### Option 4: Local LLM with llama.cpp (OpenAI-compatible)
+
+**Best for**: Fast local inference, OpenAI-compatible API, development
+
+1. **Install and run llama.cpp server**:
+   ```bash
+   # Download llama.cpp
+   git clone https://github.com/ggerganov/llama.cpp.git
+   cd llama.cpp
+   make
+   
+   # Download a model (e.g., Gemma 3 1B)
+   # Place your .gguf model file in the models directory
+   
+   # Start the server
+   ./server -m models/gemma-3-1b-it-q4_k_m.gguf -p 8085
+   ```
+
+2. **Configure Environment**:
+   ```bash
+   # Set in your .env file
+   LLM_PROVIDER=openai
+   LLM_MODEL=gemma-3-1b-it-q4_k_m.gguf
+   OPENAI_BASE_URL=http://localhost:8085
+   ```
+
+3. **Test llama.cpp Integration**:
+   ```bash
+   # Test the API directly
+   curl http://localhost:8085/v1/chat/completions \
+     -H "Content-Type: application/json" \
+     -d '{
+       "model": "gemma-3-1b-it-q4_k_m.gguf",
+       "messages": [{"role": "user", "content": "Hello!"}]
+     }'
+   ```
+
+### Option 5: Mock LLM (Development)
 
 For testing without API costs:
 ```bash
 LLM_PROVIDER=mock
 ```
+
+## ☸️ Kubernetes LLM Configuration
+
+When deploying to Kubernetes (k3s), LLM configuration is managed via Kubernetes secrets, allowing you to change providers and models without editing deployment YAML files.
+
+### Initial Setup
+
+1. **Create the LLM configuration secret**:
+   ```bash
+   cd k3s
+   kubectl apply -f llm-config-secret.yaml
+   ```
+
+2. **Create the llama-server service** (if using llama.cpp):
+   ```bash
+   # Edit llama-server-service.yaml to set the correct IP address
+   # Then apply:
+   kubectl apply -f llama-server-service.yaml
+   ```
+
+3. **Deploy services** (they automatically use the secret):
+   ```bash
+   kubectl apply -f hdn-server-rpi58.yaml
+   kubectl apply -f fsm-server-rpi58.yaml
+   ```
+
+### Changing LLM Settings
+
+To switch LLM providers or models, update the secret:
+
+```bash
+# Edit the secret directly
+kubectl edit secret llm-config -n agi
+
+# Or use patch commands
+kubectl patch secret llm-config -n agi --type='json' \
+  -p='[{"op": "replace", "path": "/data/LLM_PROVIDER", "value": "'$(echo -n "openai" | base64)'"}]'
+```
+
+Then restart pods to pick up new values:
+
+```bash
+kubectl rollout restart deployment/hdn-server-rpi58 -n agi
+kubectl rollout restart deployment/fsm-server-rpi58 -n agi
+```
+
+### Supported Configurations
+
+- **OpenAI/OpenAI-compatible** (e.g., llama.cpp):
+  - `LLM_PROVIDER=openai`
+  - `OPENAI_BASE_URL=http://llama-server.agi.svc.cluster.local:8085`
+  - `LLM_MODEL=gemma-3-1b-it-q4_k_m.gguf`
+
+- **Ollama**:
+  - `LLM_PROVIDER=local` or `ollama`
+  - `OLLAMA_BASE_URL=http://ollama.agi.svc.cluster.local:11434`
+  - `LLM_MODEL=gemma3:latest`
+
+- **OpenAI API**:
+  - `LLM_PROVIDER=openai`
+  - `OPENAI_BASE_URL=https://api.openai.com`
+  - `LLM_MODEL=gpt-4`
+
+For detailed instructions, see [`k3s/LLM_CONFIG_SECRET.md`](../k3s/LLM_CONFIG_SECRET.md).
 
 ## 🐳 Docker Setup Options
 
@@ -537,6 +638,10 @@ docker buildx build --platform linux/amd64,linux/arm64 --push -t your-registry/a
 
 # Deploy to mixed architecture cluster
 kubectl apply -f k3s/  # Uses appropriate manifests
+
+# Configure LLM settings (see Kubernetes LLM Configuration section above)
+kubectl apply -f k3s/llm-config-secret.yaml
+kubectl apply -f k3s/llama-server-service.yaml  # If using llama.cpp
 ```
 
 ## 🧪 Testing Your Setup

@@ -33,15 +33,37 @@ spec:
               value: "true"
             - name: AUTONOMY
               value: "true"
-            # Align LLM configuration with HDN
+            # LLM configuration from secret (aligned with HDN)
             - name: LLM_PROVIDER
-              value: "local"
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_PROVIDER
             - name: LLM_MODEL
-              value: "gemma3:latest"
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_MODEL
+            # Use OPENAI_BASE_URL for OpenAI-compatible servers (llama.cpp)
+            - name: OPENAI_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: OPENAI_BASE_URL
+                  optional: true
+            # Fallback: OLLAMA_BASE_URL for Ollama servers
             - name: OLLAMA_BASE_URL
-              value: "http://192.168.1.45:11434/api/chat"
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: OLLAMA_BASE_URL
+                  optional: true
             - name: OLLAMA_URL
-              value: "http://192.168.1.45:11434/api/chat"
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: OLLAMA_BASE_URL
+                  optional: true
             - name: NEO4J_URI
               value: "bolt://neo4j.agi.svc.cluster.local:7687"
             - name: NEO4J_USER

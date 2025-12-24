@@ -57,7 +57,16 @@ kubectl apply -f pvc-redis.yaml -f pvc-weaviate.yaml -f pvc-neo4j.yaml
 kubectl apply -f redis.yaml -f weaviate.yaml -f neo4j.yaml -f nats.yaml
 ```
 
-### 2. Deploy AGI Services
+### 2. Configure LLM (Required)
+```bash
+# Create LLM configuration secret
+kubectl apply -f llm-config-secret.yaml
+
+# If using llama.cpp, create the service (update IP address first!)
+kubectl apply -f llama-server-service.yaml
+```
+
+### 3. Deploy AGI Services
 ```bash
 # Deploy all AGI services
 kubectl apply -f principles-server.yaml
@@ -70,7 +79,7 @@ kubectl apply -f monitor-ui.yaml
 kubectl apply -f monitor-ui-rbac.yaml
 ```
 
-### 3. Bootstrap Tools (Required)
+### 4. Bootstrap Tools (Required)
 
 Tools need to be registered in HDN. They should bootstrap automatically, but if not:
 
@@ -83,7 +92,7 @@ cd ~/dev/artificial_mind/k3s
 ./register-all-tools.sh
 ```
 
-### 4. Verify Deployment
+### 5. Verify Deployment
 ```bash
 # Check all resources
 kubectl -n agi get pods,svc,pvc
@@ -153,18 +162,81 @@ For production deployments, configure a load balancer or ingress controller to e
 
 ## 🔧 Configuration
 
+### LLM Configuration (Using Secrets)
+
+**LLM settings are now managed via Kubernetes secrets**, allowing you to change the LLM provider and model without editing deployment YAML files.
+
+#### Initial Setup
+
+1. **Create the LLM configuration secret**:
+   ```bash
+   kubectl apply -f k3s/llm-config-secret.yaml
+   ```
+
+2. **Create the llama-server service** (if using llama.cpp):
+   ```bash
+   # Edit llama-server-service.yaml to set the correct IP address
+   kubectl apply -f k3s/llama-server-service.yaml
+   ```
+
+3. **Deploy services** (they will automatically use the secret):
+   ```bash
+   kubectl apply -f k3s/hdn-server-rpi58.yaml
+   kubectl apply -f k3s/fsm-server-rpi58.yaml
+   ```
+
+#### Changing LLM Settings
+
+To switch LLM providers or models, simply update the secret:
+
+```bash
+# Edit the secret directly
+kubectl edit secret llm-config -n agi
+
+# Or use patch commands (see LLM_CONFIG_SECRET.md for examples)
+```
+
+Then restart the pods to pick up new values:
+
+```bash
+kubectl rollout restart deployment/hdn-server-rpi58 -n agi
+kubectl rollout restart deployment/fsm-server-rpi58 -n agi
+```
+
+#### Supported LLM Providers
+
+- **OpenAI/OpenAI-compatible** (e.g., llama.cpp):
+  - Set `LLM_PROVIDER=openai`
+  - Set `OPENAI_BASE_URL` to your server URL
+  - Example: `http://llama-server.agi.svc.cluster.local:8085`
+
+- **Ollama**:
+  - Set `LLM_PROVIDER=local` or `ollama`
+  - Set `OLLAMA_BASE_URL` to your Ollama server
+  - Example: `http://ollama.agi.svc.cluster.local:11434`
+
+- **OpenAI API**:
+  - Set `LLM_PROVIDER=openai`
+  - Set `OPENAI_BASE_URL=https://api.openai.com`
+  - Set `LLM_API_KEY` in the secret (if needed)
+
+For detailed instructions, see [`k3s/LLM_CONFIG_SECRET.md`](LLM_CONFIG_SECRET.md).
+
 ### Environment Variables
-Each service can be configured via environment variables in the manifests:
+Each service can be configured via environment variables in the manifests. LLM-related variables are now sourced from the `llm-config` secret (see above).
 
 ```yaml
 env:
   - name: LLM_PROVIDER
-    value: "openai"
-  - name: OPENAI_API_KEY
     valueFrom:
       secretKeyRef:
-        name: agi-secrets
-        key: openai-api-key
+        name: llm-config
+        key: LLM_PROVIDER
+  - name: LLM_MODEL
+    valueFrom:
+      secretKeyRef:
+        name: llm-config
+        key: LLM_MODEL
 ```
 
 ### Secrets Management
@@ -654,6 +726,7 @@ If you need to regenerate keys (e.g., after rebuilding images):
 - [Configuration Guide](../docs/CONFIGURATION_GUIDE.md) - Detailed configuration options
 - [Setup Guide](../docs/SETUP_GUIDE.md) - Complete setup instructions
 - [Secure Packaging Guide](../docs/SECURE_PACKAGING_GUIDE.md) - Secure container details
+- [LLM Configuration Secret](LLM_CONFIG_SECRET.md) - How to configure LLM settings using Kubernetes secrets
 
 ## 🎯 Production Considerations
 

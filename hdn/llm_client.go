@@ -611,9 +611,17 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 
 	switch c.config.LLMProvider {
 	case "openai":
-		apiURL = "https://api.openai.com/v1/chat/completions"
+		// Allow override of OpenAI base URL for local OpenAI-compatible servers (e.g., llama.cpp)
+		if url, ok := c.config.Settings["openai_url"]; ok && strings.TrimSpace(url) != "" {
+			apiURL = strings.TrimSpace(url)
+			if !strings.HasSuffix(apiURL, "/v1/chat/completions") {
+				apiURL = strings.TrimRight(apiURL, "/") + "/v1/chat/completions"
+			}
+		} else {
+			apiURL = "https://api.openai.com/v1/chat/completions"
+		}
 		apiKey = c.config.LLMAPIKey
-		log.Printf("🌐 [LLM] Using OpenAI API")
+		log.Printf("🌐 [LLM] Using OpenAI API at %s", apiURL)
 	case "anthropic":
 		apiURL = "https://api.anthropic.com/v1/messages"
 		apiKey = c.config.LLMAPIKey

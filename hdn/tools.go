@@ -1702,10 +1702,10 @@ java "$MAIN"
 		// Normal filtering: remove env vars and SSH messages from anywhere in output
 		// More aggressive: filter env vars at the start until we see actual program output
 		inEnvDump := false
-		
+
 		for _, line := range lines {
 			lineTrimmed := strings.TrimSpace(line)
-			
+
 			// Skip SSH connection messages
 			if sshMessagePattern.MatchString(lineTrimmed) || strings.HasPrefix(lineTrimmed, "Warning: Permanently added") {
 				continue
@@ -1713,10 +1713,10 @@ java "$MAIN"
 
 			// Check if this line looks like an environment variable
 			isEnvVar := envVarPattern.MatchString(lineTrimmed)
-			
+
 			if isEnvVar {
 				// Common env vars that indicate we're in a dump
-				if strings.HasPrefix(lineTrimmed, "HOME=") || 
+				if strings.HasPrefix(lineTrimmed, "HOME=") ||
 					strings.HasPrefix(lineTrimmed, "PATH=") ||
 					strings.HasPrefix(lineTrimmed, "USER=") ||
 					strings.HasPrefix(lineTrimmed, "PWD=") ||
@@ -1729,17 +1729,17 @@ java "$MAIN"
 					continue // Skip this env var line
 				}
 			}
-			
+
 			// If we see actual output (not an env var), mark that we've left the env dump
 			if !isEnvVar && lineTrimmed != "" {
 				inEnvDump = false
 			}
-			
+
 			// Skip env vars only if we're still in the dump phase (before seeing real output)
 			if inEnvDump && isEnvVar {
 				continue
 			}
-			
+
 			// Keep all non-env-var lines, and env vars that appear after real output
 			filteredLines = append(filteredLines, line)
 		}

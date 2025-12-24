@@ -3,7 +3,7 @@
   "llm_api_key": "",
   "mcp_endpoint": "mock://localhost:3000/mcp",
   "settings": {
-    "model": "gemma3:latest",
+    "model": "gemma-3-1b-it-q4_k_m.gguf",
     "temperature": "0.7",
     "max_tokens": "1000",
     "llm_timeout_seconds": "120"

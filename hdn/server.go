@@ -126,6 +126,13 @@ func applyEnvOverrides(cfg *ServerConfig) {
 		log.Printf("DEBUG: Setting ollama_url from OLLAMA_BASE_URL: %s", v)
 		cfg.Settings["ollama_url"] = v
 	}
+	if v := getenvTrim("OPENAI_BASE_URL"); v != "" {
+		if cfg.Settings == nil {
+			cfg.Settings = make(map[string]string)
+		}
+		log.Printf("DEBUG: Setting openai_url from OPENAI_BASE_URL: %s", v)
+		cfg.Settings["openai_url"] = v
+	}
 }
 
 func getenvTrim(key string) string {

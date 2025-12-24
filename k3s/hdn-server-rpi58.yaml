@@ -48,16 +48,41 @@ spec:
               value: "nats://nats.agi.svc.cluster.local:4222"
             - name: PRINCIPLES_URL
               value: "http://principles-server.agi.svc.cluster.local:8080"
+            # LLM configuration from secret (can be updated without changing deployment)
             - name: LLM_PROVIDER
-              value: "local"
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_PROVIDER
             - name: LLM_MODEL
-              value: "gemma3:latest"
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_MODEL
             - name: LLM_TIMEOUT_SECONDS
-              value: "60"
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_TIMEOUT_SECONDS
             - name: LLM_TIMEOUT
-              value: "60s"
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_TIMEOUT
+            # Use OPENAI_BASE_URL for OpenAI-compatible servers (llama.cpp)
+            - name: OPENAI_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: OPENAI_BASE_URL
+                  optional: true
+            # Fallback: OLLAMA_BASE_URL for Ollama servers
             - name: OLLAMA_BASE_URL
-              value: "http://ollama.agi.svc.cluster.local:11434/api/chat"
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: OLLAMA_BASE_URL
+                  optional: true
             - name: HDN_URL
               value: "http://localhost:8080"
             - name: SECURE_CUSTOMER_PRIVATE_PATH

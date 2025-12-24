@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: llama-server
+  namespace: agi
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8085
+    targetPort: 8085
+    name: http
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: llama-server
+  namespace: agi
+subsets:
+- addresses:
+  # Update this IP to where your llama.cpp server is running
+  # For local Mac: use host.docker.internal or the actual IP
+  # For Raspberry Pi: use the Pi's IP address
+  - ip: 192.168.1.45  # Update this to your llama.cpp server's IP
+  ports:
+  - port: 8085
+    name: http
+
