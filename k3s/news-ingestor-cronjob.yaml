@@ -19,18 +19,58 @@ spec:
             env:
             - name: NATS_URL
               value: "nats://nats:4222"
-            - name: OLLAMA_URL
-              value: "http://192.168.1.45:11434/api/chat"
+            # LLM configuration from secret (can be updated without changing deployment)
+            - name: LLM_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_MODEL
             - name: OLLAMA_MODEL
-              value: "gemma3:latest"
-            # GPU Optimization: LLM timeout reduction
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_MODEL
+            - name: OLLAMA_URL
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: OLLAMA_URL
+            - name: LLM_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: OLLAMA_URL
             - name: LLM_TIMEOUT
-              value: "120s"
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_TIMEOUT
             - name: LLM_TIMEOUT_SECONDS
-              value: "120"
-            # GPU Optimization: LLM request throttling (prevents GPU overload)
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_TIMEOUT_SECONDS
             - name: LLM_MAX_CONCURRENT_REQUESTS
-              value: "2"
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_MAX_CONCURRENT_REQUESTS
+            # Async LLM Queue Configuration
+            - name: USE_ASYNC_LLM_QUEUE
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: USE_ASYNC_LLM_QUEUE
+            - name: ASYNC_LLM_MAX_WORKERS
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: ASYNC_LLM_MAX_WORKERS
+            - name: ASYNC_LLM_TIMEOUT_SECONDS
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: ASYNC_LLM_TIMEOUT_SECONDS
             - name: SECURE_CUSTOMER_PRIVATE_PATH
               value: "/keys/customer_private.pem"
             - name: SECURE_VENDOR_TOKEN

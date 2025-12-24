@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -11,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"async_llm"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -44,7 +45,7 @@ type llmClient struct {
 	provider string
 	endpoint string
 	model    string
-	client   *http.Client
+	client   *http.Client // Kept for backward compatibility, but async client is used
 }
 
 // VectorDBClient interface for both Qdrant and Weaviate
@@ -336,35 +337,16 @@ Summary:`, title, originalText, maxWords)
 
 func (llm *llmClient) callOllama(prompt string) (string, error) {
 	log.Printf("🤖 Calling Ollama with prompt length: %d", len(prompt))
-
-	request := map[string]interface{}{
-		"model":  llm.model,
-		"prompt": prompt,
-		"stream": false,
-	}
-
-	reqData, _ := json.Marshal(request)
 	log.Printf("📤 Sending request to: %s", llm.endpoint)
 
-	resp, err := llm.client.Post(llm.endpoint, "application/json", strings.NewReader(string(reqData)))
+	ctx := context.Background()
+	// Use async LLM client (or sync fallback)
+	response, err := async_llm.CallAsync(ctx, "ollama", llm.endpoint, llm.model, prompt, nil, async_llm.PriorityLow)
 	if err != nil {
 		log.Printf("❌ Ollama request failed: %v", err)
 		return "", err
 	}
-	defer resp.Body.Close()
 
-	log.Printf("📥 Ollama response status: %s", resp.Status)
-
-	var result struct {
-		Response string `json:"response"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		log.Printf("❌ Failed to decode Ollama response: %v", err)
-		return "", err
-	}
-
-	response := strings.TrimSpace(result.Response)
 	log.Printf("✅ Ollama response length: %d", len(response))
 	return response, nil
 }

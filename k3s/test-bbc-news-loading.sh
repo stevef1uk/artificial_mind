@@ -251,3 +251,7 @@ echo "  kubectl logs -n $NAMESPACE $FSM_POD -f | grep -E 'news|News'"
 echo ""
 
 
+
+
+
+

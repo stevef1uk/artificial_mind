@@ -87,3 +87,7 @@ echo "Total tools in registry: $TOTAL_TOOLS"
 echo
 echo "✅ Complete! Tools should now be visible in Monitor UI"
 
+
+
+
+

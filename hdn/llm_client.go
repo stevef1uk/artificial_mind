@@ -194,6 +194,440 @@ func acquireLLMSlot(ctx context.Context, priority RequestPriority, timeout time.
 	}
 }
 
+// ========== ASYNC LLM QUEUE SYSTEM (PROOF OF CONCEPT) ==========
+
+// AsyncLLMRequest represents an async LLM request with callback
+type AsyncLLMRequest struct {
+	ID           string                    // Unique request ID
+	Priority     RequestPriority           // Request priority
+	Prompt       string                    // The LLM prompt
+	RequestType  string                    // Type of request (e.g., "GenerateMethod", "GenerateCode")
+	RequestData  map[string]interface{}    // Additional request data
+	Callback     func(string, error)       // Callback function to call with result
+	CreatedAt    time.Time                 // When request was created
+	Context      context.Context           // Context for cancellation
+}
+
+// AsyncLLMResponse represents a completed LLM response
+type AsyncLLMResponse struct {
+	RequestID   string
+	Response    string
+	Error       error
+	CompletedAt time.Time
+}
+
+// AsyncLLMQueueManager manages async LLM request queues
+type AsyncLLMQueueManager struct {
+	// Priority stacks (LIFO - Last In First Out)
+	highPriorityStack []*AsyncLLMRequest
+	lowPriorityStack  []*AsyncLLMRequest
+	
+	// Response queue
+	responseQueue chan *AsyncLLMResponse
+	
+	// Worker pool
+	workerPool     chan struct{}
+	maxWorkers     int
+	
+	// Synchronization
+	mu             sync.Mutex
+	requestMap     map[string]*AsyncLLMRequest // Map request ID to request for callbacks
+	shutdown       chan struct{}
+	wg             sync.WaitGroup
+	
+	// LLM client for making actual requests
+	llmClient      *LLMClient
+}
+
+var (
+	asyncQueueManager     *AsyncLLMQueueManager
+	asyncQueueManagerOnce sync.Once
+)
+
+// InitAsyncLLMQueue initializes the async LLM queue system
+func InitAsyncLLMQueue(llmClient *LLMClient) *AsyncLLMQueueManager {
+	asyncQueueManagerOnce.Do(func() {
+		maxWorkers := 2 // Default max concurrent LLM requests
+		if maxStr := os.Getenv("LLM_MAX_CONCURRENT_REQUESTS"); maxStr != "" {
+			if max, err := strconv.Atoi(maxStr); err == nil && max > 0 {
+				maxWorkers = max
+			}
+		}
+		
+		asyncQueueManager = &AsyncLLMQueueManager{
+			highPriorityStack: make([]*AsyncLLMRequest, 0),
+			lowPriorityStack:  make([]*AsyncLLMRequest, 0),
+			responseQueue:     make(chan *AsyncLLMResponse, 100),
+			workerPool:        make(chan struct{}, maxWorkers),
+			maxWorkers:        maxWorkers,
+			requestMap:        make(map[string]*AsyncLLMRequest),
+			shutdown:          make(chan struct{}),
+			llmClient:         llmClient,
+		}
+		
+		log.Printf("🚀 [ASYNC-LLM] Initialized async LLM queue system with %d workers", maxWorkers)
+		
+		// Start queue processor
+		asyncQueueManager.wg.Add(1)
+		go asyncQueueManager.processQueue()
+		
+		// Start response handler
+		asyncQueueManager.wg.Add(1)
+		go asyncQueueManager.processResponses()
+	})
+	
+	return asyncQueueManager
+}
+
+// EnqueueRequest adds a request to the appropriate priority stack (LIFO)
+func (aqm *AsyncLLMQueueManager) EnqueueRequest(req *AsyncLLMRequest) error {
+	aqm.mu.Lock()
+	defer aqm.mu.Unlock()
+	
+	// Generate ID if not provided
+	if req.ID == "" {
+		req.ID = fmt.Sprintf("req_%d", time.Now().UnixNano())
+	}
+	
+	req.CreatedAt = time.Now()
+	
+	// Store in request map for callback routing
+	aqm.requestMap[req.ID] = req
+	
+	// Add to appropriate stack (LIFO - append to end, pop from end)
+	if req.Priority == PriorityHigh {
+		aqm.highPriorityStack = append(aqm.highPriorityStack, req)
+		log.Printf("📥 [ASYNC-LLM] Enqueued HIGH priority request: %s (stack size: %d)", req.ID, len(aqm.highPriorityStack))
+	} else {
+		aqm.lowPriorityStack = append(aqm.lowPriorityStack, req)
+		log.Printf("📥 [ASYNC-LLM] Enqueued LOW priority request: %s (stack size: %d)", req.ID, len(aqm.lowPriorityStack))
+	}
+	
+	return nil
+}
+
+// processQueue continuously processes requests from priority stacks
+func (aqm *AsyncLLMQueueManager) processQueue() {
+	defer aqm.wg.Done()
+	
+	for {
+		select {
+		case <-aqm.shutdown:
+			log.Printf("🛑 [ASYNC-LLM] Queue processor shutting down")
+			return
+		default:
+			// Try to get a request from stacks (LIFO - pop from end)
+			var req *AsyncLLMRequest
+			
+			aqm.mu.Lock()
+			// Always check high priority first
+			if len(aqm.highPriorityStack) > 0 {
+				// Pop from end (LIFO)
+				lastIdx := len(aqm.highPriorityStack) - 1
+				req = aqm.highPriorityStack[lastIdx]
+				aqm.highPriorityStack = aqm.highPriorityStack[:lastIdx]
+				log.Printf("📤 [ASYNC-LLM] Popped HIGH priority request: %s", req.ID)
+			} else if len(aqm.lowPriorityStack) > 0 {
+				// Check if background LLM is disabled
+				disableBackgroundLLM := strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "1" || 
+				                         strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "true"
+				if !disableBackgroundLLM {
+					// Pop from end (LIFO)
+					lastIdx := len(aqm.lowPriorityStack) - 1
+					req = aqm.lowPriorityStack[lastIdx]
+					aqm.lowPriorityStack = aqm.lowPriorityStack[:lastIdx]
+					log.Printf("📤 [ASYNC-LLM] Popped LOW priority request: %s", req.ID)
+				}
+			}
+			aqm.mu.Unlock()
+			
+			if req != nil {
+				// Acquire worker slot
+				select {
+				case aqm.workerPool <- struct{}{}:
+					// Worker slot acquired, process request
+					aqm.wg.Add(1)
+					go aqm.processRequest(req)
+				case <-aqm.shutdown:
+					return
+				}
+			} else {
+				// No requests available, brief sleep
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}
+}
+
+// processRequest processes a single LLM request
+func (aqm *AsyncLLMQueueManager) processRequest(req *AsyncLLMRequest) {
+	defer aqm.wg.Done()
+	defer func() { <-aqm.workerPool }() // Release worker slot
+	
+	log.Printf("🔄 [ASYNC-LLM] Processing request: %s (type: %s)", req.ID, req.RequestType)
+	
+	// Check if request was cancelled
+	select {
+	case <-req.Context.Done():
+		log.Printf("❌ [ASYNC-LLM] Request %s was cancelled", req.ID)
+		aqm.sendResponse(&AsyncLLMResponse{
+			RequestID:   req.ID,
+			Response:    "",
+			Error:       fmt.Errorf("request cancelled"),
+			CompletedAt: time.Now(),
+		})
+		return
+	default:
+	}
+	
+	// Make the actual LLM HTTP call directly (bypassing semaphore system)
+	response, err := aqm.makeLLMHTTPCall(req.Context, req.Prompt)
+	
+	// Send response to response queue
+	aqm.sendResponse(&AsyncLLMResponse{
+		RequestID:   req.ID,
+		Response:    response,
+		Error:       err,
+		CompletedAt: time.Now(),
+	})
+	
+	log.Printf("✅ [ASYNC-LLM] Completed request: %s (error: %v)", req.ID, err != nil)
+}
+
+// makeLLMHTTPCall makes the actual HTTP call to the LLM provider (bypassing semaphore)
+func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt string) (string, error) {
+	client := aqm.llmClient
+	log.Printf("🌐 [ASYNC-LLM] Making API call to provider: %s", client.config.LLMProvider)
+	log.Printf("🌐 [ASYNC-LLM] Timeout: %v", client.httpClient.Timeout)
+
+	// Determine the API endpoint based on provider
+	var apiURL string
+	var apiKey string
+
+	switch client.config.LLMProvider {
+	case "openai":
+		// Allow override of OpenAI base URL for local OpenAI-compatible servers (e.g., llama.cpp)
+		if url, ok := client.config.Settings["openai_url"]; ok && strings.TrimSpace(url) != "" {
+			apiURL = strings.TrimSpace(url)
+			if !strings.HasSuffix(apiURL, "/v1/chat/completions") {
+				apiURL = strings.TrimRight(apiURL, "/") + "/v1/chat/completions"
+			}
+		} else {
+			apiURL = "https://api.openai.com/v1/chat/completions"
+		}
+		apiKey = client.config.LLMAPIKey
+		log.Printf("🌐 [ASYNC-LLM] Using OpenAI API at %s", apiURL)
+	case "anthropic":
+		apiURL = "https://api.anthropic.com/v1/messages"
+		apiKey = client.config.LLMAPIKey
+		log.Printf("🌐 [ASYNC-LLM] Using Anthropic API")
+	case "local", "ollama":
+		// For local models, use Ollama. Allow override via settings["ollama_url"].
+		if url, ok := client.config.Settings["ollama_url"]; ok && strings.TrimSpace(url) != "" {
+			apiURL = normalizeOllamaURL(strings.TrimSpace(url))
+		} else {
+			apiURL = "http://localhost:11434/api/chat"
+		}
+		apiKey = ""
+		log.Printf("🌐 [ASYNC-LLM] Using Ollama local API at %s", apiURL)
+	default:
+		log.Printf("❌ [ASYNC-LLM] Unsupported provider: %s", client.config.LLMProvider)
+		return "", fmt.Errorf("unsupported LLM provider: %s", client.config.LLMProvider)
+	}
+
+	// Prepare the request based on provider
+	var jsonData []byte
+	var err error
+
+	if client.config.LLMProvider == "local" {
+		// Ollama uses a different format
+		ollamaRequest := map[string]interface{}{
+			"model": client.getModelName(),
+			"messages": []map[string]string{
+				{
+					"role":    "user",
+					"content": prompt,
+				},
+			},
+			"stream": false,
+		}
+		jsonData, err = json.Marshal(ollamaRequest)
+	} else {
+		// OpenAI/Anthropic format
+		request := LLMRequest{
+			Model: client.getModelName(),
+			Messages: []Message{
+				{
+					Role:    "user",
+					Content: prompt,
+				},
+			},
+			Temperature: 0.7,
+			MaxTokens:   1000,
+		}
+		jsonData, err = json.Marshal(request)
+	}
+
+	if err != nil {
+		return "", err
+	}
+
+	// Create HTTP request with context to allow cancellation
+	log.Printf("🌐 [ASYNC-LLM] Making request to: %s", apiURL)
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", err
+	}
+
+	// Set headers
+	req.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	// Track request duration
+	requestStart := time.Now()
+
+	// Make the request (will respect context cancellation)
+	resp, err := client.httpClient.Do(req)
+	
+	requestDuration := time.Since(requestStart)
+	
+	// Warn if request took too long
+	if requestDuration > 10*time.Second {
+		log.Printf("⚠️ [ASYNC-LLM] Slow request detected: %v", requestDuration)
+	} else {
+		log.Printf("⏱️ [ASYNC-LLM] Request completed in %v", requestDuration)
+	}
+	if err != nil {
+		log.Printf("❌ [ASYNC-LLM] HTTP request failed: %v", err)
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	log.Printf("🌐 [ASYNC-LLM] Received HTTP response with status: %d", resp.StatusCode)
+
+	// Read response
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("❌ [ASYNC-LLM] Failed to read response body: %v", err)
+		return "", err
+	}
+
+	log.Printf("🌐 [ASYNC-LLM] Response body length: %d bytes", len(body))
+
+	// Check for HTTP errors
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("❌ [ASYNC-LLM] API error (status %d): %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("LLM API error: %s", string(body))
+	}
+
+	// Parse response based on provider
+	if client.config.LLMProvider == "local" {
+		// Ollama response format
+		log.Printf("🌐 [ASYNC-LLM] Parsing Ollama response")
+		var ollamaResp map[string]interface{}
+		if err := json.Unmarshal(body, &ollamaResp); err != nil {
+			log.Printf("❌ [ASYNC-LLM] Failed to parse Ollama JSON: %v", err)
+			return "", err
+		}
+
+		// Extract message content
+		if message, ok := ollamaResp["message"].(map[string]interface{}); ok {
+			if content, ok := message["content"].(string); ok {
+				log.Printf("✅ [ASYNC-LLM] Successfully extracted content from Ollama response")
+				return content, nil
+			}
+		}
+		log.Printf("❌ [ASYNC-LLM] Could not extract content from Ollama response")
+		return "", fmt.Errorf("could not extract content from Ollama response")
+	} else {
+		// OpenAI/Anthropic response format
+		log.Printf("🌐 [ASYNC-LLM] Parsing %s response", client.config.LLMProvider)
+		var llmResp LLMResponse
+		if err := json.Unmarshal(body, &llmResp); err != nil {
+			log.Printf("❌ [ASYNC-LLM] Failed to parse %s JSON: %v", client.config.LLMProvider, err)
+			return "", err
+		}
+
+		// Check for API errors
+		if llmResp.Error != nil {
+			log.Printf("❌ [ASYNC-LLM] API error: %s", llmResp.Error.Message)
+			return "", fmt.Errorf("LLM API error: %s", llmResp.Error.Message)
+		}
+
+		// Extract content
+		if len(llmResp.Choices) == 0 {
+			log.Printf("❌ [ASYNC-LLM] No choices in response")
+			return "", fmt.Errorf("no response from LLM")
+		}
+
+		log.Printf("✅ [ASYNC-LLM] Successfully extracted content from %s response", client.config.LLMProvider)
+		return llmResp.Choices[0].Message.Content, nil
+	}
+}
+
+// sendResponse sends a response to the response queue
+func (aqm *AsyncLLMQueueManager) sendResponse(resp *AsyncLLMResponse) {
+	select {
+	case aqm.responseQueue <- resp:
+		log.Printf("📨 [ASYNC-LLM] Sent response for request: %s", resp.RequestID)
+	case <-time.After(5 * time.Second):
+		log.Printf("⚠️ [ASYNC-LLM] Response queue full, dropping response for: %s", resp.RequestID)
+	}
+}
+
+// processResponses processes completed LLM responses and calls callbacks
+func (aqm *AsyncLLMQueueManager) processResponses() {
+	defer aqm.wg.Done()
+	
+	for {
+		select {
+		case <-aqm.shutdown:
+			log.Printf("🛑 [ASYNC-LLM] Response processor shutting down")
+			return
+		case resp := <-aqm.responseQueue:
+			aqm.mu.Lock()
+			req, exists := aqm.requestMap[resp.RequestID]
+			if exists {
+				delete(aqm.requestMap, resp.RequestID)
+			}
+			aqm.mu.Unlock()
+			
+			if !exists {
+				log.Printf("⚠️ [ASYNC-LLM] No request found for response: %s", resp.RequestID)
+				continue
+			}
+			
+			// Call the callback function
+			log.Printf("📞 [ASYNC-LLM] Calling callback for request: %s", resp.RequestID)
+			if req.Callback != nil {
+				// Call callback in a goroutine to avoid blocking
+				go func(callback func(string, error), response string, err error) {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("❌ [ASYNC-LLM] Callback panic for request %s: %v", resp.RequestID, r)
+						}
+					}()
+					callback(response, err)
+				}(req.Callback, resp.Response, resp.Error)
+			} else {
+				log.Printf("⚠️ [ASYNC-LLM] No callback provided for request: %s", resp.RequestID)
+			}
+		}
+	}
+}
+
+// Shutdown gracefully shuts down the async queue system
+func (aqm *AsyncLLMQueueManager) Shutdown() {
+	log.Printf("🛑 [ASYNC-LLM] Shutting down async queue system...")
+	close(aqm.shutdown)
+	aqm.wg.Wait()
+	log.Printf("✅ [ASYNC-LLM] Async queue system shut down")
+}
+
+// ========== END ASYNC LLM QUEUE SYSTEM ==========
+
 type LLMClient struct {
 	config     DomainConfig
 	httpClient *http.Client
@@ -242,6 +676,7 @@ func NewLLMClient(config DomainConfig) *LLMClient {
 	}
 }
 
+// GenerateMethod generates a method - automatically uses async queue if enabled
 func (c *LLMClient) GenerateMethod(taskName, description string, context map[string]string) (*MethodDef, error) {
 	log.Printf("🤖 [LLM] Generating method for task: %s", taskName)
 	log.Printf("🤖 [LLM] Description: %s", description)
@@ -251,7 +686,7 @@ func (c *LLMClient) GenerateMethod(taskName, description string, context map[str
 	prompt := c.buildMethodPrompt(taskName, description, context)
 	log.Printf("🤖 [LLM] Generated prompt length: %d characters", len(prompt))
 
-	// Call the LLM
+	// Call the LLM (will use async queue if USE_ASYNC_LLM_QUEUE is set)
 	log.Printf("🤖 [LLM] Calling LLM with provider: %s", c.config.LLMProvider)
 	response, err := c.callLLM(prompt)
 	if err != nil {
@@ -551,14 +986,84 @@ func (c *LLMClient) callLLMWithContext(ctx context.Context, prompt string) (stri
 }
 
 // callLLMWithContextAndPriority calls LLM with context and priority
+// This is the main entry point - it routes to async or sync based on environment variable
 func (c *LLMClient) callLLMWithContextAndPriority(ctx context.Context, prompt string, priority RequestPriority) (string, error) {
 	// Mock responses for testing
 	if c.config.LLMProvider == "mock" {
 		return c.getMockResponse(prompt)
 	}
 
-	// For real providers, use the actual implementation with context and priority
+	// Check if async queue system should be used
+	useAsync := strings.TrimSpace(os.Getenv("USE_ASYNC_LLM_QUEUE")) == "1" || 
+	           strings.TrimSpace(os.Getenv("USE_ASYNC_LLM_QUEUE")) == "true"
+	
+	if useAsync {
+		return c.callLLMAsyncWithContextAndPriority(ctx, prompt, priority)
+	}
+
+	// For real providers, use the actual implementation with context and priority (sync)
 	return c.callLLMRealWithContextAndPriority(ctx, prompt, priority)
+}
+
+// callLLMAsyncWithContextAndPriority calls LLM using the async queue system
+func (c *LLMClient) callLLMAsyncWithContextAndPriority(ctx context.Context, prompt string, priority RequestPriority) (string, error) {
+	// Initialize async queue if not already done
+	queueMgr := InitAsyncLLMQueue(c)
+	
+	// Create a channel to receive the result
+	resultChan := make(chan string, 1)
+	errorChan := make(chan error, 1)
+	
+	// Create callback function
+	callback := func(response string, err error) {
+		if err != nil {
+			errorChan <- err
+			return
+		}
+		resultChan <- response
+	}
+	
+	// Create async request
+	req := &AsyncLLMRequest{
+		Priority:    priority,
+		Prompt:      prompt,
+		RequestType: "LLMCall",
+		RequestData: map[string]interface{}{
+			"prompt": prompt,
+		},
+		Callback: callback,
+		Context:  ctx,
+	}
+	
+	// Enqueue the request
+	if err := queueMgr.EnqueueRequest(req); err != nil {
+		log.Printf("❌ [ASYNC-LLM] Failed to enqueue request: %v", err)
+		return "", err
+	}
+	
+	log.Printf("🚀 [ASYNC-LLM] Request enqueued: %s (priority: %v)", req.ID, priority)
+	
+	// Wait for result (with timeout from context or default)
+	timeout := 10 * time.Minute // Long timeout for async processing
+	if deadline, ok := ctx.Deadline(); ok {
+		timeUntilDeadline := time.Until(deadline)
+		if timeUntilDeadline > 0 && timeUntilDeadline < timeout {
+			timeout = timeUntilDeadline
+		}
+	}
+	
+	select {
+	case response := <-resultChan:
+		return response, nil
+	case err := <-errorChan:
+		return "", err
+	case <-ctx.Done():
+		log.Printf("❌ [ASYNC-LLM] Context cancelled while waiting for response")
+		return "", ctx.Err()
+	case <-time.After(timeout):
+		log.Printf("❌ [ASYNC-LLM] Timeout waiting for async response")
+		return "", fmt.Errorf("timeout waiting for async LLM response")
+	}
 }
 
 func (c *LLMClient) callLLMReal(prompt string) (string, error) {
@@ -700,8 +1205,20 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 	log.Printf("🌐 [LLM] Sending HTTP request to %s | provider=%s | model=%s | timeout=%s | payload_bytes=%d\nPayload Preview: %s",
 		apiURL, c.config.LLMProvider, c.getModelName(), c.httpClient.Timeout.String(), len(jsonData), string(payloadPreview))
 
+	// Track request duration to detect slow CPU inference
+	requestStart := time.Now()
+
 	// Make the request (will respect context cancellation)
 	resp, err := c.httpClient.Do(req)
+	
+	requestDuration := time.Since(requestStart)
+	
+	// Warn if request took too long (likely CPU inference instead of GPU)
+	if requestDuration > 10*time.Second {
+		log.Printf("⚠️ [LLM] Slow request detected: %v (expected < 10s with GPU). This may indicate CPU inference instead of GPU.", requestDuration)
+	} else {
+		log.Printf("⏱️ [LLM] Request completed in %v", requestDuration)
+	}
 	if err != nil {
 		log.Printf("❌ [LLM] HTTP request failed: %v", err)
 		return "", err

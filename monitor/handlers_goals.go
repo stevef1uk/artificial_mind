@@ -62,9 +62,15 @@ func (m *MonitorService) getActiveGoals(c *gin.Context) {
 		return
 	}
 	url := m.goalMgrURL + "/goals/" + agent + "/active"
-	resp, err := http.Get(url)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch active goals"})
+		log.Printf("❌ Failed to connect to Goal Manager at %s: %v", url, err)
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error":   "failed to fetch active goals",
+			"message": fmt.Sprintf("Cannot connect to Goal Manager at %s. Please check if the service is running.", m.goalMgrURL),
+			"details": err.Error(),
+		})
 		return
 	}
 	defer resp.Body.Close()
@@ -1007,12 +1013,34 @@ func (m *MonitorService) createGoalFromNL(c *gin.Context) {
 		req.Context["project_id"] = projectID
 	}
 	b, _ := json.Marshal(payload)
-	resp, err := http.Post(m.goalMgrURL+"/goal", "application/json", strings.NewReader(string(b)))
+	
+	// Use HTTP client with timeout
+	client := &http.Client{Timeout: 10 * time.Second}
+	goalURL := m.goalMgrURL + "/goal"
+	log.Printf("📤 Creating goal via Goal Manager at %s", goalURL)
+	
+	resp, err := client.Post(goalURL, "application/json", strings.NewReader(string(b)))
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to create goal"})
+		log.Printf("❌ Failed to connect to Goal Manager at %s: %v", goalURL, err)
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error":   "failed to create goal",
+			"message": fmt.Sprintf("Cannot connect to Goal Manager at %s. Please check if the service is running.", m.goalMgrURL),
+			"details": err.Error(),
+		})
 		return
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
+	
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Printf("❌ Goal Manager returned error status %d: %s", resp.StatusCode, string(body))
+		c.JSON(resp.StatusCode, gin.H{
+			"error":   "failed to create goal",
+			"message": fmt.Sprintf("Goal Manager returned error: %s", resp.Status),
+			"details": string(body),
+		})
+		return
+	}
+	
 	c.Data(resp.StatusCode, "application/json", body)
 }

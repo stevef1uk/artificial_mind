@@ -102,3 +102,7 @@ echo
 echo "✅ Complete! Tools should now be visible in Monitor UI"
 echo "   Check: curl -s $HDN_URL/api/v1/tools | jq '.tools | length'"
 
+
+
+
+

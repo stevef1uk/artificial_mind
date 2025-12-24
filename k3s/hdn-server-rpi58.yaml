@@ -113,7 +113,26 @@ spec:
             # GPU Optimization: LLM request throttling (prevents GPU overload)
             # Set to 2-3 for RPI to allow background work while limiting GPU load
             - name: LLM_MAX_CONCURRENT_REQUESTS
-              value: "2"
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_MAX_CONCURRENT_REQUESTS
+            # Async LLM Queue Configuration
+            - name: USE_ASYNC_LLM_QUEUE
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: USE_ASYNC_LLM_QUEUE
+            - name: ASYNC_LLM_MAX_WORKERS
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: ASYNC_LLM_MAX_WORKERS
+            - name: ASYNC_LLM_TIMEOUT_SECONDS
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: ASYNC_LLM_TIMEOUT_SECONDS
             # Enable background LLM work (FSM, learning, etc.) - allow background processes
             - name: DISABLE_BACKGROUND_LLM
               value: "0"

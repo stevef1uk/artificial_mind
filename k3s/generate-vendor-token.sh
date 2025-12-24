@@ -51,3 +51,7 @@ echo "Now update the Kubernetes secret:"
 echo "  cd ~/dev/artificial_mind/k3s"
 echo "  ./update-secrets.sh $SECURE_DIR"
 
+
+
+
+

@@ -2890,16 +2890,32 @@
             btn.disabled = true;
             btn.textContent = 'Creating...';
             try {
-                await axios.post('/api/goals/create_from_nl', {
+                const response = await axios.post('/api/goals/create_from_nl', {
                     agent_id: (document.getElementById('goals-agent')||{}).value || 'agent_1',
                     description: input,
                     priority: 'medium'
+                }, {
+                    timeout: 10000
                 });
                 // Refresh goals list
                 if (typeof loadGoals === 'function') loadGoals();
-                alert('Goal created');
+                alert('Goal created successfully');
             } catch (e) {
-                alert('Failed to create goal');
+                let errorMsg = 'Failed to create goal';
+                if (e.response && e.response.data) {
+                    if (e.response.data.message) {
+                        errorMsg = e.response.data.message;
+                    } else if (e.response.data.error) {
+                        errorMsg = e.response.data.error;
+                    }
+                    if (e.response.data.details) {
+                        errorMsg += '\n\nDetails: ' + e.response.data.details;
+                    }
+                } else if (e.message) {
+                    errorMsg += ': ' + e.message;
+                }
+                alert(errorMsg);
+                console.error('Goal creation error:', e);
             } finally {
                 btn.disabled = false;
                 btn.textContent = 'Create Goal';

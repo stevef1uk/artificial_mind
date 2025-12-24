@@ -33,6 +33,7 @@ graph TB
         Reasoning[💭 Reasoning Engine<br/>Curiosity & Hypotheses]
         MCP[🔌 MCP Knowledge Server<br/>Neo4j / Weaviate Tools]
         LLM[🤖 LLM Provider(s)<br/>OpenAI / Anthropic / Local]
+        AsyncLLM[⚡ Async LLM Queue<br/>Priority Queues & Worker Pools]
     end
 
     %% Memory & Data Layer
@@ -47,6 +48,7 @@ graph TB
         Docker[🐳 Docker<br/>Execution Sandbox]
         NATS[📡 NATS Event Bus<br/>agi.events.*]
         Daily[📅 Daily Summary Pipeline<br/>Nightly FSM → HDN job]
+        AsyncHTTP[⚡ Async HTTP Queue<br/>FSM → HDN Communication]
     end
 
     %% External Flows
@@ -55,12 +57,14 @@ graph TB
     User -->|Status, Traces, Activity| Monitor
 
     %% Cognition & Control Flows
-    FSM <-->|Delegate Complex Tasks| HDN
+    FSM <-->|Delegate Complex Tasks<br/>via Async HTTP Queue| HDN
     FSM -->|Reasoning State, Curiosity Goals| Reasoning
     FSM -->|Ethical Check Requests| Principles
     FSM -->|Goal Outcomes| GoalMgr
     GoalMgr -->|Goal Scores & Focus Areas| FSM
     GoalMgr -->|Goal Stats & Meta-Learning| Redis
+    FSM -->|HTTP Requests| AsyncHTTP
+    AsyncHTTP -->|Queued Requests| HDN
 
     %% Planning & Execution Flows
     HDN -->|Hierarchical Plans| Planner
@@ -75,8 +79,10 @@ graph TB
     HDN -->|MCP JSON-RPC| MCP
     MCP -->|Graph / Vector Queries| Neo4j
     MCP -->|Vector / Hybrid Search| Qdrant
-    Executor -->|Code Gen, Fix, Safety| LLM
-    Reasoning -->|Hypothesis Screening| LLM
+    Executor -->|Code Gen, Fix, Safety<br/>via Async LLM Queue| LLM
+    Reasoning -->|Hypothesis Screening<br/>via Async LLM Queue| LLM
+    HDN -->|LLM Requests| AsyncLLM
+    AsyncLLM -->|Queued Requests| LLM
 
     %% Memory & Data Flows
     HDN -->|Sessions, State, Tools, Projects| Redis
@@ -174,6 +180,7 @@ graph TB
 - **AI/ML**: Ollama (Local LLM), Vector Search
 - **Infrastructure**: Docker, NATS
 - **APIs**: RESTful HTTP, Event-driven messaging
+- **Async Processing**: Priority-based async queues for LLM and HTTP requests
 
 ## Scalability & Performance
 
@@ -181,6 +188,11 @@ graph TB
 - **Caching Strategy**: Multi-layer Redis caching
 - **Event Processing**: Asynchronous NATS messaging
 - **Resource Management**: Docker containerization with limits
+- **Async Queue Systems**: Priority-based async processing for LLM and HTTP requests
+  - Prevents blocking and timeouts
+  - Worker pools limit concurrent requests
+  - LIFO processing ensures recent requests handled first
+  - Configurable concurrency limits per component
 
 ---
 

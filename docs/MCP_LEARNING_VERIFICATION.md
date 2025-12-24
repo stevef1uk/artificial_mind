@@ -145,3 +145,7 @@ Based on log analysis:
 2. Check FSM state: `curl http://localhost:8083/thinking`
 3. Verify FSM is processing: `curl http://localhost:8083/activity?limit=10`
 
+
+
+
+

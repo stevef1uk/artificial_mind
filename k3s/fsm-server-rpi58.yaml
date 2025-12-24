@@ -118,12 +118,53 @@ spec:
               value: "0"
             # GPU Optimization: LLM timeout reduction
             - name: LLM_TIMEOUT
-              value: "120s"
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_TIMEOUT
             - name: LLM_TIMEOUT_SECONDS
-              value: "120"
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_TIMEOUT_SECONDS
             # GPU Optimization: LLM request throttling (prevents GPU overload)
             - name: LLM_MAX_CONCURRENT_REQUESTS
-              value: "2"
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_MAX_CONCURRENT_REQUESTS
+            # Async LLM Queue Configuration
+            - name: USE_ASYNC_LLM_QUEUE
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: USE_ASYNC_LLM_QUEUE
+            - name: ASYNC_LLM_MAX_WORKERS
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: ASYNC_LLM_MAX_WORKERS
+            - name: ASYNC_LLM_TIMEOUT_SECONDS
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: ASYNC_LLM_TIMEOUT_SECONDS
+            # Async HTTP Queue Configuration (for FSM HTTP calls to HDN)
+            - name: USE_ASYNC_HTTP_QUEUE
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: USE_ASYNC_HTTP_QUEUE
+            - name: FSM_MAX_CONCURRENT_HTTP_REQUESTS
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: FSM_MAX_CONCURRENT_HTTP_REQUESTS
+            - name: FSM_HTTP_TIMEOUT_SECONDS
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: FSM_HTTP_TIMEOUT_SECONDS
             # GPU Optimization: Delay between FSM LLM requests (milliseconds)
             # Default: 5000ms (5 seconds). Increase to slow down FSM requests further.
             - name: FSM_LLM_REQUEST_DELAY_MS

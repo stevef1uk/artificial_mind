@@ -268,8 +268,8 @@ If no useful facts found, return empty array [].`, domain, input, conceptContext
 		return nil, fmt.Errorf("failed to marshal fact extraction request: %w", err)
 	}
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Post(interpretURL, "application/json", bytes.NewReader(reqJSON))
+	// Use async HTTP client (or sync fallback)
+	resp, err := Post(ki.ctx, interpretURL, "application/json", reqJSON, nil)
 	if err != nil {
 		return nil, fmt.Errorf("fact extraction LLM call failed: %w", err)
 	}
@@ -1285,8 +1285,8 @@ func (ki *KnowledgeIntegration) callMCPTool(toolName string, arguments map[strin
 		return nil, fmt.Errorf("failed to marshal MCP request: %w", err)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Post(ki.mcpEndpoint, "application/json", bytes.NewReader(jsonData))
+	// Use async HTTP client (or sync fallback)
+	resp, err := Post(ki.ctx, ki.mcpEndpoint, "application/json", jsonData, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call MCP server: %w", err)
 	}
@@ -1530,6 +1530,7 @@ If the knowledge is not actionable or useful, mark is_worth_learning=false.`, kn
 
 	// Rate limiting: Add delay between LLM requests to prevent GPU overload
 	// Default: 5 seconds, configurable via FSM_LLM_REQUEST_DELAY_MS
+	// Note: With async queue, this delay is less critical but still useful for burst control
 	delayMs := 5000
 	if v := strings.TrimSpace(os.Getenv("FSM_LLM_REQUEST_DELAY_MS")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
@@ -1540,8 +1541,8 @@ If the knowledge is not actionable or useful, mark is_worth_learning=false.`, kn
 		time.Sleep(time.Duration(delayMs) * time.Millisecond)
 	}
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Post(interpretURL, "application/json", bytes.NewReader(reqJSON))
+	// Use async HTTP client (or sync fallback)
+	resp, err := Post(ki.ctx, interpretURL, "application/json", reqJSON, nil)
 	if err != nil {
 		return false, false, fmt.Errorf("knowledge assessment LLM call failed: %w", err)
 	}

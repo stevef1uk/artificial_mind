@@ -236,6 +236,7 @@ graph TB
   - **MCP Knowledge Server**: Exposes knowledge bases (Neo4j, Weaviate) as MCP tools for LLM access
   - **Composite Tool Provider**: Combines HDN tools and MCP knowledge tools, automatically discovered by the LLM
   - **Conversational Layer**: Natural language interface with chain-of-thought visibility and thought storage
+  - **Async LLM Queue System**: Priority-based async queue for all LLM calls with LIFO processing, worker pools, and callback routing
   - See `Tools.md` for the tool schema, lifecycle, and operational details
 
 For a deeper, HDN-specific architecture diagram and narrative, see `hdn_architecture.md` and `Tools.md`.
@@ -292,6 +293,7 @@ For a deeper, HDN-specific architecture diagram and narrative, see `hdn_architec
   - **Enhanced Goal Scoring**: Incorporates historical success rates and values into goal prioritization
   - **Focused Learning Strategy**: Identifies promising areas and focuses learning there (70% focused, 30% exploration)
   - **Meta-Learning System**: Learns about its own learning process to continuously improve strategies
+  - **Async HTTP Queue System**: Priority-based async queue for all HTTP calls to HDN with LIFO processing, worker pools, and callback routing
 - **New Actions**:
   - `reasoning.belief_query` - Query beliefs from knowledge base
   - `reasoning.inference` - Apply inference rules to generate new beliefs
@@ -419,6 +421,13 @@ User Request → HDN API → Safety Analysis → Principles Check → Code Gener
 All significant steps emit canonical events on NATS (e.g., `user_message`, `plan_created`, `step_started`, `execution_result`). Downstream modules subscribe to subjects they care about.
 
 Simple prompts (heuristic) may bypass hierarchical planning and route directly to intelligent execution for a single-step workflow.
+
+**Async Queue Integration**: LLM calls are now processed asynchronously through priority queues:
+- High priority requests (user-initiated) processed first
+- Low priority requests (background tasks) processed after
+- LIFO (Last In, First Out) processing within each priority level
+- Worker pool limits concurrent LLM requests to prevent resource exhaustion
+- Callback-based response routing ensures proper async handling
 ```
 
 ### 2. **Hierarchical Planning Flow**
@@ -496,7 +505,8 @@ Workflows execute → Checkpoints saved → Monitor displays progress → Resume
 - **API**: RESTful HTTP
 - **Security**: Principles-based ethical rules
 - **Monitoring**: Custom web UI
-- **Execution Sandbox**: Docker, with default-permissive permissions for tools (override via `ALLOWED_TOOL_PERMS`).
+- **Execution Sandbox**: Docker, with default-permissive permissions for tools (override via `ALLOWED_TOOL_PERMS`)
+- **Async Processing**: Priority-based async queues for LLM and HTTP requests with worker pools and LIFO processing
 
 ## 📁 Project Structure
 
@@ -518,6 +528,16 @@ agi/
 ├── monitor/                # Monitoring UI
 ├── self/                   # Self-awareness system
 ├── projects/               # (Proposed) Multi-session project management
+├── async_llm/              # Shared async LLM client for command-line tools
+│   ├── async_llm_client.go # Async queue implementation
+│   └── README.md           # Usage documentation
+├── cmd/                    # Command-line tools
+│   ├── wiki-summarizer/    # Wikipedia article summarization (uses async_llm)
+│   ├── bbc-news-ingestor/  # BBC news classification (uses async_llm)
+│   └── wiki-bootstrapper/  # Wikipedia knowledge ingestion
+├── fsm/                    # FSM Engine with async HTTP queue
+│   ├── async_http_client.go # Async HTTP queue for FSM → HDN calls
+│   └── knowledge_integration.go # Uses async HTTP client
 ├── bin/                    # Built binaries
 ├── data/                   # Persistent data storage
 ├── Makefile               # Build automation
@@ -817,6 +837,43 @@ make help
 
 ## 🔄 Recent Improvements
 
+### Async Queue Systems (Latest)
+- **✅ HDN Async LLM Queue**: Priority-based async queue system for all LLM calls in HDN
+  - High and low priority stacks with LIFO (Last In, First Out) processing
+  - Configurable worker pool to limit concurrent LLM requests
+  - Callback-based response routing for proper async handling
+  - Automatic fallback to synchronous calls when async queue is disabled
+  - Environment variable: `USE_ASYNC_LLM_QUEUE=1` to enable
+  - Configuration: `LLM_MAX_CONCURRENT_REQUESTS` (default: 2)
+
+- **✅ FSM Async HTTP Queue**: Priority-based async queue system for all HTTP calls from FSM to HDN
+  - High and low priority stacks with LIFO processing
+  - Configurable worker pool for concurrent HTTP requests
+  - Callback-based response routing
+  - Automatic fallback to synchronous calls when async queue is disabled
+  - Environment variable: `USE_ASYNC_HTTP_QUEUE=1` to enable
+  - Configuration: `FSM_MAX_CONCURRENT_HTTP_REQUESTS` (default: 5), `FSM_HTTP_TIMEOUT_SECONDS` (default: 30)
+
+- **✅ Shared Async LLM Client**: Reusable async LLM client package for command-line tools
+  - Used by Wiki Summarizer and BBC News Ingestor
+  - Supports both Ollama `/api/generate` and `/api/chat` formats
+  - Same priority queue architecture as HDN
+  - Environment variable: `USE_ASYNC_LLM_QUEUE=1` to enable
+  - Configuration: `ASYNC_LLM_MAX_WORKERS` (default: 3), `ASYNC_LLM_TIMEOUT_SECONDS` (default: 60)
+
+- **✅ Kubernetes Configuration**: All async queue settings centralized in `llm-config` secret
+  - HDN, FSM, and cron jobs all reference the same secret
+  - Easy updates without modifying deployment YAMLs
+  - Consistent configuration across all components
+
+**Benefits**:
+- No blocking: Requests are queued and processed asynchronously
+- Better resource management: Worker pools limit concurrent requests
+- Priority handling: High priority requests processed first
+- Stack behavior: Most recent requests processed first (LIFO)
+- Scalable: Can handle many queued requests without blocking
+- No timeouts: Async processing prevents HTTP timeouts
+
 ### Advanced Reasoning and Knowledge Integration (Latest)
 - **✅ Dynamic Inference Rules**: Data-driven inference rules that adapt to actual concept patterns in the knowledge base
 - **✅ Intelligent Exploration System**: Smart exploration tracking with 6-hour cooldown to prevent redundant exploration
@@ -953,8 +1010,8 @@ make help
 
 This architecture document should be updated whenever tools lifecycle, registry schema, or executor policy changes. See `Tools.md` for the canonical tool catalog format and usage.
 
-**Last Updated**: January 2025
-**Version**: 1.2
+**Last Updated**: December 2024
+**Version**: 1.3
 **Maintainer**: Development Team
 
 ### Learning Focus Improvements (v1.2)
@@ -969,16 +1026,31 @@ All six learning focus improvements have been implemented:
 
 See `docs/LEARNING_FOCUS_IMPROVEMENTS.md` and `docs/ALL_LEARNING_IMPROVEMENTS_SUMMARY.md` for complete details.
 
+### Async Queue Systems (v1.3)
+
+All async queue systems have been implemented and integrated:
+- ✅ HDN Async LLM Queue System
+- ✅ FSM Async HTTP Queue System
+- ✅ Shared Async LLM Client Package
+- ✅ Kubernetes Configuration Integration
+- ✅ Wiki Summarizer Integration
+- ✅ BBC News Ingestor Integration
+
+See `hdn/ASYNC_LLM_QUEUE_POC.md` and `async_llm/README.md` for complete details.
+
 ## 🔌 Ports and Endpoints Reference
 
 - Principles Server: 8080 (HTTP)
 - HDN API Server: 8081 (HTTP)
 - Monitor UI: 8082 (HTTP)
+- FSM Server: 8083 (HTTP)
+- Goal Manager: 8090 (HTTP)
 - Redis: 6379 (TCP)
 - NATS: 4222 (client), 8222 (monitor)
 - Qdrant: 6333 (HTTP), 6334 (gRPC)
 - Neo4j Community: 7474 (HTTP UI), 7687 (Bolt)
 - RAG Adapter: N/A (we use Qdrant directly; no separate HTTP adapter)
+- Ollama: 11434 (HTTP) - LLM API endpoint
 
 Environment variables (defaults):
 - RAG_URL: http://localhost:9010
@@ -986,6 +1058,26 @@ Environment variables (defaults):
 - NEO4J_URI: bolt://localhost:7687
 - NEO4J_USER: neo4j
 - NEO4J_PASS: test1234
+
+**Async Queue Configuration**:
+- `USE_ASYNC_LLM_QUEUE`: Enable async LLM queue (default: disabled)
+- `LLM_MAX_CONCURRENT_REQUESTS`: Max concurrent LLM workers (default: 2)
+- `ASYNC_LLM_MAX_WORKERS`: Max workers for async_llm package (default: 3)
+- `ASYNC_LLM_TIMEOUT_SECONDS`: Timeout for async LLM requests (default: 60)
+- `USE_ASYNC_HTTP_QUEUE`: Enable async HTTP queue for FSM (default: disabled)
+- `FSM_MAX_CONCURRENT_HTTP_REQUESTS`: Max concurrent HTTP workers (default: 5)
+- `FSM_HTTP_TIMEOUT_SECONDS`: Timeout for HTTP requests (default: 30)
+- `DISABLE_BACKGROUND_LLM`: Disable background LLM work (default: 0)
+
+**Async Queue Configuration**:
+- `USE_ASYNC_LLM_QUEUE`: Enable async LLM queue (default: disabled)
+- `LLM_MAX_CONCURRENT_REQUESTS`: Max concurrent LLM workers (default: 2)
+- `ASYNC_LLM_MAX_WORKERS`: Max workers for async_llm package (default: 3)
+- `ASYNC_LLM_TIMEOUT_SECONDS`: Timeout for async LLM requests (default: 60)
+- `USE_ASYNC_HTTP_QUEUE`: Enable async HTTP queue for FSM (default: disabled)
+- `FSM_MAX_CONCURRENT_HTTP_REQUESTS`: Max concurrent HTTP workers (default: 5)
+- `FSM_HTTP_TIMEOUT_SECONDS`: Timeout for HTTP requests (default: 30)
+- `DISABLE_BACKGROUND_LLM`: Disable background LLM work (default: 0)
 
 ## 🧠 Memory Architecture
 

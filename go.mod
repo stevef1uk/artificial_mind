@@ -14,9 +14,12 @@ replace agi/fsm => ./fsm
 
 replace principles => ./principles
 
+replace async_llm => ./async_llm
+
 require (
 	agi/hdn v0.0.0-00010101000000-000000000000
 	agi/self v0.0.0-00010101000000-000000000000
+	async_llm v0.0.0-00010101000000-000000000000
 	eventbus v0.0.0
 	github.com/gorilla/mux v1.8.1
 	github.com/nats-io/nats.go v1.46.0

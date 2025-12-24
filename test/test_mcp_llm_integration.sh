@@ -111,3 +111,7 @@ echo "1. Ask a question that requires knowledge: 'What is Biology?'"
 echo "2. Check the response - it should query the knowledge base"
 echo "3. Look for tool calls in the interpreter logs"
 
+
+
+
+

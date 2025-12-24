@@ -96,3 +96,7 @@ echo
 echo "If subscriptions = 0, services are connected but not subscribed to any subjects"
 echo "If subscriptions > 0, check which subjects are being used"
 
+
+
+
+

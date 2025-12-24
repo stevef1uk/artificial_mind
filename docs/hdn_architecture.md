@@ -28,6 +28,7 @@ graph TB
     LLM1[🤖 LLM Client<br/>Safety Categorization]
     LLM2[🤖 LLM Client<br/>Code Generation]
     LLM3[🤖 LLM Client<br/>Code Fixing]
+    AsyncLLM[⚡ Async LLM Queue<br/>Priority Queues & Worker Pools]
     
     %% Principles Integration
     PC[🔍 Principles Checker]
@@ -75,12 +76,18 @@ graph TB
     IE --> |Track Goals| SM
     
     %% LLM Integration Flow
-    IE --> |1. Safety Analysis| LLM1
-    LLM1 --> |Returns safety context| IE
-    CG --> |2. Generate Code| LLM2
-    LLM2 --> |Returns generated code| CG
-    IE --> |3. Fix Code| LLM3
-    LLM3 --> |Returns fixed code| IE
+    IE --> |1. Safety Analysis<br/>via Async Queue| AsyncLLM
+    AsyncLLM --> |Queued Request| LLM1
+    LLM1 --> |Returns safety context| AsyncLLM
+    AsyncLLM --> |Callback Response| IE
+    CG --> |2. Generate Code<br/>via Async Queue| AsyncLLM
+    AsyncLLM --> |Queued Request| LLM2
+    LLM2 --> |Returns generated code| AsyncLLM
+    AsyncLLM --> |Callback Response| CG
+    IE --> |3. Fix Code<br/>via Async Queue| AsyncLLM
+    AsyncLLM --> |Queued Request| LLM3
+    LLM3 --> |Returns fixed code| AsyncLLM
+    AsyncLLM --> |Callback Response| IE
     
     %% Principles Flow
     IE --> PC
@@ -194,6 +201,29 @@ graph TB
     - Improves code based on error feedback
     - Retries with corrected implementation
 
+### ⚡ **Async LLM Queue System**
+- **Purpose**: Asynchronous, non-blocking LLM request processing
+- **Architecture**:
+  - **Priority Stacks**: High and low priority queues with LIFO (Last In, First Out) processing
+  - **Worker Pool**: Configurable concurrent workers (default: 2, via `LLM_MAX_CONCURRENT_REQUESTS`)
+  - **Response Queue**: Async response handling with callback routing
+  - **Request Map**: Tracks requests for proper callback routing
+- **Features**:
+  - All LLM calls automatically routed through async queue when `USE_ASYNC_LLM_QUEUE=1`
+  - High priority requests (user-initiated) processed before low priority (background)
+  - Most recent requests processed first within each priority level (LIFO)
+  - Automatic fallback to synchronous calls when async queue disabled
+  - Prevents HTTP timeouts by decoupling request from response
+- **Configuration**:
+  - `USE_ASYNC_LLM_QUEUE`: Enable async queue (default: disabled)
+  - `LLM_MAX_CONCURRENT_REQUESTS`: Max concurrent LLM workers (default: 2)
+  - `DISABLE_BACKGROUND_LLM`: Disable background LLM work (default: 0)
+- **Benefits**:
+  - No blocking: Requests queued and processed asynchronously
+  - Better resource management: Worker pool limits concurrent requests
+  - Priority handling: User requests processed before background tasks
+  - Scalable: Can handle many queued requests without blocking
+
 ## Key Features
 
 ### ✅ **Safety & Security**
@@ -234,12 +264,18 @@ graph TB
 
 1. **User Request** → HDN API Server
 2. **Safety Check** → Principles Server
-3. **Code Generation** → LLM Client
+3. **Code Generation** → Async LLM Queue → LLM Client (asynchronous, non-blocking)
 4. **Code Storage** → Redis
 5. **Code Execution** → Docker Container (or reuse cached result when capability is hot)
 6. **Validation** → Results verification
 7. **Learning** → Self-Model Manager (goals, episodes, beliefs)
 8. **Response** → User with results
+
+**Async Queue Flow**:
+- LLM requests enqueued into priority stack (high/low)
+- Worker pool processes requests concurrently (limited by `LLM_MAX_CONCURRENT_REQUESTS`)
+- Responses routed back via callback functions
+- No blocking or timeouts during LLM processing
 
 ## Technology Stack
 

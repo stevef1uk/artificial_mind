@@ -29,26 +29,60 @@ spec:
                   value: "http://weaviate.agi.svc.cluster.local:8080"
                 - name: REDIS_ADDR
                   value: "redis.agi.svc.cluster.local:6379"
+                # LLM configuration from secret (can be updated without changing deployment)
                 - name: LLM_PROVIDER
-                  value: "ollama"
+                  valueFrom:
+                    secretKeyRef:
+                      name: llm-config
+                      key: LLM_PROVIDER
                 - name: LLM_ENDPOINT
-                  value: "http://192.168.1.45:11434/api/generate"
+                  valueFrom:
+                    secretKeyRef:
+                      name: llm-config
+                      key: LLM_ENDPOINT
                 - name: LLM_MODEL
-                  value: "gemma3:latest"
+                  valueFrom:
+                    secretKeyRef:
+                      name: llm-config
+                      key: LLM_MODEL
+                - name: LLM_TIMEOUT
+                  valueFrom:
+                    secretKeyRef:
+                      name: llm-config
+                      key: LLM_TIMEOUT
+                - name: LLM_TIMEOUT_SECONDS
+                  valueFrom:
+                    secretKeyRef:
+                      name: llm-config
+                      key: LLM_TIMEOUT_SECONDS
+                - name: LLM_MAX_CONCURRENT_REQUESTS
+                  valueFrom:
+                    secretKeyRef:
+                      name: llm-config
+                      key: LLM_MAX_CONCURRENT_REQUESTS
+                # Async LLM Queue Configuration
+                - name: USE_ASYNC_LLM_QUEUE
+                  valueFrom:
+                    secretKeyRef:
+                      name: llm-config
+                      key: USE_ASYNC_LLM_QUEUE
+                - name: ASYNC_LLM_MAX_WORKERS
+                  valueFrom:
+                    secretKeyRef:
+                      name: llm-config
+                      key: ASYNC_LLM_MAX_WORKERS
+                - name: ASYNC_LLM_TIMEOUT_SECONDS
+                  valueFrom:
+                    secretKeyRef:
+                      name: llm-config
+                      key: ASYNC_LLM_TIMEOUT_SECONDS
+                # Application-specific settings (not in secret)
                 - name: BATCH_SIZE
                   value: "5"
                 - name: MAX_WORDS
                   value: "250"
                 - name: DOMAIN
                   value: "General"
-                # GPU Optimization: LLM timeout reduction
-                - name: LLM_TIMEOUT
-                  value: "120s"
-                - name: LLM_TIMEOUT_SECONDS
-                  value: "120"
-                # GPU Optimization: LLM request throttling (prevents GPU overload)
-                - name: LLM_MAX_CONCURRENT_REQUESTS
-                  value: "2"
                 - name: SECURE_CUSTOMER_PRIVATE_PATH
                   value: "/keys/customer_private.pem"
                 - name: SECURE_VENDOR_TOKEN

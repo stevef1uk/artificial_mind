@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"async_llm"
 	"eventbus"
 
 	"github.com/redis/go-redis/v9"
@@ -392,37 +393,14 @@ func llmChat(model, prompt string) (string, error) {
 }
 
 func llmChatWithURL(apiURL, model, prompt string) (string, error) {
-	reqBody := map[string]any{
-		"model":       model,
-		"messages":    []map[string]string{{"role": "user", "content": prompt}},
-		"stream":      false,
-		"temperature": 0.1, // Low temperature for more deterministic output
-	}
-	data, _ := json.Marshal(reqBody)
-	httpClient := &http.Client{Timeout: 60 * time.Second}
-	req, _ := http.NewRequest("POST", apiURL, strings.NewReader(string(data)))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := httpClient.Do(req)
+	ctx := context.Background()
+	// Use async LLM client (or sync fallback)
+	messages := []map[string]string{{"role": "user", "content": prompt}}
+	response, err := async_llm.CallAsync(ctx, "ollama", apiURL, model, prompt, messages, async_llm.PriorityLow)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	var obj struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-		Content string `json:"content"`
-	}
-	if json.Unmarshal(b, &obj) == nil {
-		if strings.TrimSpace(obj.Message.Content) != "" {
-			return obj.Message.Content, nil
-		}
-		if strings.TrimSpace(obj.Content) != "" {
-			return obj.Content, nil
-		}
-	}
-	return string(b), nil
+	return response, nil
 }
 
 func discoverStories(front string, max int) ([]Article, error) {

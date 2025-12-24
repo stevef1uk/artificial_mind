@@ -57,3 +57,7 @@ echo "Note: If you need to generate a proper vendor token, use:"
 echo "  docker run --rm -v $SECURE_DIR:/keys stevef1uk/secure-packager:latest \\"
 echo "    issue-token -priv /keys/vendor_private.pem"
 
+
+
+
+

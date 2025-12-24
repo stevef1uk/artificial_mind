@@ -1024,7 +1024,8 @@ Be strict: Only mark as novel and worth learning if genuinely new and useful.`, 
 		time.Sleep(time.Duration(delayMs) * time.Millisecond)
 	}
 
-	resp, err := kge.httpClient.Post(interpretURL, "application/json", bytes.NewReader(reqJSON))
+	// Use async HTTP client (or sync fallback)
+	resp, err := Post(kge.ctx, interpretURL, "application/json", reqJSON, nil)
 	if err != nil {
 		return false, false, fmt.Errorf("concept assessment LLM call failed: %w", err)
 	}

@@ -135,3 +135,7 @@ The verification is part of `NewCompositeToolProvider()`, which means:
 - Works with both HDN and MCP tool providers
 - Non-blocking: if MCP fails, HDN tools still work
 
+
+
+
+

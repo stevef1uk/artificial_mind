@@ -59,3 +59,7 @@ echo "✅ Tool bootstrap complete"
 echo
 echo "Tools should now be visible in Monitor UI"
 
+
+
+
+

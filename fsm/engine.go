@@ -3416,7 +3416,9 @@ Now return ONLY the JSON score (no tools, no tasks, just the score):`, domain, h
 			time.Sleep(time.Duration(delayMs) * time.Millisecond)
 		}
 
-		resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+		// Use async HTTP client (or sync fallback)
+		ctx := context.Background()
+		resp, err := Do(ctx, req)
 		if err != nil {
 			log.Printf("⚠️ [HYP-SCREEN] LLM screening request failed: %v (allowing by default)", err)
 			approved = append(approved, h)
