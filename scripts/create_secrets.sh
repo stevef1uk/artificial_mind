@@ -6,8 +6,8 @@
 set -e
 
 NAMESPACE="agi"
-SECURE_DIR="/home/stevef/dev/agi/secure"
-SSH_DIR="/home/stevef/.ssh"
+SECURE_DIR="/home/pi/dev/artificial_mind/secure"
+SSH_DIR="/home/pi/.ssh"
 
 echo "Creating secrets for AGI system in namespace: $NAMESPACE"
 
@@ -32,8 +32,8 @@ kubectl create secret generic secure-vendor -n $NAMESPACE \
 # Create ssh-keys secret
 echo "Creating ssh-keys secret..."
 kubectl create secret generic ssh-keys -n $NAMESPACE \
-    --from-file=id_ed25519=$SSH_DIR/id_ed25519 \
-    --from-file=id_ed25519.pub=$SSH_DIR/id_ed25519.pub \
+    --from-file=id_rsa=$SSH_DIR/id_rsa
+    --from-file=id_rsa.pub=$SSH_DIR/id_rsa.pub \
     --from-file=known_hosts=$SSH_DIR/known_hosts \
     --dry-run=client -o yaml | kubectl apply -f -
 

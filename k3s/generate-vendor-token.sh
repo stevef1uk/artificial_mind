@@ -32,9 +32,9 @@ fi
 # Generate the token
 echo "Generating vendor token using issue-token..."
 TOKEN=$(docker run --rm \
-    -v "$SECURE_DIR:/keys:ro" \
+    -v "$SECURE_DIR:/keys" \
     stevef1uk/secure-packager:latest \
-    issue-token -priv /keys/vendor_private.pem)
+    issue-token -priv /keys/vendor_private.pem -expiry 2026-12-31 -company SJFisher -email stevef@gmail.com -out /keys/token.txt)
 
 if [ -z "$TOKEN" ]; then
     echo "Error: Failed to generate token"
@@ -42,7 +42,7 @@ if [ -z "$TOKEN" ]; then
 fi
 
 # Save token to file
-echo "$TOKEN" > "$SECURE_DIR/token.txt"
+echo "$TOKEN" 
 echo "✅ Vendor token generated and saved to $SECURE_DIR/token.txt"
 echo ""
 echo "Token preview (first 50 chars): ${TOKEN:0:50}..."

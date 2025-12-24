@@ -98,6 +98,7 @@ build_and_push() {
         docker buildx use arm64-builder >/dev/null 2>&1 || true
         
         if docker buildx build --platform linux/arm64 -f "$dockerfile" \
+            --build-arg no-cache \
             --build-arg CUSTOMER_PUBLIC_KEY=secure/customer_public.pem \
             --build-arg VENDOR_PUBLIC_KEY=secure/vendor_public.pem \
             -t "$DOCKER_USERNAME/$image_name:secure" \
@@ -110,6 +111,7 @@ build_and_push() {
     else
         # Native ARM64 build
         if docker build -f "$dockerfile" \
+            --build-arg no-cache \
             --build-arg CUSTOMER_PUBLIC_KEY=secure/customer_public.pem \
             --build-arg VENDOR_PUBLIC_KEY=secure/vendor_public.pem \
             -t "$DOCKER_USERNAME/$image_name:secure" .; then
