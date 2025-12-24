@@ -3153,9 +3153,18 @@
                     // Try to extract actual output from validation_steps first
                     if (data.validation_steps && data.validation_steps.length > 0) {
                         const lastStep = data.validation_steps[data.validation_steps.length - 1];
-                        if (lastStep.output && lastStep.output.trim()) {
+                        if (lastStep.output && lastStep.output.trim) {
                             resultText = lastStep.output.trim();
+                        } else if (lastStep.output) {
+                            resultText = lastStep.output;
                         }
+                    }
+
+                    // Handle object results properly
+                    if (typeof resultText === 'object' && resultText !== null) {
+                        resultText = JSON.stringify(resultText, null, 2);
+                    } else if (typeof resultText !== 'string') {
+                        resultText = String(resultText);
                     }
 
                     html += `<div class="task-item">

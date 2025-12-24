@@ -3940,12 +3940,26 @@
             // Show the result - check multiple sources
             let outputText = null;
             if (data.result) {
-                outputText = String(data.result);
+                // Handle both string and object results
+                if (typeof data.result === 'string') {
+                    outputText = data.result;
+                } else if (typeof data.result === 'object') {
+                    // If it's an object, stringify it nicely
+                    outputText = JSON.stringify(data.result, null, 2);
+                } else {
+                    outputText = String(data.result);
+                }
             } else if (data.validation_steps && data.validation_steps.length > 0) {
                 // If no result but we have validation steps, show the last step's output
                 const lastStep = data.validation_steps[data.validation_steps.length - 1];
                 if (lastStep.output !== undefined && lastStep.output !== null) {
-                    outputText = String(lastStep.output);
+                    if (typeof lastStep.output === 'string') {
+                        outputText = lastStep.output;
+                    } else if (typeof lastStep.output === 'object') {
+                        outputText = JSON.stringify(lastStep.output, null, 2);
+                    } else {
+                        outputText = String(lastStep.output);
+                    }
                 }
             }
             
@@ -3984,7 +3998,14 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
                         html += `<div class="step-message">${step.message}</div>`;
                     }
                     if (step.output !== undefined && step.output !== null) {
-                        const outputText = String(step.output).trim();
+                        let outputText;
+                        if (typeof step.output === 'string') {
+                            outputText = step.output.trim();
+                        } else if (typeof step.output === 'object') {
+                            outputText = JSON.stringify(step.output, null, 2);
+                        } else {
+                            outputText = String(step.output).trim();
+                        }
                         if (outputText) {
                             html += `<div class="step-description">Program Output:</div>`;
                             html += `<div class="code-block"><pre>${outputText}</pre></div>`;
