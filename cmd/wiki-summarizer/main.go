@@ -352,8 +352,20 @@ func (llm *llmClient) callOllama(prompt string) (string, error) {
 }
 
 func (llm *llmClient) callOpenAI(prompt string) (string, error) {
-	// OpenAI API implementation would go here
-	return "", fmt.Errorf("OpenAI integration not implemented yet")
+	log.Printf("🤖 Calling OpenAI with prompt length: %d", len(prompt))
+	log.Printf("📤 Sending request to: %s", llm.endpoint)
+
+	ctx := context.Background()
+	// Use async LLM client (or sync fallback)
+	// The async_llm client handles OpenAI endpoints (including /v1/chat/completions)
+	response, err := async_llm.CallAsync(ctx, "openai", llm.endpoint, llm.model, prompt, nil, async_llm.PriorityLow)
+	if err != nil {
+		log.Printf("❌ OpenAI request failed: %v", err)
+		return "", err
+	}
+
+	log.Printf("✅ OpenAI response length: %d", len(response))
+	return response, nil
 }
 
 // Helper functions
