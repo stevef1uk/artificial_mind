@@ -187,6 +187,19 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 
 	// If it's a tool call, validate and execute it
 	log.Printf("🔍 [FLEXIBLE-INTERPRETER] InterpretAndExecuteWithPriority: checking for tool call. result.ToolCall=%v, result.ResponseType=%s", result.ToolCall != nil, result.ResponseType)
+	
+	// CRITICAL: Refuse to execute tools for scoring requests - they should return text/JSON only
+	if isScoringRequest(req.Input) && result.ToolCall != nil {
+		log.Printf("🚫 [FLEXIBLE-INTERPRETER] BLOCKED tool execution for scoring request - forcing text response")
+		result.ToolCall = nil
+		result.ResponseType = ResponseTypeText
+		if result.TextResponse == "" {
+			result.TextResponse = `{"error": "Tool execution blocked for scoring request. Expected text/JSON response only."}`
+		}
+		result.Message = "Scoring request - tool execution blocked, text response expected"
+		return result, nil
+	}
+	
 	if result.ToolCall != nil {
 		// Loop protection: Check for rapid repeated identical tool calls
 		toolCallKey := fmt.Sprintf("%s:%v", result.ToolCall.ToolID, result.ToolCall.Parameters)

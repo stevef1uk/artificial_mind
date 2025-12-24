@@ -58,10 +58,28 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguage(input string, availableTools
 	return f.ProcessNaturalLanguageWithPriority(input, availableTools, false)
 }
 
+// isScoringRequest detects if the input is a scoring/evaluation request that should not use tools
+func isScoringRequest(input string) bool {
+	lowerInput := strings.ToLower(input)
+	return strings.Contains(lowerInput, "rate this hypothesis") ||
+		(strings.Contains(lowerInput, "score") && strings.Contains(lowerInput, "0.0 to 1.0")) ||
+		strings.Contains(lowerInput, "evaluating hypotheses") ||
+		strings.Contains(lowerInput, "return only the json score") ||
+		strings.Contains(lowerInput, "simple scoring task") ||
+		strings.Contains(lowerInput, "no tools") && strings.Contains(lowerInput, "no actions")
+}
+
 // ProcessNaturalLanguageWithPriority processes natural language input with tool awareness and priority
 // highPriority=true for user requests, false for background tasks
 func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, availableTools []Tool, highPriority bool) (*FlexibleLLMResponse, error) {
 	log.Printf("🤖 [FLEXIBLE-LLM] Processing natural language input: %s (priority: %v)", input, highPriority)
+	
+	// For scoring requests, use empty tools list to prevent tool usage
+	if isScoringRequest(input) {
+		log.Printf("📊 [FLEXIBLE-LLM] Detected scoring request - using empty tools list to force text response")
+		availableTools = []Tool{}
+	}
+	
 	log.Printf("🤖 [FLEXIBLE-LLM] Available tools: %d", len(availableTools))
 
 	// Build tool-aware prompt
@@ -97,21 +115,21 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 	var prompt strings.Builder
 
 	// Check if this is a scoring/evaluation request - force text response
-	lowerInput := strings.ToLower(input)
-	isScoringRequest := strings.Contains(lowerInput, "rate this hypothesis") ||
-		strings.Contains(lowerInput, "score") && strings.Contains(lowerInput, "0.0 to 1.0") ||
-		strings.Contains(lowerInput, "evaluating hypotheses") ||
-		strings.Contains(lowerInput, "return only the json score") ||
-		strings.Contains(lowerInput, "simple scoring task")
-
-	if isScoringRequest {
+	if isScoringRequest(input) {
 		// For scoring requests, use a simpler prompt that forces text/JSON response
-		prompt.WriteString("You are evaluating a hypothesis. This is a simple scoring task.\n\n")
-		prompt.WriteString("CRITICAL: You MUST respond with type \"text\" containing ONLY a JSON object.\n")
-		prompt.WriteString("Do NOT use tools. Do NOT create tasks. Just return the JSON score.\n\n")
+		// NO TOOLS ARE AVAILABLE - this is intentional to prevent tool usage
+		prompt.WriteString("You are evaluating a hypothesis. This is a SIMPLE SCORING TASK.\n\n")
+		prompt.WriteString("CRITICAL RULES:\n")
+		prompt.WriteString("1. You MUST respond with type \"text\" containing ONLY a JSON object.\n")
+		prompt.WriteString("2. Do NOT use tools - NO tools are available for this task.\n")
+		prompt.WriteString("3. Do NOT create tasks.\n")
+		prompt.WriteString("4. Do NOT attempt to execute any commands or queries.\n")
+		prompt.WriteString("5. Just return the JSON score directly.\n\n")
 		prompt.WriteString("User Input: ")
 		prompt.WriteString(input)
-		prompt.WriteString("\n\nRespond with: {\"type\": \"text\", \"content\": \"<your JSON score here>\"}")
+		prompt.WriteString("\n\nYou MUST respond with EXACTLY this format (no other text):\n")
+		prompt.WriteString("{\"type\": \"text\", \"content\": \"{\\\"score\\\": 0.75, \\\"reason\\\": \\\"Brief explanation\\\"}\"}\n\n")
+		prompt.WriteString("Remember: NO tools, NO tasks, NO actions - just return the JSON score.")
 		return prompt.String()
 	}
 
