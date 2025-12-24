@@ -8,6 +8,8 @@ spec:
   schedule: "0 */2 * * *"
   concurrencyPolicy: Forbid  # Prevent multiple jobs from running simultaneously
   startingDeadlineSeconds: 600  # Skip if more than 10 minutes late
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 1  # Keep only 1 failed job for debugging
   jobTemplate:
     spec:
       template:
@@ -95,5 +97,5 @@ spec:
             - name: secure-keys
               secret:
                 secretName: secure-customer-private
-          restartPolicy: OnFailure
-          activeDeadlineSeconds: 1800  # 30 minutes timeout
+          restartPolicy: Never  # Don't restart on failure, let the cronjob handle retries
+          activeDeadlineSeconds: 1800  # 30 minutes timeout - Kubernetes will kill the pod if exceeded

@@ -200,6 +200,8 @@ func main() {
 
 	// Process Wikipedia articles in batches (limit to 10 for testing)
 	maxProcessed := int64(10)
+	idleBatches := 0 // Track consecutive batches with no progress
+	maxIdleBatches := 5 // Exit if 5 consecutive batches have no new articles
 
 	for processed < maxProcessed {
 		// Check if paused
@@ -224,6 +226,7 @@ func main() {
 
 		log.Printf("📚 Processing batch of %d articles", len(articles))
 
+		batchProcessed := 0
 		// Process each article
 		for _, article := range articles {
 			// Check if already processed (skip for now to test)
@@ -260,6 +263,7 @@ func main() {
 			// Mark as processed
 			rdb.Set(ctx, articleKey, "1", 24*time.Hour)
 			processed++
+			batchProcessed++
 
 			log.Printf("✅ Summarized: %s (%d words)", article.Title, len(strings.Fields(summary)))
 
@@ -268,6 +272,18 @@ func main() {
 				log.Printf("🎯 Reached processing limit of %d articles", maxProcessed)
 				break
 			}
+		}
+
+		// Check if this batch had any progress
+		if batchProcessed == 0 {
+			idleBatches++
+			log.Printf("⚠️ Batch had no new articles to process (idle batches: %d/%d)", idleBatches, maxIdleBatches)
+			if idleBatches >= maxIdleBatches {
+				log.Printf("✅ No new articles found after %d consecutive batches. Exiting.", maxIdleBatches)
+				break
+			}
+		} else {
+			idleBatches = 0 // Reset counter if we made progress
 		}
 
 		// Update processed count

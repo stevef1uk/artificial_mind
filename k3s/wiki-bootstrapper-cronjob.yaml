@@ -12,6 +12,7 @@ spec:
   startingDeadlineSeconds: 300  # Skip if more than 5 minutes late
   jobTemplate:
     spec:
+      backoffLimit: 2  # Retry failed jobs up to 2 times
       template:
         spec:
           containers:
@@ -72,7 +73,7 @@ spec:
             kubernetes.io/arch: arm64
             performance-tier: utility
           restartPolicy: Never
-          activeDeadlineSeconds: 3600  # 60 minutes timeout to prevent jobs from running too long
+          activeDeadlineSeconds: 3600  # 60 minutes timeout - Kubernetes will kill the pod if exceeded
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
