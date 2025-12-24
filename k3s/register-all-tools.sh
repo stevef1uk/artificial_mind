@@ -9,17 +9,50 @@ HDN_SERVICE="hdn-server-rpi58"
 echo "🔧 Registering all default tools..."
 echo
 
-# Set up port-forward
-kubectl port-forward -n $NAMESPACE svc/$HDN_SERVICE 8080:8080 >/tmp/hdn-tools-pf.log 2>&1 &
-PF_PID=$!
-sleep 3
+# Find an available port for port-forward by trying ports in sequence
+LOCAL_PORT=""
+PF_PID=""
 
-if ! kill -0 $PF_PID 2>/dev/null; then
-    echo "❌ Port-forward failed"
+for port in 8080 8081 8082 8083 8084 8085; do
+    echo "Trying port $port..."
+    # Try to set up port-forward
+    kubectl port-forward -n $NAMESPACE svc/$HDN_SERVICE ${port}:8080 >/tmp/hdn-tools-pf.log 2>&1 &
+    PF_PID=$!
+    sleep 2
+    
+    # Check if process is still running and port-forward succeeded
+    if kill -0 $PF_PID 2>/dev/null; then
+        # Verify the port-forward is actually working
+        if curl -s http://localhost:${port}/api/v1/tools >/dev/null 2>&1; then
+            LOCAL_PORT=$port
+            echo "✅ Port-forward established on port $LOCAL_PORT (PID: $PF_PID)"
+            break
+        else
+            # Port-forward process exists but not working, kill it and try next port
+            kill $PF_PID 2>/dev/null
+            wait $PF_PID 2>/dev/null
+            PF_PID=""
+        fi
+    else
+        # Process died, check if it was because port was in use
+        if grep -q "address already in use\|bind:" /tmp/hdn-tools-pf.log 2>/dev/null; then
+            echo "  Port $port is in use, trying next port..."
+            PF_PID=""
+            continue
+        else
+            echo "❌ Port-forward failed on port $port"
+            echo "Error details:"
+            cat /tmp/hdn-tools-pf.log 2>/dev/null || echo "  (no error log available)"
+            exit 1
+        fi
+    fi
+done
+
+if [ -z "$LOCAL_PORT" ] || [ -z "$PF_PID" ]; then
+    echo "❌ Could not establish port-forward on any available port"
     exit 1
 fi
 
-echo "✅ Port-forward established (PID: $PF_PID)"
 echo
 
 # Register each tool
@@ -27,7 +60,7 @@ register_tool() {
     local tool_json="$1"
     local tool_id=$(echo "$tool_json" | jq -r '.id')
     
-    response=$(curl -s -X POST http://localhost:8080/api/v1/tools \
+    response=$(curl -s -X POST http://localhost:${LOCAL_PORT}/api/v1/tools \
         -H "Content-Type: application/json" \
         -d "$tool_json")
     
@@ -68,8 +101,10 @@ for tool_json in "${TOOLS[@]}"; do
 done
 
 # Cleanup
-kill $PF_PID 2>/dev/null
-wait $PF_PID 2>/dev/null
+if [ -n "$PF_PID" ]; then
+    kill $PF_PID 2>/dev/null
+    wait $PF_PID 2>/dev/null
+fi
 
 echo
 echo "============================"
