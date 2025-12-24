@@ -686,8 +686,8 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		// Use bash to execute the command
-		execCmd := exec.CommandContext(ctx, "bash", "-c", cmd)
+		// Use sh to execute the command (bash is not available in Alpine-based containers)
+		execCmd := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
 		output, err := execCmd.Output()
 		exitCode := 0
 		var stderr string
