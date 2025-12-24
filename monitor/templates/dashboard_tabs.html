@@ -9,6 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="/static/js/logs.js?v=2025-12-20-16-00"></script>
+    <script src="/static/js/daily_summary.js"></script>
     <style>
         * {
             margin: 0;
@@ -741,6 +742,17 @@
                     <h3>Database Status</h3>
                     <div id="database-status">
                         <div class="loading">Loading database status...</div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>📅 Daily Summary</h3>
+                    <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+                        <input id="ds-date" type="date" style="padding:8px; border:1px solid #e1e8ed; border-radius:6px;"/>
+                        <button class="btn" onclick="loadDailySummary()">Load</button>
+                    </div>
+                    <pre id="daily-summary" class="panel-scroll" style="min-height:160px; white-space:pre-wrap;"></pre>
+                    <div id="daily-summary-history" class="panel-scroll" style="margin-top:8px; min-height:120px;">
+                        Loading history...
                     </div>
                 </div>
                 <div class="card">

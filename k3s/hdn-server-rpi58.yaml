@@ -53,11 +53,11 @@ spec:
             - name: LLM_MODEL
               value: "gemma3:latest"
             - name: LLM_TIMEOUT_SECONDS
-              value: "120"
+              value: "60"
             - name: LLM_TIMEOUT
-              value: "120s"
+              value: "60s"
             - name: OLLAMA_BASE_URL
-              value: "http://192.168.1.45:11434/api/chat"
+              value: "http://ollama.agi.svc.cluster.local:11434/api/chat"
             - name: HDN_URL
               value: "http://localhost:8080"
             - name: SECURE_CUSTOMER_PRIVATE_PATH
