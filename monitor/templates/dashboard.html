@@ -2820,6 +2820,19 @@
             const nlArtifactsEl = document.getElementById('nl-artifacts');
             const artifacts_wrapper = !!(nlArtifactsEl && nlArtifactsEl.checked);
 
+            // Detect language from user input
+            const inputLower = input.toLowerCase();
+            let detectedLang = "python"; // Default to Python
+            if (inputLower.includes("python") || inputLower.includes("py script") || inputLower.includes(".py")) {
+                detectedLang = "python";
+            } else if (inputLower.includes(" go ") || inputLower.includes("golang") || inputLower.includes("go program") || inputLower.includes("go code") || inputLower.includes(".go")) {
+                detectedLang = "go";
+            } else if (inputLower.includes("javascript") || inputLower.includes("js") || inputLower.includes("node") || inputLower.includes(".js")) {
+                detectedLang = "javascript";
+            } else if (inputLower.includes("java") && !inputLower.includes("javascript") || inputLower.includes(".java")) {
+                detectedLang = "java";
+            }
+
             axios.post(apiEndpoint, {
                 task_name: "artifact_task",
                 description: input,
@@ -2827,7 +2840,7 @@
                     artifacts_wrapper: artifacts_wrapper ? "true" : "false",
                     force_regenerate: "true"
                 },
-                language: "go",
+                language: detectedLang,
                 force_regenerate: true,
                 max_retries: 3,
                 timeout: 120

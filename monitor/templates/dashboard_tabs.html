@@ -2871,7 +2871,19 @@
                 
                 if (isCodeRequest) {
                     // Code-related requests use intelligent execution
-                    console.log('Detected code request, using /api/v1/intelligent/execute...');
+                    // Detect language from user input
+                    const inputLower = input.toLowerCase();
+                    let detectedLang = "python"; // Default to Python
+                    if (inputLower.includes("python") || inputLower.includes("py script") || inputLower.includes(".py")) {
+                        detectedLang = "python";
+                    } else if (inputLower.includes(" go ") || inputLower.includes("golang") || inputLower.includes("go program") || inputLower.includes("go code") || inputLower.includes(".go")) {
+                        detectedLang = "go";
+                    } else if (inputLower.includes("javascript") || inputLower.includes("js") || inputLower.includes("node") || inputLower.includes(".js")) {
+                        detectedLang = "javascript";
+                    } else if (inputLower.includes("java") && !inputLower.includes("javascript") || inputLower.includes(".java")) {
+                        detectedLang = "java";
+                    }
+                    console.log('Detected code request, using /api/v1/intelligent/execute with language:', detectedLang);
                     response = await axios.post('/api/v1/intelligent/execute', {
                         task_name: "artifact_task",
                         description: input,
@@ -2880,7 +2892,7 @@
                             force_regenerate: "true",
                             ...(project ? { project_id: project } : {})
                         },
-                        language: "go",
+                        language: detectedLang,
                         force_regenerate: true,
                         max_retries: 3
                     }, { timeout: 300000 });
