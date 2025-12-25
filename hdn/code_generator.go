@@ -315,7 +315,7 @@ Return only the Python code in a markdown code block.`, printTarget)
 	// Build a strong language enforcement message
 	langEnforcement := ""
 	if req.Language != "" {
-		langEnforcement = fmt.Sprintf("\n\n🚨🚨🚨 CRITICAL LANGUAGE REQUIREMENT 🚨🚨🚨\nYou MUST generate %s code ONLY! Do NOT generate Python, JavaScript, or any other language!\nIf the task description mentions another language, IGNORE it - you MUST generate %s code!\n🚨🚨🚨 END OF CRITICAL REQUIREMENT 🚨🚨🚨\n", req.Language, req.Language)
+		langEnforcement = fmt.Sprintf("\n\n🚨🚨🚨 CRITICAL LANGUAGE REQUIREMENT 🚨🚨🚨\nYou MUST generate %s code ONLY! Do NOT generate any other language!\nIf the task description mentions another language, IGNORE it - you MUST generate %s code!\n🚨🚨🚨 END OF CRITICAL REQUIREMENT 🚨🚨🚨\n", req.Language, req.Language)
 	}
 	
 	codeBlockTag := "```" + req.Language
