@@ -95,7 +95,7 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 			return nil, fmt.Errorf("failed to call LLM: %v", err)
 		}
 		log.Printf("✅ [FLEXIBLE-LLM] Generated response length: %d", len(response))
-		return f.parseFlexibleResponse(response)
+		return f.parseFlexibleResponse(response, len(availableTools))
 	}
 
 	// Fallback to standard method (low priority)
@@ -107,7 +107,7 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 	log.Printf("✅ [FLEXIBLE-LLM] Generated response length: %d", len(response))
 
 	// Parse the flexible response
-	return f.parseFlexibleResponse(response)
+	return f.parseFlexibleResponse(response, len(availableTools))
 }
 
 // buildToolAwarePrompt creates a prompt that includes available tools
@@ -195,13 +195,15 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 }
 
 // parseFlexibleResponse parses the LLM response into a flexible response structure
-func (f *FlexibleLLMAdapter) parseFlexibleResponse(response string) (*FlexibleLLMResponse, error) {
+func (f *FlexibleLLMAdapter) parseFlexibleResponse(response string, availableToolsCount int) (*FlexibleLLMResponse, error) {
 	// Try to parse as JSON first
 	var flexibleResp FlexibleLLMResponse
 	if err := json.Unmarshal([]byte(response), &flexibleResp); err == nil {
 		log.Printf("✅ [FLEXIBLE-LLM] Parsed flexible response: %s", flexibleResp.Type)
 		if flexibleResp.Type == "" {
 			log.Printf("⚠️ [FLEXIBLE-LLM] WARNING: Parsed JSON but Type is empty! Response preview: %s", truncateString(response, 200))
+		} else if flexibleResp.Type == ResponseTypeText && availableToolsCount > 0 {
+			log.Printf("⚠️ [FLEXIBLE-LLM] WARNING: LLM returned 'text' type but %d tools are available! Response preview: %s", availableToolsCount, truncateString(response, 300))
 		}
 		return &flexibleResp, nil
 	}
