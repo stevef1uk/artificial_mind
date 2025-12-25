@@ -73,13 +73,13 @@ func isScoringRequest(input string) bool {
 // highPriority=true for user requests, false for background tasks
 func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, availableTools []Tool, highPriority bool) (*FlexibleLLMResponse, error) {
 	log.Printf("🤖 [FLEXIBLE-LLM] Processing natural language input: %s (priority: %v)", input, highPriority)
-	
+
 	// For scoring requests, use empty tools list to prevent tool usage
 	if isScoringRequest(input) {
 		log.Printf("📊 [FLEXIBLE-LLM] Detected scoring request - using empty tools list to force text response")
 		availableTools = []Tool{}
 	}
-	
+
 	log.Printf("🤖 [FLEXIBLE-LLM] Available tools: %d", len(availableTools))
 
 	// Build tool-aware prompt
@@ -152,11 +152,13 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 		prompt.WriteString("\n")
 	}
 
-	prompt.WriteString("Respond using EXACTLY ONE of these JSON formats (no extra text):\n")
-	prompt.WriteString("1. STRONGLY PREFER: {\"type\": \"tool_call\", \"tool_call\": {\"tool_id\": \"tool_name\", \"parameters\": {...}, \"description\": \"...\"}}\n")
+	prompt.WriteString("🚨 CRITICAL: You MUST respond with ONLY a valid JSON object. NO explanatory text before or after the JSON.\n\n")
+	prompt.WriteString("Respond using EXACTLY ONE of these JSON formats (no extra text, no markdown, no code blocks):\n")
+	prompt.WriteString("1. STRONGLY PREFER (use this if ANY tool can help): {\"type\": \"tool_call\", \"tool_call\": {\"tool_id\": \"tool_name\", \"parameters\": {...}, \"description\": \"...\"}}\n")
 	prompt.WriteString("2. Or: {\"type\": \"structured_task\", \"structured_task\": {\"task_name\": \"...\", \"description\": \"...\", \"subtasks\": [...]}}\n")
 	prompt.WriteString("3. ONLY if no tool can accomplish the task: {\"type\": \"code_artifact\", \"code_artifact\": {\"language\": \"python\", \"code\": \"...\"}}\n")
 	prompt.WriteString("4. Only if the user EXPLICITLY asks for a textual explanation and no action is possible: {\"type\": \"text\", \"content\": \"...\"}\n\n")
+	prompt.WriteString("⚠️ IMPORTANT: Start your response with { and end with }. Do NOT wrap in markdown code blocks. Do NOT add any text outside the JSON.\n\n")
 
 	// Enhanced guidance for tool usage
 	prompt.WriteString("Rules:\n")
@@ -180,9 +182,12 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 	prompt.WriteString("- Avoid generic requests for more information; propose a minimal actionable plan with assumptions noted in description.\n")
 	prompt.WriteString("- Do NOT include any commentary outside the JSON object.\n\n")
 
+	prompt.WriteString("Example response for a knowledge query:\n")
+	prompt.WriteString(`{"type": "tool_call", "tool_call": {"tool_id": "mcp_get_concept", "parameters": {"name": "Science", "domain": "General"}, "description": "Retrieve information about Science from knowledge base"}}` + "\n\n")
+
 	prompt.WriteString("User Input: ")
 	prompt.WriteString(input)
-	prompt.WriteString("\n\nChoose the most appropriate response type (favor structured_task/tool_call) and provide ONLY the JSON object.")
+	prompt.WriteString("\n\n🚨 CRITICAL: You MUST respond with ONLY a valid JSON object starting with { and ending with }. NO markdown, NO code blocks, NO explanatory text. If a tool can help, use tool_call. Provide ONLY the JSON object now:")
 
 	return prompt.String()
 }
