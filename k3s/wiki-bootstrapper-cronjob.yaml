@@ -73,7 +73,7 @@ spec:
             kubernetes.io/arch: arm64
             performance-tier: utility
           restartPolicy: Never
-          activeDeadlineSeconds: 3600  # 60 minutes timeout - Kubernetes will kill the pod if exceeded
+          activeDeadlineSeconds: 28800  # 8 hours timeout - allows processing large batches of Wikipedia articles
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
