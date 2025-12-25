@@ -154,6 +154,21 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 				prompt.WriteString(fmt.Sprintf("    - %s (%s): required\n", paramName, paramType))
 			}
 		}
+		
+		// For code-based tools, include a code snippet so LLM knows what it does
+		if tool.Exec != nil && tool.Exec.Type == "code" && tool.Exec.Code != "" {
+			codePreview := tool.Exec.Code
+			language := tool.Exec.Language
+			if language == "" {
+				language = "python" // default
+			}
+			// Limit code preview to first 500 chars to avoid overwhelming the prompt
+			if len(codePreview) > 500 {
+				codePreview = codePreview[:500] + "..."
+			}
+			prompt.WriteString(fmt.Sprintf("  Code (%s):\n    %s\n", language, strings.ReplaceAll(codePreview, "\n", "\n    ")))
+		}
+		
 		prompt.WriteString("\n")
 	}
 
@@ -246,6 +261,16 @@ func truncateString(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
+// ToolExecSpec represents how a tool should be executed
+type ToolExecSpec struct {
+	Type     string   `json:"type"`               // "cmd", "image", or "code"
+	Cmd      string   `json:"cmd"`                // for Type=="cmd": absolute path inside container
+	Args     []string `json:"args"`               // for Type=="cmd": command arguments
+	Image    string   `json:"image,omitempty"`   // for Type=="image": docker image reference
+	Code     string   `json:"code,omitempty"`    // for Type=="code": code to execute
+	Language string   `json:"language,omitempty"` // for Type=="code": programming language
+}
+
 // Tool represents an available tool
 type Tool struct {
 	ID           string            `json:"id"`
@@ -257,4 +282,5 @@ type Tool struct {
 	SafetyLevel  string            `json:"safety_level"`
 	CreatedBy    string            `json:"created_by"`
 	CreatedAt    string            `json:"created_at"`
+	Exec         *ToolExecSpec     `json:"exec,omitempty"` // Execution specification
 }

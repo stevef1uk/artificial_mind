@@ -140,10 +140,14 @@ func (f *FlexibleInterpreter) InterpretWithPriority(ctx context.Context, req *Na
 				"        out = {'error': str(e)}\n" +
 				"    print(json.dumps(out))\n"
 
+			// Generate a descriptive name and description from the code
+			// Extract function/class names or key operations to create a better description
+			description := generateToolDescriptionFromCode(response.CodeArtifact.Language, response.CodeArtifact.Code)
+			
 			result.Metadata["proposed_tool"] = map[string]interface{}{
 				"id":           id,
 				"name":         id,
-				"description":  "Auto-proposed utility from code artifact",
+				"description":  description,
 				"permissions":  []string{"proc:exec"},
 				"safety_level": "medium",
 				"created_by":   "agent",
@@ -326,6 +330,109 @@ func isNonTrivialGenericUtility(language, code string) bool {
 	hasStructure := strings.Contains(lower, "def ") || strings.Contains(lower, "function ") || strings.Contains(lower, "class ") || strings.Contains(lower, "package ")
 	// More permissive: one signal is enough if structure is present
 	return hasStructure && score >= 1
+}
+
+// generateToolDescriptionFromCode creates a descriptive description from code
+func generateToolDescriptionFromCode(language, code string) string {
+	c := strings.TrimSpace(code)
+	if len(c) == 0 {
+		return "Auto-proposed utility from code artifact"
+	}
+	
+	lower := strings.ToLower(c)
+	
+	// Try to extract function/class names
+	var funcNames []string
+	if language == "python" {
+		// Look for def statements
+		lines := strings.Split(c, "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "def ") {
+				parts := strings.Fields(line)
+				if len(parts) > 1 {
+					funcName := strings.Split(parts[1], "(")[0]
+					funcNames = append(funcNames, funcName)
+				}
+			}
+		}
+	} else if language == "javascript" || language == "js" {
+		// Look for function declarations
+		lines := strings.Split(c, "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if strings.Contains(line, "function ") {
+				parts := strings.Fields(line)
+				for i, part := range parts {
+					if part == "function" && i+1 < len(parts) {
+						funcName := strings.Split(parts[i+1], "(")[0]
+						funcNames = append(funcNames, funcName)
+					}
+				}
+			}
+		}
+	}
+	
+	// Build description based on code content
+	var descParts []string
+	
+	// Add function names if found
+	if len(funcNames) > 0 {
+		descParts = append(descParts, fmt.Sprintf("Functions: %s", strings.Join(funcNames, ", ")))
+	}
+	
+	// Detect operations from keywords
+	operations := []string{}
+	if strings.Contains(lower, "parse") || strings.Contains(lower, "json.loads") {
+		operations = append(operations, "parse")
+	}
+	if strings.Contains(lower, "transform") || strings.Contains(lower, "convert") {
+		operations = append(operations, "transform")
+	}
+	if strings.Contains(lower, "extract") {
+		operations = append(operations, "extract")
+	}
+	if strings.Contains(lower, "filter") {
+		operations = append(operations, "filter")
+	}
+	if strings.Contains(lower, "sort") {
+		operations = append(operations, "sort")
+	}
+	if strings.Contains(lower, "http") || strings.Contains(lower, "request") {
+		operations = append(operations, "HTTP requests")
+	}
+	if strings.Contains(lower, "matrix") || strings.Contains(lower, "array") {
+		operations = append(operations, "array/matrix operations")
+	}
+	if strings.Contains(lower, "calculate") || strings.Contains(lower, "compute") {
+		operations = append(operations, "calculate")
+	}
+	
+	if len(operations) > 0 {
+		descParts = append(descParts, fmt.Sprintf("Operations: %s", strings.Join(operations, ", ")))
+	}
+	
+	// Build final description
+	if len(descParts) > 0 {
+		return fmt.Sprintf("Auto-proposed utility: %s (%s)", strings.Join(descParts, "; "), language)
+	}
+	
+	// Fallback: try to extract a meaningful snippet
+	if len(c) > 100 {
+		// Use first meaningful line
+		lines := strings.Split(c, "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if len(line) > 20 && !strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "//") && !strings.HasPrefix(line, "import") {
+				if len(line) > 80 {
+					line = line[:80] + "..."
+				}
+				return fmt.Sprintf("Auto-proposed utility: %s (%s)", line, language)
+			}
+		}
+	}
+	
+	return fmt.Sprintf("Auto-proposed utility from code artifact (%s)", language)
 }
 
 // proposeToolID creates a stable-ish tool id from language + code shape
