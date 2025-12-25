@@ -1058,6 +1058,11 @@ func (m *MonitorService) getSessionHistory(c *gin.Context) {
 
 // getTools lists all tools from Redis registry
 func (m *MonitorService) getTools(c *gin.Context) {
+	if m.redisClient == nil {
+		log.Printf("❌ [MONITOR] Redis client not initialized in getTools")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "redis not configured"})
+		return
+	}
 	ctx := context.Background()
 	ids, err := m.redisClient.SMembers(ctx, "tools:registry").Result()
 	if err != nil {
@@ -1082,6 +1087,11 @@ func (m *MonitorService) getTools(c *gin.Context) {
 
 // getToolUsage returns recent usage events, optionally filtered by agent_id
 func (m *MonitorService) getToolUsage(c *gin.Context) {
+	if m.redisClient == nil {
+		log.Printf("❌ [MONITOR] Redis client not initialized in getToolUsage")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "redis not configured"})
+		return
+	}
 	agentID := strings.TrimSpace(c.Query("agent_id"))
 	ctx := context.Background()
 	key := "tools:global:usage_history"
@@ -2073,12 +2083,16 @@ func (m *MonitorService) analyzeLastWorkflow(c *gin.Context) {
 
 // getExecutionMetricsFromRedis retrieves metrics from Redis
 func (m *MonitorService) getExecutionMetricsFromRedis() ExecutionMetrics {
-	ctx := context.Background()
-
 	metrics := ExecutionMetrics{
 		ByLanguage: make(map[string]int),
 		ByTaskType: make(map[string]int),
 	}
+
+	if m.redisClient == nil {
+		return metrics
+	}
+
+	ctx := context.Background()
 
 	// Get execution count
 	totalExec, _ := m.redisClient.Get(ctx, "metrics:total_executions").Int()
@@ -2113,12 +2127,17 @@ func (m *MonitorService) getExecutionMetricsFromRedis() ExecutionMetrics {
 
 // getRedisInfo returns Redis connection information
 func (m *MonitorService) getRedisInfo(c *gin.Context) {
-	ctx := context.Background()
-
 	info := RedisInfo{
 		Connected: false,
 		Keyspace:  make(map[string]int),
 	}
+
+	if m.redisClient == nil {
+		c.JSON(http.StatusOK, info)
+		return
+	}
+
+	ctx := context.Background()
 
 	// Test connection
 	_, err := m.redisClient.Ping(ctx).Result()

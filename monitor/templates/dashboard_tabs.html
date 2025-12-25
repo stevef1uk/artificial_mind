@@ -2489,7 +2489,10 @@
             
             try {
                 // Load tool metrics and compute aggregates from array
-                const metricsResponse = await axios.get('/api/tools/metrics', { timeout: 5000 });
+                const metricsResponse = await axios.get('/api/tools/metrics', { timeout: 5000 }).catch((e) => {
+                    console.error('[Tools UI] Failed to fetch metrics:', e);
+                    return { data: { metrics: [], count: 0 } };
+                });
                 const execCfg = await axios.get('/api/config/execution', { timeout: 3000 }).catch(() => ({ data: { execution_method: 'docker' } }));
                 const execMethod = (execCfg.data?.execution_method || 'docker').toLowerCase();
                 const includeDrone = execMethod !== 'docker';
