@@ -369,6 +369,26 @@ func (e *FSMEngine) subscribeToEvents() error {
 		eventName := event.Name // Capture event name for closure
 		sub, err := e.nc.Subscribe(event.NatsSubject, func(msg *nats.Msg) {
 			log.Printf("📨 Received NATS event on %s: %s", event.NatsSubject, string(msg.Data))
+			
+			// For news events, store immediately regardless of state
+			// This ensures news is always stored even if FSM is in a state without news transitions
+			if eventName == "news_relations" || eventName == "news_alerts" {
+				var canonicalEvent CanonicalEvent
+				if err := json.Unmarshal(msg.Data, &canonicalEvent); err == nil {
+					// Convert canonical event to the format expected by storeNewsEventInWeaviate
+					// Payload is already a map[string]interface{}, so we can use it directly
+					eventMap := map[string]interface{}{
+						"type":    canonicalEvent.Type, // "relations" or "alerts"
+						"payload": canonicalEvent.Payload,
+					}
+					// Store news event directly (bypasses state machine)
+					e.storeNewsEventInWeaviate(eventMap)
+					log.Printf("📰 Stored news event immediately (bypassing state machine): %s", eventName)
+				} else {
+					log.Printf("⚠️ Failed to parse news event for immediate storage: %v", err)
+				}
+			}
+			
 			e.handleEvent(eventName, msg.Data)
 		})
 		if err != nil {

@@ -301,15 +301,41 @@ Return only the Python code in a markdown code block.`, printTarget)
 		}
 	}
 
-	// Add instructions for tool usage if task mentions tools
+	// Add available tools and instructions for tool usage
 	toolInstructions := ""
-	descLowerForTools := strings.ToLower(cleanDesc)
-	if strings.Contains(descLowerForTools, "tool_") || strings.Contains(descLowerForTools, "use tool") {
-		toolInstructions = "\n\n🚨 CRITICAL: If the task mentions using a tool (like tool_http_get, tool_html_scraper, etc.), DO NOT import it as a Python module. Instead, call the tool via HTTP API:\n"
-		toolInstructions += "- Get HDN_URL from environment: `hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')`\n"
+	if len(req.Tools) > 0 {
+		toolInstructions = "\n\n🔧 AVAILABLE TOOLS (use these via HTTP API, do NOT import as modules):\n"
+		for _, tool := range req.Tools {
+			toolInstructions += fmt.Sprintf("- %s: %s\n", tool.ID, tool.Description)
+			if len(tool.InputSchema) > 0 {
+				toolInstructions += "  Parameters: "
+				params := []string{}
+				for paramName, paramType := range tool.InputSchema {
+					params = append(params, fmt.Sprintf("%s (%s)", paramName, paramType))
+				}
+				toolInstructions += strings.Join(params, ", ") + "\n"
+			}
+		}
+		toolInstructions += "\n🚨 CRITICAL: To use these tools, call them via HTTP API:\n"
+		if req.ToolAPIURL != "" {
+			toolInstructions += fmt.Sprintf("- Base URL: %s\n", req.ToolAPIURL)
+		} else {
+			toolInstructions += "- Get HDN_URL from environment: `hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')`\n"
+		}
 		toolInstructions += "- Call tool via POST request: `requests.post(f'{hdn_url}/api/v1/tools/{tool_id}/invoke', json={params})`\n"
 		toolInstructions += "- Example for tool_http_get: `requests.post(f'{hdn_url}/api/v1/tools/tool_http_get/invoke', json={'url': 'https://example.com'})`\n"
 		toolInstructions += "- Make sure to import `requests` and `os` modules, and handle the response JSON properly.\n"
+		toolInstructions += "- PREFER using available tools over writing custom code when a tool can accomplish the task!\n"
+	} else {
+		// Fallback: add instructions if task mentions tools but no tools provided
+		descLowerForTools := strings.ToLower(cleanDesc)
+		if strings.Contains(descLowerForTools, "tool_") || strings.Contains(descLowerForTools, "use tool") {
+			toolInstructions = "\n\n🚨 CRITICAL: If the task mentions using a tool (like tool_http_get, tool_html_scraper, etc.), DO NOT import it as a Python module. Instead, call the tool via HTTP API:\n"
+			toolInstructions += "- Get HDN_URL from environment: `hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')`\n"
+			toolInstructions += "- Call tool via POST request: `requests.post(f'{hdn_url}/api/v1/tools/{tool_id}/invoke', json={params})`\n"
+			toolInstructions += "- Example for tool_http_get: `requests.post(f'{hdn_url}/api/v1/tools/tool_http_get/invoke', json={'url': 'https://example.com'})`\n"
+			toolInstructions += "- Make sure to import `requests` and `os` modules, and handle the response JSON properly.\n"
+		}
 	}
 
 	// Build a strong language enforcement message

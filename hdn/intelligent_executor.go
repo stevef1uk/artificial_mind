@@ -245,23 +245,33 @@ func (ie *IntelligentExecutor) getAvailableTools(ctx context.Context) ([]Tool, e
 }
 
 // filterRelevantTools filters tools relevant to the task
+// NOTE: This function is intentionally permissive - it includes most tools by default
+// to allow the LLM to choose the best tool for the task. Only obviously irrelevant tools are filtered.
 func (ie *IntelligentExecutor) filterRelevantTools(tools []Tool, req *ExecutionRequest) []Tool {
 	var relevant []Tool
 	descLower := strings.ToLower(req.Description)
 	taskLower := strings.ToLower(req.TaskName)
 	combined := descLower + " " + taskLower
 
-	// Keywords that suggest tool usage
+	// Expanded keywords that suggest tool usage - more comprehensive matching
 	toolKeywords := map[string][]string{
-		"tool_html_scraper": {"scrape", "html", "web", "fetch", "url", "website", "article", "news", "page", "content"},
-		"tool_http_get":     {"http", "url", "fetch", "get", "request", "api", "endpoint", "download"},
-		"tool_file_read":    {"read", "file", "load", "open", "readfile", "read file"},
-		"tool_file_write":   {"write", "file", "save", "store", "output", "write file", "save file"},
-		"tool_ls":           {"list", "directory", "dir", "files", "ls", "list files"},
+		"tool_html_scraper": {"scrape", "html", "web", "fetch", "url", "website", "article", "news", "page", "content", "parse html"},
+		"tool_http_get":     {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
+		"tool_file_read":    {"read", "file", "load", "open", "readfile", "read file", "readfile", "content", "text"},
+		"tool_file_write":   {"write", "file", "save", "store", "output", "write file", "save file", "create file", "writefile"},
+		"tool_ls":           {"list", "directory", "dir", "files", "ls", "list files", "directory listing", "contents"},
+		"tool_exec":         {"exec", "execute", "command", "shell", "run", "cmd", "system", "bash", "sh", "terminal"},
+		"tool_codegen":      {"generate", "code", "create", "write code", "generate code", "program", "script"},
+		"tool_json_parse":   {"json", "parse", "parse json", "decode", "unmarshal", "deserialize"},
+		"tool_text_search":  {"search", "find", "text", "pattern", "match", "grep", "filter", "text search"},
+		"tool_docker_list":  {"docker", "container", "image", "list docker", "docker list", "containers"},
+		"tool_docker_build": {"docker build", "build image", "dockerfile", "container build"},
+		"tool_ssh_executor": {"ssh", "remote", "execute", "remote execution", "ssh exec"},
 	}
 
 	seen := make(map[string]bool) // Track tools we've already added
 
+	// First pass: include tools that match keywords
 	for _, tool := range tools {
 		if seen[tool.ID] {
 			continue
@@ -296,12 +306,61 @@ func (ie *IntelligentExecutor) filterRelevantTools(tools []Tool, req *ExecutionR
 			continue
 		}
 
-		// Also check tool description/name for keyword matches
+		// Also check tool description/name for keyword matches (expanded keyword list)
 		toolDesc := strings.ToLower(tool.Description + " " + tool.Name + " " + tool.ID)
-		for _, keyword := range []string{"scrape", "http", "fetch", "url", "web", "file", "read", "write", "calculator", "calculate", "add", "subtract", "multiply", "divide", "math"} {
+		expandedKeywords := []string{"scrape", "http", "fetch", "url", "web", "file", "read", "write", "calculator", "calculate", "add", "subtract", "multiply", "divide", "math", "exec", "execute", "command", "shell", "run", "code", "generate", "json", "parse", "search", "find", "text", "docker", "container", "ssh", "remote", "list", "directory", "dir"}
+		for _, keyword := range expandedKeywords {
 			if strings.Contains(combined, keyword) && strings.Contains(toolDesc, keyword) {
 				relevant = append(relevant, tool)
 				seen[tool.ID] = true
+				break
+			}
+		}
+	}
+
+	// Second pass: Include commonly useful tools that weren't filtered out
+	// This ensures the LLM has access to a good set of tools even if keywords don't match
+	// We include tools that are generally useful for most tasks
+	alwaysInclude := []string{
+		"tool_http_get",     // Very commonly used
+		"tool_file_read",    // Commonly used
+		"tool_file_write",   // Commonly used
+		"tool_exec",         // Commonly used for system operations
+		"tool_json_parse",   // Commonly used for data processing
+		"tool_text_search",  // Commonly used for text operations
+		"tool_ssh_executor", // For remote execution
+	}
+
+	for _, toolID := range alwaysInclude {
+		if seen[toolID] {
+			continue
+		}
+		// Find the tool in the original list
+		for _, tool := range tools {
+			if tool.ID == toolID {
+				relevant = append(relevant, tool)
+				seen[tool.ID] = true
+				break
+			}
+		}
+	}
+
+	// If we still have very few tools, include more to give LLM options
+	// This is a safety net to ensure LLM has enough tools to work with
+	if len(relevant) < 5 && len(tools) > len(relevant) {
+		log.Printf("🔧 [INTELLIGENT] Only %d tools matched keywords, including additional tools for LLM flexibility", len(relevant))
+		// Include remaining tools that aren't obviously irrelevant
+		for _, tool := range tools {
+			if seen[tool.ID] {
+				continue
+			}
+			// Skip tools that are clearly not for general use
+			if strings.Contains(tool.ID, "tool_register") || strings.Contains(tool.ID, "tool_docker_build") {
+				continue
+			}
+			relevant = append(relevant, tool)
+			seen[tool.ID] = true
+			if len(relevant) >= 10 { // Cap at reasonable number
 				break
 			}
 		}
