@@ -105,6 +105,16 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 		return
 	}
 
+	// 5. Generate hypothesis testing goals for existing untested hypotheses
+	// This ensures hypotheses get tested even if they were created outside the current cycle
+	hypTestingGoals, err := e.generateHypothesisTestingGoalsForExisting(domain)
+	if err != nil {
+		log.Printf("Warning: Failed to generate hypothesis testing goals for existing hypotheses: %v", err)
+	} else if len(hypTestingGoals) > 0 {
+		goals = append(goals, hypTestingGoals...)
+		log.Printf("🎯 Added %d hypothesis testing goals for existing hypotheses", len(hypTestingGoals))
+	}
+
 	// Adjust goal generation based on focus areas
 	if len(focusAreas) > 0 {
 		goals = e.adjustGoalGeneration(goals, focusAreas, domain)
@@ -1595,6 +1605,87 @@ func (e *FSMEngine) createDedupKey(goal CuriosityGoal) string {
 
 	// For other goals, use type + description
 	return fmt.Sprintf("%s:%s", goal.Type, goal.Description)
+}
+
+// generateHypothesisTestingGoalsForExisting creates hypothesis testing goals for existing untested hypotheses
+// This ensures hypotheses created in previous cycles get tested
+func (e *FSMEngine) generateHypothesisTestingGoalsForExisting(domain string) ([]CuriosityGoal, error) {
+	key := fmt.Sprintf("fsm:%s:hypotheses", e.agentID)
+	hypothesesData, err := e.redis.HGetAll(e.ctx, key).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get hypotheses: %w", err)
+	}
+
+	// Get existing hypothesis testing goals to avoid duplicates
+	goalKey := fmt.Sprintf("reasoning:curiosity_goals:%s", domain)
+	existingGoalsData, err := e.redis.LRange(e.ctx, goalKey, 0, 199).Result()
+	if err != nil {
+		log.Printf("Warning: Failed to get existing goals for deduplication: %v", err)
+		existingGoalsData = []string{}
+	}
+
+	// Build map of existing hypothesis IDs that already have testing goals
+	existingHypIDs := make(map[string]bool)
+	for _, goalData := range existingGoalsData {
+		var goal CuriosityGoal
+		if err := json.Unmarshal([]byte(goalData), &goal); err == nil {
+			if goal.Type == "hypothesis_testing" && len(goal.Targets) > 0 {
+				existingHypIDs[goal.Targets[0]] = true
+			}
+		}
+	}
+
+	var goals []CuriosityGoal
+	for _, hypData := range hypothesesData {
+		var hypothesis map[string]interface{}
+		if err := json.Unmarshal([]byte(hypData), &hypothesis); err != nil {
+			continue
+		}
+
+		// Only create goals for "proposed" hypotheses (untested)
+		status, _ := hypothesis["status"].(string)
+		if status != "proposed" {
+			continue
+		}
+
+		hypID, _ := hypothesis["id"].(string)
+		if hypID == "" {
+			continue
+		}
+
+		// Skip if already has a testing goal
+		if existingHypIDs[hypID] {
+			continue
+		}
+
+		description, _ := hypothesis["description"].(string)
+		if description == "" {
+			continue
+		}
+
+		// Create hypothesis testing goal
+		goal := CuriosityGoal{
+			ID:          fmt.Sprintf("hyp_test_%s", hypID),
+			Type:        "hypothesis_testing",
+			Description: fmt.Sprintf("Test hypothesis: %s", description),
+			Targets:     []string{hypID},
+			Priority:    8,
+			Status:      "pending",
+			Domain:      domain,
+			CreatedAt:   time.Now(),
+		}
+
+		// Skip generic hypotheses (same filter as createHypothesisTestingGoals)
+		if e.isGenericHypothesisGoal(goal) {
+			log.Printf("🚫 Filtered out generic hypothesis goal: %s", goal.Description)
+			continue
+		}
+
+		goals = append(goals, goal)
+	}
+
+	log.Printf("🎯 Generated %d hypothesis testing goals for existing untested hypotheses", len(goals))
+	return goals, nil
 }
 
 // isGenericHypothesisGoal checks if a hypothesis testing goal is generic/useless

@@ -31,8 +31,10 @@ spec:
           env:
             - name: DISABLE_NEWS_POLLER
               value: "true"
-            - name: AUTONOMY
+            - name: FSM_AUTONOMY
               value: "true"
+            - name: FSM_AUTONOMY_EVERY
+              value: "120"
             # LLM configuration from secret (aligned with HDN)
             - name: LLM_PROVIDER
               valueFrom:

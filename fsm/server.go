@@ -111,7 +111,11 @@ func LoadServerConfig(configPath string) (*ServerConfig, error) {
 	if ollamaURL := os.Getenv("OLLAMA_URL"); ollamaURL != "" {
 		config.OllamaURL = ollamaURL
 	}
+	// Check both FSM_AUTONOMY and AUTONOMY for compatibility
 	if auto := os.Getenv("FSM_AUTONOMY"); strings.TrimSpace(auto) != "" {
+		config.Autonomy = strings.ToLower(auto) == "true"
+	} else if auto := os.Getenv("AUTONOMY"); strings.TrimSpace(auto) != "" {
+		// Fallback to AUTONOMY for backward compatibility
 		config.Autonomy = strings.ToLower(auto) == "true"
 	}
 	if every := os.Getenv("FSM_AUTONOMY_EVERY"); strings.TrimSpace(every) != "" {
