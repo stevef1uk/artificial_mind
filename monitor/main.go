@@ -4784,6 +4784,11 @@ func (m *MonitorService) interpretAndExecute(c *gin.Context) {
 			if req.SessionID != "" {
 				ictx["session_id"] = req.SessionID
 			}
+			// Propagate project ID if it was extracted
+			if projectID != "" {
+				ictx["project_id"] = projectID
+				log.Printf("[DEBUG] Propagating project_id %s to intelligent executor context", projectID)
+			}
 
 			// Detect artifacts and language for intelligent exec (reuse earlier parsed files/wantPDF/wantPreview)
 			// If both .go and .py are requested, run two executes so both artifacts are generated
@@ -5089,6 +5094,16 @@ func (m *MonitorService) interpretAndExecute(c *gin.Context) {
 		if req.SessionID != "" {
 			ctxMap["session_id"] = req.SessionID
 		}
+		// ensure project id flows into intelligent execution context
+		if projectID != "" {
+			ctxMap["project_id"] = projectID
+			log.Printf("[DEBUG] Adding project_id %s to task execution context", projectID)
+		}
+		// Also check if project was mentioned in the task description itself
+		if taskProjectID, ok := m.extractProjectIDFromText(description + " " + taskName); ok {
+			ctxMap["project_id"] = taskProjectID
+			log.Printf("[DEBUG] Extracted project_id %s from task description", taskProjectID)
+		}
 
 		// Extract artifact hints and propagate to executor
 		filesHint, wantPDFHint, wantPreviewHint := extractArtifactsFromInput(description + " " + taskName)
@@ -5198,6 +5213,22 @@ func (m *MonitorService) interpretAndExecute(c *gin.Context) {
 		"interpretation": interpretation,
 		"execution_plan": execPlan,
 		"message":        fmt.Sprintf("Successfully interpreted and executed %d task(s)", len(execPlan)),
+	}
+	
+	// Include project information if a project was used
+	if projectID != "" {
+		// Fetch project details
+		client := &http.Client{Timeout: 5 * time.Second}
+		if resp, err := client.Get(m.hdnURL + "/api/v1/projects/" + projectID); err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				var project map[string]interface{}
+				if err := json.NewDecoder(resp.Body).Decode(&project); err == nil {
+					respPayload["project"] = project
+					log.Printf("[DEBUG] Added project to response: %s", projectID)
+				}
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, respPayload)
@@ -5346,16 +5377,26 @@ func (m *MonitorService) extractProjectIDFromText(input string) (string, bool) {
 		`use\s+project\s+"([^"]+)"`,
 		`against\s+project\s+"([^"]+)"`,
 		`to\s+(the\s+)?project\s+"([^"]+)"`,
+		`for\s+project\s+"([^"]+)"`,
+		`with\s+project\s+"([^"]+)"`,
 		`under\s+project\s+'([^']+)'`,
 		`in\s+project\s+'([^']+)'`,
 		`use\s+project\s+'([^']+)'`,
 		`against\s+project\s+'([^']+)'`,
 		`to\s+(the\s+)?project\s+'([^']+)'`,
+		`for\s+project\s+'([^']+)'`,
+		`with\s+project\s+'([^']+)'`,
 		`under\s+project\s+([^"'\n\r]+)$`,
 		`in\s+project\s+([^"'\n\r]+)$`,
 		`use\s+project\s+([^"'\n\r]+)$`,
 		`against\s+project\s+([^"'\n\r]+)$`,
 		`to\s+(the\s+)?project\s+([^"'\n\r]+)$`,
+		`for\s+project\s+([^"'\n\r]+)$`,
+		`with\s+project\s+([^"'\n\r]+)$`,
+		// Also try simple "project <name>" pattern at the end of the request
+		`project\s+([a-zA-Z0-9_]+)\s*$`,
+		`project\s+"([^"]+)"`,
+		`project\s+'([^']+)'`,
 	}
 	var name string
 	for i, p := range patterns {

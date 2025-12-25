@@ -398,7 +398,22 @@ func (aqm *AsyncLLMQueueManager) processRequest(req *AsyncLLMRequest) {
 func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt string) (string, error) {
 	client := aqm.llmClient
 	log.Printf("🌐 [ASYNC-LLM] Making API call to provider: %s", client.config.LLMProvider)
-	log.Printf("🌐 [ASYNC-LLM] Timeout: %v", client.httpClient.Timeout)
+	
+	// Use context timeout if available, otherwise use client timeout
+	// For code generation and other long-running tasks, context may have longer timeout
+	httpTimeout := client.httpClient.Timeout
+	if deadline, ok := ctx.Deadline(); ok {
+		timeUntilDeadline := time.Until(deadline)
+		// If context has longer timeout, use it (but cap at 10 minutes for safety)
+		if timeUntilDeadline > httpTimeout && timeUntilDeadline < 10*time.Minute {
+			httpTimeout = timeUntilDeadline
+		} else if timeUntilDeadline > 10*time.Minute {
+			httpTimeout = 10 * time.Minute
+		}
+		log.Printf("🌐 [ASYNC-LLM] Timeout: %v (context deadline: %v)", httpTimeout, deadline)
+	} else {
+		log.Printf("🌐 [ASYNC-LLM] Timeout: %v (no context deadline)", httpTimeout)
+	}
 
 	// Determine the API endpoint based on provider
 	var apiURL string
@@ -488,8 +503,27 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 	// Track request duration
 	requestStart := time.Now()
 
+	// Create a temporary HTTP client with longer timeout for async calls
+	// Use context timeout if available, otherwise use client timeout
+	httpClient := client.httpClient
+	if deadline, ok := ctx.Deadline(); ok {
+		timeUntilDeadline := time.Until(deadline)
+		// If context has longer timeout, create a new client with that timeout
+		if timeUntilDeadline > httpClient.Timeout && timeUntilDeadline < 10*time.Minute {
+			httpClient = &http.Client{
+				Timeout:   timeUntilDeadline,
+				Transport: httpClient.Transport,
+			}
+		} else if timeUntilDeadline > 10*time.Minute {
+			httpClient = &http.Client{
+				Timeout:   10 * time.Minute,
+				Transport: httpClient.Transport,
+			}
+		}
+	}
+
 	// Make the request (will respect context cancellation)
-	resp, err := client.httpClient.Do(req)
+	resp, err := httpClient.Do(req)
 	
 	requestDuration := time.Since(requestStart)
 	

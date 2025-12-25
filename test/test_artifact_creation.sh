@@ -25,7 +25,7 @@ CHAINED_REQ='{
 }'
 
 CHAINED_JSON="$TMP_DIR/int_exec_chained.json"
-curl -s -X POST "$HDN_URL/api/v1/intelligent/execute" \
+curl -s --max-time 120 -X POST "$HDN_URL/api/v1/intelligent/execute" \
   -H 'Content-Type: application/json' \
   --data-binary "$CHAINED_REQ" \
   -o "$CHAINED_JSON"
@@ -89,7 +89,7 @@ GO_REQ_PAYLOAD='{
 }'
 
 GO_RESP_JSON="$TMP_DIR/int_exec_uuid.json"
-curl -s -X POST "$HDN_URL/api/v1/intelligent/execute" \
+curl -s --max-time 120 -X POST "$HDN_URL/api/v1/intelligent/execute" \
   -H 'Content-Type: application/json' \
   --data-binary "$GO_REQ_PAYLOAD" \
   -o "$GO_RESP_JSON"
@@ -212,7 +212,7 @@ CHAIN_GO_REQ='{
 }'
 
 CHAIN_GO_JSON="$TMP_DIR/int_exec_chain_consumer.json"
-curl -s -X POST "$HDN_URL/api/v1/intelligent/execute" \
+curl -s --max-time 120 -X POST "$HDN_URL/api/v1/intelligent/execute" \
   -H 'Content-Type: application/json' \
   --data-binary "$CHAIN_GO_REQ" \
   -o "$CHAIN_GO_JSON"
