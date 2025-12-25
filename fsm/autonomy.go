@@ -115,6 +115,33 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 		log.Printf("🎯 Added %d hypothesis testing goals for existing hypotheses", len(hypTestingGoals))
 	}
 
+	// 6. Load existing pending goals from Redis to include in selection
+	// This ensures we consider goals created in previous cycles
+	existingGoalsKey := fmt.Sprintf("reasoning:curiosity_goals:%s", domain)
+	existingGoalsData, err := e.redis.LRange(e.ctx, existingGoalsKey, 0, 199).Result()
+	if err == nil {
+		for _, goalData := range existingGoalsData {
+			var existingGoal CuriosityGoal
+			if err := json.Unmarshal([]byte(goalData), &existingGoal); err == nil {
+				// Only include pending goals (not active, completed, or failed)
+				if existingGoal.Status == "pending" {
+					// Check if we already have this goal in our array (deduplicate by ID)
+					found := false
+					for _, g := range goals {
+						if g.ID == existingGoal.ID {
+							found = true
+							break
+						}
+					}
+					if !found {
+						goals = append(goals, existingGoal)
+					}
+				}
+			}
+		}
+		log.Printf("📋 Loaded existing pending goals from Redis, total goals for selection: %d", len(goals))
+	}
+
 	// Adjust goal generation based on focus areas
 	if len(focusAreas) > 0 {
 		goals = e.adjustGoalGeneration(goals, focusAreas, domain)
