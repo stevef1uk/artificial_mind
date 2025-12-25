@@ -3140,9 +3140,10 @@ func (ie *IntelligentExecutor) executeChainedPrograms(ctx context.Context, req *
 		var usingExtractedTiming bool = false
 		if output, ok := programResult.Result.(string); ok {
 			extractedTime := extractTimingFromOutput(output, program.Language)
-			// Only use extracted timing if it's reasonable (at least 1 microsecond)
-			// Very small values (< 1000ns) are likely false positives from noise in output
-			if extractedTime >= 1000 {
+			// Use extracted timing if it's reasonable (at least 100 nanoseconds)
+			// Very small values (< 100ns) are likely false positives from noise in output
+			// But allow small legitimate timings like 352ns
+			if extractedTime >= 100 {
 				algorithmDurationNs = extractedTime
 				algorithmDurationMs = extractedTime / 1000000 // Convert ns to ms
 				usingExtractedTiming = true
@@ -3746,54 +3747,54 @@ func (ie *IntelligentExecutor) generatePerformanceReport(timings []map[string]in
 		}
 
 		// Use nanoseconds for accurate comparison, especially for small values
-		if ns1 == 0 && ns2 == 0 {
-			report.WriteString("Both programs show 0 execution time (timing may not have been captured)\n")
-			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang1, ms1))
-			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang2, ms2))
-		} else if ns1 == 0 {
-			if usingExtracted2 {
+		// Only compare extracted timings if both are available, otherwise use total execution time
+		compareExtracted := usingExtracted1 && usingExtracted2
+
+		if compareExtracted {
+			// Both have extracted algorithm timings - compare those
+			if ns1 == 0 && ns2 == 0 {
+				report.WriteString("Both programs show 0 execution time (timing may not have been captured)\n")
+			} else if ns1 == 0 {
 				report.WriteString(fmt.Sprintf("%s: timing not captured from output, %s: %d ns (%.6f ms)\n", lang1, lang2, ns2, float64(ns2)/1000000.0))
-			} else {
-				report.WriteString(fmt.Sprintf("%s: timing not captured, %s: %d ms\n", lang1, lang2, ms2))
-			}
-			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang1, ms1))
-			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang2, ms2))
-		} else if ns2 == 0 {
-			if usingExtracted1 {
+			} else if ns2 == 0 {
 				report.WriteString(fmt.Sprintf("%s: timing not captured from output, %s: %d ns (%.6f ms)\n", lang2, lang1, ns1, float64(ns1)/1000000.0))
-			} else {
-				report.WriteString(fmt.Sprintf("%s: timing not captured, %s: %d ms\n", lang2, lang1, ms1))
-			}
-			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang1, ms1))
-			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang2, ms2))
-		} else if ns1 < ns2 {
-			diff := float64(ns2-ns1) / float64(ns1) * 100
-			report.WriteString(fmt.Sprintf("%s executed %.2f%% faster than %s\n", lang1, diff, lang2))
-			if usingExtracted1 && usingExtracted2 {
-				// Both have extracted timings, show in nanoseconds for precision
+			} else if ns1 < ns2 {
+				diff := float64(ns2-ns1) / float64(ns1) * 100
+				report.WriteString(fmt.Sprintf("%s executed %.2f%% faster than %s\n", lang1, diff, lang2))
+				report.WriteString(fmt.Sprintf("%s: %d ns (%.6f ms)\n", lang1, ns1, float64(ns1)/1000000.0))
+				report.WriteString(fmt.Sprintf("%s: %d ns (%.6f ms)\n", lang2, ns2, float64(ns2)/1000000.0))
+			} else if ns2 < ns1 {
+				diff := float64(ns1-ns2) / float64(ns2) * 100
+				report.WriteString(fmt.Sprintf("%s executed %.2f%% faster than %s\n", lang2, diff, lang1))
 				report.WriteString(fmt.Sprintf("%s: %d ns (%.6f ms)\n", lang1, ns1, float64(ns1)/1000000.0))
 				report.WriteString(fmt.Sprintf("%s: %d ns (%.6f ms)\n", lang2, ns2, float64(ns2)/1000000.0))
 			} else {
-				report.WriteString(fmt.Sprintf("%s: %d ms\n", lang1, ms1))
-				report.WriteString(fmt.Sprintf("%s: %d ms\n", lang2, ms2))
-			}
-		} else if ns2 < ns1 {
-			diff := float64(ns1-ns2) / float64(ns2) * 100
-			report.WriteString(fmt.Sprintf("%s executed %.2f%% faster than %s\n", lang2, diff, lang1))
-			if usingExtracted1 && usingExtracted2 {
-				// Both have extracted timings, show in nanoseconds for precision
-				report.WriteString(fmt.Sprintf("%s: %d ns (%.6f ms)\n", lang1, ns1, float64(ns1)/1000000.0))
-				report.WriteString(fmt.Sprintf("%s: %d ns (%.6f ms)\n", lang2, ns2, float64(ns2)/1000000.0))
-			} else {
-				report.WriteString(fmt.Sprintf("%s: %d ms\n", lang1, ms1))
-				report.WriteString(fmt.Sprintf("%s: %d ms\n", lang2, ms2))
+				report.WriteString(fmt.Sprintf("Both programs executed in the same time: %d ns (%.6f ms)\n", ns1, float64(ns1)/1000000.0))
 			}
 		} else {
-			if usingExtracted1 && usingExtracted2 {
-				report.WriteString(fmt.Sprintf("Both programs executed in the same time: %d ns (%.6f ms)\n", ns1, float64(ns1)/1000000.0))
+			// One or both don't have extracted timings - compare total execution times
+			// But note which one has extracted timing
+			if !usingExtracted1 && !usingExtracted2 {
+				report.WriteString("Note: Comparing total execution times (algorithm timings not extracted from output)\n")
+			} else if usingExtracted1 {
+				report.WriteString(fmt.Sprintf("Note: %s has algorithm timing (%d ns), %s using total execution time\n", lang1, ns1, lang2))
+			} else {
+				report.WriteString(fmt.Sprintf("Note: %s has algorithm timing (%d ns), %s using total execution time\n", lang2, ns2, lang1))
+			}
+
+			if ms1 == 0 && ms2 == 0 {
+				report.WriteString("Both programs show 0 execution time\n")
+			} else if ms1 < ms2 {
+				diff := float64(ms2-ms1) / float64(ms1) * 100
+				report.WriteString(fmt.Sprintf("%s executed %.2f%% faster than %s\n", lang1, diff, lang2))
+			} else if ms2 < ms1 {
+				diff := float64(ms1-ms2) / float64(ms2) * 100
+				report.WriteString(fmt.Sprintf("%s executed %.2f%% faster than %s\n", lang2, diff, lang1))
 			} else {
 				report.WriteString(fmt.Sprintf("Both programs executed in the same time: %d ms\n", ms1))
 			}
+			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang1, ms1))
+			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang2, ms2))
 		}
 	}
 
@@ -4112,8 +4113,10 @@ func extractTimingFromOutput(output string, language string) int64 {
 
 	// Common timing patterns in output
 	patterns := []*regexp.Regexp{
-		// Go: "Execution time: 540 nanoseconds" - prioritize this specific format
-		regexp.MustCompile(`(?i)execution\s+time[:\s]+(\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s*(ns|nanoseconds|nanosecond)`),
+		// Go: "Execution time: 352ns" (no space - Go's time.Duration format) - prioritize this
+		regexp.MustCompile(`(?i)execution\s+time[:\s]+(\d+(?:\.\d+)?(?:e[+-]?\d+)?)(ns|us|ms|s|h|m)\b`),
+		// Go: "Execution time: 540 nanoseconds" (with space and full word)
+		regexp.MustCompile(`(?i)execution\s+time[:\s]+(\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s+(ns|nanoseconds|nanosecond)`),
 		// Go: "Execution time: 9m30s nanoseconds" - handle Go Duration strings
 		regexp.MustCompile(`(?i)execution\s+time[:\s]+((?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?)\s*(ns|nanoseconds|nanosecond|us|microseconds|microsecond|ms|milliseconds|millisecond|s|seconds|second)`),
 		// Go: "took: 123456ns" or "Duration: 123456ns" or "took: 1.234567s"
