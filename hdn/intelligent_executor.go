@@ -4847,7 +4847,8 @@ func (ie *IntelligentExecutor) isCodeGeneralEnoughForTool(code, language, descri
 	prompt := ie.buildToolEvaluationPrompt(code, language, description)
 
 	// Call LLM with low priority (this is a background evaluation)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Use longer timeout for tool evaluation since it's low priority and may wait in queue
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	response, err := ie.llmClient.callLLMWithContextAndPriority(ctx, prompt, PriorityLow)

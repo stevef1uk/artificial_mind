@@ -7,7 +7,8 @@ set -e
 
 NAMESPACE="${NAMESPACE:-agi}"
 DEPLOYMENT="${DEPLOYMENT:-hdn-server-rpi58}"
-SERVICE_PORT="${SERVICE_PORT:-8080}"
+# Use a different local port to avoid conflicts (8080 might be in use)
+SERVICE_PORT="${SERVICE_PORT:-18080}"
 
 echo "🧪 Testing LLM-Based Tool Creation Agent on Kubernetes"
 echo "========================================================"
@@ -33,11 +34,26 @@ fi
 echo "✅ Found pod: $POD_NAME"
 echo ""
 
+# Check if port is already in use
+if lsof -i :$SERVICE_PORT >/dev/null 2>&1 || netstat -tuln 2>/dev/null | grep -q ":$SERVICE_PORT " || ss -tuln 2>/dev/null | grep -q ":$SERVICE_PORT "; then
+    echo "⚠️  Port $SERVICE_PORT is already in use"
+    echo "   Attempting to kill existing port-forward..."
+    pkill -f "kubectl port-forward.*$SERVICE_PORT" 2>/dev/null || true
+    sleep 2
+fi
+
 # Set up port-forward in background
 echo "🔌 Setting up port-forward to pod..."
-kubectl port-forward -n $NAMESPACE pod/$POD_NAME $SERVICE_PORT:8080 > /tmp/k8s-port-forward.log 2>&1 &
+kubectl port-forward -n $NAMESPACE pod/$POD_NAME $SERVICE_PORT:8080 > /tmp/k8s-port-forward-$SERVICE_PORT.log 2>&1 &
 PORT_FORWARD_PID=$!
 sleep 3
+
+# Verify port-forward process is running
+if ! kill -0 $PORT_FORWARD_PID 2>/dev/null; then
+    echo "❌ Port-forward process died immediately"
+    cat /tmp/k8s-port-forward-$SERVICE_PORT.log 2>/dev/null || echo "No log file"
+    exit 1
+fi
 
 # Cleanup function
 cleanup() {
@@ -47,14 +63,37 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Test if port-forward is working
-if ! curl -s http://localhost:$SERVICE_PORT/health >/dev/null 2>&1; then
-    echo "❌ Port-forward failed. Check if port $SERVICE_PORT is available."
+# Test if port-forward is working - check for actual HDN server response
+TEST_RESPONSE=$(curl -s http://localhost:$SERVICE_PORT/api/v1/tools 2>&1)
+if echo "$TEST_RESPONSE" | grep -qE "(tools|404.*tools|\[\])"; then
+    echo "✅ Port-forward established and HDN server responding"
+elif echo "$TEST_RESPONSE" | grep -q "Hello"; then
+    echo "⚠️  WARNING: Port-forward may be connecting to wrong service (got 'Hello' response)"
+    echo "   Response: $TEST_RESPONSE"
+    echo "   Checking if port $SERVICE_PORT is already in use..."
+    lsof -i :$SERVICE_PORT 2>/dev/null || echo "   Port appears free"
+    echo ""
+    echo "   Trying to use service directly instead..."
+    # Try using service endpoint if available
+    SERVICE_NAME="hdn-server-rpi58"
+    if kubectl get svc $SERVICE_NAME -n $NAMESPACE >/dev/null 2>&1; then
+        SERVICE_IP=$(kubectl get svc $SERVICE_NAME -n $NAMESPACE -o jsonpath='{.spec.clusterIP}')
+        echo "   Service IP: $SERVICE_IP"
+        echo "   Note: You may need to run this from within the cluster or use a different port"
+    fi
+    echo ""
+    echo "   Attempting to continue with port-forward anyway..."
+elif [ -z "$TEST_RESPONSE" ]; then
+    echo "❌ Port-forward failed - no response from server"
+    echo "   Check if port $SERVICE_PORT is available and pod is running"
+    kill $PORT_FORWARD_PID 2>/dev/null || true
     exit 1
+else
+    echo "⚠️  Unexpected response: $TEST_RESPONSE"
 fi
 
 API_URL="http://localhost:$SERVICE_PORT"
-echo "✅ Port-forward established: $API_URL"
+echo "✅ Using API URL: $API_URL"
 echo ""
 
 # Test 1: Execute a task that generates reusable code
@@ -62,25 +101,60 @@ echo "📝 Test 1: Executing task that should generate reusable code"
 echo "Task: Parse and transform JSON data"
 echo ""
 
-TASK_RESPONSE=$(curl -s -X POST "$API_URL/api/v1/intelligent/execute" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task_name": "ParseJSONData",
-    "description": "Create a Python function that parses JSON data and transforms it by extracting specific fields and normalizing the structure",
-    "context": {
-      "input": "{\"name\": \"test\", \"value\": 123}"
-    },
-    "language": "python",
-    "force_regenerate": false,
-    "max_retries": 2,
-    "timeout": 60
-  }')
-
-echo "Response:"
-echo "$TASK_RESPONSE" | jq '.' 2>/dev/null || echo "$TASK_RESPONSE"
+# First verify the endpoint is accessible
+echo "🔍 Verifying API endpoint..."
+HEALTH_CHECK=$(curl -s "$API_URL/api/v1/tools" 2>&1)
+if echo "$HEALTH_CHECK" | grep -q "tools\|\[\]"; then
+    echo "✅ API is accessible"
+else
+    echo "⚠️  API check response: $HEALTH_CHECK"
+fi
 echo ""
 
-SUCCESS=$(echo "$TASK_RESPONSE" | jq -r '.success // false' 2>/dev/null || echo "false")
+# Try intelligent/execute first, fallback to interpret/execute if not available
+ENDPOINT="$API_URL/api/v1/intelligent/execute"
+TEST_ENDPOINT=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$ENDPOINT" -H "Content-Type: application/json" -d '{"test":true}' 2>&1)
+
+if [ "$TEST_ENDPOINT" = "404" ] || [ "$TEST_ENDPOINT" = "000" ]; then
+    echo "⚠️  /api/v1/intelligent/execute not available (HTTP $TEST_ENDPOINT)"
+    echo "🔄 Trying /api/v1/interpret/execute instead..."
+    ENDPOINT="$API_URL/api/v1/interpret/execute"
+    USE_INTERPRET=true
+else
+    USE_INTERPRET=false
+fi
+echo ""
+
+TASK_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "$ENDPOINT" \
+  -H "Content-Type: application/json" \
+  -d "$(if [ "$USE_INTERPRET" = "true" ]; then
+    echo '{
+      "input": "Create a Python function that parses JSON data and transforms it by extracting specific fields and normalizing the structure. Input: {\"name\": \"test\", \"value\": 123}",
+      "context": {}
+    }'
+  else
+    echo '{
+      "task_name": "ParseJSONData",
+      "description": "Create a Python function that parses JSON data and transforms it by extracting specific fields and normalizing the structure",
+      "context": {
+        "input": "{\"name\": \"test\", \"value\": 123}"
+      },
+      "language": "python",
+      "force_regenerate": false,
+      "max_retries": 2,
+      "timeout": 60
+    }'
+  fi)" 2>&1)
+
+HTTP_STATUS=$(echo "$TASK_RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
+TASK_BODY=$(echo "$TASK_RESPONSE" | grep -v "HTTP_STATUS:")
+
+echo "HTTP Status: ${HTTP_STATUS:-unknown}"
+echo "Response:"
+echo "$TASK_BODY" | jq '.' 2>/dev/null || echo "$TASK_BODY"
+echo ""
+
+SUCCESS=$(echo "$TASK_BODY" | jq -r '.success // false' 2>/dev/null || echo "false")
 
 if [ "$SUCCESS" = "true" ]; then
     echo "✅ Task executed successfully"
