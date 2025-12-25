@@ -133,6 +133,11 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 		return prompt.String()
 	}
 
+	prompt.WriteString("🚨 CRITICAL INSTRUCTIONS - READ CAREFULLY:\n")
+	prompt.WriteString("You MUST respond with ONLY a valid JSON object. NO markdown, NO code blocks, NO explanatory text.\n")
+	prompt.WriteString("Example of correct response format:\n")
+	prompt.WriteString(`{"type": "tool_call", "tool_call": {"tool_id": "mcp_get_concept", "parameters": {"name": "Science", "domain": "General"}, "description": "Retrieve information about Science"}}` + "\n\n")
+
 	prompt.WriteString("You are an AI assistant that helps users achieve goals with concrete actions. ")
 	prompt.WriteString("CRITICAL: ALWAYS prefer using available tools over generating code. Only generate code if no tool can accomplish the task.\n")
 	prompt.WriteString("When a request is generic (like 'Execute a task'), analyze what the task likely requires and use the most appropriate tool.\n")
@@ -182,12 +187,9 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 	prompt.WriteString("- Avoid generic requests for more information; propose a minimal actionable plan with assumptions noted in description.\n")
 	prompt.WriteString("- Do NOT include any commentary outside the JSON object.\n\n")
 
-	prompt.WriteString("Example response for a knowledge query:\n")
-	prompt.WriteString(`{"type": "tool_call", "tool_call": {"tool_id": "mcp_get_concept", "parameters": {"name": "Science", "domain": "General"}, "description": "Retrieve information about Science from knowledge base"}}` + "\n\n")
-
 	prompt.WriteString("User Input: ")
 	prompt.WriteString(input)
-	prompt.WriteString("\n\n🚨 CRITICAL: You MUST respond with ONLY a valid JSON object starting with { and ending with }. NO markdown, NO code blocks, NO explanatory text. If a tool can help, use tool_call. Provide ONLY the JSON object now:")
+	prompt.WriteString("\n\n🚨 FINAL REMINDER: Respond with ONLY the JSON object. Start with { and end with }. If ANY tool can help, use type: \"tool_call\". NO other text. JSON only:")
 
 	return prompt.String()
 }
@@ -219,10 +221,20 @@ func (f *FlexibleLLMAdapter) parseFlexibleResponse(response string) (*FlexibleLL
 
 	// If all else fails, treat as text response
 	log.Printf("💬 [FLEXIBLE-LLM] Treating as text response")
+	log.Printf("💬 [FLEXIBLE-LLM] Raw response (first 500 chars): %s", truncateString(response, 500))
+	log.Printf("💬 [FLEXIBLE-LLM] Response length: %d, starts with: %s", len(response), truncateString(strings.TrimSpace(response), 100))
 	return &FlexibleLLMResponse{
 		Type:    ResponseTypeText,
 		Content: response,
 	}, nil
+}
+
+// truncateString truncates a string to max length
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // Tool represents an available tool
