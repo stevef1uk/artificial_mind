@@ -3654,21 +3654,37 @@ func (ie *IntelligentExecutor) generatePerformanceReport(timings []map[string]in
 	report.WriteString("-" + strings.Repeat("-", 70) + "\n")
 
 	for i, timing := range timings {
-		programName := timing["program"].(string)
-		language := timing["language"].(string)
-		durationMs := timing["duration_ms"].(int64)
-		durationNs := timing["duration_ns"].(int64)
-		success := timing["success"].(bool)
+		// Safe type assertions with defaults
+		programName, _ := timing["program"].(string)
+		if programName == "" {
+			programName = fmt.Sprintf("Program %d", i+1)
+		}
+		language, _ := timing["language"].(string)
+		if language == "" {
+			language = "unknown"
+		}
+		durationMs, _ := timing["duration_ms"].(int64)
+		durationNs, _ := timing["duration_ns"].(int64)
+		success, _ := timing["success"].(bool)
 
 		report.WriteString(fmt.Sprintf("\nProgram %d: %s (%s)\n", i+1, programName, language))
 		report.WriteString(fmt.Sprintf("  Status: %s\n", map[bool]string{true: "SUCCESS", false: "FAILED"}[success]))
 
 		// Check if we have algorithm timing vs total timing
 		usingExtracted := false
-		if usingExtractedVal, hasFlag := timing["using_extracted_time"].(bool); hasFlag {
-			usingExtracted = usingExtractedVal
+		if usingExtractedVal, ok := timing["using_extracted_time"]; ok {
+			if val, ok := usingExtractedVal.(bool); ok {
+				usingExtracted = val
+			}
 		}
-		totalMs, hasTotal := timing["total_duration_ms"].(int64)
+		var totalMs int64
+		hasTotal := false
+		if totalMsVal, ok := timing["total_duration_ms"]; ok {
+			if val, ok := totalMsVal.(int64); ok {
+				totalMs = val
+				hasTotal = true
+			}
+		}
 
 		if usingExtracted && hasTotal && totalMs > durationMs {
 			report.WriteString(fmt.Sprintf("  Algorithm Duration: %d ms (%.2f seconds)\n", durationMs, float64(durationMs)/1000.0))
@@ -3692,10 +3708,17 @@ func (ie *IntelligentExecutor) generatePerformanceReport(timings []map[string]in
 		report.WriteString("PERFORMANCE COMPARISON:\n")
 		report.WriteString("=" + strings.Repeat("=", 70) + "\n\n")
 
-		timing1 := timings[0]["duration_ms"].(int64)
-		timing2 := timings[1]["duration_ms"].(int64)
-		lang1 := timings[0]["language"].(string)
-		lang2 := timings[1]["language"].(string)
+		// Safe type assertions
+		timing1, _ := timings[0]["duration_ms"].(int64)
+		timing2, _ := timings[1]["duration_ms"].(int64)
+		lang1, _ := timings[0]["language"].(string)
+		if lang1 == "" {
+			lang1 = "unknown"
+		}
+		lang2, _ := timings[1]["language"].(string)
+		if lang2 == "" {
+			lang2 = "unknown"
+		}
 
 		// Handle division by zero and very small values
 		if timing1 == 0 && timing2 == 0 {

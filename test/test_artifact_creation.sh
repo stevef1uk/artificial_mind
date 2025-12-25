@@ -16,12 +16,13 @@ echo ""
 echo "[C/1] Testing automatic chained execution with single request..."
 CHAINED_REQ='{
   "task_name": "chained_programs",
-  "description": "Create TWO programs executed sequentially. Program 1 (Python) must PRINT EXACTLY one line with the JSON string {\"number\": 21} and no other output. Program 2 (Go) must READ the previous JSON from stdin, extract the 'number' field, multiply it by 2, and print the result (no extra text, no labels, no JSON). Do NOT print any extra whitespace, labels, prompts, or commentary in either program.",
+  "description": "Create TWO programs executed sequentially. Program 1 (Python) must PRINT EXACTLY one line with the JSON string {\"number\": 21} and no other output. Program 2 (Go) must READ the previous JSON from stdin, extract the '\''number'\'' field, multiply it by 2, and print the result (no extra text, no labels, no JSON). Do NOT print any extra whitespace, labels, prompts, or commentary in either program.",
   "context": {
     "artifacts_wrapper": "true",
     "artifact_names": "prog1.py,prog2.go"
   },
-  "language": "python"
+  "language": "python",
+  "priority": "high"
 }'
 
 CHAINED_JSON="$TMP_DIR/int_exec_chained.json"
