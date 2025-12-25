@@ -8,6 +8,7 @@ require (
 	eventbus v0.0.0
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/gorilla/mux v1.8.0
+	github.com/joho/godotenv v1.5.1
 	github.com/nats-io/nats.go v1.46.0
 	github.com/neo4j/neo4j-go-driver/v5 v5.25.0
 	github.com/redis/go-redis/v9 v9.14.0

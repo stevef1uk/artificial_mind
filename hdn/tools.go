@@ -133,10 +133,12 @@ type Tool struct {
 }
 
 type ToolExecSpec struct {
-	Type  string   `json:"type"` // "cmd" or "image"
-	Cmd   string   `json:"cmd"`  // for Type==cmd: absolute path inside container
-	Args  []string `json:"args"`
-	Image string   `json:"image,omitempty"` // for Type==image: docker image reference
+	Type     string   `json:"type"`               // "cmd", "image", or "code"
+	Cmd      string   `json:"cmd"`                // for Type==cmd: absolute path inside container
+	Args     []string `json:"args"`               // for Type==cmd: command arguments
+	Image    string   `json:"image,omitempty"`    // for Type==image: docker image reference
+	Code     string   `json:"code,omitempty"`     // for Type==code: code to execute
+	Language string   `json:"language,omitempty"` // for Type==code: programming language
 }
 
 func (s *APIServer) toolKey(id string) string { return "tool:" + id }
@@ -429,6 +431,25 @@ func getString(m map[string]interface{}, key string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func getNumber(m map[string]interface{}, key string) (float64, bool) {
+	if m == nil {
+		return 0, false
+	}
+	if v, ok := m[key]; ok {
+		switch val := v.(type) {
+		case float64:
+			return val, true
+		case int:
+			return float64(val), true
+		case int64:
+			return float64(val), true
+		case float32:
+			return float64(val), true
+		}
+	}
+	return 0, false
 }
 
 // getFileExtension returns the appropriate file extension for a given language
@@ -936,6 +957,134 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Generic exec-spec runner: if the tool metadata has an exec spec, run it
+		// Case 0: Execute code directly (code type) - for dynamically created tools
+		// Check if exec type is "code" - this is for auto-created tools
+		execType := ""
+		if meta.Exec != nil {
+			execType = meta.Exec.Type
+		}
+		// Also check if tool was stored with exec as map (from JSON registration)
+		if execType == "" {
+			// Re-load tool from Redis to get raw JSON structure
+			if val, err := s.redis.Get(ctx, s.toolKey(id)).Result(); err == nil {
+				var rawTool map[string]interface{}
+				if json.Unmarshal([]byte(val), &rawTool) == nil {
+					if execRaw, ok := rawTool["exec"].(map[string]interface{}); ok {
+						if t, ok := execRaw["type"].(string); ok {
+							execType = t
+						}
+					}
+				}
+			}
+		}
+
+		if strings.EqualFold(execType, "code") {
+			// Extract code and language from exec spec
+			codeStr := ""
+			language := "python"
+
+			// Try to get from struct first (if properly unmarshaled)
+			if meta.Exec != nil && meta.Exec.Code != "" {
+				codeStr = meta.Exec.Code
+				if meta.Exec.Language != "" {
+					language = meta.Exec.Language
+				}
+			} else {
+				// Load from Redis raw JSON (fallback if struct doesn't have fields)
+				if val, err := s.redis.Get(ctx, s.toolKey(id)).Result(); err == nil {
+					var rawTool map[string]interface{}
+					if json.Unmarshal([]byte(val), &rawTool) == nil {
+						if execRaw, ok := rawTool["exec"].(map[string]interface{}); ok {
+							if c, ok := execRaw["code"].(string); ok {
+								codeStr = c
+							}
+							if l, ok := execRaw["language"].(string); ok && l != "" {
+								language = l
+							}
+						}
+					}
+				}
+			}
+
+			// If code is in exec spec, use it; otherwise try params
+			if codeStr == "" {
+				if c, ok := getString(params, "code"); ok {
+					codeStr = c
+				}
+			}
+			if codeStr == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "code required for code-type tool execution"})
+				return
+			}
+
+			// Merge params into code execution context
+			// For Python: inject params as environment variables or as a JSON string
+			envVars := map[string]string{"QUIET": "1"}
+			paramsJSON, _ := json.Marshal(params)
+			envVars["TOOL_PARAMS"] = string(paramsJSON)
+
+			// Wrap code to read params and execute
+			wrappedCode := fmt.Sprintf(`
+import json
+import os
+import sys
+
+# Read parameters from environment or stdin
+params = {}
+if 'TOOL_PARAMS' in os.environ:
+    try:
+        params = json.loads(os.environ['TOOL_PARAMS'])
+    except:
+        pass
+else:
+    try:
+        params = json.loads(sys.stdin.read() or '{}')
+    except:
+        params = {}
+
+# Make params available in global scope
+for k, v in params.items():
+    globals()[k] = v
+
+# Execute the tool code
+%s
+`, codeStr)
+
+			req := &DockerExecutionRequest{
+				Language:    language,
+				Code:        wrappedCode,
+				Timeout:     120,
+				Environment: envVars,
+			}
+
+			// Pass params as input if needed
+			if b, err := json.Marshal(params); err == nil {
+				req.Input = string(b)
+			}
+
+			resp, derr := s.dockerExecutor.ExecuteCode(ctx, req)
+			if derr != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": derr.Error()})
+				return
+			}
+			if !resp.Success {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": resp.Error, "output": resp.Output})
+				return
+			}
+
+			// Try to parse as JSON, otherwise return as text
+			var obj interface{}
+			if json.Unmarshal([]byte(resp.Output), &obj) == nil {
+				_ = json.NewEncoder(w).Encode(obj)
+			} else {
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"output": resp.Output, "success": true})
+			}
+			return
+		}
+
 		// Case 1: Run a Docker image directly (image type)
 		if meta.Exec != nil && strings.EqualFold(meta.Exec.Type, "image") && strings.TrimSpace(meta.Exec.Image) != "" {
 			img := meta.Exec.Image

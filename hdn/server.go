@@ -8,10 +8,12 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	selfmodel "agi/self"
 
+	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -33,6 +35,11 @@ type LegacyDomain struct {
 }
 
 func main() {
+	// Load .env file if it exists (before parsing flags so env vars can override)
+	if err := loadEnvFile(); err != nil {
+		log.Printf("Note: Could not load .env file: %v (continuing without it)", err)
+	}
+
 	// Parse command line flags
 	var (
 		configPath = flag.String("config", "config.json", "Path to configuration file")
@@ -138,6 +145,38 @@ func applyEnvOverrides(cfg *ServerConfig) {
 func getenvTrim(key string) string {
 	v := os.Getenv(key)
 	return strings.TrimSpace(v)
+}
+
+// loadEnvFile loads environment variables from .env file
+// Looks for .env in the current directory and parent directories (up to project root)
+func loadEnvFile() error {
+	// Try current directory first
+	if err := godotenv.Load(".env"); err == nil {
+		log.Printf("✅ [ENV] Loaded .env file from current directory")
+		return nil
+	}
+
+	// Try parent directories (up to 3 levels up to find project root)
+	dir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	for i := 0; i < 3; i++ {
+		envPath := filepath.Join(dir, ".env")
+		if err := godotenv.Load(envPath); err == nil {
+			log.Printf("✅ [ENV] Loaded .env file from: %s", envPath)
+			return nil
+		}
+		// Move up one directory
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break // Reached root
+		}
+		dir = parent
+	}
+
+	return fmt.Errorf(".env file not found")
 }
 
 // normalizeRedisAddr normalizes a Redis address from environment variable
