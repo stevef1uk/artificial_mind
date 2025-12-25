@@ -5372,59 +5372,83 @@ func (m *MonitorService) extractProjectIDFromText(input string) (string, bool) {
 	}
 	log.Printf("🔍 [DEBUG] extractProjectIDFromText: input='%s', text='%s'", input, text)
 	patterns := []string{
-		`under\s+project\s+"([^"]+)"`,
-		`in\s+project\s+"([^"]+)"`,
-		`use\s+project\s+"([^"]+)"`,
-		`against\s+project\s+"([^"]+)"`,
-		`to\s+(the\s+)?project\s+"([^"]+)"`,
-		`for\s+project\s+"([^"]+)"`,
-		`with\s+project\s+"([^"]+)"`,
-		`under\s+project\s+'([^']+)'`,
-		`in\s+project\s+'([^']+)'`,
-		`use\s+project\s+'([^']+)'`,
-		`against\s+project\s+'([^']+)'`,
-		`to\s+(the\s+)?project\s+'([^']+)'`,
-		`for\s+project\s+'([^']+)'`,
-		`with\s+project\s+'([^']+)'`,
-		`under\s+project\s+([^"'\n\r]+)$`,
-		`in\s+project\s+([^"'\n\r]+)$`,
-		`use\s+project\s+([^"'\n\r]+)$`,
-		`against\s+project\s+([^"'\n\r]+)$`,
-		`to\s+(the\s+)?project\s+([^"'\n\r]+)$`,
-		`for\s+project\s+([^"'\n\r]+)$`,
-		`with\s+project\s+([^"'\n\r]+)$`,
-		// Also try simple "project <name>" pattern at the end of the request
-		`project\s+([a-zA-Z0-9_]+)\s*$`,
-		`project\s+"([^"]+)"`,
-		`project\s+'([^']+)'`,
+		// Quoted project names (highest priority, most explicit)
+		`(?i)under\s+project\s+"([^"]+)"`,
+		`(?i)in\s+project\s+"([^"]+)"`,
+		`(?i)use\s+project\s+"([^"]+)"`,
+		`(?i)against\s+project\s+"([^"]+)"`,
+		`(?i)to\s+(the\s+)?project\s+"([^"]+)"`,
+		`(?i)for\s+project\s+"([^"]+)"`,
+		`(?i)with\s+project\s+"([^"]+)"`,
+		`(?i)under\s+project\s+'([^']+)'`,
+		`(?i)in\s+project\s+'([^']+)'`,
+		`(?i)use\s+project\s+'([^']+)'`,
+		`(?i)against\s+project\s+'([^']+)'`,
+		`(?i)to\s+(the\s+)?project\s+'([^']+)'`,
+		`(?i)for\s+project\s+'([^']+)'`,
+		`(?i)with\s+project\s+'([^']+)'`,
+		// Unquoted project names with context words (stop at word boundaries or common delimiters)
+		`(?i)under\s+project\s+([a-zA-Z0-9_]+)(?:\s|$|,|\.)`,
+		`(?i)in\s+project\s+([a-zA-Z0-9_]+)(?:\s|$|,|\.)`,
+		`(?i)use\s+project\s+([a-zA-Z0-9_]+)(?:\s|$|,|\.)`,
+		`(?i)against\s+project\s+([a-zA-Z0-9_]+)(?:\s|$|,|\.)`,
+		`(?i)to\s+(the\s+)?project\s+([a-zA-Z0-9_]+)(?:\s|$|,|\.)`,
+		`(?i)for\s+project\s+([a-zA-Z0-9_]+)(?:\s|$|,|\.)`,
+		`(?i)with\s+project\s+([a-zA-Z0-9_]+)(?:\s|$|,|\.)`,
+		// Simple "project <name>" pattern (can be anywhere, stop at whitespace, comma, period, or end)
+		`(?i)project\s+([a-zA-Z0-9_]+)(?:\s|$|,|\.)`,
+		`(?i)project\s+"([^"]+)"`,
+		`(?i)project\s+'([^']+)'`,
+		// Fallback: "project <name>" at the end of the request
+		`(?i)project\s+([a-zA-Z0-9_]+)\s*$`,
 	}
 	var name string
+	var originalName string
+	// Match against original input to preserve case, but use case-insensitive patterns
 	for i, p := range patterns {
 		re := regexp.MustCompile(p)
-		if m2 := re.FindStringSubmatch(text); len(m2) > 1 {
+		// Try matching against original input first to preserve case
+		if m2 := re.FindStringSubmatch(input); len(m2) > 1 {
 			// pick last capturing group with a value
 			captured := m2[len(m2)-1]
-			name = strings.TrimSpace(captured)
+			originalName = strings.TrimSpace(captured)
 			// strip trailing punctuation
-			name = strings.Trim(name, " \"'\t\n.!?,")
-			log.Printf("🔍 [DEBUG] extractProjectIDFromText: pattern %d matched, captured='%s', name='%s'", i, captured, name)
+			originalName = strings.Trim(originalName, " \"'\t\n.!?,")
+			// Use lowercased version for case-insensitive lookup
+			name = strings.ToLower(originalName)
+			log.Printf("🔍 [DEBUG] extractProjectIDFromText: pattern %d matched, captured='%s', originalName='%s', name='%s'", i, captured, originalName, name)
 			break
+		}
+	}
+	// If no match found against original input, try lowercased text as fallback
+	if name == "" {
+		for i, p := range patterns {
+			re := regexp.MustCompile(p)
+			if m2 := re.FindStringSubmatch(text); len(m2) > 1 {
+				captured := m2[len(m2)-1]
+				name = strings.TrimSpace(captured)
+				name = strings.Trim(name, " \"'\t\n.!?,")
+				originalName = name // Use as-is if we only matched lowercased
+				log.Printf("🔍 [DEBUG] extractProjectIDFromText: pattern %d matched (lowercase fallback), captured='%s', name='%s'", i, captured, name)
+				break
+			}
 		}
 	}
 	if name == "" {
 		log.Printf("🔍 [DEBUG] extractProjectIDFromText: no project name found")
 		return "", false
 	}
+	// Use lowercased name for case-insensitive lookup
 	if id := m.findProjectIDByName(name); id != "" {
 		log.Printf("🔍 [DEBUG] extractProjectIDFromText: found existing project %s with ID %s", name, id)
 		return id, true
 	}
-	// Auto-create if not found
-	if id := m.createProjectIfMissing(name, ""); id != "" {
-		log.Printf("🔍 [DEBUG] extractProjectIDFromText: created new project %s with ID %s", name, id)
+	// Auto-create if not found, using original case
+	if id := m.createProjectIfMissing(originalName, ""); id != "" {
+		log.Printf("🔍 [DEBUG] extractProjectIDFromText: created new project %s with ID %s", originalName, id)
 		return id, true
 	}
-	log.Printf("🔍 [DEBUG] extractProjectIDFromText: failed to create project %s", name)
+	log.Printf("🔍 [DEBUG] extractProjectIDFromText: failed to create project %s", originalName)
 	return "", false
 }
 
@@ -5460,27 +5484,40 @@ func (m *MonitorService) findProjectIDByName(name string) string {
 
 // createProjectIfMissing creates a project by name and returns its ID (or empty string on failure)
 func (m *MonitorService) createProjectIfMissing(name, description string) string {
+	if name == "" {
+		log.Printf("⚠️ [DEBUG] createProjectIfMissing: empty project name")
+		return ""
+	}
 	payload := map[string]string{"name": name}
 	if description != "" {
 		payload["description"] = description
 	}
-	b, _ := json.Marshal(payload)
+	b, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("❌ [DEBUG] createProjectIfMissing: failed to marshal payload for project '%s': %v", name, err)
+		return ""
+	}
 	resp, err := http.Post(m.hdnURL+"/api/v1/projects", "application/json", strings.NewReader(string(b)))
 	if err != nil {
+		log.Printf("❌ [DEBUG] createProjectIfMissing: failed to POST project '%s': %v", name, err)
 		return ""
 	}
 	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Printf("❌ [DEBUG] createProjectIfMissing: HTTP %d creating project '%s', response: %s", resp.StatusCode, name, string(body))
 		return ""
 	}
-	body, _ := io.ReadAll(resp.Body)
 	var project map[string]interface{}
 	if err := json.Unmarshal(body, &project); err != nil {
+		log.Printf("❌ [DEBUG] createProjectIfMissing: failed to unmarshal response for project '%s': %v, body: %s", name, err, string(body))
 		return ""
 	}
-	if id, _ := project["id"].(string); id != "" {
+	if id, ok := project["id"].(string); ok && id != "" {
+		log.Printf("✅ [DEBUG] createProjectIfMissing: successfully created project '%s' with ID %s", name, id)
 		return id
 	}
+	log.Printf("❌ [DEBUG] createProjectIfMissing: project '%s' created but no ID in response: %v", name, project)
 	return ""
 }
 

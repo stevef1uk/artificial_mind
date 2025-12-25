@@ -312,11 +312,19 @@ Return only the Python code in a markdown code block.`, printTarget)
 		toolInstructions += "- Make sure to import `requests` and `os` modules, and handle the response JSON properly.\n"
 	}
 
+	// Build a strong language enforcement message
+	langEnforcement := ""
+	if req.Language != "" {
+		langEnforcement = fmt.Sprintf("\n\n🚨🚨🚨 CRITICAL LANGUAGE REQUIREMENT 🚨🚨🚨\nYou MUST generate %s code ONLY! Do NOT generate Python, JavaScript, or any other language!\nIf the task description mentions another language, IGNORE it - you MUST generate %s code!\n🚨🚨🚨 END OF CRITICAL REQUIREMENT 🚨🚨🚨\n", req.Language, req.Language)
+	}
+	
+	codeBlockTag := "```" + req.Language
 	return fmt.Sprintf(`Generate %s code for this task:
 
-%s%s%s
+%s%s%s%s
 
-Return only the code in a markdown code block.`, req.Language, cleanDesc, contextStr, toolInstructions)
+Return only the %s code in a markdown code block with the language tag: %s
+`, req.Language, cleanDesc, langEnforcement, contextStr, toolInstructions, req.Language, codeBlockTag)
 }
 
 // extractCodeFromResponse extracts code from the LLM response
@@ -388,8 +396,34 @@ func (cg *CodeGenerator) extractCodeFromResponse(response, language string) (str
 	}
 
 	// CRITICAL: Validate that extracted code matches the requested language
-	// If JavaScript was requested but Python code was generated, reject it
-	if (language == "javascript" || language == "js") {
+	// Check for language mismatches and reject them
+	if language == "go" {
+		// Check for Python syntax in Go code
+		if strings.Contains(code, "import time") && strings.Contains(code, "def ") {
+			// This looks like Python code, not Go
+			log.Printf("❌ [CODEGEN] LLM generated Python code when Go was requested!")
+			log.Printf("❌ [CODEGEN] Code preview (first 200 chars): %s", func() string {
+				if len(code) > 200 {
+					return code[:200]
+				}
+				return code
+			}())
+			return "", fmt.Errorf("LLM generated Python code when %s was requested! Code starts with: %s", language, func() string {
+				if len(code) > 100 {
+					return code[:100]
+				}
+				return code
+			}())
+		}
+		// Check for Go-specific syntax - if missing, might be wrong language
+		if !strings.Contains(code, "package ") && !strings.Contains(code, "func ") {
+			// Might be wrong language, but be lenient - could be a fragment
+			if strings.Contains(code, "def ") || strings.Contains(code, "import time") {
+				log.Printf("⚠️ [CODEGEN] Go code missing 'package' and 'func', but contains Python syntax - likely wrong language")
+				return "", fmt.Errorf("LLM generated Python code when %s was requested! Code contains Python syntax.", language)
+			}
+		}
+	} else if language == "javascript" || language == "js" {
 		// Check for Python syntax in JavaScript code
 		if strings.Contains(code, "import ") && (strings.Contains(code, "def ") || strings.Contains(code, "import json") || strings.Contains(code, "import statistics")) {
 			// This looks like Python code, not JavaScript

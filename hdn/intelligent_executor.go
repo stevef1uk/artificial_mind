@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -3077,6 +3078,10 @@ func (ie *IntelligentExecutor) executeChainedPrograms(ctx context.Context, req *
 	var generatedCodes []*GeneratedCode
 	var programTimings []map[string]interface{} // Track timing for each program
 
+	// Check if this is a performance comparison request (needed for output handling)
+	lowerDesc := strings.ToLower(req.Description)
+	needsReport := strings.Contains(lowerDesc, "time") || strings.Contains(lowerDesc, "performance") || strings.Contains(lowerDesc, "compare") || strings.Contains(lowerDesc, "report") || strings.Contains(lowerDesc, "differnce") || strings.Contains(lowerDesc, "difference")
+
 	for i, program := range programs {
 		log.Printf("🔗 [CHAINED] Executing program %d/%d: %s", i+1, len(programs), program.Name)
 
@@ -3167,28 +3172,41 @@ func (ie *IntelligentExecutor) executeChainedPrograms(ctx context.Context, req *
 		programTimings = append(programTimings, timing)
 		log.Printf("⏱️ [CHAINED] Program %d (%s) - Algorithm: %d ms, Total: %v (success: %v)", i+1, program.Language, algorithmDurationMs, programDuration, programResult.Success)
 
+		// Extract output from this program (even if it failed, we want to capture what it produced)
+		if output, ok := programResult.Result.(string); ok {
+			// For performance comparisons, preserve full output (including timing info)
+			// For data flow chaining, extract clean JSON
+			if needsReport {
+				// Keep full output for performance reports (includes timing)
+				lastOutput = output
+				allOutputs = append(allOutputs, output)
+				log.Printf("🔗 [CHAINED] Using full output for program %d (performance comparison): %s", i+1, output)
+			} else {
+				// Clean the output to extract only JSON (remove env vars, SSH messages, etc.)
+				// This is critical for chained programs where prog1 output feeds prog2
+				cleanedOutput := extractJSONFromOutput(output)
+				if cleanedOutput != "" {
+					lastOutput = cleanedOutput
+					allOutputs = append(allOutputs, cleanedOutput)
+					log.Printf("🔗 [CHAINED] Extracted clean output from program %d: %s", i+1, cleanedOutput)
+				} else {
+					// Fallback: use original output if JSON extraction failed
+					lastOutput = output
+					allOutputs = append(allOutputs, output)
+					log.Printf("⚠️ [CHAINED] Could not extract JSON from program %d output, using raw output", i+1)
+				}
+			}
+		} else {
+			// No output available, append empty string to maintain index alignment
+			allOutputs = append(allOutputs, "")
+			log.Printf("⚠️ [CHAINED] Program %d produced no output", i+1)
+		}
+
 		if !programResult.Success {
-			log.Printf("⚠️ [CHAINED] Program %d execution failed: %s (but timing recorded for report)", i+1, programResult.Error)
+			log.Printf("⚠️ [CHAINED] Program %d execution failed: %s (but timing and output recorded for report)", i+1, programResult.Error)
 			// Continue execution to allow other programs to run and report generation
 			// Don't return early - we want to complete all programs and generate the report
 			continue
-		}
-
-		// Extract output from this program
-		if output, ok := programResult.Result.(string); ok {
-			// Clean the output to extract only JSON (remove env vars, SSH messages, etc.)
-			// This is critical for chained programs where prog1 output feeds prog2
-			cleanedOutput := extractJSONFromOutput(output)
-			if cleanedOutput != "" {
-				lastOutput = cleanedOutput
-				allOutputs = append(allOutputs, cleanedOutput)
-				log.Printf("🔗 [CHAINED] Extracted clean output from program %d: %s", i+1, cleanedOutput)
-			} else {
-				// Fallback: use original output if JSON extraction failed
-				lastOutput = output
-				allOutputs = append(allOutputs, output)
-				log.Printf("⚠️ [CHAINED] Could not extract JSON from program %d output, using raw output", i+1)
-			}
 		}
 
 		// Store generated code
@@ -3214,8 +3232,7 @@ func (ie *IntelligentExecutor) executeChainedPrograms(ctx context.Context, req *
 	log.Printf("🔗 [CHAINED] Recorded timings for %d programs", len(programTimings))
 
 	// Generate comparison report if we have multiple programs with timings
-	lowerDesc := strings.ToLower(req.Description)
-	needsReport := strings.Contains(lowerDesc, "time") || strings.Contains(lowerDesc, "performance") || strings.Contains(lowerDesc, "compare") || strings.Contains(lowerDesc, "report") || strings.Contains(lowerDesc, "differnce") || strings.Contains(lowerDesc, "difference")
+	// (needsReport was already calculated above)
 
 	log.Printf("📊 [CHAINED] Report generation check: timings=%d, needsReport=%v, description=%s", len(programTimings), needsReport, req.Description)
 
@@ -3389,9 +3406,12 @@ CRITICAL INSTRUCTIONS:
 - ONLY include what the user explicitly asks for. Do NOT add extra features like unit tests, reports, or other requirements unless the user specifically mentions them.
 - If the user asks for a "bubble sort program", create a simple bubble sort program - do NOT add unit tests, performance reports, or other features unless explicitly requested.
 - For timing/performance comparisons: The program MUST measure and print its own execution time using built-in timing functions:
-  * Go: Use time.Now() before and after the algorithm, then print: "took: <duration>" or "Duration: <nanoseconds> nanoseconds"
-  * Python: Use time.time() or time.perf_counter() before and after, then print: "took: <seconds> seconds" or "Duration: <nanoseconds> nanoseconds"
+  * Go: Import "time" package. Use start := time.Now() BEFORE calling the sorting function, call the sorting function, then elapsed := time.Since(start) AFTER and print ONCE: fmt.Printf("took: %%v\n", elapsed) or fmt.Printf("Duration: %%d nanoseconds\n", elapsed.Nanoseconds())
+  * Python: Import time module. Use start_time = time.time() BEFORE calling the sorting function, call the sorting function, then end_time = time.time() AFTER and print ONCE at the END: print("Execution time:", end_time - start_time, "seconds")
+  * CRITICAL: Timing code must be OUTSIDE any loops - measure the entire algorithm execution, not individual iterations
+  * CRITICAL: Print timing ONCE at the end, not inside loops or multiple times
   * The timing output MUST be in the console output so it can be extracted for performance comparison
+  * CRITICAL: If the user asks for performance comparison or timing, you MUST include timing code in BOTH programs
 - Do NOT use subprocess.run, subprocess.call, or subprocess.Popen to execute other programs - this is not allowed.
 - Keep descriptions simple and focused on what the user actually requested.
 
@@ -3708,9 +3728,14 @@ func (ie *IntelligentExecutor) generatePerformanceReport(timings []map[string]in
 		report.WriteString("PERFORMANCE COMPARISON:\n")
 		report.WriteString("=" + strings.Repeat("=", 70) + "\n\n")
 
-		// Safe type assertions
-		timing1, _ := timings[0]["duration_ms"].(int64)
-		timing2, _ := timings[1]["duration_ms"].(int64)
+		// Use nanoseconds for comparison to avoid rounding errors with small values
+		ns1, _ := timings[0]["duration_ns"].(int64)
+		ns2, _ := timings[1]["duration_ns"].(int64)
+		ms1, _ := timings[0]["duration_ms"].(int64)
+		ms2, _ := timings[1]["duration_ms"].(int64)
+		usingExtracted1, _ := timings[0]["using_extracted_time"].(bool)
+		usingExtracted2, _ := timings[1]["using_extracted_time"].(bool)
+
 		lang1, _ := timings[0]["language"].(string)
 		if lang1 == "" {
 			lang1 = "unknown"
@@ -3720,31 +3745,55 @@ func (ie *IntelligentExecutor) generatePerformanceReport(timings []map[string]in
 			lang2 = "unknown"
 		}
 
-		// Handle division by zero and very small values
-		if timing1 == 0 && timing2 == 0 {
-			report.WriteString("Both programs show 0 ms execution time (timing may not have been captured)\n")
-			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang1, timing1))
-			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang2, timing2))
-		} else if timing1 == 0 {
-			report.WriteString(fmt.Sprintf("%s shows 0 ms (timing not captured), %s: %d ms\n", lang1, lang2, timing2))
-			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang1, timing1))
-			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang2, timing2))
-		} else if timing2 == 0 {
-			report.WriteString(fmt.Sprintf("%s shows 0 ms (timing not captured), %s: %d ms\n", lang2, lang1, timing1))
-			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang1, timing1))
-			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang2, timing2))
-		} else if timing1 < timing2 {
-			diff := float64(timing2-timing1) / float64(timing1) * 100
+		// Use nanoseconds for accurate comparison, especially for small values
+		if ns1 == 0 && ns2 == 0 {
+			report.WriteString("Both programs show 0 execution time (timing may not have been captured)\n")
+			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang1, ms1))
+			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang2, ms2))
+		} else if ns1 == 0 {
+			if usingExtracted2 {
+				report.WriteString(fmt.Sprintf("%s: timing not captured from output, %s: %d ns (%.6f ms)\n", lang1, lang2, ns2, float64(ns2)/1000000.0))
+			} else {
+				report.WriteString(fmt.Sprintf("%s: timing not captured, %s: %d ms\n", lang1, lang2, ms2))
+			}
+			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang1, ms1))
+			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang2, ms2))
+		} else if ns2 == 0 {
+			if usingExtracted1 {
+				report.WriteString(fmt.Sprintf("%s: timing not captured from output, %s: %d ns (%.6f ms)\n", lang2, lang1, ns1, float64(ns1)/1000000.0))
+			} else {
+				report.WriteString(fmt.Sprintf("%s: timing not captured, %s: %d ms\n", lang2, lang1, ms1))
+			}
+			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang1, ms1))
+			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang2, ms2))
+		} else if ns1 < ns2 {
+			diff := float64(ns2-ns1) / float64(ns1) * 100
 			report.WriteString(fmt.Sprintf("%s executed %.2f%% faster than %s\n", lang1, diff, lang2))
-			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang1, timing1))
-			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang2, timing2))
-		} else if timing2 < timing1 {
-			diff := float64(timing1-timing2) / float64(timing2) * 100
+			if usingExtracted1 && usingExtracted2 {
+				// Both have extracted timings, show in nanoseconds for precision
+				report.WriteString(fmt.Sprintf("%s: %d ns (%.6f ms)\n", lang1, ns1, float64(ns1)/1000000.0))
+				report.WriteString(fmt.Sprintf("%s: %d ns (%.6f ms)\n", lang2, ns2, float64(ns2)/1000000.0))
+			} else {
+				report.WriteString(fmt.Sprintf("%s: %d ms\n", lang1, ms1))
+				report.WriteString(fmt.Sprintf("%s: %d ms\n", lang2, ms2))
+			}
+		} else if ns2 < ns1 {
+			diff := float64(ns1-ns2) / float64(ns2) * 100
 			report.WriteString(fmt.Sprintf("%s executed %.2f%% faster than %s\n", lang2, diff, lang1))
-			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang1, timing1))
-			report.WriteString(fmt.Sprintf("%s: %d ms\n", lang2, timing2))
+			if usingExtracted1 && usingExtracted2 {
+				// Both have extracted timings, show in nanoseconds for precision
+				report.WriteString(fmt.Sprintf("%s: %d ns (%.6f ms)\n", lang1, ns1, float64(ns1)/1000000.0))
+				report.WriteString(fmt.Sprintf("%s: %d ns (%.6f ms)\n", lang2, ns2, float64(ns2)/1000000.0))
+			} else {
+				report.WriteString(fmt.Sprintf("%s: %d ms\n", lang1, ms1))
+				report.WriteString(fmt.Sprintf("%s: %d ms\n", lang2, ms2))
+			}
 		} else {
-			report.WriteString(fmt.Sprintf("Both programs executed in the same time: %d ms\n", timing1))
+			if usingExtracted1 && usingExtracted2 {
+				report.WriteString(fmt.Sprintf("Both programs executed in the same time: %d ns (%.6f ms)\n", ns1, float64(ns1)/1000000.0))
+			} else {
+				report.WriteString(fmt.Sprintf("Both programs executed in the same time: %d ms\n", ms1))
+			}
 		}
 	}
 
@@ -4063,43 +4112,85 @@ func extractTimingFromOutput(output string, language string) int64 {
 
 	// Common timing patterns in output
 	patterns := []*regexp.Regexp{
-		// Go: "took: 123456ns" or "Duration: 123456ns"
-		regexp.MustCompile(`(?i)(?:took|duration|time|elapsed)[:\s]+(\d+(?:\.\d+)?)\s*(ns|nanoseconds|nanosecond)`),
-		// Python: "took: 0.123456 seconds" or "duration: 123.456 ms"
-		regexp.MustCompile(`(?i)(?:took|duration|time|elapsed)[:\s]+(\d+(?:\.\d+)?)\s*(ms|milliseconds|millisecond|s|seconds|second|us|microseconds|microsecond|ns|nanoseconds|nanosecond)`),
-		// Generic: "Execution time: 123456"
-		regexp.MustCompile(`(?i)(?:execution\s+time|sorting\s+time|algorithm\s+time)[:\s]+(\d+(?:\.\d+)?)\s*(ns|nanoseconds|nanosecond|ms|milliseconds|millisecond|s|seconds|second|us|microseconds|microsecond)`),
+		// Go: "Execution time: 540 nanoseconds" - prioritize this specific format
+		regexp.MustCompile(`(?i)execution\s+time[:\s]+(\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s*(ns|nanoseconds|nanosecond)`),
+		// Go: "Execution time: 9m30s nanoseconds" - handle Go Duration strings
+		regexp.MustCompile(`(?i)execution\s+time[:\s]+((?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?)\s*(ns|nanoseconds|nanosecond|us|microseconds|microsecond|ms|milliseconds|millisecond|s|seconds|second)`),
+		// Go: "took: 123456ns" or "Duration: 123456ns" or "took: 1.234567s"
+		regexp.MustCompile(`(?i)(?:took|duration|time|elapsed)[:\s]+((?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?|\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s*(ns|nanoseconds|nanosecond|us|microseconds|microsecond|ms|milliseconds|millisecond|s|seconds|second)`),
+		// Python: "Execution time: 0.123456 seconds" or "Execution time: 5.0067901611328125e-06 seconds" (with scientific notation)
+		regexp.MustCompile(`(?i)execution\s+time[:\s]+(\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s*(s|seconds|second|ms|milliseconds|millisecond|us|microseconds|microsecond|ns|nanoseconds|nanosecond)`),
+		// Python: "took: 0.123456 seconds" or "duration: 123.456 ms" (with scientific notation)
+		regexp.MustCompile(`(?i)(?:took|duration|time|elapsed)[:\s]+(\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s*(ms|milliseconds|millisecond|s|seconds|second|us|microseconds|microsecond|ns|nanoseconds|nanosecond)`),
+		// Generic: "Execution time: 123456" or "Sorting time: 0.123" (with scientific notation)
+		regexp.MustCompile(`(?i)(?:sorting\s+time|algorithm\s+time)[:\s]+(\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s*(ns|nanoseconds|nanosecond|ms|milliseconds|millisecond|s|seconds|second|us|microseconds|microsecond)`),
 	}
 
+	// Try each pattern and find ALL matches, then use the LAST one
+	// This handles cases where timing is printed multiple times (e.g., in loops)
+	var lastMatch []string
+
 	for _, pattern := range patterns {
-		matches := pattern.FindStringSubmatch(output)
-		if len(matches) >= 3 {
-			valueStr := matches[1]
-			unit := strings.ToLower(matches[2])
-
-			var value float64
-			if _, err := fmt.Sscanf(valueStr, "%f", &value); err != nil {
-				continue
+		// Find all matches in the output
+		allMatches := pattern.FindAllStringSubmatch(output, -1)
+		if len(allMatches) > 0 {
+			// Use the last match (most likely the final timing)
+			match := allMatches[len(allMatches)-1]
+			if len(match) >= 3 {
+				lastMatch = match
 			}
+		}
+	}
 
-			// Convert to nanoseconds
-			var nanoseconds int64
-			switch unit {
-			case "ns", "nanoseconds", "nanosecond":
-				nanoseconds = int64(value)
-			case "us", "microseconds", "microsecond":
-				nanoseconds = int64(value * 1000)
-			case "ms", "milliseconds", "millisecond":
-				nanoseconds = int64(value * 1000000)
-			case "s", "seconds", "second":
-				nanoseconds = int64(value * 1000000000)
-			default:
-				continue
-			}
+	// Process the last match found
+	if lastMatch != nil && len(lastMatch) >= 3 {
+		valueStr := lastMatch[1]
+		unit := strings.ToLower(lastMatch[2])
 
-			if nanoseconds > 0 {
-				return nanoseconds
+		var nanoseconds int64
+
+		// Check if this is a Go Duration string (e.g., "9m30s", "1h2m3s", "5s")
+		// Duration strings have format like "9m30s", "1h2m3.5s", etc.
+		if matched, _ := regexp.MatchString(`^(?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?$`, valueStr); matched {
+			// Parse Go Duration string using time.ParseDuration
+			if duration, err := time.ParseDuration(valueStr); err == nil {
+				nanoseconds = duration.Nanoseconds()
+				log.Printf("🔍 [TIMING-EXTRACT] Parsed Go Duration string '%s' = %d ns", valueStr, nanoseconds)
+				if nanoseconds > 0 {
+					return nanoseconds
+				}
+			} else {
+				log.Printf("⚠️ [TIMING-EXTRACT] Failed to parse Go Duration string '%s': %v", valueStr, err)
 			}
+		}
+
+		// Try parsing as a numeric value (handles scientific notation)
+		var value float64
+		// Use strconv.ParseFloat which handles both regular and scientific notation (e.g., 5.24e-06)
+		if parsed, err := strconv.ParseFloat(valueStr, 64); err == nil {
+			value = parsed
+		} else {
+			log.Printf("⚠️ [TIMING-EXTRACT] Failed to parse timing value '%s': %v", valueStr, err)
+			return 0
+		}
+
+		// Convert to nanoseconds based on unit
+		switch unit {
+		case "ns", "nanoseconds", "nanosecond":
+			nanoseconds = int64(value)
+		case "us", "microseconds", "microsecond":
+			nanoseconds = int64(value * 1000)
+		case "ms", "milliseconds", "millisecond":
+			nanoseconds = int64(value * 1000000)
+		case "s", "seconds", "second":
+			nanoseconds = int64(value * 1000000000)
+		default:
+			return 0
+		}
+
+		if nanoseconds > 0 {
+			log.Printf("🔍 [TIMING-EXTRACT] Found timing: %s %s = %d ns (from last occurrence)", valueStr, unit, nanoseconds)
+			return nanoseconds
 		}
 	}
 
@@ -4389,6 +4480,11 @@ func (ie *IntelligentExecutor) executeProgramDirectly(ctx context.Context, req *
 	}
 
 	// Validate and iterate on the generated code (retry loop for chained programs)
+	// Note: We don't do pre-validation of code content because requests vary too much.
+	// Instead, we rely on execution-based validation which will catch:
+	// - Compilation/runtime errors
+	// - Missing expected output
+	// - The existing fixCodeWithLLM mechanism will handle fixing incorrect implementations
 	for attempt := 0; attempt < req.MaxRetries; attempt++ {
 		log.Printf("🔄 [CHAINED] Validation attempt %d/%d for program: %s", attempt+1, req.MaxRetries, req.TaskName)
 

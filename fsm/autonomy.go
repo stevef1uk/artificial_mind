@@ -442,20 +442,97 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 				_ = postJSONWithTimeout(wmURL, wmPayload, 15*time.Second)
 				_ = e.redis.Set(e.ctx, "reasoning:now", fmt.Sprintf("Bootstrapped: %s", seed), 2*time.Minute).Err()
 
-				intel := map[string]interface{}{
-					"task_name":   "analyze_bootstrap",
-					"description": fmt.Sprintf("Analyze and summarize newly bootstrapped concepts around %s", seed),
-					"context": map[string]string{
-						"session_id":         sessionID,
-						"project_id":         "Goals",
-						"prefer_traditional": "true",
-					},
-					"force_regenerate": true,
-					"max_retries":      1,
+				// Check if analyze_bootstrap workflow already exists for this seed (deduplication)
+				// Check both FSM workflows and HDN intelligent workflows
+				shouldCreate := true
+				seedLower := strings.ToLower(seed)
+				
+				// Check FSM workflows
+				workflowKey := fmt.Sprintf("fsm:%s:workflows", e.agentID)
+				existingWorkflows, err := e.redis.LRange(e.ctx, workflowKey, 0, 199).Result()
+				if err == nil {
+					for _, wfData := range existingWorkflows {
+						var wf map[string]interface{}
+						if err := json.Unmarshal([]byte(wfData), &wf); err == nil {
+							if name, ok := wf["name"].(string); ok && strings.EqualFold(name, "analyze_bootstrap") {
+								if desc, ok := wf["description"].(string); ok && strings.Contains(strings.ToLower(desc), seedLower) {
+									// Check if workflow is recent (within last hour) or still running
+									if status, ok := wf["status"].(string); ok && (status == "running" || status == "pending") {
+										log.Printf("🚫 [Autonomy] Skipping duplicate analyze_bootstrap workflow for '%s' (FSM workflow exists with status: %s)", seed, status)
+										shouldCreate = false
+										break
+									}
+									// Check creation time - if created within last hour, skip
+									if createdAt, ok := wf["created_at"].(string); ok {
+										if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
+											if time.Since(t) < 1*time.Hour {
+												log.Printf("🚫 [Autonomy] Skipping duplicate analyze_bootstrap workflow for '%s' (FSM workflow created %v ago)", seed, time.Since(t))
+												shouldCreate = false
+												break
+											}
+										}
+									}
+								}
+							}
+						}
+					}
 				}
-				intelData, _ := json.Marshal(intel)
-				intelURL := strings.TrimRight(e.reasoning.hdnURL, "/") + "/api/v1/intelligent/execute"
-				_ = postJSONWithTimeout(intelURL, intelData, 90*time.Second)
+				
+				// Also check HDN intelligent workflows (stored as workflow:intelligent_*)
+				if shouldCreate {
+					pattern := "workflow:intelligent_*"
+					keys, err := e.redis.Keys(e.ctx, pattern).Result()
+					if err == nil {
+						for _, key := range keys {
+							wfData, err := e.redis.Get(e.ctx, key).Result()
+							if err == nil {
+								var wf map[string]interface{}
+								if err := json.Unmarshal([]byte(wfData), &wf); err == nil {
+									if taskName, ok := wf["task_name"].(string); ok && strings.EqualFold(taskName, "analyze_bootstrap") {
+										if desc, ok := wf["description"].(string); ok && strings.Contains(strings.ToLower(desc), seedLower) {
+											// Check if workflow is recent or still running
+											if status, ok := wf["status"].(string); ok && (status == "running" || status == "pending") {
+												log.Printf("🚫 [Autonomy] Skipping duplicate analyze_bootstrap workflow for '%s' (HDN workflow exists with status: %s)", seed, status)
+												shouldCreate = false
+												break
+											}
+											// Check creation time
+											if startedAt, ok := wf["started_at"].(string); ok {
+												if t, err := time.Parse(time.RFC3339, startedAt); err == nil {
+													if time.Since(t) < 1*time.Hour {
+														log.Printf("🚫 [Autonomy] Skipping duplicate analyze_bootstrap workflow for '%s' (HDN workflow started %v ago)", seed, time.Since(t))
+														shouldCreate = false
+														break
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+
+				if shouldCreate {
+					intel := map[string]interface{}{
+						"task_name":   "analyze_bootstrap",
+						"description": fmt.Sprintf("Analyze and summarize newly bootstrapped concepts around %s", seed),
+						"context": map[string]string{
+							"session_id":         sessionID,
+							"project_id":         "Goals",
+							"prefer_traditional": "true",
+						},
+						"force_regenerate": true,
+						"max_retries":      1,
+					}
+					intelData, _ := json.Marshal(intel)
+					intelURL := strings.TrimRight(e.reasoning.hdnURL, "/") + "/api/v1/intelligent/execute"
+					_ = postJSONWithTimeout(intelURL, intelData, 90*time.Second)
+					log.Printf("✅ [Autonomy] Created analyze_bootstrap workflow for '%s'", seed)
+				} else {
+					log.Printf("ℹ️ [Autonomy] Skipped creating analyze_bootstrap workflow for '%s' (duplicate)", seed)
+				}
 			}
 
 			// Post-stitch obvious relations to increase graph connectivity for next cycles (best-effort)
