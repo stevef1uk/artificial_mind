@@ -1462,6 +1462,12 @@ func (e *FSMEngine) calculateGoalScore(goal CuriosityGoal, domain string) float6
 		score += 1.5
 	}
 
+	// Hypothesis testing goals are critical - they lead to workflow creation
+	if goal.Type == "hypothesis_testing" {
+		score += 3.0 // High bonus to prioritize hypothesis testing
+		log.Printf("🧪 Goal %s: hypothesis testing bonus +3.0", goal.ID)
+	}
+
 	// Penalize very old goals (aging)
 	age := time.Since(goal.CreatedAt)
 	if age > 24*time.Hour {
