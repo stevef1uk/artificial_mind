@@ -151,7 +151,7 @@ REQUEST='{
 }'
 
 echo "Sending request..."
-RESPONSE=$(curl -s -X POST "$HDN_URL/api/v1/intelligent/execute" \
+RESPONSE=$(curl -s --max-time 120 -X POST "$HDN_URL/api/v1/intelligent/execute" \
   -H 'Content-Type: application/json' \
   -d "$REQUEST")
 

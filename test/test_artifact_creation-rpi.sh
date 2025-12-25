@@ -177,7 +177,7 @@ CHAINED_REQ='{
 }'
 
 CHAINED_JSON="$TMP_DIR/int_exec_chained.json"
-curl -s -X POST "$HDN_URL/api/v1/intelligent/execute" \
+curl -s --max-time 120 -X POST "$HDN_URL/api/v1/intelligent/execute" \
   -H 'Content-Type: application/json' \
   --data-binary "$CHAINED_REQ" \
   -o "$CHAINED_JSON"
