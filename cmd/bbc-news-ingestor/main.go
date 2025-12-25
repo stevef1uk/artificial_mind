@@ -378,10 +378,11 @@ func processWithLLM(stories []Article, batch int, model string, apiURL string, d
 					continue
 				}
 			default:
+				// LLM explicitly said "skip" - trust it, don't fall back to heuristics
 				if debug {
 					fmt.Fprintf(os.Stderr, "skip by llm: %s\n", title)
 				}
-				attemptFallback(title, chunk[j], dry, debug, alertBus, relBus, ctx)
+				// No fallback - if LLM says skip, we skip it
 			}
 		}
 	}
@@ -804,6 +805,58 @@ func extractRelation(headline string) []string {
 	// as X shuts Y -> X shuts Y
 	if m := regexp.MustCompile(`(?i)^.* as (.*) shuts (.*)$`).FindStringSubmatch(h); len(m) == 3 {
 		return []string{strings.TrimSpace(m[1]), "shuts", strings.TrimSpace(m[2])}
+	}
+	// meets/meet
+	if m := regexp.MustCompile(`(?i)^(.*) (meets?|met) (.*)$`).FindStringSubmatch(h); len(m) == 4 {
+		return []string{strings.TrimSpace(m[1]), "meets", strings.TrimSpace(m[3])}
+	}
+	// kills/kill/killed
+	if m := regexp.MustCompile(`(?i)^(.*) (kills?|killed) (.*)$`).FindStringSubmatch(h); len(m) == 4 {
+		return []string{strings.TrimSpace(m[1]), "kills", strings.TrimSpace(m[3])}
+	}
+	// dies/died
+	if m := regexp.MustCompile(`(?i)^(.*) (dies?|died) (.*)$`).FindStringSubmatch(h); len(m) == 4 {
+		return []string{strings.TrimSpace(m[1]), "dies", strings.TrimSpace(m[3])}
+	}
+	// announces/announce/announced
+	if m := regexp.MustCompile(`(?i)^(.*) (announces?|announced) (.*)$`).FindStringSubmatch(h); len(m) == 4 {
+		return []string{strings.TrimSpace(m[1]), "announces", strings.TrimSpace(m[3])}
+	}
+	// reveals/reveal/revealed
+	if m := regexp.MustCompile(`(?i)^(.*) (reveals?|revealed) (.*)$`).FindStringSubmatch(h); len(m) == 4 {
+		return []string{strings.TrimSpace(m[1]), "reveals", strings.TrimSpace(m[3])}
+	}
+	// reports/report/reported
+	if m := regexp.MustCompile(`(?i)^(.*) (reports?|reported) (.*)$`).FindStringSubmatch(h); len(m) == 4 {
+		return []string{strings.TrimSpace(m[1]), "reports", strings.TrimSpace(m[3])}
+	}
+	// condemns/condemn/condemned
+	if m := regexp.MustCompile(`(?i)^(.*) (condemns?|condemned) (.*)$`).FindStringSubmatch(h); len(m) == 4 {
+		return []string{strings.TrimSpace(m[1]), "condemns", strings.TrimSpace(m[3])}
+	}
+	// greets/greet/greeted
+	if m := regexp.MustCompile(`(?i)^(.*) (greets?|greeted) (.*)$`).FindStringSubmatch(h); len(m) == 4 {
+		return []string{strings.TrimSpace(m[1]), "greets", strings.TrimSpace(m[3])}
+	}
+	// stops/stop/stopped
+	if m := regexp.MustCompile(`(?i)^(.*) (stops?|stopped|don't stop|doesn't stop) (.*)$`).FindStringSubmatch(h); len(m) == 4 {
+		return []string{strings.TrimSpace(m[1]), "stops", strings.TrimSpace(m[3])}
+	}
+	// General fallback: try to extract subject-verb-object pattern
+	// Match: Capitalized word(s) + verb + rest (handles "Brothers 10,000 miles apart meet for first time")
+	// Note: includes commas and other punctuation in the head pattern
+	generalPattern := regexp.MustCompile(`(?i)^([A-Z][A-Za-z0-9\s&',.-]{1,50}?)\s+([a-z]+(?:s|ed|ing|'t)?)\s+(.+)$`)
+	if m := generalPattern.FindStringSubmatch(h); len(m) == 4 {
+		head := strings.TrimSpace(m[1])
+		verb := strings.ToLower(strings.TrimSpace(m[2]))
+		tail := strings.TrimSpace(m[3])
+		// Only return if head looks reasonable and tail has content
+		if len(strings.Fields(head)) <= 8 && len(tail) > 3 && len(head) > 2 {
+			// Check if head starts with capital or is a known org
+			if looksLikeActor(head) {
+				return []string{head, verb, tail}
+			}
+		}
 	}
 	return nil
 }
