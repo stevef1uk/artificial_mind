@@ -200,6 +200,9 @@ func (f *FlexibleLLMAdapter) parseFlexibleResponse(response string) (*FlexibleLL
 	var flexibleResp FlexibleLLMResponse
 	if err := json.Unmarshal([]byte(response), &flexibleResp); err == nil {
 		log.Printf("✅ [FLEXIBLE-LLM] Parsed flexible response: %s", flexibleResp.Type)
+		if flexibleResp.Type == "" {
+			log.Printf("⚠️ [FLEXIBLE-LLM] WARNING: Parsed JSON but Type is empty! Response preview: %s", truncateString(response, 200))
+		}
 		return &flexibleResp, nil
 	}
 
@@ -210,12 +213,16 @@ func (f *FlexibleLLMAdapter) parseFlexibleResponse(response string) (*FlexibleLL
 		jsonStr := response[jsonStart : jsonEnd+1]
 		if err := json.Unmarshal([]byte(jsonStr), &flexibleResp); err == nil {
 			log.Printf("✅ [FLEXIBLE-LLM] Extracted and parsed JSON: %s", flexibleResp.Type)
-			if flexibleResp.Type == ResponseTypeToolCall && flexibleResp.ToolCall != nil {
+			if flexibleResp.Type == "" {
+				log.Printf("⚠️ [FLEXIBLE-LLM] WARNING: Extracted JSON but Type is empty! Extracted JSON: %s", truncateString(jsonStr, 200))
+			} else if flexibleResp.Type == ResponseTypeToolCall && flexibleResp.ToolCall != nil {
 				log.Printf("🔧 [FLEXIBLE-LLM] Tool call parsed: %s", flexibleResp.ToolCall.ToolID)
 			} else if flexibleResp.Type == ResponseTypeToolCall && flexibleResp.ToolCall == nil {
 				log.Printf("⚠️ [FLEXIBLE-LLM] Tool call type but ToolCall is nil!")
 			}
 			return &flexibleResp, nil
+		} else {
+			log.Printf("⚠️ [FLEXIBLE-LLM] Failed to parse extracted JSON: %v, JSON: %s", err, truncateString(jsonStr, 200))
 		}
 	}
 
