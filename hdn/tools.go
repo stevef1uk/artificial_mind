@@ -1063,9 +1063,10 @@ for k, v in params.items():
 				req.Input = string(b)
 			}
 
-			// Check if Docker is available, otherwise fall back to Drone executor
+			// Check if Docker is available, otherwise fall back to Drone or SSH executor
 			executionMethod := os.Getenv("EXECUTION_METHOD")
-			useDrone := executionMethod == "drone" || (executionMethod == "" && (s.dockerExecutor == nil || !fileExists("/var/run/docker.sock")))
+			dockerAvailable := s.dockerExecutor != nil && fileExists("/var/run/docker.sock")
+			useDrone := executionMethod == "drone" || (executionMethod == "" && !dockerAvailable)
 			
 			if useDrone {
 				// Use Drone executor for Kubernetes environments or when Docker is unavailable
@@ -1096,9 +1097,19 @@ for k, v in params.items():
 			}
 
 			// Use Docker executor if available
-			if s.dockerExecutor == nil {
-				w.WriteHeader(http.StatusServiceUnavailable)
-				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "docker executor not available and drone executor not configured"})
+			if !dockerAvailable {
+				// Docker not available - fall back to SSH execution
+				log.Printf("⚠️ [CODE-TOOL] Docker executor not available, falling back to SSH execution")
+				sshResp, sshErr := s.fallbackSSHExecution(wrappedCode, language, "", nil)
+				if sshErr != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{
+						"error": fmt.Sprintf("Docker executor not available and SSH fallback failed: %v", sshErr),
+						"ssh_error": sshErr.Error(),
+					})
+					return
+				}
+				_ = json.NewEncoder(w).Encode(sshResp)
 				return
 			}
 
