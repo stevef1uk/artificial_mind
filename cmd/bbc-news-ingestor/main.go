@@ -297,7 +297,7 @@ func processWithLLM(stories []Article, batch int, model string, apiURL string, d
 					continue
 				}
 
-				evt := wrapAlert("bbc", title, "", impact, confidence)
+				evt := wrapAlert("bbc", title, "", impact, confidence, chunk[j].URL)
 				if dry {
 					printEvent("agi.events.news.alerts", evt)
 					continue
@@ -574,7 +574,7 @@ func publishHeuristicDecision(dec decision, title string, story Article, dry, de
 	switch dec.kind {
 	case "alert":
 		confidence := calculateAlertConfidence(dec.impact, false, title)
-		evt := wrapAlert("bbc", title, strings.TrimSpace(dec.topic), dec.impact, confidence)
+		evt := wrapAlert("bbc", title, strings.TrimSpace(dec.topic), dec.impact, confidence, story.URL)
 		if dry {
 			printEvent("agi.events.news.alerts", evt)
 			return true
@@ -924,7 +924,7 @@ func wrapRelation(source, head, relation, tail, headline string, urlStr string, 
 	}
 }
 
-func wrapAlert(source, headline, topic, impact string, confidence float64) eventbus.CanonicalEvent {
+func wrapAlert(source, headline, topic, impact string, confidence float64, urlStr string) eventbus.CanonicalEvent {
 	now := time.Now().UTC()
 	md := map[string]any{
 		"alert_type": "breaking",
@@ -936,6 +936,9 @@ func wrapAlert(source, headline, topic, impact string, confidence float64) event
 	}
 	if strings.TrimSpace(topic) != "" {
 		md["topic"] = topic
+	}
+	if strings.TrimSpace(urlStr) != "" {
+		md["url"] = urlStr
 	}
 	return eventbus.CanonicalEvent{
 		EventID:   eventbus.NewEventID("evt_", now),

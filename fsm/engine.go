@@ -2285,6 +2285,11 @@ func (e *FSMEngine) executeNewsStorage(action ActionConfig, event map[string]int
 		return
 	}
 
+	// Skip tool creation events - these are system events, not news
+	if eventType == "agi.tool.created" || strings.HasPrefix(eventType, "agi.tool.") {
+		return
+	}
+
 	// Only process actual news events (relations, alerts, etc.)
 	payload, ok := event["payload"].(map[string]interface{})
 	if !ok || len(payload) == 0 {

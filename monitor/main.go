@@ -4080,7 +4080,7 @@ func (m *MonitorService) getIntelligentWorkflows() ([]WorkflowStatus, error) {
 		err        error
 	}
 	fileChan := make(chan fileResult, len(workflowMap))
-	
+
 	// Fetch files in parallel
 	for workflowID := range workflowMap {
 		go func(id string) {
@@ -5276,7 +5276,7 @@ func (m *MonitorService) interpretAndExecute(c *gin.Context) {
 		"execution_plan": execPlan,
 		"message":        fmt.Sprintf("Successfully interpreted and executed %d task(s)", len(execPlan)),
 	}
-	
+
 	// Include project information if a project was used
 	if projectID != "" {
 		// Fetch project details
