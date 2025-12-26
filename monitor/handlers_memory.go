@@ -176,9 +176,17 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 	log.Printf("📊 [getNewsEvents] Weaviate returned %d raw WikipediaArticle records with source=news:fsm", len(weaviateResp.Data.Get.WikipediaArticle))
 	var newsEvents []NewsEvent
 	skippedCount := 0
+	skipReasons := map[string]int{
+		"text_too_short":     0,
+		"text_contains_noise": 0,
+		"tool_created":       0,
+		"conversation":        0,
+		"empty_title":         0,
+	}
 	for _, record := range weaviateResp.Data.Get.WikipediaArticle {
 		// Skip boring/system content
 		if len(strings.TrimSpace(record.Text)) < 20 {
+			skipReasons["text_too_short"]++
 			skippedCount++
 			continue
 		}
@@ -188,11 +196,13 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 			strings.Contains(lowerText, "server busy") ||
 			strings.Contains(lowerText, "execution_plan") ||
 			strings.Contains(lowerText, "interpretation") {
+			skipReasons["text_contains_noise"]++
 			skippedCount++
 			continue
 		}
 		// Skip tool creation events
 		if strings.Contains(record.Title, "News Event: agi.tool.created") {
+			skipReasons["tool_created"]++
 			skippedCount++
 			continue
 		}
@@ -200,11 +210,13 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 		if strings.Contains(record.Title, "News Event: user_message") ||
 			strings.Contains(record.Title, "News Event: assistant_message") ||
 			strings.Contains(record.Title, "News Event: conversation") {
+			skipReasons["conversation"]++
 			skippedCount++
 			continue
 		}
 		// Require basic ingestion signals
 		if strings.TrimSpace(record.Title) == "" {
+			skipReasons["empty_title"]++
 			skippedCount++
 			continue
 		}
@@ -255,6 +267,9 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 		}
 	}
 	log.Printf("📊 [getNewsEvents] After initial filtering: %d passed, %d skipped", len(newsEvents), skippedCount)
+	log.Printf("📊 [getNewsEvents] Skip reasons: text_too_short=%d, text_contains_noise=%d, tool_created=%d, conversation=%d, empty_title=%d",
+		skipReasons["text_too_short"], skipReasons["text_contains_noise"], skipReasons["tool_created"],
+		skipReasons["conversation"], skipReasons["empty_title"])
 
 	// Dedupe by canonical URL (keep newest timestamp), but also include items without URLs
 	// Log counts for debugging

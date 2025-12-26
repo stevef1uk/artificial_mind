@@ -1632,12 +1632,13 @@ func (m *MonitorService) getActiveWorkflows(c *gin.Context) {
 				}
 
 				// Fetch files for this workflow
-				log.Printf("🔍 [MONITOR] Fetching files for workflow %s (file ID: %s)", wf.ID, fileID)
 				files, err := m.getWorkflowFiles(fileID)
 				if err != nil {
 					log.Printf("⚠️ [MONITOR] Failed to fetch files for workflow %s: %v", wf.ID, err)
 					files = []FileInfo{} // Use empty list on error
-				} else {
+				}
+				// Only log if files were found (reduce log noise)
+				if len(files) > 0 {
 					log.Printf("📁 [MONITOR] Successfully fetched %d files for workflow %s", len(files), wf.ID)
 				}
 
@@ -4000,7 +4001,9 @@ func (m *MonitorService) getIntelligentWorkflows() ([]WorkflowStatus, error) {
 	}
 
 	var workflows []WorkflowStatus
+	workflowMap := make(map[string]WorkflowStatus)
 
+	// First pass: parse all workflows from Redis
 	for _, workflowID := range uniqueIDs {
 		// Only process intelligent workflows
 		if !strings.HasPrefix(workflowID, "intelligent_") {
@@ -4051,17 +4054,6 @@ func (m *MonitorService) getIntelligentWorkflows() ([]WorkflowStatus, error) {
 			}
 		}
 
-		// Fetch files from HDN for this intelligent workflow
-		log.Printf("🔍 [MONITOR] Fetching files for intelligent workflow %s", workflowID)
-		files, err := m.getWorkflowFiles(workflowID)
-		if err != nil {
-			log.Printf("⚠️ [MONITOR] Failed to fetch files for intelligent workflow %s: %v", workflowID, err)
-			files = []FileInfo{} // Use empty list on error
-		} else {
-			log.Printf("📁 [MONITOR] Successfully fetched %d files for intelligent workflow %s", len(files), workflowID)
-		}
-		workflow.Files = files
-
 		// Parse steps
 		if stepsInterface, ok := workflowData["steps"]; ok {
 			if stepsArray, ok := stepsInterface.([]interface{}); ok {
@@ -4078,6 +4070,49 @@ func (m *MonitorService) getIntelligentWorkflows() ([]WorkflowStatus, error) {
 			}
 		}
 
+		workflowMap[workflowID] = workflow
+	}
+
+	// Second pass: batch fetch files for all workflows in parallel
+	type fileResult struct {
+		workflowID string
+		files      []FileInfo
+		err        error
+	}
+	fileChan := make(chan fileResult, len(workflowMap))
+	
+	// Fetch files in parallel
+	for workflowID := range workflowMap {
+		go func(id string) {
+			files, err := m.getWorkflowFiles(id)
+			fileChan <- fileResult{workflowID: id, files: files, err: err}
+		}(workflowID)
+	}
+
+	// Collect file results
+	fileCount := 0
+	totalFiles := 0
+	for i := 0; i < len(workflowMap); i++ {
+		result := <-fileChan
+		if result.err != nil {
+			// Only log errors
+			log.Printf("⚠️ [MONITOR] Failed to fetch files for intelligent workflow %s: %v", result.workflowID, result.err)
+		} else if len(result.files) > 0 {
+			fileCount++
+			totalFiles += len(result.files)
+		}
+		workflow := workflowMap[result.workflowID]
+		workflow.Files = result.files
+		workflowMap[result.workflowID] = workflow
+	}
+
+	// Log summary instead of individual messages
+	if fileCount > 0 {
+		log.Printf("📁 [MONITOR] Fetched files for %d intelligent workflows (%d total files)", fileCount, totalFiles)
+	}
+
+	// Convert map to slice
+	for _, workflow := range workflowMap {
 		workflows = append(workflows, workflow)
 	}
 
