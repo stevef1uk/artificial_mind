@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -36,6 +37,18 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+
+	// Start periodic cleanup task to clear triggered flags for achieved/failed goals
+	cleanupTicker := time.NewTicker(5 * time.Minute)
+	defer cleanupTicker.Stop()
+	go func() {
+		for {
+			select {
+			case <-cleanupTicker.C:
+				cleanupStuckTriggeredFlags(ctx, agentID, goalMgrURL, rdb, triggeredKey)
+			}
+		}
+	}()
 
 	for {
 		select {
@@ -149,22 +162,43 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 					log.Printf("[FSM][Goals] execute error for goal %s: %v", g.ID, err)
 					continue
 				}
+				bodyBytes, _ := io.ReadAll(eresp.Body)
 				if eresp.Body != nil {
 					eresp.Body.Close()
 				}
 				if eresp.StatusCode >= 200 && eresp.StatusCode < 300 {
+					// Parse workflow_id from response
+					var execResp struct {
+						Success    bool   `json:"success"`
+						WorkflowID string `json:"workflow_id"`
+						Message    string `json:"message"`
+					}
+					workflowID := ""
+					if err := json.Unmarshal(bodyBytes, &execResp); err == nil {
+						workflowID = execResp.WorkflowID
+					}
+
 					// Record as triggered to prevent duplicate execution
 					_ = rdb.SAdd(ctx, triggeredKey, g.ID).Err()
-					// Optional: set TTL so if something stalls we can retry later
-					_ = rdb.Expire(ctx, triggeredKey, 12*time.Hour).Err()
-					log.Printf("[FSM][Goals] triggered goal %s", g.ID)
+					// Set TTL so if something stalls we can retry later (reduced from 12h to 30min)
+					_ = rdb.Expire(ctx, triggeredKey, 30*time.Minute).Err()
+					log.Printf("[FSM][Goals] triggered goal %s (workflow: %s)", g.ID, workflowID)
+
+					// Start background watcher to clear triggered flag when workflow completes or fails
+					if workflowID != "" {
+						go watchWorkflowAndClearTriggered(ctx, agentID, g.ID, workflowID, hdnURL, goalMgrURL, rdb, triggeredKey)
+					} else {
+						// If no workflow_id, set up a timeout watcher to clear after reasonable time
+						go watchGoalStatusAndClearTriggered(ctx, agentID, g.ID, goalMgrURL, rdb, triggeredKey)
+					}
+
 					triggeredCount++
 					// Limit to 3 goals triggered per tick to improve throughput
 					if triggeredCount >= 3 {
 						break
 					}
 				} else {
-					log.Printf("[FSM][Goals] execute failed for goal %s (status %d)", g.ID, eresp.StatusCode)
+					log.Printf("[FSM][Goals] execute failed for goal %s (status %d): %s", g.ID, eresp.StatusCode, string(bodyBytes))
 				}
 			}
 
@@ -179,4 +213,176 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// watchWorkflowAndClearTriggered monitors workflow completion and clears the triggered flag
+func watchWorkflowAndClearTriggered(ctx context.Context, agentID, goalID, workflowID, hdnURL, goalMgrURL string, rdb *redis.Client, triggeredKey string) {
+	if strings.TrimSpace(workflowID) == "" || strings.TrimSpace(goalID) == "" {
+		return
+	}
+
+	// Poll for up to 15 minutes (workflows can take time)
+	deadline := time.Now().Add(15 * time.Minute)
+	checkInterval := 5 * time.Second
+
+	for time.Now().Before(deadline) {
+		completed := false
+		status := ""
+
+		// Check if workflow is still active
+		// For intelligent_ workflows, check Redis set
+		if strings.HasPrefix(workflowID, "intelligent_") {
+			if member, err := rdb.SIsMember(ctx, "active_workflows", workflowID).Result(); err == nil {
+				if !member {
+					completed = true
+					status = "completed"
+				}
+			}
+		}
+
+		// For hierarchical workflows, check workflow details endpoint
+		if !completed {
+			detailsURL := hdnURL + "/api/v1/hierarchical/workflow/" + url.PathEscape(workflowID) + "/details"
+			client := &http.Client{Timeout: 5 * time.Second}
+			if resp, err := client.Get(detailsURL); err == nil && resp != nil {
+				var payload struct {
+					Success bool                   `json:"success"`
+					Details map[string]interface{} `json:"details"`
+				}
+				if err := json.NewDecoder(resp.Body).Decode(&payload); err == nil {
+					resp.Body.Close()
+					if payload.Success && payload.Details != nil {
+						// Check workflow status
+						if ws, ok := payload.Details["status"].(string); ok {
+							status = strings.ToLower(ws)
+							if status == "completed" || status == "failed" || status == "cancelled" {
+								completed = true
+							}
+						} else {
+							// Fallback: check if there are any running/pending steps
+							if steps, ok := payload.Details["steps"].([]interface{}); ok {
+								running := 0
+								for _, s := range steps {
+									if m, ok := s.(map[string]interface{}); ok {
+										if st, _ := m["status"].(string); strings.ToLower(st) == "running" || strings.ToLower(st) == "pending" {
+											running++
+										}
+									}
+								}
+								if running == 0 {
+									completed = true
+									status = "completed"
+								}
+							}
+						}
+					}
+				} else {
+					resp.Body.Close()
+				}
+			}
+		}
+
+		if completed {
+			// Clear triggered flag so goal can be retried if needed
+			_ = rdb.SRem(ctx, triggeredKey, goalID).Err()
+			log.Printf("[FSM][Goals] workflow %s for goal %s %s - cleared triggered flag", workflowID, goalID, status)
+			return
+		}
+
+		// Also check if goal status changed to achieved/failed
+		if goalStatus := checkGoalStatus(ctx, goalID, goalMgrURL); goalStatus == "achieved" || goalStatus == "failed" {
+			_ = rdb.SRem(ctx, triggeredKey, goalID).Err()
+			log.Printf("[FSM][Goals] goal %s status changed to %s - cleared triggered flag", goalID, goalStatus)
+			return
+		}
+
+		time.Sleep(checkInterval)
+	}
+
+	// Timeout reached - clear triggered flag to allow retry
+	_ = rdb.SRem(ctx, triggeredKey, goalID).Err()
+	log.Printf("[FSM][Goals] workflow %s for goal %s timed out after 15min - cleared triggered flag for retry", workflowID, goalID)
+}
+
+// watchGoalStatusAndClearTriggered monitors goal status changes and clears triggered flag
+func watchGoalStatusAndClearTriggered(ctx context.Context, agentID, goalID, goalMgrURL string, rdb *redis.Client, triggeredKey string) {
+	// Poll for up to 10 minutes
+	deadline := time.Now().Add(10 * time.Minute)
+	checkInterval := 10 * time.Second
+
+	for time.Now().Before(deadline) {
+		status := checkGoalStatus(ctx, goalID, goalMgrURL)
+		if status == "achieved" || status == "failed" {
+			_ = rdb.SRem(ctx, triggeredKey, goalID).Err()
+			log.Printf("[FSM][Goals] goal %s status changed to %s - cleared triggered flag", goalID, status)
+			return
+		}
+		time.Sleep(checkInterval)
+	}
+
+	// Timeout reached - clear triggered flag to allow retry
+	_ = rdb.SRem(ctx, triggeredKey, goalID).Err()
+	log.Printf("[FSM][Goals] goal %s watcher timed out after 10min - cleared triggered flag for retry", goalID)
+}
+
+// checkGoalStatus checks the current status of a goal
+func checkGoalStatus(ctx context.Context, goalID, goalMgrURL string) string {
+	if goalMgrURL == "" {
+		return ""
+	}
+
+	// Try to get goal status from Goal Manager
+	url := goalMgrURL + "/goal/" + goalID
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	var goal struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&goal); err != nil {
+		return ""
+	}
+
+	return goal.Status
+}
+
+// cleanupStuckTriggeredFlags periodically checks triggered goals and clears flags for achieved/failed goals
+func cleanupStuckTriggeredFlags(ctx context.Context, agentID, goalMgrURL string, rdb *redis.Client, triggeredKey string) {
+	// Get all triggered goal IDs
+	triggeredIDs, err := rdb.SMembers(ctx, triggeredKey).Result()
+	if err != nil {
+		return
+	}
+
+	if len(triggeredIDs) == 0 {
+		return
+	}
+
+	clearedCount := 0
+	for _, goalID := range triggeredIDs {
+		// Check if goal is still active
+		status := checkGoalStatus(ctx, goalID, goalMgrURL)
+		if status == "achieved" || status == "failed" || status == "" {
+			// Goal is no longer active or doesn't exist - clear triggered flag
+			_ = rdb.SRem(ctx, triggeredKey, goalID).Err()
+			clearedCount++
+			if status != "" {
+				log.Printf("[FSM][Goals] cleanup: cleared triggered flag for %s goal %s", status, goalID)
+			} else {
+				log.Printf("[FSM][Goals] cleanup: cleared triggered flag for missing goal %s", goalID)
+			}
+		}
+	}
+
+	if clearedCount > 0 {
+		log.Printf("[FSM][Goals] cleanup: cleared %d stuck triggered flag(s)", clearedCount)
+	}
 }
