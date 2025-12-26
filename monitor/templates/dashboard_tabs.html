@@ -1459,7 +1459,7 @@
                         <div class="card">
                             <h4>BBC News (${newsEvents.length})</h4>
                             <ul style="margin:0; padding-left:18px; line-height:1.4;">
-                                ${newsEvents.slice(0, 5).map(event => {
+                                ${newsEvents.slice(0, 20).map(event => {
                                     const t = (event.title && event.title.trim().length>0) ? event.title.trim() : (event.text||'').split('\n')[0].slice(0,140);
                                     const u = (event.metadata && event.metadata.url) ? event.metadata.url : (event.url||'');
                                     return u ? `<li><a href="${u}" target="_blank" rel="noopener">${t}</a></li>` : `<li>${t}</li>`;
@@ -1469,7 +1469,7 @@
                         <div class="card">
                             <h4>Wikipedia Events (${wikiEvents.length})</h4>
                             <ul style="margin:0; padding-left:18px; line-height:1.4;">
-                                ${wikiEvents.slice(0, 5).map(event => {
+                                ${wikiEvents.slice(0, 20).map(event => {
                                     const t = (event.title && event.title.trim().length>0) ? event.title.trim() : (event.metadata && event.metadata.title) ? event.metadata.title : (event.text||'').split('\n')[0].slice(0,140);
                                     const u = (event.metadata && event.metadata.url) ? event.metadata.url : (event.url||'');
                                     return u ? `<li><a href="${u}" target="_blank" rel="noopener">${t}</a></li>` : `<li>${t}</li>`;
