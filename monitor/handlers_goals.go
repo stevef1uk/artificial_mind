@@ -192,6 +192,26 @@ func (m *MonitorService) achieveGoal(c *gin.Context) {
 	c.Data(resp.StatusCode, "application/json", body)
 }
 
+// deleteGoal proxies to Goal Manager: DELETE /goal/{id}
+func (m *MonitorService) deleteGoal(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id required"})
+		return
+	}
+	url := m.goalMgrURL + "/goal/" + url.QueryEscape(id)
+	req, _ := http.NewRequest("DELETE", url, nil)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to delete goal"})
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	c.Data(resp.StatusCode, "application/json", body)
+}
+
 // suggestGoalNextSteps fetches memory and capabilities and asks HDN interpreter to suggest next actions
 func (m *MonitorService) suggestGoalNextSteps(c *gin.Context) {
 	id := c.Param("id")

@@ -469,6 +469,24 @@ func (e *FSMEngine) handleEvent(eventName string, data []byte) {
 	// Publish user goal for new_input events
 	if eventName == "new_input" && data != nil {
 		e.publishUserGoal(event)
+		
+		// Clear/update current_goal with new user input to prioritize user requests over curiosity goals
+		userRequest := ""
+		if text, ok := event.Payload["text"].(string); ok && text != "" {
+			userRequest = text
+		} else if request, ok := event.Payload["user_request"].(string); ok && request != "" {
+			userRequest = request
+		} else if message, ok := event.Payload["message"].(string); ok && message != "" {
+			userRequest = message
+		}
+		
+		if userRequest != "" {
+			// Clean up the goal description
+			userRequest = e.cleanGoalDescription(userRequest)
+			// Update current_goal to prioritize this new user input
+			e.context["current_goal"] = userRequest
+			log.Printf("🎯 Updated current_goal from new_input: %s", userRequest)
+		}
 	}
 
 	// Queue event for processing

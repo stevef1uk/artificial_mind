@@ -342,3 +342,28 @@ func (gm *GoalManager) UpdateGoalStatus(id string, status string) (*PolicyGoal, 
 	}
 	return g, nil
 }
+
+// DeleteGoal removes a goal completely from Redis and emits deleted event
+func (gm *GoalManager) DeleteGoal(id string) error {
+	// Load goal first to get its data for the event
+	g, err := gm.loadGoal(id)
+	if err != nil {
+		return fmt.Errorf("goal not found: %w", err)
+	}
+
+	// Remove from active set
+	_ = gm.redis.SRem(gm.ctx, gm.keyActiveSet(), id).Err()
+
+	// Remove from priority ZSet
+	_ = gm.redis.ZRem(gm.ctx, gm.keyPriorityZSet(), id).Err()
+
+	// Delete the goal key
+	if err := gm.redis.Del(gm.ctx, gm.keyGoal(id)).Err(); err != nil {
+		return fmt.Errorf("failed to delete goal: %w", err)
+	}
+
+	// Publish deleted event
+	_ = gm.publishEvent("agi.goal.deleted", *g)
+
+	return nil
+}

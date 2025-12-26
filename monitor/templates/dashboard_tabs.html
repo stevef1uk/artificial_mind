@@ -3195,9 +3195,28 @@
             alert(`Execute goal ${goalId} - Not implemented yet`);
         }
 
-        window.deleteGoal = function(goalId) {
-            if (confirm(`Delete goal ${goalId}?`)) {
-                alert(`Delete goal ${goalId} - Not implemented yet`);
+        window.deleteGoal = async function(goalId) {
+            if (!confirm(`Delete goal ${goalId}?`)) {
+                return;
+            }
+            try {
+                const response = await axios.delete(`/api/goal/${encodeURIComponent(goalId)}`);
+                if (response.data && response.data.success) {
+                    // Reload goals list
+                    if (typeof loadGoals === 'function') {
+                        loadGoals();
+                    }
+                    // Clear goal details if shown
+                    const goalDetailsEl = document.getElementById('goal-details');
+                    if (goalDetailsEl) {
+                        goalDetailsEl.innerHTML = '';
+                    }
+                } else {
+                    alert('Failed to delete goal');
+                }
+            } catch (error) {
+                console.error('Error deleting goal:', error);
+                alert('Failed to delete goal: ' + (error.response?.data?.error || error.message));
             }
         }
 

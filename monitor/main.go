@@ -458,6 +458,7 @@ func main() {
 	r.GET("/api/goals/:agent/active", monitor.getActiveGoals)
 	r.GET("/api/goal/:id", monitor.getGoalByID)
 	r.POST("/api/goal/:id/achieve", monitor.achieveGoal)
+	r.DELETE("/api/goal/:id", monitor.deleteGoal)
 	r.POST("/api/goal/:id/suggest", monitor.suggestGoalNextSteps)
 	// Execute suggested plan for a goal
 	r.POST("/api/goal/:id/execute", monitor.executeGoalSuggestedPlan)

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/nats-io/nats.go"
@@ -136,6 +137,24 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(g)
 	}).Methods("POST")
+
+	r.HandleFunc("/goal/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id := mux.Vars(r)["id"]
+		if err := gm.DeleteGoal(id); err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				http.Error(w, err.Error(), 404)
+			} else {
+				http.Error(w, err.Error(), 500)
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "Goal deleted",
+			"id":      id,
+		})
+	}).Methods("DELETE")
 
 	log.Printf("Goal Manager REST listening on %s", *httpAddr)
 	if err := http.ListenAndServe(*httpAddr, r); err != nil {
