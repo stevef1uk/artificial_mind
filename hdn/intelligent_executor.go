@@ -810,6 +810,8 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 		if req.HighPriority {
 			priority = PriorityHigh
 		}
+		// Add component information to context for token tracking
+		ctx = WithComponent(ctx, "hdn-intelligent-executor")
 		response, err := ie.llmClient.callLLMWithContextAndPriority(ctx, prompt, priority)
 		result := &IntelligentExecutionResult{
 			Success:         err == nil,

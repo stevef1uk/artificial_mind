@@ -345,6 +345,10 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 	server.registerExistingToolsAsCapabilities(context.Background())
 	log.Printf("✅ [HDN] Finished registering tools as capabilities")
 
+	// Start token aggregation scheduler (runs hourly to consolidate token usage)
+	server.startTokenAggregationScheduler()
+	log.Printf("✅ [HDN] Token aggregation scheduler started (hourly)")
+
 	// Start server
 	log.Printf("🔧 [HDN] About to start HTTP server...")
 	fmt.Printf("Starting HTN API Server on %s:%d\n", config.Server.Host, config.Server.Port)

@@ -62,6 +62,8 @@ func (cg *CodeGenerator) GenerateCode(req *CodeGenerationRequest) (*CodeGenerati
 	// Use a longer timeout for code generation (10 minutes) to handle backlog situations
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	// Add component information to context for token tracking
+	ctx = WithComponent(ctx, "hdn-code-generator")
 	priority := PriorityLow
 	if req.HighPriority {
 		priority = PriorityHigh
@@ -87,6 +89,8 @@ func (cg *CodeGenerator) GenerateCode(req *CodeGenerationRequest) (*CodeGenerati
 				// Enhance prompt with stronger language requirement
 				enhancedPrompt := prompt + "\n\n🚨🚨🚨 CRITICAL REMINDER: You MUST generate " + req.Language + " code ONLY! The previous attempt generated the wrong language and was rejected! 🚨🚨🚨"
 				ctx := context.Background()
+				// Add component information to context for token tracking
+				ctx = WithComponent(ctx, "hdn-code-generator")
 				priority := PriorityLow
 				if req.HighPriority {
 					priority = PriorityHigh

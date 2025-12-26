@@ -299,6 +299,10 @@ func (w *LLMClientWrapper) CallLLMWithContextAndPriority(ctx context.Context, pr
 	if w == nil || w.client == nil {
 		return "", fmt.Errorf("LLM client not initialized")
 	}
+	// Add component information if not already set
+	if getComponentFromContext(ctx) == "unknown" {
+		ctx = WithComponent(ctx, "hdn-interpreter")
+	}
 	var priority RequestPriority = PriorityLow
 	if highPriority {
 		priority = PriorityHigh
@@ -633,6 +637,7 @@ type ConversationalLLMAdapter struct {
 // GenerateResponse implements the conversational LLMClientInterface
 // Uses HIGH priority for user-facing chat requests
 func (a *ConversationalLLMAdapter) GenerateResponse(ctx context.Context, prompt string, maxTokens int) (string, error) {
+	ctx = WithComponent(ctx, "hdn-conversational")
 	return a.client.callLLMWithContextAndPriority(ctx, prompt, PriorityHigh)
 }
 
@@ -641,6 +646,7 @@ func (a *ConversationalLLMAdapter) GenerateResponse(ctx context.Context, prompt 
 func (a *ConversationalLLMAdapter) ClassifyText(ctx context.Context, text string, categories []string) (string, float64, error) {
 	// Simple classification using the LLM
 	prompt := fmt.Sprintf("Classify the following text into one of these categories: %s\n\nText: %s\n\nCategory:", strings.Join(categories, ", "), text)
+	ctx = WithComponent(ctx, "hdn-conversational")
 	response, err := a.client.callLLMWithContextAndPriority(ctx, prompt, PriorityHigh)
 	if err != nil {
 		return "", 0.0, err
@@ -672,6 +678,7 @@ func (a *ConversationalLLMAdapter) ClassifyText(ctx context.Context, text string
 func (a *ConversationalLLMAdapter) ExtractEntities(ctx context.Context, text string, entityTypes []string) (map[string]string, error) {
 	// Simple entity extraction using the LLM
 	prompt := fmt.Sprintf("Extract entities from the following text. Look for: %s\n\nText: %s\n\nReturn as JSON with entity type as key and value as the extracted text.", strings.Join(entityTypes, ", "), text)
+	ctx = WithComponent(ctx, "hdn-conversational")
 	response, err := a.client.callLLMWithContextAndPriority(ctx, prompt, PriorityHigh)
 	if err != nil {
 		return make(map[string]string), err
@@ -4986,6 +4993,120 @@ func (s *APIServer) generateDailySummaryFromSystemData(ctx context.Context) stri
 		if err == nil && len(errorKeys) > 0 {
 			summary.WriteString(fmt.Sprintf("- %d error-related entries in system logs\n", len(errorKeys)))
 		}
+		
+		// Get token usage statistics for today
+		// Start with aggregated totals (consolidated hourly snapshots)
+		aggPromptKey := fmt.Sprintf("token_usage:aggregated:%s:prompt", today)
+		aggCompletionKey := fmt.Sprintf("token_usage:aggregated:%s:completion", today)
+		aggTotalKey := fmt.Sprintf("token_usage:aggregated:%s:total", today)
+		
+		promptTokens, _ := s.redis.Get(ctx, aggPromptKey).Int()
+		completionTokens, _ := s.redis.Get(ctx, aggCompletionKey).Int()
+		totalTokens, _ := s.redis.Get(ctx, aggTotalKey).Int()
+		
+		// Add any individual records that exist (recent calls since last aggregation)
+		indPromptKey := fmt.Sprintf("token_usage:%s:prompt", today)
+		indCompletionKey := fmt.Sprintf("token_usage:%s:completion", today)
+		indTotalKey := fmt.Sprintf("token_usage:%s:total", today)
+		
+		indPrompt, _ := s.redis.Get(ctx, indPromptKey).Int()
+		indCompletion, _ := s.redis.Get(ctx, indCompletionKey).Int()
+		indTotal, _ := s.redis.Get(ctx, indTotalKey).Int()
+		
+		// Combine aggregated + individual totals
+		promptTokens += indPrompt
+		completionTokens += indCompletion
+		totalTokens += indTotal
+		
+		if totalTokens > 0 {
+			summary.WriteString(fmt.Sprintf("- LLM token usage (overall): %d total tokens (%d prompt + %d completion)\n", 
+				totalTokens, promptTokens, completionTokens))
+			
+			// Get per-component breakdown
+			// Start with aggregated component totals
+			aggComponentKeys, err := s.redis.Keys(ctx, fmt.Sprintf("token_usage:aggregated:%s:component:*:total", today)).Result()
+			if err != nil {
+				aggComponentKeys = []string{}
+			}
+			
+			// Also get individual component keys (recent calls)
+			indComponentKeys, err2 := s.redis.Keys(ctx, fmt.Sprintf("token_usage:%s:component:*:total", today)).Result()
+			if err2 != nil {
+				indComponentKeys = []string{}
+			}
+			
+			// Combine both sets of keys
+			allComponentKeys := append(aggComponentKeys, indComponentKeys...)
+			
+			if len(allComponentKeys) > 0 {
+				summary.WriteString("  Component breakdown:\n")
+				componentTotals := make(map[string]int)
+				
+				// Process aggregated component keys first
+				for _, key := range aggComponentKeys {
+					parts := strings.Split(key, ":")
+					if len(parts) >= 6 && parts[3] == "aggregated" && parts[4] == "component" {
+						component := parts[5]
+						compTotal, _ := s.redis.Get(ctx, key).Int()
+						if compTotal > 0 {
+							componentTotals[component] = compTotal
+						}
+					}
+				}
+				
+				// Add individual component keys (will add to existing or create new)
+				for _, key := range indComponentKeys {
+					parts := strings.Split(key, ":")
+					if len(parts) >= 5 && parts[3] == "component" {
+						component := parts[4]
+						compTotal, _ := s.redis.Get(ctx, key).Int()
+						if compTotal > 0 {
+							componentTotals[component] += compTotal // Add to existing aggregated total
+						}
+					}
+				}
+				
+				// Sort components by token usage (descending)
+				type compStat struct {
+					name  string
+					total int
+				}
+				var sortedComps []compStat
+				for comp, total := range componentTotals {
+					sortedComps = append(sortedComps, compStat{comp, total})
+				}
+				// Simple sort by total (descending)
+				for i := 0; i < len(sortedComps)-1; i++ {
+					for j := i + 1; j < len(sortedComps); j++ {
+						if sortedComps[i].total < sortedComps[j].total {
+							sortedComps[i], sortedComps[j] = sortedComps[j], sortedComps[i]
+						}
+					}
+				}
+				
+				// Write component breakdown (aggregated + individual)
+				for _, comp := range sortedComps {
+					// Get aggregated values
+					aggCompPromptKey := fmt.Sprintf("token_usage:aggregated:%s:component:%s:prompt", today, comp.name)
+					aggCompCompletionKey := fmt.Sprintf("token_usage:aggregated:%s:component:%s:completion", today, comp.name)
+					aggCompPrompt, _ := s.redis.Get(ctx, aggCompPromptKey).Int()
+					aggCompCompletion, _ := s.redis.Get(ctx, aggCompCompletionKey).Int()
+					
+					// Get individual values
+					indCompPromptKey := fmt.Sprintf("token_usage:%s:component:%s:prompt", today, comp.name)
+					indCompCompletionKey := fmt.Sprintf("token_usage:%s:component:%s:completion", today, comp.name)
+					indCompPrompt, _ := s.redis.Get(ctx, indCompPromptKey).Int()
+					indCompCompletion, _ := s.redis.Get(ctx, indCompCompletionKey).Int()
+					
+					// Combine aggregated + individual
+					totalPrompt := aggCompPrompt + indCompPrompt
+					totalCompletion := aggCompCompletion + indCompCompletion
+					
+					summary.WriteString(fmt.Sprintf("    - %s: %d total (%d prompt + %d completion)\n", 
+						comp.name, comp.total, totalPrompt, totalCompletion))
+				}
+			}
+		}
 	}
 
 	// Check episodic memory if available
@@ -5000,6 +5121,28 @@ func (s *APIServer) generateDailySummaryFromSystemData(ctx context.Context) stri
 	summary.WriteString("- Processed intelligent execution requests\n")
 	summary.WriteString("- Updated working memory with recent events\n")
 	summary.WriteString("- Indexed episodic memories in vector database\n")
+	
+	// Add token usage cost estimate (if tokens were used)
+	if s.redis != nil {
+		today := time.Now().UTC().Format("2006-01-02")
+		totalKey := fmt.Sprintf("token_usage:%s:total", today)
+		totalTokens, _ := s.redis.Get(ctx, totalKey).Int()
+		if totalTokens > 0 {
+			// Estimate cost based on typical commercial LLM pricing
+			// Using approximate rates: $0.50 per 1M input tokens, $1.50 per 1M output tokens
+			// This is a rough estimate for comparison purposes
+			promptKey := fmt.Sprintf("token_usage:%s:prompt", today)
+			completionKey := fmt.Sprintf("token_usage:%s:completion", today)
+			promptTokens, _ := s.redis.Get(ctx, promptKey).Int()
+			completionTokens, _ := s.redis.Get(ctx, completionKey).Int()
+			
+			estimatedCost := (float64(promptTokens)/1_000_000.0)*0.50 + (float64(completionTokens)/1_000_000.0)*1.50
+			if estimatedCost > 0.001 { // Only show if meaningful
+				summary.WriteString(fmt.Sprintf("- Estimated commercial LLM cost: $%.4f (based on %d tokens)\n", 
+					estimatedCost, totalTokens))
+			}
+		}
+	}
 
 	// Questions section
 	summary.WriteString("\nQuestions:\n")
@@ -5008,6 +5151,157 @@ func (s *APIServer) generateDailySummaryFromSystemData(ctx context.Context) stri
 	summary.WriteString("3) What new capabilities should be prioritized based on usage?\n")
 
 	return summary.String()
+}
+
+// aggregateTokenUsage consolidates per-component token usage and deletes individual records
+// This should be run hourly to prevent Redis from filling up
+func (s *APIServer) aggregateTokenUsage(ctx context.Context) error {
+	if s.redis == nil {
+		return fmt.Errorf("Redis client not available")
+	}
+	
+	today := time.Now().UTC().Format("2006-01-02")
+	
+	// Find all component token keys for today
+	componentPattern := fmt.Sprintf("token_usage:%s:component:*:total", today)
+	componentKeys, err := s.redis.Keys(ctx, componentPattern).Result()
+	if err != nil {
+		return fmt.Errorf("failed to get component keys: %v", err)
+	}
+	
+	if len(componentKeys) == 0 {
+		log.Printf("📊 [TOKEN-AGG] No component token keys found for today, skipping aggregation")
+		return nil
+	}
+	
+	log.Printf("📊 [TOKEN-AGG] Starting token aggregation for %d components", len(componentKeys))
+	
+	// Aggregate totals by component
+	componentTotals := make(map[string]struct {
+		prompt     int64
+		completion int64
+		total      int64
+	})
+	
+	// Extract component names and aggregate values
+	for _, key := range componentKeys {
+		// Key format: token_usage:YYYY-MM-DD:component:COMPONENT:total
+		parts := strings.Split(key, ":")
+		if len(parts) >= 5 && parts[3] == "component" {
+			component := parts[4]
+			
+			// Get totals for this component
+			totalKey := fmt.Sprintf("token_usage:%s:component:%s:total", today, component)
+			promptKey := fmt.Sprintf("token_usage:%s:component:%s:prompt", today, component)
+			completionKey := fmt.Sprintf("token_usage:%s:component:%s:completion", today, component)
+			
+			total, _ := s.redis.Get(ctx, totalKey).Int64()
+			prompt, _ := s.redis.Get(ctx, promptKey).Int64()
+			completion, _ := s.redis.Get(ctx, completionKey).Int64()
+			
+			if total > 0 {
+				componentTotals[component] = struct {
+					prompt     int64
+					completion int64
+					total      int64
+				}{
+					prompt:     prompt,
+					completion: completion,
+					total:      total,
+				}
+			}
+		}
+	}
+	
+	// Update aggregated totals (these persist longer)
+	aggregatedExpiration := 90 * 24 * time.Hour // Keep aggregated data for 90 days
+	for component, totals := range componentTotals {
+		// Store aggregated totals with longer TTL
+		aggTotalKey := fmt.Sprintf("token_usage:aggregated:%s:component:%s:total", today, component)
+		aggPromptKey := fmt.Sprintf("token_usage:aggregated:%s:component:%s:prompt", today, component)
+		aggCompletionKey := fmt.Sprintf("token_usage:aggregated:%s:component:%s:completion", today, component)
+		
+		// Use SET instead of INCRBY since we're aggregating (not incrementing)
+		s.redis.Set(ctx, aggTotalKey, totals.total, aggregatedExpiration)
+		s.redis.Set(ctx, aggPromptKey, totals.prompt, aggregatedExpiration)
+		s.redis.Set(ctx, aggCompletionKey, totals.completion, aggregatedExpiration)
+		
+		log.Printf("📊 [TOKEN-AGG] Aggregated %s: %d total (%d prompt + %d completion)", 
+			component, totals.total, totals.prompt, totals.completion)
+		
+		// Delete individual component keys after aggregation
+		totalKey := fmt.Sprintf("token_usage:%s:component:%s:total", today, component)
+		promptKey := fmt.Sprintf("token_usage:%s:component:%s:prompt", today, component)
+		completionKey := fmt.Sprintf("token_usage:%s:component:%s:completion", today, component)
+		
+		s.redis.Del(ctx, totalKey, promptKey, completionKey)
+		log.Printf("🗑️ [TOKEN-AGG] Deleted individual keys for component %s", component)
+	}
+	
+	// Also aggregate overall totals
+	overallTotalKey := fmt.Sprintf("token_usage:%s:total", today)
+	overallPromptKey := fmt.Sprintf("token_usage:%s:prompt", today)
+	overallCompletionKey := fmt.Sprintf("token_usage:%s:completion", today)
+	
+	overallTotal, _ := s.redis.Get(ctx, overallTotalKey).Int64()
+	overallPrompt, _ := s.redis.Get(ctx, overallPromptKey).Int64()
+	overallCompletion, _ := s.redis.Get(ctx, overallCompletionKey).Int64()
+	
+	if overallTotal > 0 {
+		aggOverallTotalKey := fmt.Sprintf("token_usage:aggregated:%s:total", today)
+		aggOverallPromptKey := fmt.Sprintf("token_usage:aggregated:%s:prompt", today)
+		aggOverallCompletionKey := fmt.Sprintf("token_usage:aggregated:%s:completion", today)
+		
+		s.redis.Set(ctx, aggOverallTotalKey, overallTotal, aggregatedExpiration)
+		s.redis.Set(ctx, aggOverallPromptKey, overallPrompt, aggregatedExpiration)
+		s.redis.Set(ctx, aggOverallCompletionKey, overallCompletion, aggregatedExpiration)
+		
+		log.Printf("📊 [TOKEN-AGG] Aggregated overall totals: %d total (%d prompt + %d completion)", 
+			overallTotal, overallPrompt, overallCompletion)
+		
+		// Note: We keep overall totals for the day (they're already aggregated), but reset them
+		// so new calls can continue tracking. The aggregated version preserves the hourly snapshot.
+	}
+	
+	log.Printf("✅ [TOKEN-AGG] Token aggregation completed successfully")
+	return nil
+}
+
+// startTokenAggregationScheduler starts an hourly scheduler to aggregate token usage
+func (s *APIServer) startTokenAggregationScheduler() {
+	go func() {
+		// Wait until the top of the next hour, then run every hour
+		now := time.Now()
+		next := now.Truncate(time.Hour).Add(time.Hour)
+		d := time.Until(next)
+		log.Printf("⏰ [TOKEN-AGG] Token aggregation scheduler will start at %s (in %s)", 
+			next.Format(time.RFC3339), d.String())
+		
+		// Initial wait
+		time.Sleep(d)
+		
+		// Run immediately on first tick
+		ctx := context.Background()
+		if err := s.aggregateTokenUsage(ctx); err != nil {
+			log.Printf("❌ [TOKEN-AGG] Initial aggregation failed: %v", err)
+		}
+		
+		// Then run every hour
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		
+		for {
+			select {
+			case <-ticker.C:
+				ctx := context.Background()
+				if err := s.aggregateTokenUsage(ctx); err != nil {
+					log.Printf("❌ [TOKEN-AGG] Hourly aggregation failed: %v", err)
+				} else {
+					log.Printf("✅ [TOKEN-AGG] Hourly aggregation completed")
+				}
+			}
+		}
+	}()
 }
 
 // handleGetAllToolMetrics: GET /api/v1/tools/metrics

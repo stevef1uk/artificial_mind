@@ -14,9 +14,27 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 // --------- LLM Client ---------
+
+// Context key for component tracking
+type componentKey struct{}
+
+// WithComponent adds component information to context for token tracking
+func WithComponent(ctx context.Context, component string) context.Context {
+	return context.WithValue(ctx, componentKey{}, component)
+}
+
+// getComponentFromContext extracts component from context, returns "unknown" if not set
+func getComponentFromContext(ctx context.Context) string {
+	if component, ok := ctx.Value(componentKey{}).(string); ok && component != "" {
+		return component
+	}
+	return "unknown"
+}
 
 // RequestPriority indicates the priority of an LLM request
 type RequestPriority int
@@ -571,6 +589,20 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 		if message, ok := ollamaResp["message"].(map[string]interface{}); ok {
 			if content, ok := message["content"].(string); ok {
 				log.Printf("✅ [ASYNC-LLM] Successfully extracted content from Ollama response")
+				
+				// Try to extract token usage from Ollama response if available
+				if promptEvalCount, ok := ollamaResp["prompt_eval_count"].(float64); ok {
+					evalCount := 0.0
+					if ec, ok := ollamaResp["eval_count"].(float64); ok {
+						evalCount = ec
+					}
+					totalTokens := int(promptEvalCount + evalCount)
+					if totalTokens > 0 {
+						component := getComponentFromContext(ctx)
+						trackTokenUsage(ctx, int(promptEvalCount), int(evalCount), totalTokens, component)
+					}
+				}
+				
 				return content, nil
 			}
 		}
@@ -598,6 +630,13 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 		}
 
 		log.Printf("✅ [ASYNC-LLM] Successfully extracted content from %s response", client.config.LLMProvider)
+		
+		// Track token usage if available
+		if llmResp.Usage != nil {
+			component := getComponentFromContext(ctx)
+			trackTokenUsage(ctx, llmResp.Usage.PromptTokens, llmResp.Usage.CompletionTokens, llmResp.Usage.TotalTokens, component)
+		}
+		
 		return llmResp.Choices[0].Message.Content, nil
 	}
 }
@@ -680,9 +719,16 @@ type Message struct {
 	Content string `json:"content"`
 }
 
+type Usage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
 type LLMResponse struct {
 	Choices []Choice  `json:"choices"`
 	Error   *LLMError `json:"error,omitempty"`
+	Usage   *Usage    `json:"usage,omitempty"`
 }
 
 type Choice struct {
@@ -1315,6 +1361,21 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 		if message, ok := ollamaResp["message"].(map[string]interface{}); ok {
 			if content, ok := message["content"].(string); ok {
 				log.Printf("✅ [LLM] Successfully extracted content from Ollama response")
+				
+				// Try to extract token usage from Ollama response if available
+				// Ollama may include prompt_eval_count and eval_count in some responses
+				if promptEvalCount, ok := ollamaResp["prompt_eval_count"].(float64); ok {
+					evalCount := 0.0
+					if ec, ok := ollamaResp["eval_count"].(float64); ok {
+						evalCount = ec
+					}
+					totalTokens := int(promptEvalCount + evalCount)
+					if totalTokens > 0 {
+						component := getComponentFromContext(ctx)
+						trackTokenUsage(ctx, int(promptEvalCount), int(evalCount), totalTokens, component)
+					}
+				}
+				
 				return content, nil
 			}
 		}
@@ -1342,8 +1403,137 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 		}
 
 		log.Printf("✅ [LLM] Successfully extracted content from %s response", c.config.LLMProvider)
+		
+		// Track token usage if available
+		if llmResp.Usage != nil {
+			log.Printf("📊 [LLM] Token usage found: prompt=%d, completion=%d, total=%d", 
+				llmResp.Usage.PromptTokens, llmResp.Usage.CompletionTokens, llmResp.Usage.TotalTokens)
+			component := getComponentFromContext(ctx)
+			trackTokenUsage(ctx, llmResp.Usage.PromptTokens, llmResp.Usage.CompletionTokens, llmResp.Usage.TotalTokens, component)
+		} else {
+			// Log response structure for debugging if usage is missing
+			log.Printf("⚠️ [LLM] No 'usage' field in response. Response keys: checking structure...")
+			// Re-parse as map to inspect structure
+			var respMap map[string]interface{}
+			if err := json.Unmarshal(body, &respMap); err == nil {
+				keys := make([]string, 0, len(respMap))
+				for k := range respMap {
+					keys = append(keys, k)
+				}
+				log.Printf("📋 [LLM] Response top-level keys: %v", keys)
+				// Log a snippet of the response for debugging (first 500 chars)
+				bodyPreview := string(body)
+				if len(bodyPreview) > 500 {
+					bodyPreview = bodyPreview[:500] + "..."
+				}
+				log.Printf("📄 [LLM] Response preview: %s", bodyPreview)
+			}
+		}
+		
 		return llmResp.Choices[0].Message.Content, nil
 	}
+}
+
+// trackTokenUsage records token usage in Redis for daily reporting
+// component: identifier for the component making the LLM call (e.g., "hdn", "fsm", "wiki-summarizer", "news-ingestor")
+// This function is safe to call even if Redis is not available
+func trackTokenUsage(ctx context.Context, promptTokens, completionTokens, totalTokens int, component string) {
+	if totalTokens == 0 {
+		return // No tokens to track
+	}
+	
+	// Normalize component name (default to "unknown" if empty)
+	if component == "" {
+		component = "unknown"
+	}
+	// Sanitize component name (remove special chars, lowercase)
+	component = strings.ToLower(strings.TrimSpace(component))
+	component = strings.ReplaceAll(component, " ", "-")
+	component = strings.ReplaceAll(component, "_", "-")
+	
+	// Get Redis address from environment
+	redisAddr := os.Getenv("REDIS_URL")
+	if redisAddr == "" {
+		// Try to construct default address
+		redisAddr = "localhost:6379"
+	}
+	
+	// Normalize Redis address (remove redis:// prefix if present)
+	redisAddr = strings.TrimPrefix(redisAddr, "redis://")
+	redisAddr = strings.TrimPrefix(redisAddr, "rediss://")
+	
+	// Create Redis client (will be reused if called multiple times)
+	// We create a new client each time to avoid connection issues
+	// In production, you might want to cache this
+	redisClient := redis.NewClient(&redis.Options{
+		Addr: redisAddr,
+	})
+	defer redisClient.Close()
+	
+	// Test connection
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		log.Printf("⚠️ [TOKEN-TRACK] Redis not available for token tracking: %v", err)
+		return
+	}
+	
+	// Get today's date key
+	today := time.Now().UTC().Format("2006-01-02")
+	
+	// Update overall daily token totals
+	// Use INCRBY for atomic increments
+	promptKey := fmt.Sprintf("token_usage:%s:prompt", today)
+	completionKey := fmt.Sprintf("token_usage:%s:completion", today)
+	totalKey := fmt.Sprintf("token_usage:%s:total", today)
+	
+	if err := redisClient.IncrBy(ctx, promptKey, int64(promptTokens)).Err(); err != nil {
+		log.Printf("⚠️ [TOKEN-TRACK] Failed to track prompt tokens: %v", err)
+	} else {
+		log.Printf("📊 [TOKEN-TRACK] Tracked %d prompt tokens (daily total updating)", promptTokens)
+	}
+	
+	if err := redisClient.IncrBy(ctx, completionKey, int64(completionTokens)).Err(); err != nil {
+		log.Printf("⚠️ [TOKEN-TRACK] Failed to track completion tokens: %v", err)
+	} else {
+		log.Printf("📊 [TOKEN-TRACK] Tracked %d completion tokens (daily total updating)", completionTokens)
+	}
+	
+	if err := redisClient.IncrBy(ctx, totalKey, int64(totalTokens)).Err(); err != nil {
+		log.Printf("⚠️ [TOKEN-TRACK] Failed to track total tokens: %v", err)
+	} else {
+		log.Printf("📊 [TOKEN-TRACK] Tracked %d total tokens (daily total updating)", totalTokens)
+	}
+	
+	// Update per-component token totals
+	componentPromptKey := fmt.Sprintf("token_usage:%s:component:%s:prompt", today, component)
+	componentCompletionKey := fmt.Sprintf("token_usage:%s:component:%s:completion", today, component)
+	componentTotalKey := fmt.Sprintf("token_usage:%s:component:%s:total", today, component)
+	
+	if err := redisClient.IncrBy(ctx, componentPromptKey, int64(promptTokens)).Err(); err != nil {
+		log.Printf("⚠️ [TOKEN-TRACK] Failed to track prompt tokens for component %s: %v", component, err)
+	} else {
+		log.Printf("📊 [TOKEN-TRACK] Tracked %d prompt tokens for component %s", promptTokens, component)
+	}
+	
+	if err := redisClient.IncrBy(ctx, componentCompletionKey, int64(completionTokens)).Err(); err != nil {
+		log.Printf("⚠️ [TOKEN-TRACK] Failed to track completion tokens for component %s: %v", component, err)
+	} else {
+		log.Printf("📊 [TOKEN-TRACK] Tracked %d completion tokens for component %s", completionTokens, component)
+	}
+	
+	if err := redisClient.IncrBy(ctx, componentTotalKey, int64(totalTokens)).Err(); err != nil {
+		log.Printf("⚠️ [TOKEN-TRACK] Failed to track total tokens for component %s: %v", component, err)
+	} else {
+		log.Printf("📊 [TOKEN-TRACK] Tracked %d total tokens for component %s", totalTokens, component)
+	}
+	
+	// Set expiration to 24 hours for individual records (will be aggregated hourly)
+	expiration := 24 * time.Hour
+	redisClient.Expire(ctx, promptKey, expiration)
+	redisClient.Expire(ctx, completionKey, expiration)
+	redisClient.Expire(ctx, totalKey, expiration)
+	redisClient.Expire(ctx, componentPromptKey, expiration)
+	redisClient.Expire(ctx, componentCompletionKey, expiration)
+	redisClient.Expire(ctx, componentTotalKey, expiration)
 }
 
 // normalizeOllamaURL ensures the provided base URL includes the /api/chat endpoint.
