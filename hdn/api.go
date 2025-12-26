@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -3165,6 +3167,64 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 	ctx := context.Background()
 	s.cleanupStaleActiveWorkflows(ctx)
 
+	// Check for duplicate workflows based on task name and description
+	if s.redis != nil {
+		duplicateKey := fmt.Sprintf("workflow:duplicate:%s:%s", req.TaskName, req.Description)
+		// Create a hash of the task for deduplication (normalize whitespace)
+		hash := sha256.Sum256([]byte(strings.TrimSpace(req.TaskName) + "|" + strings.TrimSpace(req.Description)))
+		taskHash := hex.EncodeToString(hash[:])
+		duplicateKey = fmt.Sprintf("workflow:duplicate:%s", taskHash)
+		
+		// Check if a workflow for this task already exists and is active or recently completed
+		existingWorkflowID, err := s.redis.Get(ctx, duplicateKey).Result()
+		if err == nil && existingWorkflowID != "" {
+			// Check if the existing workflow is still active or was completed recently (within last hour)
+			workflowKey := fmt.Sprintf("workflow:%s", existingWorkflowID)
+			workflowJSON, err := s.redis.Get(ctx, workflowKey).Result()
+			if err == nil && workflowJSON != "" {
+				var workflow map[string]interface{}
+				if err := json.Unmarshal([]byte(workflowJSON), &workflow); err == nil {
+					status, _ := workflow["status"].(string)
+					startedAtStr, _ := workflow["started_at"].(string)
+					
+					// If workflow is running or pending, reject duplicate
+					if status == "running" || status == "pending" {
+						log.Printf("🚫 [API] Rejecting duplicate workflow - '%s' already has active workflow: %s", req.TaskName, existingWorkflowID)
+						response := HierarchicalTaskResponse{
+							Success:    false,
+							Error:      fmt.Sprintf("A workflow for '%s' is already running. Please wait for it to complete.", req.TaskName),
+							Message:    "Duplicate workflow",
+							WorkflowID: existingWorkflowID,
+						}
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(http.StatusConflict)
+						json.NewEncoder(w).Encode(response)
+						return
+					}
+					
+					// If workflow was completed recently (within last hour), reject duplicate
+					if startedAtStr != "" {
+						if startedAt, err := time.Parse(time.RFC3339, startedAtStr); err == nil {
+							if time.Since(startedAt) < 1*time.Hour {
+								log.Printf("🚫 [API] Rejecting duplicate workflow - '%s' was processed recently (completed %v ago)", req.TaskName, time.Since(startedAt))
+								response := HierarchicalTaskResponse{
+									Success:    false,
+									Error:      fmt.Sprintf("This task was processed recently. Please wait before requesting again."),
+									Message:    "Duplicate workflow",
+									WorkflowID: existingWorkflowID,
+								}
+								w.Header().Set("Content-Type", "application/json")
+								w.WriteHeader(http.StatusConflict)
+								json.NewEncoder(w).Encode(response)
+								return
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// Check active workflows before creating new one to prevent execution slot exhaustion
 	// UI requests get priority and higher limits
 	isUI := isUIRequest(r)
@@ -3210,6 +3270,15 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 	if b, err := json.Marshal(initial); err == nil {
 		key := fmt.Sprintf("workflow:%s", wfID)
 		_ = s.redis.Set(ctx, key, string(b), 24*time.Hour).Err()
+		
+		// Store duplicate key mapping for deduplication
+		if s.redis != nil {
+			hash := sha256.Sum256([]byte(strings.TrimSpace(req.TaskName) + "|" + strings.TrimSpace(req.Description)))
+			taskHash := hex.EncodeToString(hash[:])
+			duplicateKey := fmt.Sprintf("workflow:duplicate:%s", taskHash)
+			_ = s.redis.Set(ctx, duplicateKey, wfID, 24*time.Hour).Err()
+		}
+		
 		log.Printf("📊 [API] Created initial workflow record (running): %s", wfID)
 	}
 
