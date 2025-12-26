@@ -173,10 +173,13 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 	}
 
 	// Convert to NewsEvent format
+	log.Printf("📊 [getNewsEvents] Weaviate returned %d raw WikipediaArticle records with source=news:fsm", len(weaviateResp.Data.Get.WikipediaArticle))
 	var newsEvents []NewsEvent
+	skippedCount := 0
 	for _, record := range weaviateResp.Data.Get.WikipediaArticle {
 		// Skip boring/system content
 		if len(strings.TrimSpace(record.Text)) < 20 {
+			skippedCount++
 			continue
 		}
 		lowerText := strings.ToLower(record.Text)
@@ -185,20 +188,24 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 			strings.Contains(lowerText, "server busy") ||
 			strings.Contains(lowerText, "execution_plan") ||
 			strings.Contains(lowerText, "interpretation") {
+			skippedCount++
 			continue
 		}
 		// Skip tool creation events
 		if strings.Contains(record.Title, "News Event: agi.tool.created") {
+			skippedCount++
 			continue
 		}
 		// Skip user messages and other conversational events
 		if strings.Contains(record.Title, "News Event: user_message") ||
 			strings.Contains(record.Title, "News Event: assistant_message") ||
 			strings.Contains(record.Title, "News Event: conversation") {
+			skippedCount++
 			continue
 		}
 		// Require basic ingestion signals
 		if strings.TrimSpace(record.Title) == "" {
+			skippedCount++
 			continue
 		}
 
@@ -243,14 +250,24 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 		// Only include actual news content
 		if event.Source == "news:fsm" || event.Source == "wikipedia" {
 			newsEvents = append(newsEvents, event)
+		} else {
+			skippedCount++
 		}
 	}
+	log.Printf("📊 [getNewsEvents] After initial filtering: %d passed, %d skipped", len(newsEvents), skippedCount)
 
 	// Dedupe by canonical URL (keep newest timestamp), but also include items without URLs
+	// Log counts for debugging
+	log.Printf("📊 [getNewsEvents] After filtering: %d news events", len(newsEvents))
+	
 	byURL := make(map[string]NewsEvent)
 	withoutURL := make([]NewsEvent, 0)
 	for _, ev := range newsEvents {
+		// Check both Metadata["url"] and ev.URL for URL
 		u, _ := ev.Metadata["url"].(string)
+		if u == "" {
+			u = ev.URL
+		}
 		key := strings.TrimSpace(strings.ToLower(u))
 		if key == "" {
 			// Items without URLs are kept separately
@@ -262,6 +279,8 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 			byURL[key] = ev
 		}
 	}
+	log.Printf("📊 [getNewsEvents] After deduplication: %d with URLs, %d without URLs", len(byURL), len(withoutURL))
+	
 	newsEvents = newsEvents[:0]
 	// Add deduplicated items with URLs
 	for _, ev := range byURL {
@@ -275,23 +294,31 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 		return newsEvents[i].Timestamp > newsEvents[j].Timestamp
 	})
 
-	// Filter to recent window (last 72h) when parseable
+	// Filter to recent window (last 30 days) when parseable
 	filtered := make([]NewsEvent, 0, len(newsEvents))
-	cutoff := time.Now().Add(-72 * time.Hour)
+	cutoff := time.Now().Add(-30 * 24 * time.Hour)
+	parsedCount := 0
+	withinWindowCount := 0
+	unparseableCount := 0
 	for _, ev := range newsEvents {
 		if ts, err := time.Parse(time.RFC3339, ev.Timestamp); err == nil {
+			parsedCount++
 			if ts.After(cutoff) {
 				filtered = append(filtered, ev)
+				withinWindowCount++
 			}
 		} else {
+			unparseableCount++
 			filtered = append(filtered, ev)
 		}
 	}
+	log.Printf("📊 [getNewsEvents] Time filter: %d parsed, %d within 30 days, %d unparseable (included)", parsedCount, withinWindowCount, unparseableCount)
 
 	// Limit results
 	if len(filtered) > 20 {
 		filtered = filtered[:20]
 	}
+	log.Printf("📊 [getNewsEvents] Final count: %d events (limited from %d)", len(filtered), len(newsEvents))
 
 	c.JSON(http.StatusOK, gin.H{
 		"events": filtered,
