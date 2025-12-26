@@ -830,23 +830,50 @@ func (wo *WorkflowOrchestrator) getMappedIntelligentWorkflow(ctx context.Context
 
 // addCompletedWorkflowsFromRedis adds completed workflows from Redis to the status list
 func (wo *WorkflowOrchestrator) addCompletedWorkflowsFromRedis(statuses *[]*WorkflowStatus) {
-	ctx := context.Background()
+	// Use timeout context to prevent hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
 
 	// Get all workflow IDs from active_workflows set
 	activeWorkflowsKey := "active_workflows"
 	workflowIDs, err := wo.redis.SMembers(ctx, activeWorkflowsKey).Result()
 	if err != nil {
-		log.Printf("⚠️ [ORCHESTRATOR] Failed to get active workflow IDs: %v", err)
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Printf("⏱️ [ORCHESTRATOR] Timeout getting active workflow IDs from Redis")
+		} else {
+			log.Printf("⚠️ [ORCHESTRATOR] Failed to get active workflow IDs: %v", err)
+		}
 		return
 	}
 
 	log.Printf("📋 [ORCHESTRATOR] Found %d active workflow IDs in Redis", len(workflowIDs))
 
-	// Get workflow details from Redis
-	for _, workflowID := range workflowIDs {
+	// Limit to most recent 50 workflows to prevent slow queries
+	maxWorkflows := 50
+	if len(workflowIDs) > maxWorkflows {
+		log.Printf("⚠️ [ORCHESTRATOR] Limiting to %d most recent workflows (found %d total)", maxWorkflows, len(workflowIDs))
+		workflowIDs = workflowIDs[:maxWorkflows]
+	}
+
+	// Get workflow details from Redis with timeout per workflow
+	for i, workflowID := range workflowIDs {
+		// Check if context is cancelled (timeout)
+		if ctx.Err() != nil {
+			log.Printf("⏱️ [ORCHESTRATOR] Timeout while processing workflows (processed %d/%d)", i, len(workflowIDs))
+			break
+		}
+
 		workflowKey := fmt.Sprintf("workflow:%s", workflowID)
 		workflowData, err := wo.redis.Get(ctx, workflowKey).Result()
 		if err != nil {
+			if err == redis.Nil {
+				// Workflow key doesn't exist, skip it
+				continue
+			}
+			if ctx.Err() == context.DeadlineExceeded {
+				log.Printf("⏱️ [ORCHESTRATOR] Timeout getting workflow %s", workflowID)
+				break
+			}
 			log.Printf("⚠️ [ORCHESTRATOR] Failed to get workflow %s: %v", workflowID, err)
 			continue
 		}
@@ -858,12 +885,18 @@ func (wo *WorkflowOrchestrator) addCompletedWorkflowsFromRedis(statuses *[]*Work
 			continue
 		}
 
+		// Safely extract fields with type assertions
+		id, _ := workflowRecord["id"].(string)
+		statusStr, _ := workflowRecord["status"].(string)
+		currentStep, _ := workflowRecord["current_step"].(string)
+		errorStr, _ := workflowRecord["error"].(string)
+
 		// Convert to WorkflowStatus
 		status := &WorkflowStatus{
-			ID:          workflowRecord["id"].(string),
-			Status:      workflowRecord["status"].(string),
-			CurrentStep: workflowRecord["current_step"].(string),
-			Error:       workflowRecord["error"].(string),
+			ID:          id,
+			Status:      statusStr,
+			CurrentStep: currentStep,
+			Error:       errorStr,
 			CanResume:   false,
 			CanCancel:   false,
 		}
@@ -882,18 +915,31 @@ func (wo *WorkflowOrchestrator) addCompletedWorkflowsFromRedis(statuses *[]*Work
 
 		// Parse progress if available
 		if progress, ok := workflowRecord["progress"].(float64); ok {
+			totalSteps := 0
+			completedSteps := 0
+			failedSteps := 0
+			if ts, ok := workflowRecord["total_steps"].(float64); ok {
+				totalSteps = int(ts)
+			}
+			if cs, ok := workflowRecord["completed_steps"].(float64); ok {
+				completedSteps = int(cs)
+			}
+			if fs, ok := workflowRecord["failed_steps"].(float64); ok {
+				failedSteps = int(fs)
+			}
 			status.Progress = WorkflowProgress{
 				Percentage:     progress,
-				TotalSteps:     int(workflowRecord["total_steps"].(float64)),
-				CompletedSteps: int(workflowRecord["completed_steps"].(float64)),
-				FailedSteps:    int(workflowRecord["failed_steps"].(float64)),
-				CurrentStep:    workflowRecord["current_step"].(string),
+				TotalSteps:     totalSteps,
+				CompletedSteps: completedSteps,
+				FailedSteps:    failedSteps,
+				CurrentStep:    currentStep,
 			}
 		}
 
 		*statuses = append(*statuses, status)
-		log.Printf("📄 [ORCHESTRATOR] Added completed workflow %s to status list", workflowID)
 	}
+
+	log.Printf("📄 [ORCHESTRATOR] Added %d workflows from Redis to status list", len(*statuses))
 }
 
 // updateMetrics updates Redis metrics for workflow execution

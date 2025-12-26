@@ -1506,11 +1506,18 @@ func (m *MonitorService) getActiveWorkflows(c *gin.Context) {
 	workflows := []WorkflowStatus{}
 
 	// Get workflows from HDN server
-	client := &http.Client{Timeout: 5 * time.Second} // Shorter timeout to avoid hanging
+	// Increased timeout to 8 seconds to allow for Redis queries (which have 3s timeout)
+	client := &http.Client{Timeout: 8 * time.Second}
 	resp, err := client.Get(m.hdnURL + "/api/v1/hierarchical/workflows")
 	if err != nil {
-		log.Printf("❌ [MONITOR] Failed to get workflows from HDN: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get workflows from HDN server"})
+		// Check if it's a timeout error
+		if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
+			log.Printf("⏱️ [MONITOR] Timeout getting workflows from HDN (exceeded 8s)")
+			c.JSON(http.StatusGatewayTimeout, gin.H{"error": "HDN server timeout - workflows endpoint took too long to respond"})
+		} else {
+			log.Printf("❌ [MONITOR] Failed to get workflows from HDN: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get workflows from HDN server"})
+		}
 		return
 	}
 	defer resp.Body.Close()
