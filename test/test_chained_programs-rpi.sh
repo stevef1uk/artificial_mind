@@ -48,7 +48,7 @@ setup_port_forward() {
   EXISTING_PF=$(pgrep -f "kubectl.*port-forward.*hdn-server-rpi58.*8081" | head -1 || true)
   if [ -n "$EXISTING_PF" ]; then
     print_info "Found existing kubectl port-forward (PID: $EXISTING_PF)"
-    if curl -s -f "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1; then
+    if curl -s -f -H "X-Request-Source: ui" "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1; then
       print_ok "Existing port-forward is working"
       PORT_FORWARD_PID="$EXISTING_PF"
       return 0
@@ -61,7 +61,7 @@ setup_port_forward() {
   if lsof -i :8081 >/dev/null 2>&1 || ss -tuln 2>/dev/null | grep -q ":8081 " || netstat -tuln 2>/dev/null | grep -q ":8081 " ; then
     if pgrep -f "kubectl.*port-forward.*8081" >/dev/null 2>&1; then
       print_info "Port 8081 in use by kubectl port-forward, verifying…"
-      if curl -s -f "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1; then
+      if curl -s -f -H "X-Request-Source: ui" "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1; then
         EXISTING_PF=$(pgrep -f "kubectl.*port-forward.*8081" | head -1 || true)
         if [ -n "$EXISTING_PF" ]; then
           PORT_FORWARD_PID="$EXISTING_PF"
@@ -72,7 +72,7 @@ setup_port_forward() {
     fi
     print_warn "Port 8081 is in use by a non-kubectl process"
     print_info "Attempting to use existing connection if it works…"
-    if curl -s -f "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1; then
+    if curl -s -f -H "X-Request-Source: ui" "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1; then
       print_ok "Port 8081 is accessible and working"
       return 0
     fi
@@ -104,7 +104,7 @@ setup_port_forward() {
 
   print_info "Testing connectivity to HDN service…"
   for attempt in 1 2 3 4 5; do
-    if curl -s -f "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1 || \
+    if curl -s -f -H "X-Request-Source: ui" "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1 || \
        curl -s -f "$API_URL/health" >/dev/null 2>&1 || \
        curl -s -f "$API_URL/api/v1/health" >/dev/null 2>&1; then
       print_ok "Port-forward established and verified (PID: $PORT_FORWARD_PID)"
@@ -153,6 +153,7 @@ REQUEST='{
 echo "Sending request..."
 RESPONSE=$(curl -s --max-time 120 -X POST "$HDN_URL/api/v1/intelligent/execute" \
   -H 'Content-Type: application/json' \
+  -H 'X-Request-Source: ui' \
   -d "$REQUEST")
 
 echo "Response:"
@@ -167,7 +168,7 @@ if [ "$SUCCESS" = "true" ] && [ -n "$WORKFLOW_ID" ]; then
   echo
   echo "Checking generated files..."
 
-  FILES_RESPONSE=$(curl -s "$HDN_URL/api/v1/files/workflow/$WORKFLOW_ID")
+  FILES_RESPONSE=$(curl -s -H "X-Request-Source: ui" "$HDN_URL/api/v1/files/workflow/$WORKFLOW_ID")
   echo "$FILES_RESPONSE" | jq '.[] | {filename: .filename, size: .size}' || echo "$FILES_RESPONSE"
 
   HAS_PROG1=$(echo "$FILES_RESPONSE" | jq -r '.[]? | select(.filename == "prog1.py") | .filename' || echo "")
@@ -178,10 +179,10 @@ if [ "$SUCCESS" = "true" ] && [ -n "$WORKFLOW_ID" ]; then
     print_ok "Both files generated!"
     echo
     echo "prog1.py content:"
-    curl -s "$HDN_URL/api/v1/workflow/$WORKFLOW_ID/files/prog1.py" | head -30
+    curl -s -H "X-Request-Source: ui" "$HDN_URL/api/v1/workflow/$WORKFLOW_ID/files/prog1.py" | head -30
     echo
     echo "prog2.go content:"
-    curl -s "$HDN_URL/api/v1/workflow/$WORKFLOW_ID/files/prog2.go" | head -30
+    curl -s -H "X-Request-Source: ui" "$HDN_URL/api/v1/workflow/$WORKFLOW_ID/files/prog2.go" | head -30
   else
     print_warn "Missing files:"
     [ -z "$HAS_PROG1" ] && echo "  - prog1.py not found"

@@ -64,7 +64,7 @@ setup_port_forward() {
     print_info "Found existing kubectl port-forward (PID: $EXISTING_PF)"
     if curl -s -f "$API_URL/health" >/dev/null 2>&1 || \
        curl -s -f "$API_URL/api/v1/health" >/dev/null 2>&1 || \
-       curl -s -f "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1; then
+       curl -s -f -H "X-Request-Source: ui" "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1; then
       print_success "Existing port-forward is working"
       PORT_FORWARD_PID="$EXISTING_PF"
       return 0
@@ -78,7 +78,7 @@ setup_port_forward() {
   if lsof -i :8081 >/dev/null 2>&1 || ss -tuln 2>/dev/null | grep -q ":8081 " || netstat -tuln 2>/dev/null | grep -q ":8081 " ; then
     if pgrep -f "kubectl.*port-forward.*8081" >/dev/null 2>&1; then
       print_info "Port 8081 in use by kubectl port-forward, verifying…"
-      if curl -s -f "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1; then
+      if curl -s -f -H "X-Request-Source: ui" "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1; then
         EXISTING_PF=$(pgrep -f "kubectl.*port-forward.*8081" | head -1 || true)
         if [ -n "$EXISTING_PF" ]; then
           PORT_FORWARD_PID="$EXISTING_PF"
@@ -89,7 +89,7 @@ setup_port_forward() {
     fi
     print_warning "Port 8081 is in use by a non-kubectl process"
     print_info "Attempting to use existing connection if it works…"
-    if curl -s -f "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1; then
+    if curl -s -f -H "X-Request-Source: ui" "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1; then
       print_success "Port 8081 is accessible and working"
       return 0
     fi
@@ -123,7 +123,7 @@ setup_port_forward() {
   for attempt in 1 2 3 4 5; do
     if curl -s -f "$API_URL/health" >/dev/null 2>&1 || \
        curl -s -f "$API_URL/api/v1/health" >/dev/null 2>&1 || \
-       curl -s -f "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1; then
+       curl -s -f -H "X-Request-Source: ui" "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1; then
       print_success "Port-forward established and verified (PID: $PORT_FORWARD_PID)"
       return 0
     fi
@@ -179,6 +179,7 @@ CHAINED_REQ='{
 CHAINED_JSON="$TMP_DIR/int_exec_chained.json"
 curl -s --max-time 120 -X POST "$HDN_URL/api/v1/intelligent/execute" \
   -H 'Content-Type: application/json' \
+  -H 'X-Request-Source: ui' \
   --data-binary "$CHAINED_REQ" \
   -o "$CHAINED_JSON"
 
@@ -192,7 +193,7 @@ CHAINED_WID=$(jq -r '.workflow_id' "$CHAINED_JSON")
 echo "[C/2] Chained workflow: $CHAINED_WID"
 
 CHAINED_FILES_JSON="$TMP_DIR/wf_files_chained.json"
-curl -s "$HDN_URL/api/v1/files/workflow/$CHAINED_WID" -o "$CHAINED_FILES_JSON"
+curl -s -H "X-Request-Source: ui" "$HDN_URL/api/v1/files/workflow/$CHAINED_WID" -o "$CHAINED_FILES_JSON"
 
 if ! jq -e 'map(.filename) | index("prog1.py") != null' "$CHAINED_FILES_JSON" >/dev/null; then
   echo "ERROR: prog1.py not found in generated files" >&2

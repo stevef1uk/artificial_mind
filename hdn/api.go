@@ -3206,25 +3206,57 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 		log.Printf("📊 [API] Created initial workflow record (running): %s", wfID)
 	}
 
-	go func(req HierarchicalTaskRequest, wfID string) {
-		// For async execution, we need to create a mock request to check UI status
-		// Since this is async, we'll use general slot only
-		// Wait for a slot with shorter timeout to fail faster and prevent backlog
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	go func(req HierarchicalTaskRequest, wfID string, isUI bool) {
+		// For async execution, respect UI status for slot acquisition
+		// UI requests get longer timeout and can use UI slot
+		slotTimeout := 10 * time.Second
+		if isUI {
+			slotTimeout = 60 * time.Second // UI requests get 60s to wait for a slot
+		}
+		
+		ctx, cancel := context.WithTimeout(context.Background(), slotTimeout)
 		defer cancel()
 		
-		select {
-		case s.executionSemaphore <- struct{}{}:
-			defer func() { <-s.executionSemaphore }()
-		case <-ctx.Done():
-			log.Printf("❌ [API] Async execution rejected - timeout waiting for execution slot after 10s")
+		// Try to acquire slot - UI requests try UI slot first, then general
+		var acquired bool
+		var release func()
+		
+		if isUI {
+			// UI request: try UI slot first, then general slot
+			select {
+			case s.uiExecutionSemaphore <- struct{}{}:
+				acquired = true
+				release = func() { <-s.uiExecutionSemaphore }
+			default:
+				// UI slot busy, try general slot
+				select {
+				case s.executionSemaphore <- struct{}{}:
+					acquired = true
+					release = func() { <-s.executionSemaphore }
+				case <-ctx.Done():
+					acquired = false
+				}
+			}
+		} else {
+			// Non-UI request: use general slot only
+			select {
+			case s.executionSemaphore <- struct{}{}:
+				acquired = true
+				release = func() { <-s.executionSemaphore }
+			case <-ctx.Done():
+				acquired = false
+			}
+		}
+		
+		if !acquired {
+			log.Printf("❌ [API] Async execution rejected - timeout waiting for execution slot after %v (UI: %v)", slotTimeout, isUI)
 			// Update workflow status to failed
 			key := fmt.Sprintf("workflow:%s", wfID)
 			if val, err := s.redis.Get(context.Background(), key).Result(); err == nil {
 				var rec map[string]any
 				if json.Unmarshal([]byte(val), &rec) == nil {
 					rec["status"] = "failed"
-					rec["error"] = "Timeout waiting for execution slot"
+					rec["error"] = fmt.Sprintf("Timeout waiting for execution slot after %v", slotTimeout)
 					rec["updated_at"] = time.Now().Format(time.RFC3339)
 					if b, err := json.Marshal(rec); err == nil {
 						_ = s.redis.Set(context.Background(), key, string(b), 24*time.Hour).Err()
@@ -3233,6 +3265,7 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 			}
 			return
 		}
+		defer release()
 
 		defer func() {
 			// touch updated_at
@@ -3426,7 +3459,7 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 			}
 		}
 		log.Printf("📡 [API] Hierarchical workflow started: %s", execution.ID)
-	}(req, wfID)
+	}(req, wfID, isUI)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
