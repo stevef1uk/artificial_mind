@@ -425,7 +425,7 @@ func main() {
 	// RAG search
 	r.GET("/api/rag/search", monitor.ragSearch)
 	r.POST("/api/goal/:id/update-status", monitor.updateGoalStatus)
-	r.DELETE("/api/goal/:id", monitor.deleteSelfModelGoal)
+	r.DELETE("/api/memory/goals/:id", monitor.deleteSelfModelGoal)
 	r.GET("/api/logs", monitor.getLogs)
 	r.GET("/api/k8s/services", monitor.getK8sServices)
 	r.GET("/api/k8s/logs/:service", monitor.getK8sLogs)
