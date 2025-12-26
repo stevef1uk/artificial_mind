@@ -58,6 +58,20 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 				log.Printf("[FSM][Goals] Auto-executor paused by Redis flag; skipping tick")
 				continue
 			}
+			
+			// Check how many active workflows are running to prevent execution slot exhaustion
+			activeWorkflowCount, err := rdb.SCard(ctx, "active_workflows").Result()
+			if err == nil {
+				// Don't trigger new goals if too many workflows are already running
+				// With default of 4 general execution slots, allow up to 3 active workflows
+				// before pausing new goal triggers (leaves 1 slot free for other operations)
+				maxActiveWorkflows := 3
+				if activeWorkflowCount >= int64(maxActiveWorkflows) {
+					log.Printf("[FSM][Goals] Skipping goal trigger - %d active workflows (max: %d)", activeWorkflowCount, maxActiveWorkflows)
+					continue
+				}
+			}
+			
 			// Fetch active goals for this agent
 			url := fmt.Sprintf("%s/goals/%s/active", goalMgrURL, agentID)
 			resp, err := client.Get(url)
@@ -193,8 +207,10 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 					}
 
 					triggeredCount++
-					// Limit to 3 goals triggered per tick to improve throughput
-					if triggeredCount >= 3 {
+					// Limit to 1 goal triggered per tick to prevent execution slot exhaustion
+					// With only 2-3 execution slots available, triggering multiple goals simultaneously
+					// causes timeouts. Process goals one at a time.
+					if triggeredCount >= 1 {
 						break
 					}
 				} else {

@@ -5413,8 +5413,10 @@ func getMaxConcurrentExecutions() int {
 			return max
 		}
 	}
-	// Default to 3 for conservative GPU usage (prevents overload)
-	return 3
+	// Default to 5 to handle multiple concurrent goal executions
+	// (1 UI slot + 4 general slots = 5 total)
+	// This prevents timeouts when multiple goals are being processed
+	return 5
 }
 
 // isUIRequest checks if the request is from the UI based on headers or context

@@ -207,12 +207,48 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 	if err != nil {
 		log.Printf("Warning: Failed to check for concepts: %v", err)
 	} else if len(concepts) == 0 {
-		// Check if we've recently generated basic exploration goals (avoid spam)
+		// Check if basic exploration goals already exist to avoid duplicates
+		curiosityGoalsKey := fmt.Sprintf("reasoning:curiosity_goals:%s", domain)
+		existingGoalsData, err := re.redis.LRange(re.ctx, curiosityGoalsKey, 0, 199).Result()
+		if err == nil {
+			// Check if goals with the same descriptions already exist
+			expectedDescriptions := []string{
+				fmt.Sprintf("Use tool_http_get to fetch Wikipedia category page for '%s' and extract key concepts", domain),
+				fmt.Sprintf("Use tool_http_get to fetch recent Wikipedia articles about domain concepts"),
+				fmt.Sprintf("Use tool_html_scraper to scrape Wikipedia articles about '%s' and extract structured knowledge", domain),
+			}
+
+			existingDescriptions := make(map[string]bool)
+			for _, goalData := range existingGoalsData {
+				var existingGoal CuriosityGoal
+				if err := json.Unmarshal([]byte(goalData), &existingGoal); err == nil {
+					// Normalize description for comparison
+					desc := strings.ToLower(strings.TrimSpace(existingGoal.Description))
+					existingDescriptions[desc] = true
+				}
+			}
+
+			// Check if any of the expected goals already exist
+			allExist := true
+			for _, expectedDesc := range expectedDescriptions {
+				normalized := strings.ToLower(strings.TrimSpace(expectedDesc))
+				if !existingDescriptions[normalized] {
+					allExist = false
+					break
+				}
+			}
+
+			if allExist {
+				log.Printf("ℹ️ Skipping basic exploration goal generation - similar goals already exist for domain %s", domain)
+				return []CuriosityGoal{}, nil
+			}
+		}
+
+		// Also check if we've recently generated basic exploration goals (avoid spam)
 		recentGoalsKey := fmt.Sprintf("reasoning:recent_goals:%s", domain)
 		recentCount, _ := re.redis.LLen(re.ctx, recentGoalsKey).Result()
 
-		// If we've generated goals recently (within last 2 minutes), skip to avoid spam
-		// Reduced from 10 minutes to 2 minutes to allow more goal generation
+		// If we've generated goals recently (within last 10 minutes), skip to avoid spam
 		if recentCount > 0 {
 			// Check the timestamp of the most recent goal
 			recentGoalData, err := re.redis.LIndex(re.ctx, recentGoalsKey, 0).Result()
@@ -221,8 +257,8 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 				if json.Unmarshal([]byte(recentGoalData), &recentGoal) == nil {
 					if createdAtStr, ok := recentGoal["created_at"].(string); ok {
 						if createdAt, err := time.Parse(time.RFC3339, createdAtStr); err == nil {
-							if time.Since(createdAt) < 2*time.Minute {
-								log.Printf("ℹ️ Skipping goal generation - recently generated goals for domain %s (within last 2 minutes)", domain)
+							if time.Since(createdAt) < 10*time.Minute {
+								log.Printf("ℹ️ Skipping goal generation - recently generated goals for domain %s (within last 10 minutes)", domain)
 								return []CuriosityGoal{}, nil
 							}
 						}
@@ -258,8 +294,8 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 		for _, goal := range basicGoals {
 			goalData, _ := json.Marshal(goal)
 			re.redis.LPush(re.ctx, recentGoalsKey, goalData)
-			re.redis.LTrim(re.ctx, recentGoalsKey, 0, 9)           // Keep last 10
-			re.redis.Expire(re.ctx, recentGoalsKey, 2*time.Minute) // Reduced from 10 to 2 minutes
+			re.redis.LTrim(re.ctx, recentGoalsKey, 0, 9)            // Keep last 10
+			re.redis.Expire(re.ctx, recentGoalsKey, 10*time.Minute) // Increased to 10 minutes
 		}
 
 		log.Printf("✅ Generated %d basic exploration goals", len(basicGoals))
@@ -300,7 +336,22 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 		goals = append(goals, newsGoals...)
 	}
 
-	// Filter out generic/useless goals before returning
+	// Get existing goals from Redis for deduplication
+	curiosityGoalsKey := fmt.Sprintf("reasoning:curiosity_goals:%s", domain)
+	existingGoalsData, err := re.redis.LRange(re.ctx, curiosityGoalsKey, 0, 199).Result()
+	existingDescriptions := make(map[string]bool)
+	if err == nil {
+		for _, goalData := range existingGoalsData {
+			var existingGoal CuriosityGoal
+			if err := json.Unmarshal([]byte(goalData), &existingGoal); err == nil {
+				// Normalize description for comparison
+				desc := strings.ToLower(strings.TrimSpace(existingGoal.Description))
+				existingDescriptions[desc] = true
+			}
+		}
+	}
+
+	// Filter out generic/useless goals and duplicates before returning
 	var filteredGoals []CuriosityGoal
 	seenDescriptions := make(map[string]bool)
 	for _, goal := range goals {
@@ -309,10 +360,14 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 			log.Printf("🚫 Filtered out generic goal: %s", goal.Description)
 			continue
 		}
-		// Skip duplicate descriptions (normalized)
+		// Skip duplicate descriptions (normalized) - check both current batch and existing goals
 		descKey := strings.ToLower(strings.TrimSpace(goal.Description))
 		if seenDescriptions[descKey] {
-			log.Printf("🚫 Filtered out duplicate goal: %s", goal.Description)
+			log.Printf("🚫 Filtered out duplicate goal (current batch): %s", goal.Description)
+			continue
+		}
+		if existingDescriptions[descKey] {
+			log.Printf("🚫 Filtered out duplicate goal (already exists): %s", goal.Description)
 			continue
 		}
 		seenDescriptions[descKey] = true
@@ -990,14 +1045,14 @@ func (re *ReasoningEngine) isGenericGoal(goal CuriosityGoal) bool {
 	// Check for generic hypothesis testing goals with vague descriptions
 	if goal.Type == "hypothesis_testing" {
 		desc := strings.ToLower(goal.Description)
-		
+
 		// Check for nested vague descriptions (multiple colons indicate nesting)
 		colonCount := strings.Count(desc, ":")
 		if colonCount > 2 {
 			// Likely a nested vague description
 			return true
 		}
-		
+
 		// Generic patterns that indicate useless goals
 		genericPatterns := []string{
 			"apply insights from system state",
@@ -1015,7 +1070,7 @@ func (re *ReasoningEngine) isGenericGoal(goal CuriosityGoal) bool {
 				return true
 			}
 		}
-		
+
 		// Check for overly vague descriptions with multiple question prefixes
 		vaguePrefixes := []string{
 			"test hypothesis: how can we better test:",
@@ -1028,7 +1083,7 @@ func (re *ReasoningEngine) isGenericGoal(goal CuriosityGoal) bool {
 				return true
 			}
 		}
-		
+
 		// Check if description is too vague (less than 30 chars or very repetitive)
 		if len(goal.Description) < 30 {
 			return true
