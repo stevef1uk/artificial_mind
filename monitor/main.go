@@ -1507,8 +1507,8 @@ func (m *MonitorService) getActiveWorkflows(c *gin.Context) {
 	workflows := []WorkflowStatus{}
 
 	// Get workflows from HDN server
-	// Increased timeout to 8 seconds to allow for Redis queries (which have 3s timeout)
-	client := &http.Client{Timeout: 8 * time.Second}
+	// Increased timeout to 15 seconds to allow for file/step fetching
+	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(m.hdnURL + "/api/v1/hierarchical/workflows")
 	if err != nil {
 		// Check if it's a timeout error
@@ -1537,6 +1537,20 @@ func (m *MonitorService) getActiveWorkflows(c *gin.Context) {
 					hierByID[hw.ID] = hw
 				}
 			}
+
+			// First pass: collect workflow data without fetching files/steps
+			type workflowData struct {
+				wf         *WorkflowStatusResponse
+				progress   float64
+				totalSteps int
+				completed  int
+				failed     int
+				taskName   string
+				desc       string
+				resolvedID string
+				fileID     string
+			}
+			workflowDataList := make([]workflowData, 0, len(response.Workflows))
 
 			for _, wf := range response.Workflows {
 				// Extract progress details from the progress object
@@ -1624,40 +1638,85 @@ func (m *MonitorService) getActiveWorkflows(c *gin.Context) {
 				}
 
 				// For intelligent workflows, use the original ID to fetch files (not resolved ID)
-				fileID := wf.ID
+				var fileID string
 				if strings.HasPrefix(wf.ID, "intelligent_") {
 					fileID = wf.ID // Use original intelligent ID for files
 				} else {
 					fileID = resolvedID // Use resolved ID for hierarchical workflows
 				}
 
-				// Fetch files for this workflow
-				files, err := m.getWorkflowFiles(fileID)
-				if err != nil {
-					log.Printf("⚠️ [MONITOR] Failed to fetch files for workflow %s: %v", wf.ID, err)
-					files = []FileInfo{} // Use empty list on error
-				}
-				// Only log if files were found (reduce log noise)
-				if len(files) > 0 {
-					log.Printf("📁 [MONITOR] Successfully fetched %d files for workflow %s", len(files), wf.ID)
-				}
+				// Store workflow data for batch processing
+				workflowDataList = append(workflowDataList, workflowData{
+					wf:         wf,
+					progress:   progress,
+					totalSteps: totalSteps,
+					completed:  completedSteps,
+					failed:     failedSteps,
+					taskName:   taskName,
+					desc:       description,
+					resolvedID: resolvedID,
+					fileID:     fileID,
+				})
+			}
 
-				// Get detailed step information for this workflow
-				stepDetails, err := m.getWorkflowStepDetails(resolvedID)
-				if err != nil {
-					log.Printf("⚠️ [MONITOR] Failed to fetch step details for workflow %s: %v", wf.ID, err)
-					stepDetails = []WorkflowStepStatus{} // Use empty list on error
-				}
+			// Second pass: batch fetch files and steps in parallel
+			type fetchResult struct {
+				workflowIdx int
+				files       []FileInfo
+				steps       []WorkflowStepStatus
+				err         error
+			}
+			resultChan := make(chan fetchResult, len(workflowDataList))
+
+			// Fetch files and steps in parallel
+			for idx, wd := range workflowDataList {
+				go func(i int, data workflowData) {
+					var files []FileInfo
+					var steps []WorkflowStepStatus
+					var fetchErr error
+
+					// Fetch files
+					files, fetchErr = m.getWorkflowFiles(data.fileID)
+					if fetchErr != nil {
+						files = []FileInfo{}
+					}
+
+					// Fetch steps
+					steps, fetchErr = m.getWorkflowStepDetails(data.resolvedID)
+					if fetchErr != nil {
+						steps = []WorkflowStepStatus{}
+					}
+
+					resultChan <- fetchResult{
+						workflowIdx: i,
+						files:       files,
+						steps:       steps,
+						err:         fetchErr,
+					}
+				}(idx, wd)
+			}
+
+			// Collect results
+			fileResults := make(map[int][]FileInfo)
+			stepResults := make(map[int][]WorkflowStepStatus)
+			for i := 0; i < len(workflowDataList); i++ {
+				result := <-resultChan
+				fileResults[result.workflowIdx] = result.files
+				stepResults[result.workflowIdx] = result.steps
+			}
+
+			// Build final workflows with fetched data
+			totalFiles := 0
+			for idx, wd := range workflowDataList {
+				files := fileResults[idx]
+				stepDetails := stepResults[idx]
 
 				// Handle intelligent execution workflows
-				if strings.HasPrefix(wf.ID, "intelligent_") {
-					// For intelligent workflows, use the files we already fetched
-					// (don't override with wf.Files which is null from hierarchical API)
-					log.Printf("📁 [MONITOR] Intelligent workflow %s has %d files", wf.ID, len(files))
-					// Use steps from the workflow response
-					if wf.Steps != nil {
-						// Convert interface{} to WorkflowStepStatus
-						for _, stepInterface := range wf.Steps {
+				if strings.HasPrefix(wd.wf.ID, "intelligent_") {
+					// Use steps from the workflow response if available
+					if wd.wf.Steps != nil {
+						stepDetails = []WorkflowStepStatus{}
+						for _, stepInterface := range wd.wf.Steps {
 							if stepMap, ok := stepInterface.(map[string]interface{}); ok {
 								stepStatus := WorkflowStepStatus{
 									ID:     getStringFromMap(stepMap, "id"),
@@ -1670,26 +1729,35 @@ func (m *MonitorService) getActiveWorkflows(c *gin.Context) {
 					}
 				}
 
+				if len(files) > 0 {
+					totalFiles += len(files)
+				}
+
 				workflows = append(workflows, WorkflowStatus{
-					ID:              wf.ID,
-					Status:          wf.Status,
-					TaskName:        taskName,
-					Description:     description,
-					Progress:        progress,
-					TotalSteps:      totalSteps,
-					CompletedSteps:  completedSteps,
-					FailedSteps:     failedSteps,
-					CurrentStep:     wf.CurrentStep,
-					StartedAt:       wf.StartedAt,
-					UpdatedAt:       wf.LastActivity,
-					CanResume:       wf.CanResume,
-					CanCancel:       wf.CanCancel,
-					Error:           wf.Error,
-					ProgressDetails: wf.Progress,
+					ID:              wd.wf.ID,
+					Status:          wd.wf.Status,
+					TaskName:        wd.taskName,
+					Description:     wd.desc,
+					Progress:        wd.progress,
+					TotalSteps:      wd.totalSteps,
+					CompletedSteps:  wd.completed,
+					FailedSteps:     wd.failed,
+					CurrentStep:     wd.wf.CurrentStep,
+					StartedAt:       wd.wf.StartedAt,
+					UpdatedAt:       wd.wf.LastActivity,
+					CanResume:       wd.wf.CanResume,
+					CanCancel:       wd.wf.CanCancel,
+					Error:           wd.wf.Error,
+					ProgressDetails: wd.wf.Progress,
 					Files:           files,
 					Steps:           stepDetails,
-					GeneratedCode:   wf.GeneratedCode, // Add generated code
+					GeneratedCode:   wd.wf.GeneratedCode,
 				})
+			}
+
+			// Log summary
+			if totalFiles > 0 {
+				log.Printf("📁 [MONITOR] Fetched files for %d hierarchical workflows (%d total files)", len(workflowDataList), totalFiles)
 			}
 		}
 	}
