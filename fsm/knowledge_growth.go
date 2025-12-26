@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -720,7 +721,8 @@ func (kge *KnowledgeGrowthEngine) getDomainConcepts(domain string) ([]map[string
 
 // getDomainConceptsDirect gets domain concepts via direct API (fallback)
 func (kge *KnowledgeGrowthEngine) getDomainConceptsDirect(domain string) ([]map[string]interface{}, error) {
-	searchURL := fmt.Sprintf("%s/api/v1/knowledge/search?domain=%s&limit=100", kge.hdnURL, domain)
+	encodedDomain := url.QueryEscape(domain)
+	searchURL := fmt.Sprintf("%s/api/v1/knowledge/search?domain=%s&limit=100", kge.hdnURL, encodedDomain)
 
 	resp, err := kge.httpClient.Get(searchURL)
 	if err != nil {
@@ -1228,7 +1230,8 @@ func (kge *KnowledgeGrowthEngine) conceptAlreadyExistsDirect(conceptName string,
 		hdnURL = "http://localhost:8081"
 	}
 
-	searchURL := fmt.Sprintf("%s/api/v1/knowledge/search?name=%s&limit=10", hdnURL, conceptName)
+	encodedConceptName := url.QueryEscape(conceptName)
+	searchURL := fmt.Sprintf("%s/api/v1/knowledge/search?name=%s&limit=10", hdnURL, encodedConceptName)
 	resp, err := kge.httpClient.Get(searchURL)
 	if err != nil {
 		return false, fmt.Errorf("failed to search concepts: %w", err)

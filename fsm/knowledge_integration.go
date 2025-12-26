@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -96,7 +97,9 @@ type PlanStep struct {
 // ClassifyDomain classifies input using domain knowledge
 func (ki *KnowledgeIntegration) ClassifyDomain(input string) (*DomainClassificationResult, error) {
 	// Search for related concepts in the knowledge base
-	searchURL := fmt.Sprintf("%s/api/v1/knowledge/search?name=%s&limit=10", ki.hdnURL, input)
+	// URL-encode the input to handle spaces and special characters
+	encodedInput := url.QueryEscape(input)
+	searchURL := fmt.Sprintf("%s/api/v1/knowledge/search?name=%s&limit=10", ki.hdnURL, encodedInput)
 
 	resp, err := http.Get(searchURL)
 	if err != nil {
@@ -1368,7 +1371,8 @@ func (ki *KnowledgeIntegration) getDomainConcepts(domain string) ([]map[string]i
 
 // getDomainConceptsDirect gets domain concepts via direct API (fallback)
 func (ki *KnowledgeIntegration) getDomainConceptsDirect(domain string) ([]map[string]interface{}, error) {
-	searchURL := fmt.Sprintf("%s/api/v1/knowledge/search?domain=%s&limit=50", ki.hdnURL, domain)
+	encodedDomain := url.QueryEscape(domain)
+	searchURL := fmt.Sprintf("%s/api/v1/knowledge/search?domain=%s&limit=50", ki.hdnURL, encodedDomain)
 
 	resp, err := http.Get(searchURL)
 	if err != nil {

@@ -1063,6 +1063,45 @@ for k, v in params.items():
 				req.Input = string(b)
 			}
 
+			// Check if Docker is available, otherwise fall back to Drone executor
+			executionMethod := os.Getenv("EXECUTION_METHOD")
+			useDrone := executionMethod == "drone" || (executionMethod == "" && (s.dockerExecutor == nil || !fileExists("/var/run/docker.sock")))
+			
+			if useDrone {
+				// Use Drone executor for Kubernetes environments or when Docker is unavailable
+				droneResp, err := s.submitToDroneCI(wrappedCode, language, "")
+				if err != nil {
+					log.Printf("❌ [CODE-TOOL] Drone CI submission failed: %v, falling back to SSH execution", err)
+					// Fallback to SSH execution on RPi when Drone fails
+					sshResp, sshErr := s.fallbackSSHExecution(wrappedCode, language, "", nil)
+					if sshErr != nil {
+						w.WriteHeader(http.StatusInternalServerError)
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{
+							"error":            fmt.Sprintf("Drone CI failed: %v; SSH fallback also failed: %v", err, sshErr),
+							"drone_error":      err.Error(),
+							"ssh_error":        sshErr.Error(),
+						})
+						return
+					}
+					// Return SSH result with Drone error info
+					sshResp["drone_submission"] = map[string]interface{}{
+						"success": false,
+						"error":   err.Error(),
+					}
+					_ = json.NewEncoder(w).Encode(sshResp)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(droneResp)
+				return
+			}
+
+			// Use Docker executor if available
+			if s.dockerExecutor == nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "docker executor not available and drone executor not configured"})
+				return
+			}
+
 			resp, derr := s.dockerExecutor.ExecuteCode(ctx, req)
 			if derr != nil {
 				w.WriteHeader(http.StatusInternalServerError)
