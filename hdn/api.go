@@ -3229,8 +3229,12 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 				s.redisAddr,
 			)
 
-			ctx := context.Background()
-			result, err := executor.ExecuteTaskIntelligently(ctx, &ExecutionRequest{
+			// Create context with longer timeout for execution (LLM calls can take time, especially with queue waits)
+			// Use 10 minutes to allow for queue waits and slow LLM responses
+			execCtx, execCancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer execCancel()
+			
+			result, err := executor.ExecuteTaskIntelligently(execCtx, &ExecutionRequest{
 				TaskName:        req.TaskName,
 				Description:     req.Description,
 				Context:         req.Context,
