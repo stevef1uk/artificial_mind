@@ -202,11 +202,13 @@ api_request() {
     if [ -n "$data" ]; then
         response=$(curl -s -w "\n%{http_code}" -X "$method" \
             -H "Content-Type: application/json" \
+            -H "X-Request-Source: ui" \
             -d "$data" \
             "$API_URL$endpoint" 2>/dev/null)
     else
         response=$(curl -s -w "\n%{http_code}" -X "$method" \
             -H "Content-Type: application/json" \
+            -H "X-Request-Source: ui" \
             "$API_URL$endpoint" 2>/dev/null)
     fi
     
@@ -295,7 +297,9 @@ show_capabilities() {
     local response
     local http_code
     
-    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/api/v1/intelligent/capabilities" 2>/dev/null)
+    response=$(curl -s -w "\n%{http_code}" -X GET \
+        -H "X-Request-Source: ui" \
+        "$API_URL/api/v1/intelligent/capabilities" 2>/dev/null)
     http_code=$(echo "$response" | tail -n1)
     response=$(echo "$response" | sed '$d')
     
@@ -466,6 +470,7 @@ main() {
     
     project_response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/api/v1/projects" \
         -H "Content-Type: application/json" \
+        -H "X-Request-Source: ui" \
         -d '{
             "name": "Math Capabilities Project",
             "description": "Project for testing mathematical capabilities",
@@ -513,6 +518,7 @@ main() {
         
         hierarchical_response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/api/v1/hierarchical/execute" \
             -H "Content-Type: application/json" \
+            -H "X-Request-Source: ui" \
             -d '{
                 "task_name": "MathWorkflow",
                 "description": "Calculate factorial of 5",
@@ -557,7 +563,9 @@ main() {
         local workflow_response
         local workflow_http_code
         
-        workflow_response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/api/v1/projects/$project_id/workflows" 2>/dev/null)
+        workflow_response=$(curl -s -w "\n%{http_code}" -X GET \
+            -H "X-Request-Source: ui" \
+            "$API_URL/api/v1/projects/$project_id/workflows" 2>/dev/null)
         workflow_http_code=$(echo "$workflow_response" | tail -n1)
         workflow_response=$(echo "$workflow_response" | sed '$d')
         
