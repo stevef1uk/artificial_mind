@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1855,33 +1856,102 @@ Now return ONLY the JSON score (no tools, no tasks, just the score):`, domain, g
 		}
 
 		// Parse the HDN interpreter response
+		// The /api/v1/interpret endpoint returns InterpretationResult or FlexibleInterpretationResult
 		var interpretResp map[string]interface{}
 		score := 0.0
 		parseMethod := "none"
 
 		if err := json.Unmarshal(body, &interpretResp); err == nil {
-			// Try to extract score from various response formats
-			if content, ok := interpretResp["content"].(string); ok {
-				var contentObj map[string]interface{}
-				if json.Unmarshal([]byte(content), &contentObj) == nil {
-					if s, ok := contentObj["score"].(float64); ok {
+			// Try FlexibleInterpretationResult format first (text_response field)
+			if textResp, ok := interpretResp["text_response"].(string); ok {
+				var textObj map[string]interface{}
+				if json.Unmarshal([]byte(textResp), &textObj) == nil {
+					if s, ok := textObj["score"].(float64); ok {
 						score = s
-						parseMethod = "content_json"
+						parseMethod = "text_response_json"
 					}
 				}
 			}
+			
+			// Try InterpretationResult format (message field might contain JSON)
+			if score == 0.0 {
+				if message, ok := interpretResp["message"].(string); ok {
+					// Try to extract JSON from message
+					jsonStart := strings.Index(message, "{")
+					jsonEnd := strings.LastIndex(message, "}")
+					if jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart {
+						jsonStr := message[jsonStart : jsonEnd+1]
+						var msgObj map[string]interface{}
+						if json.Unmarshal([]byte(jsonStr), &msgObj) == nil {
+							if s, ok := msgObj["score"].(float64); ok {
+								score = s
+								parseMethod = "message_json"
+							}
+						}
+					}
+				}
+			}
+			
+			// Try FlexibleLLMResponse format (content field)
+			if score == 0.0 {
+				if content, ok := interpretResp["content"].(string); ok {
+					var contentObj map[string]interface{}
+					if json.Unmarshal([]byte(content), &contentObj) == nil {
+						if s, ok := contentObj["score"].(float64); ok {
+							score = s
+							parseMethod = "content_json"
+						}
+					}
+				}
+			}
+			
+			// Try direct score field
 			if score == 0.0 {
 				if s, ok := interpretResp["score"].(float64); ok {
 					score = s
 					parseMethod = "direct_score"
 				}
 			}
+			
+			// Try tasks array (InterpretationResult format) - check first task's description
+			if score == 0.0 {
+				if tasks, ok := interpretResp["tasks"].([]interface{}); ok && len(tasks) > 0 {
+					if task, ok := tasks[0].(map[string]interface{}); ok {
+						if desc, ok := task["description"].(string); ok {
+							// Try to extract score from description
+							jsonStart := strings.Index(desc, "{")
+							jsonEnd := strings.LastIndex(desc, "}")
+							if jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart {
+								jsonStr := desc[jsonStart : jsonEnd+1]
+								var descObj map[string]interface{}
+								if json.Unmarshal([]byte(jsonStr), &descObj) == nil {
+									if s, ok := descObj["score"].(float64); ok {
+										score = s
+										parseMethod = "task_description_json"
+									}
+								}
+							}
+						}
+					}
+				}
+			}
 		}
 
-		// Fallback: try text extraction
+		// Fallback: try regex/text extraction from entire response body
 		if score == 0.0 {
 			s := string(body)
-			if strings.Contains(s, "score") {
+			// Try to find JSON score pattern: "score": 0.75 or "score":0.75
+			scoreRegex := regexp.MustCompile(`"score"\s*:\s*([0-9]+\.?[0-9]*)`)
+			matches := scoreRegex.FindStringSubmatch(s)
+			if len(matches) > 1 {
+				if val, err := strconv.ParseFloat(matches[1], 64); err == nil && val >= 0 && val <= 1 {
+					score = val
+					parseMethod = "regex_extraction"
+				}
+			}
+			
+			// Last resort: try simple text extraction
+			if score == 0.0 && strings.Contains(s, "score") {
 				parts := strings.Fields(s)
 				for i, part := range parts {
 					if strings.Contains(strings.ToLower(part), "score") && i+1 < len(parts) {
