@@ -12,6 +12,7 @@ agent:
   confidence_threshold: 0.4  # More conservative: up from 0.3
   risk_threshold: 0.7
   hypothesis_screen_threshold: 0.35  # Lowered from 0.6 to allow more hypotheses through for testing
+  goal_screen_threshold: 0.5  # Threshold for curiosity goal LLM screening (0.0-1.0)
 
 # Graduated confidence thresholds for different processing tiers
 confidence_tiers:

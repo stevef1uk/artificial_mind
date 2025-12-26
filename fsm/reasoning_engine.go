@@ -990,6 +990,14 @@ func (re *ReasoningEngine) isGenericGoal(goal CuriosityGoal) bool {
 	// Check for generic hypothesis testing goals with vague descriptions
 	if goal.Type == "hypothesis_testing" {
 		desc := strings.ToLower(goal.Description)
+		
+		// Check for nested vague descriptions (multiple colons indicate nesting)
+		colonCount := strings.Count(desc, ":")
+		if colonCount > 2 {
+			// Likely a nested vague description
+			return true
+		}
+		
 		// Generic patterns that indicate useless goals
 		genericPatterns := []string{
 			"apply insights from system state",
@@ -998,12 +1006,29 @@ func (re *ReasoningEngine) isGenericGoal(goal CuriosityGoal) bool {
 			"optimize the ai capability control system",
 			"if we apply insights",
 			"we can improve",
+			"learn to discover new",
+			"discover new general opportunities",
+			"investigate system state: learn",
 		}
 		for _, pattern := range genericPatterns {
 			if strings.Contains(desc, pattern) {
 				return true
 			}
 		}
+		
+		// Check for overly vague descriptions with multiple question prefixes
+		vaguePrefixes := []string{
+			"test hypothesis: how can we better test:",
+			"test hypothesis: what additional evidence would support:",
+			"test hypothesis: what are the specific conditions for:",
+			"test hypothesis: what are the implications of:",
+		}
+		for _, prefix := range vaguePrefixes {
+			if strings.HasPrefix(desc, prefix) {
+				return true
+			}
+		}
+		
 		// Check if description is too vague (less than 30 chars or very repetitive)
 		if len(goal.Description) < 30 {
 			return true

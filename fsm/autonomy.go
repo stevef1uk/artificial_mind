@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -193,6 +194,21 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 		goals = filteredGoals
 		if len(goals) == 0 {
 			log.Printf("[Autonomy] No non-hypothesis goals available")
+			return
+		}
+	}
+
+	// Screen goals with LLM for usefulness (reduce GPU load by filtering early)
+	// Only screen if enabled and we have goals to screen
+	if len(goals) > 0 {
+		screenedGoals := e.screenCuriosityGoalsWithLLM(goals, domain)
+		if len(screenedGoals) < len(goals) {
+			log.Printf("🎯 [GOAL-SCREEN] LLM screening filtered %d goals (kept %d of %d)", 
+				len(goals)-len(screenedGoals), len(screenedGoals), len(goals))
+		}
+		goals = screenedGoals
+		if len(goals) == 0 {
+			log.Printf("[Autonomy] No goals passed LLM screening")
 			return
 		}
 	}
@@ -1696,6 +1712,205 @@ func (e *FSMEngine) isHypothesisTestingCapacityFull(domain string) bool {
 	return testingCount >= maxConcurrentTests
 }
 
+// screenCuriosityGoalsWithLLM screens curiosity goals with LLM to filter out useless ones
+// This reduces GPU load by preventing execution of low-value goals
+// Uses batching and rate limiting to minimize GPU usage
+func (e *FSMEngine) screenCuriosityGoalsWithLLM(goals []CuriosityGoal, domain string) []CuriosityGoal {
+	// Check if screening is enabled (default: enabled)
+	enabled := true
+	if v := strings.TrimSpace(os.Getenv("FSM_GOAL_SCREENING_ENABLED")); v != "" {
+		enabled = v != "false" && v != "0"
+	}
+	if !enabled {
+		log.Printf("ℹ️ [GOAL-SCREEN] LLM screening disabled, allowing all goals")
+		return goals
+	}
+
+	if len(goals) == 0 {
+		return goals
+	}
+
+	base := os.Getenv("HDN_URL")
+	if base == "" {
+		base = "http://localhost:8081"
+	}
+	url := fmt.Sprintf("%s/api/v1/interpret", strings.TrimRight(base, "/"))
+
+	// Get threshold from config or default
+	threshold := 0.5 // Default threshold (lower than hypothesis threshold since goals are more diverse)
+	if e.config.Agent.GoalScreenThreshold > 0 {
+		threshold = e.config.Agent.GoalScreenThreshold
+	} else if v := strings.TrimSpace(os.Getenv("FSM_GOAL_SCREEN_THRESHOLD")); v != "" {
+		if t, err := strconv.ParseFloat(v, 64); err == nil && t >= 0 && t <= 1 {
+			threshold = t
+		}
+	}
+
+	var approved []CuriosityGoal
+	
+	// Batch processing: screen goals in smaller batches to reduce GPU load
+	// Process max 3 goals at a time, with delay between batches
+	batchSize := 3
+	if v := strings.TrimSpace(os.Getenv("FSM_GOAL_SCREEN_BATCH_SIZE")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			batchSize = n
+		}
+	}
+
+	// Delay between batches (default: 8 seconds to give GPU time to process)
+	batchDelayMs := 8000
+	if v := strings.TrimSpace(os.Getenv("FSM_GOAL_SCREEN_BATCH_DELAY_MS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			batchDelayMs = n
+		}
+	}
+
+	// Delay between individual goals within a batch (default: 3 seconds)
+	goalDelayMs := 3000
+	if v := strings.TrimSpace(os.Getenv("FSM_GOAL_SCREEN_DELAY_MS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			goalDelayMs = n
+		}
+	}
+
+	log.Printf("🎯 [GOAL-SCREEN] Screening %d goals in batches of %d (threshold: %.2f)", len(goals), batchSize, threshold)
+
+	for i, goal := range goals {
+		// Skip hypothesis testing goals - they're already screened
+		if goal.Type == "hypothesis_testing" {
+			approved = append(approved, goal)
+			continue
+		}
+
+		// Rate limiting: delay between goals
+		if i > 0 && goalDelayMs > 0 {
+			time.Sleep(time.Duration(goalDelayMs) * time.Millisecond)
+		}
+
+		// Batch delay: longer delay between batches
+		if i > 0 && i%batchSize == 0 && batchDelayMs > 0 {
+			log.Printf("⏸️ [GOAL-SCREEN] Batch delay: %dms before next batch", batchDelayMs)
+			time.Sleep(time.Duration(batchDelayMs) * time.Millisecond)
+		}
+
+		// Create prompt for goal evaluation
+		prompt := fmt.Sprintf(`You are evaluating a curiosity goal. This is a SIMPLE SCORING TASK that requires NO tools, NO actions, and NO queries. Just return a JSON score.
+
+CRITICAL: You MUST respond with type "text" containing ONLY a JSON object. Do NOT use tools. Do NOT create tasks. This is a pure evaluation task.
+
+Rate this goal on a scale of 0.0 to 1.0:
+- ACTIONABILITY: How specific and actionable is this goal? (0.0 = vague/unclear, 1.0 = clear and actionable)
+- VALUE: How valuable would achieving this goal be? (0.0 = no value, 1.0 = very valuable)
+- TRACTABILITY: How feasible is this goal to execute? (0.0 = impossible, 1.0 = easily achievable)
+
+Domain: %s
+Goal Type: %s
+Goal Description: %s
+
+You MUST respond with type "text" containing ONLY this JSON (no other text):
+{"type": "text", "content": "{\"score\": 0.75, \"reason\": \"Brief explanation\"}"}
+
+Or if the system requires direct JSON, return:
+{"score": 0.75, "reason": "Brief explanation"}
+
+Examples:
+- High value, actionable: {"score": 0.8, "reason": "Clear, valuable, and achievable"}
+- Medium value: {"score": 0.6, "reason": "Moderately useful and actionable"}
+- Low value or vague: {"score": 0.3, "reason": "Too vague or low value"}
+
+Now return ONLY the JSON score (no tools, no tasks, just the score):`, domain, goal.Type, goal.Description)
+
+		// HDN /api/v1/interpret expects "input" field
+		payload := map[string]interface{}{
+			"input": prompt,
+			"context": map[string]string{
+				"origin": "fsm", // Mark as background task for LOW priority
+			},
+		}
+		data, _ := json.Marshal(payload)
+
+		req, _ := http.NewRequest("POST", url, bytes.NewReader(data))
+		req.Header.Set("Content-Type", "application/json")
+		if pid, ok := e.context["project_id"].(string); ok && pid != "" {
+			req.Header.Set("X-Project-ID", pid)
+		}
+
+		// Use async HTTP client (or sync fallback)
+		ctx := context.Background()
+		resp, err := Do(ctx, req)
+		if err != nil {
+			log.Printf("⚠️ [GOAL-SCREEN] LLM screening request failed for goal '%s': %v (allowing by default)", 
+				goal.Description[:minInt(50, len(goal.Description))], err)
+			approved = append(approved, goal)
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			log.Printf("⚠️ [GOAL-SCREEN] LLM screening status %d for goal '%s' (allowing by default)", 
+				resp.StatusCode, goal.Description[:minInt(50, len(goal.Description))])
+			approved = append(approved, goal)
+			continue
+		}
+
+		// Parse the HDN interpreter response
+		var interpretResp map[string]interface{}
+		score := 0.0
+		parseMethod := "none"
+
+		if err := json.Unmarshal(body, &interpretResp); err == nil {
+			// Try to extract score from various response formats
+			if content, ok := interpretResp["content"].(string); ok {
+				var contentObj map[string]interface{}
+				if json.Unmarshal([]byte(content), &contentObj) == nil {
+					if s, ok := contentObj["score"].(float64); ok {
+						score = s
+						parseMethod = "content_json"
+					}
+				}
+			}
+			if score == 0.0 {
+				if s, ok := interpretResp["score"].(float64); ok {
+					score = s
+					parseMethod = "direct_score"
+				}
+			}
+		}
+
+		// Fallback: try text extraction
+		if score == 0.0 {
+			s := string(body)
+			if strings.Contains(s, "score") {
+				parts := strings.Fields(s)
+				for i, part := range parts {
+					if strings.Contains(strings.ToLower(part), "score") && i+1 < len(parts) {
+						if val, err := strconv.ParseFloat(parts[i+1], 64); err == nil && val >= 0 && val <= 1 {
+							score = val
+							parseMethod = "text_extraction"
+							break
+						}
+					}
+				}
+			}
+		}
+
+		log.Printf("📊 [GOAL-SCREEN] Goal '%s': score=%.2f (method=%s, threshold=%.2f)", 
+			goal.Description[:minInt(60, len(goal.Description))], score, parseMethod, threshold)
+
+		if score >= threshold {
+			approved = append(approved, goal)
+			log.Printf("✅ [GOAL-SCREEN] Goal APPROVED (score %.2f >= threshold %.2f)", score, threshold)
+		} else {
+			log.Printf("🛑 [GOAL-SCREEN] Goal FILTERED (score %.2f < threshold %.2f): %s",
+				score, threshold, goal.Description[:minInt(60, len(goal.Description))])
+		}
+	}
+
+	log.Printf("🎯 [GOAL-SCREEN] Screening complete: %d approved of %d goals", len(approved), len(goals))
+	return approved
+}
+
 // createDedupKey creates a unique key for goal deduplication
 func (e *FSMEngine) createDedupKey(goal CuriosityGoal) string {
 	// For gap filling goals, use type + first target
@@ -1773,11 +1988,36 @@ func (e *FSMEngine) generateHypothesisTestingGoalsForExisting(domain string) ([]
 			continue
 		}
 
-		// Create hypothesis testing goal
+		// Create hypothesis testing goal with actionable description
+		// If description already starts with "Test hypothesis:" or contains nested prefixes, use it as-is
+		// Otherwise, create a more actionable description
+		goalDesc := description
+		if !strings.HasPrefix(description, "Test hypothesis:") {
+			// Check if description is a follow-up hypothesis (has nested prefixes)
+			if strings.Contains(description, ": ") && (strings.HasPrefix(description, "How can we better test:") ||
+				strings.HasPrefix(description, "What additional evidence would support:") ||
+				strings.HasPrefix(description, "What are the specific conditions for:") ||
+				strings.HasPrefix(description, "What are the implications of:") ||
+				strings.HasPrefix(description, "How can we extend:") ||
+				strings.HasPrefix(description, "What is the opposite of:")) {
+				// Extract the actual hypothesis from nested description
+				parts := strings.SplitN(description, ": ", 2)
+				if len(parts) == 2 {
+					actualHyp := strings.TrimSpace(parts[1])
+					goalDesc = fmt.Sprintf("Test and refine: %s", actualHyp)
+				} else {
+					goalDesc = fmt.Sprintf("Test hypothesis: %s", description)
+				}
+			} else {
+				// Create actionable description
+				goalDesc = fmt.Sprintf("Test hypothesis: %s", description)
+			}
+		}
+
 		goal := CuriosityGoal{
 			ID:          fmt.Sprintf("hyp_test_%s", hypID),
 			Type:        "hypothesis_testing",
-			Description: fmt.Sprintf("Test hypothesis: %s", description),
+			Description: goalDesc,
 			Targets:     []string{hypID},
 			Priority:    8,
 			Status:      "pending",
@@ -1805,6 +2045,14 @@ func (e *FSMEngine) isGenericHypothesisGoal(goal CuriosityGoal) bool {
 	}
 
 	desc := strings.ToLower(goal.Description)
+	
+	// Check for nested vague descriptions (multiple colons indicate nesting)
+	colonCount := strings.Count(desc, ":")
+	if colonCount > 2 {
+		// Likely a nested vague description like "Test hypothesis: How can we better test: Investigate System state: learn to discover"
+		return true
+	}
+	
 	// Generic patterns that indicate useless goals
 	genericPatterns := []string{
 		"apply insights from system state",
@@ -1813,12 +2061,29 @@ func (e *FSMEngine) isGenericHypothesisGoal(goal CuriosityGoal) bool {
 		"optimize the ai capability control system",
 		"if we apply insights",
 		"we can improve",
+		"learn to discover new",
+		"discover new general opportunities",
+		"investigate system state: learn",
 	}
 	for _, pattern := range genericPatterns {
 		if strings.Contains(desc, pattern) {
 			return true
 		}
 	}
+	
+	// Check for overly vague descriptions with multiple question prefixes
+	vaguePrefixes := []string{
+		"test hypothesis: how can we better test:",
+		"test hypothesis: what additional evidence would support:",
+		"test hypothesis: what are the specific conditions for:",
+		"test hypothesis: what are the implications of:",
+	}
+	for _, prefix := range vaguePrefixes {
+		if strings.HasPrefix(desc, prefix) {
+			return true
+		}
+	}
+	
 	// Check if description is too vague (less than 30 chars)
 	if len(goal.Description) < 30 {
 		return true

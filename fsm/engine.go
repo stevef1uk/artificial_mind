@@ -43,6 +43,7 @@ type AgentConfig struct {
 	ConfidenceThreshold       float64 `yaml:"confidence_threshold"`
 	RiskThreshold             float64 `yaml:"risk_threshold"`
 	HypothesisScreenThreshold float64 `yaml:"hypothesis_screen_threshold"`
+	GoalScreenThreshold       float64 `yaml:"goal_screen_threshold"`
 }
 
 type PerformanceConfig struct {
@@ -3316,20 +3317,49 @@ func (e *FSMEngine) createHypothesisTestingGoals(hypotheses []Hypothesis, domain
 		}
 	}
 
-	// Create curiosity goals for testing each approved hypothesis, deduplicated
-	newGoals := 0
-	filteredCount := 0
-	for _, hypothesis := range uniqueApproved {
-		goal := CuriosityGoal{
-			ID:          fmt.Sprintf("hyp_test_%s", hypothesis.ID),
-			Type:        "hypothesis_testing",
-			Description: fmt.Sprintf("Test hypothesis: %s", hypothesis.Description),
-			Targets:     []string{hypothesis.ID},
-			Priority:    8,
-			Status:      "pending",
-			Domain:      domain,
-			CreatedAt:   time.Now(),
-		}
+		// Create curiosity goals for testing each approved hypothesis, deduplicated
+		newGoals := 0
+		filteredCount := 0
+		for _, hypothesis := range uniqueApproved {
+			// Create actionable goal description, avoiding nested prefixes
+			hypDesc := hypothesis.Description
+			goalDesc := hypDesc
+			
+			// If description already has nested prefixes, extract the core hypothesis
+			if strings.Contains(hypDesc, ": ") {
+				parts := strings.SplitN(hypDesc, ": ", 2)
+				if len(parts) == 2 {
+					prefix := strings.ToLower(parts[0])
+					// Check if it's a follow-up hypothesis prefix
+					if strings.Contains(prefix, "how can we better test") ||
+						strings.Contains(prefix, "what additional evidence") ||
+						strings.Contains(prefix, "what are the specific conditions") ||
+						strings.Contains(prefix, "what are the implications") ||
+						strings.Contains(prefix, "how can we extend") ||
+						strings.Contains(prefix, "what is the opposite") {
+						// Extract the actual hypothesis
+						actualHyp := strings.TrimSpace(parts[1])
+						goalDesc = fmt.Sprintf("Test and refine: %s", actualHyp)
+					} else {
+						goalDesc = fmt.Sprintf("Test hypothesis: %s", hypDesc)
+					}
+				} else {
+					goalDesc = fmt.Sprintf("Test hypothesis: %s", hypDesc)
+				}
+			} else {
+				goalDesc = fmt.Sprintf("Test hypothesis: %s", hypDesc)
+			}
+			
+			goal := CuriosityGoal{
+				ID:          fmt.Sprintf("hyp_test_%s", hypothesis.ID),
+				Type:        "hypothesis_testing",
+				Description: goalDesc,
+				Targets:     []string{hypothesis.ID},
+				Priority:    8,
+				Status:      "pending",
+				Domain:      domain,
+				CreatedAt:   time.Now(),
+			}
 
 		// Skip generic filter for LLM-approved hypotheses - they've already been screened
 		// Only apply generic filter if the hypothesis wasn't screened (shouldn't happen, but safety check)
@@ -4190,10 +4220,27 @@ func (e *FSMEngine) generateFollowUpHypotheses(originalHypothesis map[string]int
 		}
 	case "inconclusive":
 		// Generate refined hypotheses with better testing approaches
+		// Extract core hypothesis if description already has nested prefixes
+		coreHyp := description
+		if strings.Contains(description, ": ") {
+			parts := strings.SplitN(description, ": ", 2)
+			if len(parts) == 2 {
+				// Check if it's already a follow-up hypothesis
+				prefix := strings.ToLower(parts[0])
+				if strings.Contains(prefix, "how can we better test") ||
+					strings.Contains(prefix, "what additional evidence") ||
+					strings.Contains(prefix, "what are the specific conditions") {
+					// Already nested, use the core hypothesis
+					coreHyp = strings.TrimSpace(parts[1])
+				}
+			}
+		}
+		
+		// Create more specific, actionable follow-up hypotheses
 		followUpDescriptions = []string{
-			fmt.Sprintf("How can we better test: %s", description),
-			fmt.Sprintf("What additional evidence would support: %s", description),
-			fmt.Sprintf("What are the specific conditions for: %s", description),
+			fmt.Sprintf("Design a specific test to validate: %s", coreHyp),
+			fmt.Sprintf("Identify concrete evidence needed to support: %s", coreHyp),
+			fmt.Sprintf("Determine the specific conditions where: %s applies", coreHyp),
 		}
 	}
 
