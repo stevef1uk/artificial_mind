@@ -1510,6 +1510,19 @@ func (m *MonitorService) getActiveWorkflows(c *gin.Context) {
 		}
 
 		if err := json.NewDecoder(resp.Body).Decode(&response); err == nil {
+			// Limit workflows to prevent performance issues with large numbers
+			maxWorkflows := 100
+			if len(response.Workflows) > maxWorkflows {
+				log.Printf("⚠️ [MONITOR] Limiting workflows to %d most recent (found %d total)", maxWorkflows, len(response.Workflows))
+				// Sort by last activity and take most recent
+				sort.Slice(response.Workflows, func(i, j int) bool {
+					ti := getLastActivityTime(response.Workflows[i])
+					tj := getLastActivityTime(response.Workflows[j])
+					return ti.After(tj)
+				})
+				response.Workflows = response.Workflows[:maxWorkflows]
+			}
+
 			// Build a lookup for hierarchical workflow status by ID for later mapping
 			hierByID := make(map[string]*WorkflowStatusResponse)
 			for _, hw := range response.Workflows {
@@ -1640,6 +1653,13 @@ func (m *MonitorService) getActiveWorkflows(c *gin.Context) {
 			}
 
 			// Second pass: batch fetch files and steps in parallel
+			// Only fetch for a limited number to prevent timeouts
+			maxFileFetch := 50
+			shouldFetchFiles := len(workflowDataList) <= maxFileFetch
+			if !shouldFetchFiles {
+				log.Printf("⚠️ [MONITOR] Skipping file/step fetching for %d workflows (limit: %d)", len(workflowDataList), maxFileFetch)
+			}
+
 			type fetchResult struct {
 				workflowIdx int
 				files       []FileInfo
@@ -1648,8 +1668,9 @@ func (m *MonitorService) getActiveWorkflows(c *gin.Context) {
 			}
 			resultChan := make(chan fetchResult, len(workflowDataList))
 
-			// Fetch files and steps in parallel
-			for idx, wd := range workflowDataList {
+			// Fetch files and steps in parallel (only if under limit)
+			if shouldFetchFiles {
+				for idx, wd := range workflowDataList {
 				go func(i int, data workflowData) {
 					var files []FileInfo
 					var steps []WorkflowStepStatus
@@ -1674,6 +1695,17 @@ func (m *MonitorService) getActiveWorkflows(c *gin.Context) {
 						err:         fetchErr,
 					}
 				}(idx, wd)
+				}
+			} else {
+				// For large lists, skip file/step fetching and use empty results
+				for idx := range workflowDataList {
+					resultChan <- fetchResult{
+						workflowIdx: idx,
+						files:       []FileInfo{},
+						steps:       []WorkflowStepStatus{},
+						err:         nil,
+					}
+				}
 			}
 
 			// Collect results with timeout
@@ -3991,6 +4023,22 @@ func (m *MonitorService) getWorkflowFiles(workflowID string) ([]FileInfo, error)
 	}
 
 	return files, nil
+}
+
+// Helper function to get last activity time from workflow for sorting
+func getLastActivityTime(wf *WorkflowStatusResponse) time.Time {
+	if wf == nil {
+		return time.Time{}
+	}
+	// LastActivity is a time.Time, use it directly
+	if !wf.LastActivity.IsZero() {
+		return wf.LastActivity
+	}
+	// Fall back to StartedAt if LastActivity is zero
+	if !wf.StartedAt.IsZero() {
+		return wf.StartedAt
+	}
+	return time.Time{}
 }
 
 // Helper functions for extracting values from interface{} maps

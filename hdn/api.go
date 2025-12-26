@@ -2252,6 +2252,10 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
+	// Clean up stale workflows before checking
+	ctx := context.Background()
+	s.cleanupStaleActiveWorkflows(ctx)
+
 	// Acquire execution slot (UI gets priority)
 	release, acquired := s.acquireExecutionSlot(r)
 	if !acquired {
@@ -3157,10 +3161,13 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 		}
 	}
 
+	// Clean up stale workflows before checking count
+	ctx := context.Background()
+	s.cleanupStaleActiveWorkflows(ctx)
+
 	// Check active workflows before creating new one to prevent execution slot exhaustion
 	// UI requests get priority and higher limits
 	isUI := isUIRequest(r)
-	ctx := context.Background()
 	activeWorkflowCount, err := s.redis.SCard(ctx, "active_workflows").Result()
 	if err == nil {
 		// UI requests: allow up to 4 active workflows (leaves 1 slot free)
@@ -3781,7 +3788,77 @@ func (s *APIServer) handleCancelWorkflow(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(response)
 }
 
+// cleanupStaleActiveWorkflows removes workflows from active_workflows that are actually completed
+// This prevents the set from growing indefinitely with stale entries
+func (s *APIServer) cleanupStaleActiveWorkflows(ctx context.Context) {
+	if s.redis == nil {
+		return
+	}
+
+	activeWorkflowsKey := "active_workflows"
+	workflowIDs, err := s.redis.SMembers(ctx, activeWorkflowsKey).Result()
+	if err != nil {
+		return
+	}
+
+	if len(workflowIDs) == 0 {
+		return
+	}
+
+	// Limit cleanup to reasonable batch size to avoid blocking
+	maxCheck := 100
+	if len(workflowIDs) > maxCheck {
+		log.Printf("🧹 [API] Cleaning up stale workflows (checking %d of %d)", maxCheck, len(workflowIDs))
+		workflowIDs = workflowIDs[:maxCheck]
+	} else {
+		log.Printf("🧹 [API] Cleaning up stale workflows (checking %d)", len(workflowIDs))
+	}
+
+	removedCount := 0
+	for _, workflowID := range workflowIDs {
+		// Check if workflow record exists and is completed
+		workflowKey := fmt.Sprintf("workflow:%s", workflowID)
+		workflowJSON, err := s.redis.Get(ctx, workflowKey).Result()
+		if err == nil && workflowJSON != "" {
+			var workflow map[string]interface{}
+			if err := json.Unmarshal([]byte(workflowJSON), &workflow); err == nil {
+				status, ok := workflow["status"].(string)
+				if ok && (status == "completed" || status == "failed" || status == "cancelled") {
+					// Workflow is completed but still in active set - remove it
+					s.redis.SRem(ctx, activeWorkflowsKey, workflowID)
+					removedCount++
+				}
+			}
+		} else if err != nil {
+			// Workflow record doesn't exist - might be stale, but be conservative
+			// Only remove if it's very old (check timestamp in ID for intelligent_ workflows)
+			if strings.HasPrefix(workflowID, "intelligent_") {
+				// Extract timestamp from intelligent_<timestamp> format
+				parts := strings.Split(workflowID, "_")
+				if len(parts) >= 2 {
+					if timestamp, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+						// If workflow is older than 1 hour and has no record, it's likely stale
+						workflowTime := time.Unix(0, timestamp)
+						if time.Since(workflowTime) > 1*time.Hour {
+							s.redis.SRem(ctx, activeWorkflowsKey, workflowID)
+							removedCount++
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if removedCount > 0 {
+		log.Printf("✅ [API] Cleaned up %d stale workflows from active_workflows", removedCount)
+	}
+}
+
 func (s *APIServer) handleListActiveWorkflows(w http.ResponseWriter, r *http.Request) {
+	// Clean up stale workflows periodically when listing
+	ctx := context.Background()
+	s.cleanupStaleActiveWorkflows(ctx)
+
 	workflows := s.plannerIntegration.ListActiveWorkflows()
 
 	// Ensure workflows is never nil
