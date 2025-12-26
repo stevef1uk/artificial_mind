@@ -1124,129 +1124,102 @@ func (m *MonitorService) getSystemStatus(c *gin.Context) {
 		Alerts:    []Alert{},
 	}
 
-	// Check HDN server
-	hdnInfo := m.checkService("HDN Server", m.hdnURL+"/health")
-	status.Services["hdn"] = hdnInfo
+	// Check all services in parallel using goroutines for faster response
+	type serviceResult struct {
+		key  string
+		info ServiceInfo
+	}
+	results := make(chan serviceResult, 8)
 
-	// Check Principles server (needs POST request)
-	principlesInfo := m.checkServicePOST("Principles Server", m.principlesURL+"/action")
-	status.Services["principles"] = principlesInfo
+	// Start all service checks in parallel
+	go func() {
+		results <- serviceResult{key: "hdn", info: m.checkService("HDN Server", m.hdnURL+"/health")}
+	}()
+	go func() {
+		results <- serviceResult{key: "principles", info: m.checkServicePOST("Principles Server", m.principlesURL+"/action")}
+	}()
+	go func() {
+		results <- serviceResult{key: "fsm", info: m.checkService("FSM Server", m.fsmURL+"/health")}
+	}()
+	go func() {
+		results <- serviceResult{key: "goal_manager", info: m.checkService("Goal Manager", m.goalMgrURL+"/goals/agent_1/active")}
+	}()
+	go func() {
+		results <- serviceResult{key: "redis", info: m.checkRedis()}
+	}()
+	go func() {
+		results <- serviceResult{key: "neo4j", info: m.checkNeo4j()}
+	}()
+	go func() {
+		results <- serviceResult{key: "vector-db", info: m.checkQdrant()}
+	}()
+	go func() {
+		results <- serviceResult{key: "nats", info: m.checkNATS()}
+	}()
 
-	// Check FSM server
-	fsmInfo := m.checkService("FSM Server", m.fsmURL+"/health")
-	status.Services["fsm"] = fsmInfo
+	// Collect all results (wait up to 8 seconds for all checks to complete)
+	timeout := time.After(8 * time.Second)
+	collected := 0
+	expectedServices := []string{"hdn", "principles", "fsm", "goal_manager", "redis", "neo4j", "vector-db", "nats"}
+	timeoutReached := false
 
-	// Check Goal Manager (use existing endpoint since no /health endpoint)
-	goalMgrInfo := m.checkService("Goal Manager", m.goalMgrURL+"/goals/agent_1/active")
-	status.Services["goal_manager"] = goalMgrInfo
+	for collected < len(expectedServices) && !timeoutReached {
+		select {
+		case result := <-results:
+			status.Services[result.key] = result.info
+			collected++
+		case <-timeout:
+			// If timeout, mark remaining services as unhealthy
+			log.Printf("⏱️ [MONITOR] getSystemStatus timeout: only %d/%d services responded", collected, len(expectedServices))
+			timeoutReached = true
+		}
+	}
 
-	// Check Redis
-	redisInfo := m.checkRedis()
-	status.Services["redis"] = redisInfo
+	// Mark any missing services as unhealthy
+	if timeoutReached || collected < len(expectedServices) {
+		for _, key := range expectedServices {
+			if _, exists := status.Services[key]; !exists {
+				status.Services[key] = ServiceInfo{
+					Name:         key,
+					Status:       "unhealthy",
+					LastCheck:    time.Now(),
+					ResponseTime: 8000, // Timeout value
+					Error:        "Service check timed out",
+				}
+			}
+		}
+	}
 
-	// Check Neo4j
-	neo4jInfo := m.checkNeo4j()
-	status.Services["neo4j"] = neo4jInfo
-
-	// Check Vector Database (Weaviate or Qdrant)
-	vectorDBInfo := m.checkQdrant()
-	status.Services["vector-db"] = vectorDBInfo
-
-	// Check NATS
-	natsInfo := m.checkNATS()
-	status.Services["nats"] = natsInfo
-
-	// Get system metrics
+	// Get system metrics (this is fast, runs synchronously)
 	status.Metrics = m.getSystemMetrics()
 
-	// Determine overall status
+	// Determine overall status and generate alerts
 	unhealthyServices := 0
-	if hdnInfo.Status != "healthy" {
-		unhealthyServices++
-		status.Alerts = append(status.Alerts, Alert{
-			ID:        "hdn_down",
-			Level:     "error",
-			Message:   "HDN Server is not responding",
-			Timestamp: time.Now(),
-			Service:   "hdn",
-		})
+	serviceAlerts := map[string]struct {
+		level   string
+		message string
+	}{
+		"hdn":          {"error", "HDN Server is not responding"},
+		"principles":   {"error", "Principles Server is not responding"},
+		"fsm":          {"error", "FSM Server is not responding"},
+		"goal_manager": {"warning", "Goal Manager is not responding"},
+		"redis":        {"error", "Redis is not responding"},
+		"neo4j":        {"error", "Neo4j is not responding"},
+		"vector-db":    {"error", "Vector database is not responding"},
+		"nats":         {"warning", "NATS is not responding"},
 	}
 
-	if principlesInfo.Status != "healthy" {
-		unhealthyServices++
-		status.Alerts = append(status.Alerts, Alert{
-			ID:        "principles_down",
-			Level:     "error",
-			Message:   "Principles Server is not responding",
-			Timestamp: time.Now(),
-			Service:   "principles",
-		})
-	}
-
-	if fsmInfo.Status != "healthy" {
-		unhealthyServices++
-		status.Alerts = append(status.Alerts, Alert{
-			ID:        "fsm_down",
-			Level:     "error",
-			Message:   "FSM Server is not responding",
-			Timestamp: time.Now(),
-			Service:   "fsm",
-		})
-	}
-
-	if goalMgrInfo.Status != "healthy" {
-		unhealthyServices++
-		status.Alerts = append(status.Alerts, Alert{
-			ID:        "goal_manager_down",
-			Level:     "warning",
-			Message:   "Goal Manager is not responding",
-			Timestamp: time.Now(),
-			Service:   "goal_manager",
-		})
-	}
-
-	if redisInfo.Status != "healthy" {
-		unhealthyServices++
-		status.Alerts = append(status.Alerts, Alert{
-			ID:        "redis_down",
-			Level:     "error",
-			Message:   "Redis is not responding",
-			Timestamp: time.Now(),
-			Service:   "redis",
-		})
-	}
-
-	if neo4jInfo.Status != "healthy" {
-		unhealthyServices++
-		status.Alerts = append(status.Alerts, Alert{
-			ID:        "neo4j_down",
-			Level:     "error",
-			Message:   "Neo4j is not responding",
-			Timestamp: time.Now(),
-			Service:   "neo4j",
-		})
-	}
-
-	if vectorDBInfo.Status != "healthy" {
-		unhealthyServices++
-		status.Alerts = append(status.Alerts, Alert{
-			ID:        "vector_db_down",
-			Level:     "error",
-			Message:   "Vector database is not responding",
-			Timestamp: time.Now(),
-			Service:   "vector-db",
-		})
-	}
-
-	if natsInfo.Status != "healthy" {
-		unhealthyServices++
-		status.Alerts = append(status.Alerts, Alert{
-			ID:        "nats_down",
-			Level:     "warning",
-			Message:   "NATS is not responding",
-			Timestamp: time.Now(),
-			Service:   "nats",
-		})
+	for key, alertConfig := range serviceAlerts {
+		if svc, exists := status.Services[key]; exists && svc.Status != "healthy" {
+			unhealthyServices++
+			status.Alerts = append(status.Alerts, Alert{
+				ID:        key + "_down",
+				Level:     alertConfig.level,
+				Message:   alertConfig.message,
+				Timestamp: time.Now(),
+				Service:   key,
+			})
+		}
 	}
 
 	// Set overall status based on number of unhealthy services
@@ -1265,7 +1238,8 @@ func (m *MonitorService) getSystemStatus(c *gin.Context) {
 func (m *MonitorService) checkService(name, url string) ServiceInfo {
 	start := time.Now()
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	// Reduced timeout from 30s to 5s for faster health checks
+	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(url)
 
 	responseTime := time.Since(start).Milliseconds()
@@ -1298,7 +1272,8 @@ func (m *MonitorService) checkService(name, url string) ServiceInfo {
 func (m *MonitorService) checkServicePOST(name, url string) ServiceInfo {
 	start := time.Now()
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	// Reduced timeout from 30s to 5s for faster health checks
+	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Post(url, "application/json", strings.NewReader("{}"))
 
 	responseTime := time.Since(start).Milliseconds()
@@ -1331,7 +1306,9 @@ func (m *MonitorService) checkServicePOST(name, url string) ServiceInfo {
 func (m *MonitorService) checkRedis() ServiceInfo {
 	start := time.Now()
 
-	ctx := context.Background()
+	// Use context with timeout for Redis ping (5 seconds)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	pong, err := m.redisClient.Ping(ctx).Result()
 
 	responseTime := time.Since(start).Milliseconds()
@@ -1363,7 +1340,8 @@ func (m *MonitorService) checkRedis() ServiceInfo {
 func (m *MonitorService) checkNeo4j() ServiceInfo {
 	start := time.Now()
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	// Reduced timeout from 30s to 5s for faster health checks
+	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(m.neo4jURL)
 
 	responseTime := time.Since(start).Milliseconds()
@@ -1395,7 +1373,8 @@ func (m *MonitorService) checkNeo4j() ServiceInfo {
 // checkQdrant checks vector database connection and health (Qdrant or Weaviate)
 func (m *MonitorService) checkQdrant() ServiceInfo {
 	start := time.Now()
-	client := &http.Client{Timeout: 30 * time.Second}
+	// Reduced timeout from 30s to 5s for faster health checks
+	client := &http.Client{Timeout: 5 * time.Second}
 
 	var resp *http.Response
 	var err error
@@ -1442,7 +1421,8 @@ func (m *MonitorService) checkQdrant() ServiceInfo {
 func (m *MonitorService) checkNATS() ServiceInfo {
 	start := time.Now()
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	// Reduced timeout from 30s to 5s for faster health checks
+	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(m.natsURL + "/varz")
 
 	responseTime := time.Since(start).Milliseconds()
