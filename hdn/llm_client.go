@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -702,10 +703,34 @@ func NewLLMClient(config DomainConfig) *LLMClient {
 			timeout = sec
 		}
 	}
+	
+	// Create transport with longer dial timeout to handle slow connections
+	// Dial timeout is separate from HTTP timeout - it controls how long to wait
+	// to establish the TCP connection. Default is often too short for external services.
+	dialTimeout := 30 * time.Second
+	if timeout > dialTimeout {
+		// Use a portion of the HTTP timeout for dial timeout, but cap at 60s
+		dialTimeout = timeout / 2
+		if dialTimeout > 60*time.Second {
+			dialTimeout = 60 * time.Second
+		}
+	}
+	
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   dialTimeout,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:        100,
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	
 	return &LLMClient{
 		config: config,
 		httpClient: &http.Client{
-			Timeout: timeout,
+			Timeout:   timeout,
+			Transport: transport,
 		},
 	}
 }
