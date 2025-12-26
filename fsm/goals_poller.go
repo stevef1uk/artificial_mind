@@ -213,6 +213,36 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 					if triggeredCount >= 1 {
 						break
 					}
+				} else if eresp.StatusCode == http.StatusConflict {
+					// Handle 409 Conflict - workflow already exists/running
+					// Parse response to get existing workflow_id
+					var conflictResp struct {
+						Success    bool   `json:"success"`
+						WorkflowID string `json:"workflow_id"`
+						Message    string `json:"message"`
+						Error      string `json:"error"`
+					}
+					workflowID := ""
+					if err := json.Unmarshal(bodyBytes, &conflictResp); err == nil {
+						workflowID = conflictResp.WorkflowID
+					}
+
+					// Mark goal as triggered since workflow is already running
+					_ = rdb.SAdd(ctx, triggeredKey, g.ID).Err()
+					_ = rdb.Expire(ctx, triggeredKey, 30*time.Minute).Err()
+					
+					if workflowID != "" {
+						log.Printf("[FSM][Goals] goal %s already has workflow %s running - marked as triggered", g.ID, workflowID)
+						// Watch the existing workflow to clear triggered flag when it completes
+						go watchWorkflowAndClearTriggered(ctx, agentID, g.ID, workflowID, hdnURL, goalMgrURL, rdb, triggeredKey)
+					} else {
+						log.Printf("[FSM][Goals] goal %s duplicate (409) but no workflow_id - marked as triggered with timeout watcher", g.ID)
+						// Set up timeout watcher since we don't have workflow_id
+						go watchGoalStatusAndClearTriggered(ctx, agentID, g.ID, goalMgrURL, rdb, triggeredKey)
+					}
+
+					// Don't increment triggeredCount for 409 - this is a duplicate, not a new trigger
+					// Continue to next goal in the loop
 				} else {
 					log.Printf("[FSM][Goals] execute failed for goal %s (status %d): %s", g.ID, eresp.StatusCode, string(bodyBytes))
 				}
