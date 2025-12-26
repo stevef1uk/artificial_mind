@@ -71,9 +71,36 @@ spec:
               secretName: secure-customer-private
           nodeSelector:
             kubernetes.io/arch: arm64
-            performance-tier: utility
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                    - rpi58
+                    - rpi5b
           restartPolicy: Never
           activeDeadlineSeconds: 28800  # 8 hours timeout - allows processing large batches of Wikipedia articles
+          dnsPolicy: None
+          dnsConfig:
+            nameservers:
+            - "10.43.0.10"  # CoreDNS first for cluster services
+            - "8.8.8.8"     # Google DNS for external
+            - "8.8.4.4"     # Google DNS fallback
+            searches:
+            - "agi.svc.cluster.local"
+            - "svc.cluster.local"
+            - "cluster.local"
+            options:
+            - name: ndots
+              value: "2"
+            - name: edns0
+            - name: timeout
+              value: "1"
+            - name: attempts
+              value: "2"
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000

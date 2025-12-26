@@ -133,3 +133,17 @@ spec:
                 secretName: secure-customer-private
           restartPolicy: Never  # Don't restart on failure, let the cronjob handle retries
           activeDeadlineSeconds: 1800  # 30 minutes timeout - Kubernetes will kill the pod if exceeded
+          dnsPolicy: ClusterFirst
+          dnsConfig:
+            nameservers:
+            - "10.43.0.10"  # CoreDNS
+            - "8.8.8.8"     # Google DNS fallback
+            - "8.8.4.4"     # Google DNS fallback
+            options:
+            - name: ndots
+              value: "2"
+            - name: edns0
+            - name: timeout
+              value: "2"
+            - name: attempts
+              value: "3"
