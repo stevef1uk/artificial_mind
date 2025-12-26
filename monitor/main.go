@@ -1487,8 +1487,8 @@ func (m *MonitorService) getActiveWorkflows(c *gin.Context) {
 	workflows := []WorkflowStatus{}
 
 	// Get workflows from HDN server
-	// Increased timeout to 15 seconds to allow for file/step fetching
-	client := &http.Client{Timeout: 15 * time.Second}
+	// Increased timeout to 30 seconds to allow for file/step fetching
+	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Get(m.hdnURL + "/api/v1/hierarchical/workflows")
 	if err != nil {
 		// Check if it's a timeout error
@@ -1676,13 +1676,31 @@ func (m *MonitorService) getActiveWorkflows(c *gin.Context) {
 				}(idx, wd)
 			}
 
-			// Collect results
+			// Collect results with timeout
 			fileResults := make(map[int][]FileInfo)
 			stepResults := make(map[int][]WorkflowStepStatus)
+			timeout := time.After(8 * time.Second) // Don't wait more than 8s for file/step fetching
+			collected := 0
+			timeoutReached := false
 			for i := 0; i < len(workflowDataList); i++ {
-				result := <-resultChan
-				fileResults[result.workflowIdx] = result.files
-				stepResults[result.workflowIdx] = result.steps
+				if timeoutReached {
+					// Fill remaining with empty results
+					fileResults[i] = []FileInfo{}
+					stepResults[i] = []WorkflowStepStatus{}
+					continue
+				}
+				select {
+				case result := <-resultChan:
+					fileResults[result.workflowIdx] = result.files
+					stepResults[result.workflowIdx] = result.steps
+					collected++
+				case <-timeout:
+					// Timeout reached, use empty results for remaining workflows
+					log.Printf("⏱️ [MONITOR] Timeout collecting workflow files/steps (collected %d/%d)", collected, len(workflowDataList))
+					timeoutReached = true
+					fileResults[i] = []FileInfo{}
+					stepResults[i] = []WorkflowStepStatus{}
+				}
 			}
 
 			// Build final workflows with fetched data
@@ -3956,7 +3974,8 @@ func (m *MonitorService) getFileFromHDN(filename string) ([]byte, string, error)
 // getWorkflowFiles retrieves files for a specific workflow
 func (m *MonitorService) getWorkflowFiles(workflowID string) ([]FileInfo, error) {
 	url := fmt.Sprintf("%s/api/v1/files/workflow/%s", m.hdnURL, workflowID)
-	resp, err := http.Get(url)
+	client := &http.Client{Timeout: 3 * time.Second} // Reduced to 3s for faster failover
+	resp, err := client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch workflow files from HDN: %v", err)
 	}
@@ -4182,7 +4201,8 @@ func getFloatFromMap(m map[string]interface{}, key string) float64 {
 // getWorkflowStepDetails retrieves detailed step information for a workflow
 func (m *MonitorService) getWorkflowStepDetails(workflowID string) ([]WorkflowStepStatus, error) {
 	url := fmt.Sprintf("%s/api/v1/hierarchical/workflow/%s/steps", m.hdnURL, workflowID)
-	resp, err := http.Get(url)
+	client := &http.Client{Timeout: 3 * time.Second} // Reduced to 3s for faster failover
+	resp, err := client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch workflow step details from HDN: %v", err)
 	}

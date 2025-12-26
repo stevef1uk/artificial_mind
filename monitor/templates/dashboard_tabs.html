@@ -1620,7 +1620,7 @@
                 const wfListEl = document.getElementById('wf-list');
                 if (wfListEl) wfListEl.innerHTML = '<div class="loading">Loading workflows...</div>';
                 try {
-                    const response = await axios.get('/api/workflows', { timeout: 20000 });
+                    const response = await axios.get('/api/workflows', { timeout: 35000 });
                     let workflows = Array.isArray(response.data) ? response.data : [];
 
                     const projectFilter = (document.getElementById('wf-project-filter')?.value || '').trim();
