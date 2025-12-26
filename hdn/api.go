@@ -3157,6 +3157,35 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 		}
 	}
 
+	// Check active workflows before creating new one to prevent execution slot exhaustion
+	// UI requests get priority and higher limits
+	isUI := isUIRequest(r)
+	ctx := context.Background()
+	activeWorkflowCount, err := s.redis.SCard(ctx, "active_workflows").Result()
+	if err == nil {
+		// UI requests: allow up to 4 active workflows (leaves 1 slot free)
+		// Non-UI requests: allow up to 2 active workflows (leaves 2 slots free for UI)
+		var maxActiveWorkflows int64
+		if isUI {
+			maxActiveWorkflows = 4
+		} else {
+			maxActiveWorkflows = 2
+		}
+		
+		if activeWorkflowCount >= maxActiveWorkflows {
+			log.Printf("⚠️ [API] Rejecting hierarchical execute - %d active workflows (max: %d, UI: %v)", activeWorkflowCount, maxActiveWorkflows, isUI)
+			response := HierarchicalTaskResponse{
+				Success: false,
+				Error:   fmt.Sprintf("Server busy - %d workflows already running (max: %d). Please try again later.", activeWorkflowCount, maxActiveWorkflows),
+				Message: "Too many concurrent workflows",
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+	}
+
 	// Always run asynchronously: create initial workflow record and return 202
 	wfID := fmt.Sprintf("intelligent_%d", time.Now().UnixNano())
 	initial := map[string]any{
@@ -3173,22 +3202,22 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 	}
 	if b, err := json.Marshal(initial); err == nil {
 		key := fmt.Sprintf("workflow:%s", wfID)
-		_ = s.redis.Set(context.Background(), key, string(b), 24*time.Hour).Err()
+		_ = s.redis.Set(ctx, key, string(b), 24*time.Hour).Err()
 		log.Printf("📊 [API] Created initial workflow record (running): %s", wfID)
 	}
 
 	go func(req HierarchicalTaskRequest, wfID string) {
 		// For async execution, we need to create a mock request to check UI status
 		// Since this is async, we'll use general slot only
-		// Wait for a slot with timeout instead of immediately rejecting
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		// Wait for a slot with shorter timeout to fail faster and prevent backlog
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		
 		select {
 		case s.executionSemaphore <- struct{}{}:
 			defer func() { <-s.executionSemaphore }()
 		case <-ctx.Done():
-			log.Printf("❌ [API] Async execution rejected - timeout waiting for execution slot after 60s")
+			log.Printf("❌ [API] Async execution rejected - timeout waiting for execution slot after 10s")
 			// Update workflow status to failed
 			key := fmt.Sprintf("workflow:%s", wfID)
 			if val, err := s.redis.Get(context.Background(), key).Result(); err == nil {

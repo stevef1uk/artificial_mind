@@ -4837,7 +4837,10 @@ func (m *MonitorService) interpretAndExecute(c *gin.Context) {
 			payload["project_id"] = projectID
 		}
 		b, _ := json.Marshal(payload)
-		resp, err := httpClient.Post(m.hdnURL+"/api/v1/hierarchical/execute", "application/json", strings.NewReader(string(b)))
+		req, _ := http.NewRequest("POST", m.hdnURL+"/api/v1/hierarchical/execute", strings.NewReader(string(b)))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Request-Source", "ui") // Mark as UI request for priority handling
+		resp, err := httpClient.Do(req)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start hierarchical workflow", "details": err.Error()})
 			return

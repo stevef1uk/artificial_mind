@@ -690,7 +690,10 @@ func (m *MonitorService) executeGoalSuggestedPlanAsync(id string, req struct {
 	var err error
 	for attempt := 1; attempt <= 3; attempt++ {
 		log.Printf("[DEBUG] POST hierarchical/execute attempt %d desc=%q project=%s", attempt, description, req.Context["project_id"])
-		eresp, err = execClient.Post(m.hdnURL+"/api/v1/hierarchical/execute", "application/json", strings.NewReader(string(b)))
+		execReq, _ := http.NewRequest("POST", m.hdnURL+"/api/v1/hierarchical/execute", strings.NewReader(string(b)))
+		execReq.Header.Set("Content-Type", "application/json")
+		execReq.Header.Set("X-Request-Source", "ui") // Mark as UI request for priority handling
+		eresp, err = execClient.Do(execReq)
 		if err == nil {
 			break
 		}
