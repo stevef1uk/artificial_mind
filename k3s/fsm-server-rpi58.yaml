@@ -167,6 +167,10 @@ spec:
                 secretKeyRef:
                   name: llm-config
                   key: FSM_HTTP_TIMEOUT_SECONDS
+            # Concept extraction timeout (seconds) - longer timeout for LLM-based concept extraction
+            # Default: 120 seconds. Increase if concept extraction is timing out.
+            - name: FSM_CONCEPT_EXTRACTION_TIMEOUT_SECONDS
+              value: "120"
             # GPU Optimization: Delay between FSM LLM requests (milliseconds)
             # Default: 5000ms (5 seconds). Increase to slow down FSM requests further.
             - name: FSM_LLM_REQUEST_DELAY_MS

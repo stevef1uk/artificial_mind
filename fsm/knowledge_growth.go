@@ -360,6 +360,9 @@ If no useful, relevant concepts are found, return empty array [].`, domain, text
 	interpretURL := fmt.Sprintf("%s/api/v1/interpret", hdnURL)
 	reqData := map[string]interface{}{
 		"input": prompt, // API expects "input" not "text"
+		"context": map[string]string{
+			"origin": "fsm", // Mark as background task for LOW priority
+		},
 	}
 
 	reqJSON, err := json.Marshal(reqData)
@@ -368,7 +371,41 @@ If no useful, relevant concepts are found, return empty array [].`, domain, text
 		return kge.extractConceptsFallback(text, domain)
 	}
 
-	resp, err := kge.httpClient.Post(interpretURL, "application/json", bytes.NewReader(reqJSON))
+	// Rate limiting: Add delay between LLM requests to prevent GPU overload
+	// Default: 5 seconds, configurable via FSM_LLM_REQUEST_DELAY_MS
+	delayMs := 5000
+	if v := strings.TrimSpace(os.Getenv("FSM_LLM_REQUEST_DELAY_MS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			delayMs = n
+		}
+	}
+	if delayMs > 0 {
+		time.Sleep(time.Duration(delayMs) * time.Millisecond)
+	}
+
+	// Create context with longer timeout for concept extraction (LLM calls can be slow)
+	// Default: 120 seconds, configurable via FSM_CONCEPT_EXTRACTION_TIMEOUT_SECONDS
+	timeoutSeconds := 120
+	if v := strings.TrimSpace(os.Getenv("FSM_CONCEPT_EXTRACTION_TIMEOUT_SECONDS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			timeoutSeconds = n
+		}
+	}
+	ctx, cancel := context.WithTimeout(kge.ctx, time.Duration(timeoutSeconds)*time.Second)
+	defer cancel()
+
+	// Create HTTP request with context for timeout control
+	req, err := http.NewRequestWithContext(ctx, "POST", interpretURL, bytes.NewReader(reqJSON))
+	if err != nil {
+		log.Printf("⚠️ Failed to create concept extraction request: %v", err)
+		return kge.extractConceptsFallback(text, domain)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Use async HTTP client (or sync fallback) - handles longer timeouts better
+	// This will use async queue if USE_ASYNC_HTTP_QUEUE=1 is set
+	// The async queue processes requests asynchronously and handles timeouts properly
+	resp, err := Do(ctx, req)
 	if err != nil {
 		log.Printf("⚠️ Concept extraction LLM call failed: %v, using fallback", err)
 		return kge.extractConceptsFallback(text, domain)
@@ -638,7 +675,7 @@ func (kge *KnowledgeGrowthEngine) filterByConfidence(discoveries []ConceptDiscov
 func (kge *KnowledgeGrowthEngine) getDomainConcepts(domain string) ([]map[string]interface{}, error) {
 	// Try MCP first, fallback to direct API
 	cypherQuery := fmt.Sprintf("MATCH (c:Concept {domain: '%s'}) RETURN c LIMIT 100", domain)
-	
+
 	result, err := kge.callMCPTool("query_neo4j", map[string]interface{}{
 		"query": cypherQuery,
 	})
@@ -1069,7 +1106,7 @@ Be strict: Only mark as novel and worth learning if genuinely new and useful.`, 
 	// Extract values
 	isNovel, _ := assessment["is_novel"].(bool)
 	isWorthLearning, _ := assessment["is_worth_learning"].(bool)
-	
+
 	// Also check scores as fallback
 	if noveltyScore, ok := assessment["novelty_score"].(float64); ok && noveltyScore > 0.5 {
 		isNovel = true
