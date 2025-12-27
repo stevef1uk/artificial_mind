@@ -1333,8 +1333,8 @@
             
             try {
                 console.log('Making API call to /api/status...');
-                // Load system status
-                const statusResponse = await axios.get('/api/status', { timeout: 5000 });
+                // Load system status (backend can take up to 8 seconds when services are down)
+                const statusResponse = await axios.get('/api/status', { timeout: 10000 });
                 console.log('Status response received:', statusResponse.status);
                 console.log('Status data:', statusResponse.data);
                 const status = statusResponse.data;

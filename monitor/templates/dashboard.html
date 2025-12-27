@@ -2126,7 +2126,7 @@
         // Load system status
         async function loadSystemStatus() {
             try {
-                const response = await axios.get('/api/status');
+                const response = await axios.get('/api/status', { timeout: 10000 });
                 const data = response.data;
                 
                 // Update system status
