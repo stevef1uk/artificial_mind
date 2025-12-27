@@ -834,6 +834,156 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 		return result, nil
 	}
 
+	// Early check: Detect tasks that should NOT generate code
+	// These include hypothesis testing, explicit tool usage, and simple informational tasks
+	descLower := strings.ToLower(strings.TrimSpace(req.Description))
+	taskLower := strings.ToLower(strings.TrimSpace(req.TaskName))
+	combined := descLower + " " + taskLower
+
+	// Check 1: Hypothesis testing tasks - these are conceptual and don't need code
+	if strings.HasPrefix(descLower, "test hypothesis:") || strings.HasPrefix(taskLower, "test hypothesis:") {
+		log.Printf("🧪 [INTELLIGENT] Detected hypothesis testing task - skipping code generation")
+		// Hypothesis testing tasks are conceptual - return a simple acknowledgment
+		result := &IntelligentExecutionResult{
+			Success:         true,
+			Result:          fmt.Sprintf("Hypothesis testing task acknowledged: %s", req.Description),
+			ExecutionTime:   time.Since(start),
+			RetryCount:      0,
+			ValidationSteps: []ValidationStep{},
+			WorkflowID:      fmt.Sprintf("intelligent_%d", time.Now().UnixNano()),
+		}
+		ie.recordMonitorMetrics(result.Success, result.ExecutionTime)
+		if ie.selfModelManager != nil {
+			ie.recordExecutionEpisode(req, result, "hypothesis_test")
+		}
+		return result, nil
+	}
+
+	// Check 2: Explicit tool usage requests that mention specific tools
+	// Pattern: "Use tool_XXX" or "use tool_XXX" in description
+	toolPatterns := []string{
+		"use tool_http_get",
+		"use tool_html_scraper",
+		"use tool_file_read",
+		"use tool_file_write",
+		"use tool_ls",
+		"use tool_exec",
+		"use tool_wiki",
+		"tool_http_get to",
+		"tool_html_scraper to",
+	}
+	hasExplicitToolRequest := false
+	for _, pattern := range toolPatterns {
+		if strings.Contains(combined, pattern) {
+			hasExplicitToolRequest = true
+			log.Printf("🔧 [INTELLIGENT] Detected explicit tool usage request: %s", pattern)
+			break
+		}
+	}
+
+	// Check 3: Simple informational tasks (news headlines, titles, etc.)
+	// These are typically just text without actionable code requirements
+	isSimpleInformational := false
+	// News headline patterns (often just titles without verbs indicating action)
+	if len(req.Description) < 200 && !strings.Contains(descLower, "create") &&
+		!strings.Contains(descLower, "write") && !strings.Contains(descLower, "generate") &&
+		!strings.Contains(descLower, "build") && !strings.Contains(descLower, "implement") &&
+		!strings.Contains(descLower, "code") && !strings.Contains(descLower, "program") &&
+		!strings.Contains(descLower, "function") && !strings.Contains(descLower, "script") {
+		// Check if it looks like a news headline or simple statement
+		if strings.Count(req.Description, " ") < 15 && // Short description
+			!strings.Contains(descLower, "calculate") &&
+			!strings.Contains(descLower, "process") &&
+			!strings.Contains(descLower, "analyze") &&
+			!strings.Contains(descLower, "fetch") &&
+			!strings.Contains(descLower, "get") {
+			isSimpleInformational = true
+			log.Printf("📰 [INTELLIGENT] Detected simple informational task - skipping code generation")
+		}
+	}
+
+	// If explicit tool request detected, route to tool execution path
+	if hasExplicitToolRequest {
+		// Extract tool ID from description
+		toolID := ""
+		for _, pattern := range toolPatterns {
+			if strings.Contains(combined, pattern) {
+				// Extract tool name from pattern
+				// Handle patterns like "use tool_http_get" or "tool_http_get to"
+				if strings.HasPrefix(pattern, "use ") {
+					parts := strings.Fields(pattern)
+					if len(parts) >= 2 {
+						toolID = parts[1] // e.g., "tool_http_get" from "use tool_http_get"
+					}
+				} else if strings.Contains(pattern, "tool_") {
+					// Extract tool_XXX from pattern like "tool_http_get to"
+					parts := strings.Fields(pattern)
+					for _, part := range parts {
+						if strings.HasPrefix(part, "tool_") {
+							toolID = part
+							break
+						}
+					}
+				}
+				if toolID != "" {
+					break
+				}
+			}
+		}
+		// If we found a tool, try to execute it directly
+		if toolID != "" {
+			log.Printf("🔧 [INTELLIGENT] Routing to direct tool execution: %s", toolID)
+			params := map[string]interface{}{}
+			// Extract parameters from context or description
+			if toolID == "tool_http_get" {
+				if u, ok := req.Context["url"]; ok && strings.TrimSpace(u) != "" {
+					params["url"] = u
+				} else {
+					// Try to extract URL from description
+					// Look for URLs in the description
+					urlPattern := regexp.MustCompile(`https?://[^\s]+`)
+					if matches := urlPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
+						params["url"] = matches[0]
+					} else {
+						params["url"] = "http://example.com" // Default fallback
+					}
+				}
+			}
+			toolResp, err := ie.callTool(toolID, params)
+			result := &IntelligentExecutionResult{Success: err == nil}
+			if err != nil {
+				result.Error = err.Error()
+			} else {
+				b, _ := json.Marshal(toolResp)
+				result.Result = string(b)
+			}
+			result.ExecutionTime = time.Since(start)
+			result.WorkflowID = fmt.Sprintf("intelligent_%d", time.Now().UnixNano())
+			if ie.selfModelManager != nil {
+				ie.recordExecutionEpisode(req, result, "direct_tool_call")
+			}
+			return result, nil
+		}
+	}
+
+	// If simple informational task, return acknowledgment without code generation
+	if isSimpleInformational {
+		log.Printf("📝 [INTELLIGENT] Simple informational task - returning acknowledgment")
+		result := &IntelligentExecutionResult{
+			Success:         true,
+			Result:          fmt.Sprintf("Informational task acknowledged: %s", req.Description),
+			ExecutionTime:   time.Since(start),
+			RetryCount:      0,
+			ValidationSteps: []ValidationStep{},
+			WorkflowID:      fmt.Sprintf("intelligent_%d", time.Now().UnixNano()),
+		}
+		ie.recordMonitorMetrics(result.Success, result.ExecutionTime)
+		if ie.selfModelManager != nil {
+			ie.recordExecutionEpisode(req, result, "informational")
+		}
+		return result, nil
+	}
+
 	// Short-circuit: if this is a simple tool execution, invoke tool directly (no LLM/codegen)
 	if strings.EqualFold(strings.TrimSpace(req.TaskName), "Tool Execution") {
 		toolID := ""
@@ -905,8 +1055,7 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 	}
 
 	// Heuristic routing: web info-gathering (scrape/fetch URL) should use built-in web tools instead of codegen
-	descLower := strings.ToLower(req.Description)
-	taskLower := strings.ToLower(req.TaskName)
+	// Reuse descLower and taskLower already declared above
 	// Consider multiple web-related intents and presence of URLs in context
 	// Also detect explicit tool mentions (e.g., "use tool_http_get", "tool_html_scraper")
 	hasWebIntent := strings.Contains(descLower, "gather information") ||
