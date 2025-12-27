@@ -20,6 +20,16 @@ spec:
           nodeSelector:
             kubernetes.io/arch: arm64
             performance-tier: utility
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                    - rpi58
+                    - rpi5b
           containers:
             - name: wiki-summarizer
               image: stevef1uk/wiki-summarizer:secure
@@ -151,3 +161,8 @@ spec:
               value: "1"  # Reduced from 2s to 1s for faster failover
             - name: attempts
               value: "2"  # Reduced from 3 to 2 for faster failover
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000

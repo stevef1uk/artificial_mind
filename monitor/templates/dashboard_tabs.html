@@ -1517,14 +1517,26 @@
                 const highColor = getStatusColor(highPercent);
                 const lowColor = getStatusColor(lowPercent);
                 
-                // Build status indicator
+                // Build status indicator with more context
                 let statusIndicator = '';
+                const lowPercent = stats.low_priority_percent || 0;
                 if (stats.auto_disabled) {
-                    statusIndicator = '<div style="background: #e74c3c; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-bottom: 8px;">🛑 Auto-Disabled (Queue Full)</div>';
+                    // Show why it's still disabled (queue needs to drop to 50% to re-enable)
+                    const statusText = lowPercent > 50 
+                        ? `🛑 Auto-Disabled (Queue at ${lowPercent.toFixed(1)}%, will re-enable at 50%)`
+                        : `🛑 Auto-Disabled (Re-enabling soon...)`;
+                    statusIndicator = `<div style="background: #e74c3c; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-bottom: 8px;">${statusText}</div>`;
                 } else if (stats.background_llm_disabled) {
                     statusIndicator = '<div style="background: #f39c12; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-bottom: 8px;">⏸️ Manually Disabled</div>';
                 } else {
-                    statusIndicator = '<div style="background: #27ae60; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-bottom: 8px;">✅ Active</div>';
+                    // Show queue health status
+                    let healthStatus = '✅ Active';
+                    if (lowPercent >= 80) {
+                        healthStatus = '⚠️ Queue High (' + lowPercent.toFixed(1) + '%)';
+                    } else if (lowPercent >= 70) {
+                        healthStatus = '⚡ Queue Moderate (' + lowPercent.toFixed(1) + '%)';
+                    }
+                    statusIndicator = `<div style="background: #27ae60; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-bottom: 8px;">${healthStatus}</div>`;
                 }
                 
                 const statsHtml = `
