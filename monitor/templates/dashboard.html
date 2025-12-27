@@ -828,6 +828,14 @@
                 </div>
             </div>
 
+            <!-- LLM Queue Stats Card -->
+            <div class="card">
+                <h3>🤖 LLM Queue Status</h3>
+                <div id="llm-queue-stats">
+                    <div class="loading">Loading LLM queue stats...</div>
+                </div>
+            </div>
+
 
             {{ template "logs.html" . }}
 
@@ -1250,7 +1258,8 @@
                     loadWorkflows(),
                     loadMetrics(),
                     loadCapabilities(),
-                    loadMemory()
+                    loadMemory(),
+                    loadLLMQueueStats()
                 ];
                 
                 // Add loadLogs only if it exists
@@ -2043,6 +2052,66 @@
             }
         }
 
+        // Load LLM queue stats
+        async function loadLLMQueueStats() {
+            try {
+                const response = await axios.get('/api/llm/queue/stats', { timeout: 5000 });
+                const stats = response.data;
+                
+                // Determine status color based on queue fullness
+                const highPercent = stats.high_priority_percent || 0;
+                const lowPercent = stats.low_priority_percent || 0;
+                const getStatusColor = (percent) => {
+                    if (percent >= 90) return '#e74c3c'; // Red
+                    if (percent >= 70) return '#f39c12'; // Orange
+                    return '#27ae60'; // Green
+                };
+                
+                const highColor = getStatusColor(highPercent);
+                const lowColor = getStatusColor(lowPercent);
+                
+                // Build status indicator
+                let statusIndicator = '';
+                if (stats.auto_disabled) {
+                    statusIndicator = '<div style="background: #e74c3c; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-bottom: 8px;">🛑 Auto-Disabled (Queue Full)</div>';
+                } else if (stats.background_llm_disabled) {
+                    statusIndicator = '<div style="background: #f39c12; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-bottom: 8px;">⏸️ Manually Disabled</div>';
+                } else {
+                    statusIndicator = '<div style="background: #27ae60; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-bottom: 8px;">✅ Active</div>';
+                }
+                
+                const statsHtml = `
+                    ${statusIndicator}
+                    <div class="metric" style="margin-bottom: 12px;">
+                        <span class="metric-label">High Priority Queue</span>
+                        <span class="metric-value" style="color: ${highColor};">
+                            ${stats.high_priority_queue_size || 0}/${stats.max_high_priority_queue || 0}
+                            <small style="font-size: 0.8em; margin-left: 4px;">(${highPercent.toFixed(1)}%)</small>
+                        </span>
+                    </div>
+                    <div class="metric" style="margin-bottom: 12px;">
+                        <span class="metric-label">Low Priority Queue</span>
+                        <span class="metric-value" style="color: ${lowColor};">
+                            ${stats.low_priority_queue_size || 0}/${stats.max_low_priority_queue || 0}
+                            <small style="font-size: 0.8em; margin-left: 4px;">(${lowPercent.toFixed(1)}%)</small>
+                        </span>
+                    </div>
+                    <div class="metric" style="margin-bottom: 12px;">
+                        <span class="metric-label">Active Workers</span>
+                        <span class="metric-value">${stats.active_workers || 0}/${stats.max_workers || 0}</span>
+                    </div>
+                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #ecf0f1; font-size: 0.85em; color: #7f8c8d;">
+                        Last updated: ${stats.timestamp ? new Date(stats.timestamp).toLocaleTimeString() : 'N/A'}
+                    </div>
+                `;
+                document.getElementById('llm-queue-stats').innerHTML = statsHtml;
+            } catch (error) {
+                console.error('Error loading LLM queue stats:', error);
+                document.getElementById('llm-queue-stats').innerHTML = 
+                    '<div style="color: #e74c3c;">Error loading LLM queue stats</div>';
+            }
+        }
+
         // Load system status
         async function loadSystemStatus() {
             try {
@@ -2100,6 +2169,9 @@
                     </div>
                 `;
                 document.getElementById('metrics').innerHTML = metricsHtml;
+
+                // Load LLM queue stats
+                loadLLMQueueStats();
 
                 // Alerts are already shown in the main dashboard
 

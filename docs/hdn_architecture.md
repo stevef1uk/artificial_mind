@@ -208,21 +208,32 @@ graph TB
   - **Worker Pool**: Configurable concurrent workers (default: 2, via `LLM_MAX_CONCURRENT_REQUESTS`)
   - **Response Queue**: Async response handling with callback routing
   - **Request Map**: Tracks requests for proper callback routing
+  - **Backpressure Limits**: Queue size limits prevent backlog buildup
+  - **Health Monitor**: Periodic queue health monitoring and logging
 - **Features**:
   - All LLM calls automatically routed through async queue when `USE_ASYNC_LLM_QUEUE=1`
   - High priority requests (user-initiated) processed before low priority (background)
   - Most recent requests processed first within each priority level (LIFO)
   - Automatic fallback to synchronous calls when async queue disabled
   - Prevents HTTP timeouts by decoupling request from response
+  - **Backpressure**: Rejects requests when queues are full (prevents 800+ request backlogs)
+  - **Auto-Disable/Enable**: Automatically throttles background tasks based on queue health
 - **Configuration**:
   - `USE_ASYNC_LLM_QUEUE`: Enable async queue (default: disabled)
   - `LLM_MAX_CONCURRENT_REQUESTS`: Max concurrent LLM workers (default: 2)
-  - `DISABLE_BACKGROUND_LLM`: Disable background LLM work (default: 0)
+  - `LLM_MAX_HIGH_PRIORITY_QUEUE`: Max high-priority requests (default: 100)
+  - `LLM_MAX_LOW_PRIORITY_QUEUE`: Max low-priority requests (default: 50)
+  - `LLM_AUTO_DISABLE_THRESHOLD`: Queue percentage to disable background LLM (default: 0.90)
+  - `LLM_AUTO_ENABLE_THRESHOLD`: Queue percentage to re-enable background LLM (default: 0.50)
+  - `DISABLE_BACKGROUND_LLM`: Manually disable background LLM work (default: 0)
 - **Benefits**:
   - No blocking: Requests queued and processed asynchronously
   - Better resource management: Worker pool limits concurrent requests
   - Priority handling: User requests processed before background tasks
   - Scalable: Can handle many queued requests without blocking
+  - **Backpressure Protection**: Prevents queue backlog buildup
+  - **Automatic Throttling**: Self-regulating system prevents overload
+  - **Observability**: Real-time queue statistics via API and UI
 
 ## Key Features
 
@@ -273,9 +284,13 @@ graph TB
 
 **Async Queue Flow**:
 - LLM requests enqueued into priority stack (high/low)
+- Backpressure check: Rejects if queue is full (immediate error response)
 - Worker pool processes requests concurrently (limited by `LLM_MAX_CONCURRENT_REQUESTS`)
 - Responses routed back via callback functions
 - No blocking or timeouts during LLM processing
+- Health monitor checks queue size every 10 seconds
+- Auto-disable triggers when low-priority queue reaches threshold
+- Auto-enable triggers when queue clears below threshold
 
 ## Technology Stack
 
@@ -287,3 +302,7 @@ graph TB
 - **Security**: Principles-based rules
  - **Project Scoping**: All intelligent/execute and capability routes accept/require `X-Project-ID` and propagate `project_id` in body context
  - **Timeouts**: Intelligent execution keeps a 120s timeout window to accommodate cold-starts
+ - **Queue Management**: LLM queue statistics exposed via `GET /api/v1/llm/queue/stats` endpoint
+   - Returns queue sizes, worker utilization, and auto-disable state
+   - Monitor UI displays real-time queue status in Overview screen
+   - Health monitoring logs queue metrics every 30 seconds

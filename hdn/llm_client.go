@@ -248,6 +248,10 @@ type AsyncLLMQueueManager struct {
 	workerPool     chan struct{}
 	maxWorkers     int
 	
+	// Backpressure limits
+	maxHighPriorityQueue int // Maximum high-priority requests in queue
+	maxLowPriorityQueue  int // Maximum low-priority requests in queue
+	
 	// Synchronization
 	mu             sync.Mutex
 	requestMap     map[string]*AsyncLLMRequest // Map request ID to request for callbacks
@@ -263,6 +267,12 @@ var (
 	asyncQueueManagerOnce sync.Once
 )
 
+// getAsyncLLMQueueManager returns the global async queue manager instance
+// Returns nil if not initialized
+func getAsyncLLMQueueManager() *AsyncLLMQueueManager {
+	return asyncQueueManager
+}
+
 // InitAsyncLLMQueue initializes the async LLM queue system
 func InitAsyncLLMQueue(llmClient *LLMClient) *AsyncLLMQueueManager {
 	asyncQueueManagerOnce.Do(func() {
@@ -273,18 +283,36 @@ func InitAsyncLLMQueue(llmClient *LLMClient) *AsyncLLMQueueManager {
 			}
 		}
 		
+		// Backpressure limits - configurable via environment variables
+		maxHighPriorityQueue := 100 // High-priority requests (user chat) - allow more
+		if maxStr := os.Getenv("LLM_MAX_HIGH_PRIORITY_QUEUE"); maxStr != "" {
+			if max, err := strconv.Atoi(maxStr); err == nil && max > 0 {
+				maxHighPriorityQueue = max
+			}
+		}
+		
+		maxLowPriorityQueue := 50 // Low-priority requests (background tasks) - limit to prevent backlog
+		if maxStr := os.Getenv("LLM_MAX_LOW_PRIORITY_QUEUE"); maxStr != "" {
+			if max, err := strconv.Atoi(maxStr); err == nil && max > 0 {
+				maxLowPriorityQueue = max
+			}
+		}
+		
 		asyncQueueManager = &AsyncLLMQueueManager{
 			highPriorityStack: make([]*AsyncLLMRequest, 0),
 			lowPriorityStack:  make([]*AsyncLLMRequest, 0),
 			responseQueue:     make(chan *AsyncLLMResponse, 100),
 			workerPool:        make(chan struct{}, maxWorkers),
 			maxWorkers:        maxWorkers,
+			maxHighPriorityQueue: maxHighPriorityQueue,
+			maxLowPriorityQueue:  maxLowPriorityQueue,
 			requestMap:        make(map[string]*AsyncLLMRequest),
 			shutdown:          make(chan struct{}),
 			llmClient:         llmClient,
 		}
 		
 		log.Printf("🚀 [ASYNC-LLM] Initialized async LLM queue system with %d workers", maxWorkers)
+		log.Printf("🚀 [ASYNC-LLM] Backpressure limits: high-priority=%d, low-priority=%d", maxHighPriorityQueue, maxLowPriorityQueue)
 		
 		// Start queue processor
 		asyncQueueManager.wg.Add(1)
@@ -293,12 +321,17 @@ func InitAsyncLLMQueue(llmClient *LLMClient) *AsyncLLMQueueManager {
 		// Start response handler
 		asyncQueueManager.wg.Add(1)
 		go asyncQueueManager.processResponses()
+		
+		// Start queue health monitor (logs queue sizes periodically)
+		asyncQueueManager.wg.Add(1)
+		go asyncQueueManager.monitorQueueHealth()
 	})
 	
 	return asyncQueueManager
 }
 
 // EnqueueRequest adds a request to the appropriate priority stack (LIFO)
+// Returns error if queue is full (backpressure)
 func (aqm *AsyncLLMQueueManager) EnqueueRequest(req *AsyncLLMRequest) error {
 	aqm.mu.Lock()
 	defer aqm.mu.Unlock()
@@ -310,17 +343,32 @@ func (aqm *AsyncLLMQueueManager) EnqueueRequest(req *AsyncLLMRequest) error {
 	
 	req.CreatedAt = time.Now()
 	
+	// Backpressure: Check queue sizes before enqueuing
+	if req.Priority == PriorityHigh {
+		// High-priority requests: check limit but allow more (user requests)
+		if len(aqm.highPriorityStack) >= aqm.maxHighPriorityQueue {
+			log.Printf("🚫 [ASYNC-LLM] HIGH priority queue full (%d/%d), rejecting request: %s", 
+				len(aqm.highPriorityStack), aqm.maxHighPriorityQueue, req.ID)
+			return fmt.Errorf("high-priority queue full (%d/%d requests)", len(aqm.highPriorityStack), aqm.maxHighPriorityQueue)
+		}
+		aqm.highPriorityStack = append(aqm.highPriorityStack, req)
+		log.Printf("📥 [ASYNC-LLM] Enqueued HIGH priority request: %s (stack size: %d/%d)", 
+			req.ID, len(aqm.highPriorityStack), aqm.maxHighPriorityQueue)
+	} else {
+		// Low-priority requests: enforce stricter limit to prevent backlog
+		if len(aqm.lowPriorityStack) >= aqm.maxLowPriorityQueue {
+			log.Printf("🚫 [ASYNC-LLM] LOW priority queue full (%d/%d), rejecting request: %s (backpressure)", 
+				len(aqm.lowPriorityStack), aqm.maxLowPriorityQueue, req.ID)
+			return fmt.Errorf("low-priority queue full (%d/%d requests) - backpressure applied", 
+				len(aqm.lowPriorityStack), aqm.maxLowPriorityQueue)
+		}
+		aqm.lowPriorityStack = append(aqm.lowPriorityStack, req)
+		log.Printf("📥 [ASYNC-LLM] Enqueued LOW priority request: %s (stack size: %d/%d)", 
+			req.ID, len(aqm.lowPriorityStack), aqm.maxLowPriorityQueue)
+	}
+	
 	// Store in request map for callback routing
 	aqm.requestMap[req.ID] = req
-	
-	// Add to appropriate stack (LIFO - append to end, pop from end)
-	if req.Priority == PriorityHigh {
-		aqm.highPriorityStack = append(aqm.highPriorityStack, req)
-		log.Printf("📥 [ASYNC-LLM] Enqueued HIGH priority request: %s (stack size: %d)", req.ID, len(aqm.highPriorityStack))
-	} else {
-		aqm.lowPriorityStack = append(aqm.lowPriorityStack, req)
-		log.Printf("📥 [ASYNC-LLM] Enqueued LOW priority request: %s (stack size: %d)", req.ID, len(aqm.lowPriorityStack))
-	}
 	
 	return nil
 }
@@ -648,6 +696,144 @@ func (aqm *AsyncLLMQueueManager) sendResponse(resp *AsyncLLMResponse) {
 		log.Printf("📨 [ASYNC-LLM] Sent response for request: %s", resp.RequestID)
 	case <-time.After(5 * time.Second):
 		log.Printf("⚠️ [ASYNC-LLM] Response queue full, dropping response for: %s", resp.RequestID)
+	}
+}
+
+// QueueStats represents current queue statistics
+type QueueStats struct {
+	HighPrioritySize      int
+	LowPrioritySize       int
+	MaxHighPriorityQueue  int
+	MaxLowPriorityQueue   int
+	ActiveWorkers         int
+	MaxWorkers            int
+	HighPriorityPercent   float64
+	LowPriorityPercent    float64
+}
+
+// GetStats returns current queue statistics (thread-safe)
+func (aqm *AsyncLLMQueueManager) GetStats() QueueStats {
+	aqm.mu.Lock()
+	defer aqm.mu.Unlock()
+	
+	highSize := len(aqm.highPriorityStack)
+	lowSize := len(aqm.lowPriorityStack)
+	activeWorkers := aqm.maxWorkers - len(aqm.workerPool)
+	
+	highPercent := float64(highSize) / float64(aqm.maxHighPriorityQueue) * 100
+	lowPercent := float64(lowSize) / float64(aqm.maxLowPriorityQueue) * 100
+	
+	return QueueStats{
+		HighPrioritySize:     highSize,
+		LowPrioritySize:      lowSize,
+		MaxHighPriorityQueue: aqm.maxHighPriorityQueue,
+		MaxLowPriorityQueue:  aqm.maxLowPriorityQueue,
+		ActiveWorkers:        activeWorkers,
+		MaxWorkers:           aqm.maxWorkers,
+		HighPriorityPercent:  highPercent,
+		LowPriorityPercent:   lowPercent,
+	}
+}
+
+// monitorQueueHealth periodically logs queue sizes and health metrics
+// Also implements auto-disable/enable of background LLM based on queue size
+func (aqm *AsyncLLMQueueManager) monitorQueueHealth() {
+	defer aqm.wg.Done()
+	
+	ticker := time.NewTicker(10 * time.Second) // Check every 10 seconds for auto-disable
+	defer ticker.Stop()
+	
+	// Track auto-disable state
+	var autoDisabled bool
+	var redisClient *redis.Client
+	
+	// Try to get Redis client from environment (if available)
+	// This is a best-effort - if Redis isn't available, we'll just log
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = "localhost:6379"
+	}
+	
+	ctx := context.Background()
+	rdb := redis.NewClient(&redis.Options{
+		Addr: redisAddr,
+	})
+	// Test connection
+	if err := rdb.Ping(ctx).Err(); err == nil {
+		redisClient = rdb
+		defer rdb.Close()
+	} else {
+		log.Printf("⚠️ [ASYNC-LLM] Redis not available for auto-disable: %v (auto-disable disabled)", err)
+		rdb.Close()
+	}
+	
+	// Thresholds for auto-disable/enable (configurable)
+	disableThreshold := 0.90  // Disable when queue is 90% full
+	enableThreshold := 0.50   // Re-enable when queue drops to 50%
+	
+	if thresholdStr := os.Getenv("LLM_AUTO_DISABLE_THRESHOLD"); thresholdStr != "" {
+		if threshold, err := strconv.ParseFloat(thresholdStr, 64); err == nil && threshold > 0 && threshold <= 1.0 {
+			disableThreshold = threshold
+		}
+	}
+	if thresholdStr := os.Getenv("LLM_AUTO_ENABLE_THRESHOLD"); thresholdStr != "" {
+		if threshold, err := strconv.ParseFloat(thresholdStr, 64); err == nil && threshold > 0 && threshold <= 1.0 {
+			enableThreshold = threshold
+		}
+	}
+	
+	for {
+		select {
+		case <-aqm.shutdown:
+			return
+		case <-ticker.C:
+			stats := aqm.GetStats()
+			
+			// Log queue health every 30 seconds (every 3rd tick)
+			if time.Now().Second()%30 < 10 {
+				if stats.HighPrioritySize > 0 || stats.LowPrioritySize > 0 {
+					log.Printf("📊 [ASYNC-LLM] Queue health: high=%d/%d (%.1f%%) low=%d/%d (%.1f%%) active_workers=%d/%d",
+						stats.HighPrioritySize, stats.MaxHighPriorityQueue, stats.HighPriorityPercent,
+						stats.LowPrioritySize, stats.MaxLowPriorityQueue, stats.LowPriorityPercent,
+						stats.ActiveWorkers, stats.MaxWorkers)
+				}
+				
+				// Warn if queues are getting full
+				if stats.HighPriorityPercent > 80 {
+					log.Printf("⚠️ [ASYNC-LLM] High-priority queue is %d%% full (%d/%d)", 
+						int(stats.HighPriorityPercent), stats.HighPrioritySize, stats.MaxHighPriorityQueue)
+				}
+				if stats.LowPriorityPercent > 80 {
+					log.Printf("⚠️ [ASYNC-LLM] Low-priority queue is %d%% full (%d/%d) - backpressure may be applied", 
+						int(stats.LowPriorityPercent), stats.LowPrioritySize, stats.MaxLowPriorityQueue)
+				}
+			}
+			
+			// Auto-disable/enable logic
+			lowPercent := stats.LowPriorityPercent / 100.0
+			
+			if !autoDisabled && lowPercent >= disableThreshold {
+				// Queue is too full - disable background LLM
+				if redisClient != nil {
+					err := redisClient.Set(ctx, "DISABLE_BACKGROUND_LLM", "1", 0).Err()
+					if err == nil {
+						autoDisabled = true
+						log.Printf("🛑 [ASYNC-LLM] Auto-disabled background LLM (queue at %.1f%%, threshold: %.1f%%)", 
+							stats.LowPriorityPercent, disableThreshold*100)
+					}
+				}
+			} else if autoDisabled && lowPercent <= enableThreshold {
+				// Queue has cleared - re-enable background LLM
+				if redisClient != nil {
+					err := redisClient.Del(ctx, "DISABLE_BACKGROUND_LLM").Err()
+					if err == nil {
+						autoDisabled = false
+						log.Printf("✅ [ASYNC-LLM] Auto-re-enabled background LLM (queue at %.1f%%, threshold: %.1f%%)", 
+							stats.LowPriorityPercent, enableThreshold*100)
+					}
+				}
+			}
+		}
 	}
 }
 

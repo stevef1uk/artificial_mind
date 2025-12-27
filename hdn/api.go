@@ -1036,6 +1036,9 @@ func (s *APIServer) setupRoutes() {
 	s.router.HandleFunc("/api/v1/tools/{id}/metrics", s.handleGetToolMetrics).Methods("GET")
 	s.router.HandleFunc("/api/v1/tools/calls/recent", s.handleGetRecentToolCalls).Methods("GET")
 
+	// LLM queue stats
+	s.router.HandleFunc("/api/v1/llm/queue/stats", s.handleLLMQueueStats).Methods("GET")
+
 	// Episodic search passthrough (if RAG adapter is configured)
 	s.router.HandleFunc("/api/v1/episodes/search", s.handleSearchEpisodes).Methods("GET")
 
@@ -5513,6 +5516,60 @@ func (s *APIServer) startTokenAggregationScheduler() {
 }
 
 // handleGetAllToolMetrics: GET /api/v1/tools/metrics
+// handleLLMQueueStats returns current LLM queue statistics
+func (s *APIServer) handleLLMQueueStats(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	// Get async queue manager if available
+	queueMgr := getAsyncLLMQueueManager()
+	if queueMgr == nil {
+		// Queue not initialized, return empty stats
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"high_priority_queue_size": 0,
+			"low_priority_queue_size":   0,
+			"max_high_priority_queue":   0,
+			"max_low_priority_queue":     0,
+			"active_workers":            0,
+			"max_workers":               0,
+			"high_priority_percent":     0,
+			"low_priority_percent":      0,
+			"background_llm_disabled":  false,
+			"auto_disabled":            false,
+			"timestamp":                time.Now().Format(time.RFC3339),
+		})
+		return
+	}
+
+	// Get queue stats
+	stats := queueMgr.GetStats()
+	
+	// Check if background LLM is disabled via environment variable
+	backgroundDisabled := strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "1" || 
+	                   strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "true"
+	
+	// Check Redis for auto-disable state
+	var autoDisabled bool
+	if s.redis != nil {
+		ctx := r.Context()
+		val, err := s.redis.Get(ctx, "DISABLE_BACKGROUND_LLM").Result()
+		autoDisabled = err == nil && (val == "1" || val == "true")
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"high_priority_queue_size": stats.HighPrioritySize,
+		"low_priority_queue_size":  stats.LowPrioritySize,
+		"max_high_priority_queue": stats.MaxHighPriorityQueue,
+		"max_low_priority_queue":   stats.MaxLowPriorityQueue,
+		"active_workers":           stats.ActiveWorkers,
+		"max_workers":              stats.MaxWorkers,
+		"high_priority_percent":    stats.HighPriorityPercent,
+		"low_priority_percent":     stats.LowPriorityPercent,
+		"background_llm_disabled": backgroundDisabled,
+		"auto_disabled":            autoDisabled,
+		"timestamp":               time.Now().Format(time.RFC3339),
+	})
+}
+
 func (s *APIServer) handleGetAllToolMetrics(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 

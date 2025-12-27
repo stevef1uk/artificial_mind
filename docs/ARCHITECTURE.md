@@ -237,6 +237,9 @@ graph TB
   - **Composite Tool Provider**: Combines HDN tools and MCP knowledge tools, automatically discovered by the LLM
   - **Conversational Layer**: Natural language interface with chain-of-thought visibility and thought storage
   - **Async LLM Queue System**: Priority-based async queue for all LLM calls with LIFO processing, worker pools, and callback routing
+  - **LLM Queue Backpressure**: Queue size limits prevent backlog buildup (high-priority: 100, low-priority: 50, configurable)
+  - **Auto-Disable/Enable**: Automatically disables background LLM tasks when queue reaches 90% capacity, re-enables at 50%
+  - **Queue Health Monitoring**: Real-time queue statistics and health metrics exposed via API and UI
   - See `Tools.md` for the tool schema, lifecycle, and operational details
 
 For a deeper, HDN-specific architecture diagram and narrative, see `hdn_architecture.md` and `Tools.md`.
@@ -270,6 +273,11 @@ For a deeper, HDN-specific architecture diagram and narrative, see `hdn_architec
     - Real-time thought storage and retrieval
     - Conversation history display
   - **Chat Proxy**: Proxies chat requests to HDN with `show_thinking` enabled
+  - **LLM Queue Status Panel**: Real-time monitoring of LLM queue sizes, worker utilization, and auto-disable state
+    - High-priority and low-priority queue sizes with percentage indicators
+    - Active worker count and capacity
+    - Color-coded status indicators (green/orange/red based on queue fullness)
+    - Auto-disable status display (🛑 Auto-Disabled, ⏸️ Manually Disabled, ✅ Active)
 
 ### 5. **Self-Model** (`self/`)
 - **Purpose**: Self-awareness, motivations, and learning
@@ -428,6 +436,19 @@ Simple prompts (heuristic) may bypass hierarchical planning and route directly t
 - LIFO (Last In, First Out) processing within each priority level
 - Worker pool limits concurrent LLM requests to prevent resource exhaustion
 - Callback-based response routing ensures proper async handling
+- **Backpressure System**: Queue size limits prevent backlog buildup
+  - High-priority queue: max 100 requests (configurable via `LLM_MAX_HIGH_PRIORITY_QUEUE`)
+  - Low-priority queue: max 50 requests (configurable via `LLM_MAX_LOW_PRIORITY_QUEUE`)
+  - Requests rejected when queue is full (immediate error response)
+- **Auto-Disable/Enable**: Automatic throttling of background tasks
+  - Disables background LLM when low-priority queue reaches 90% (configurable via `LLM_AUTO_DISABLE_THRESHOLD`)
+  - Re-enables when queue drops to 50% (configurable via `LLM_AUTO_ENABLE_THRESHOLD`)
+  - State persisted in Redis for system-wide coordination
+- **Queue Health Monitoring**: Real-time statistics and health metrics
+  - Queue sizes, percentages, and worker utilization
+  - Periodic health logging (every 30 seconds)
+  - Warnings when queues exceed 80% capacity
+  - API endpoint: `GET /api/v1/llm/queue/stats` (HDN), `GET /api/llm/queue/stats` (Monitor)
 ```
 
 ### 2. **Hierarchical Planning Flow**
@@ -692,6 +713,9 @@ make help
   - `GET /api/v1/intelligent/capabilities` — List cached intelligent capabilities
   - Response includes optional `preview` (code preview grouped by filename)
 
+- LLM Queue Management
+  - `GET /api/v1/llm/queue/stats` — Get LLM queue statistics (sizes, workers, auto-disable state)
+
 - Interpreter
   - `POST /api/v1/interpret` — Natural language interpretation
   - `POST /api/v1/interpret/execute` — Interpret and execute
@@ -751,6 +775,9 @@ make help
   - `GET /api/daily_summary/latest` — Latest daily summary (Redis-backed)
   - `GET /api/daily_summary/history` — Recent daily summaries (last 30)
   - `GET /api/daily_summary/{date}` — Summary for a specific UTC date
+
+- LLM Queue Monitoring
+  - `GET /api/llm/queue/stats` — LLM queue statistics (proxied from HDN)
 
 - Chain of Thought (Proxied to HDN)
   - `GET /api/v1/chat/sessions` — List all conversation sessions
@@ -845,6 +872,22 @@ make help
   - Automatic fallback to synchronous calls when async queue is disabled
   - Environment variable: `USE_ASYNC_LLM_QUEUE=1` to enable
   - Configuration: `LLM_MAX_CONCURRENT_REQUESTS` (default: 2)
+- **✅ LLM Queue Backpressure**: Prevents queue backlog buildup
+  - Queue size limits: high-priority (100), low-priority (50) - configurable
+  - Immediate rejection when queues are full (prevents 800+ request backlogs)
+  - Configurable via `LLM_MAX_HIGH_PRIORITY_QUEUE` and `LLM_MAX_LOW_PRIORITY_QUEUE`
+- **✅ Auto-Disable/Enable System**: Automatic throttling of background tasks
+  - Monitors queue health every 10 seconds
+  - Auto-disables background LLM when low-priority queue reaches 90% (configurable)
+  - Auto-re-enables when queue drops to 50% (configurable)
+  - State persisted in Redis for system-wide coordination
+  - Configurable thresholds: `LLM_AUTO_DISABLE_THRESHOLD`, `LLM_AUTO_ENABLE_THRESHOLD`
+- **✅ Queue Health Monitoring**: Real-time statistics and observability
+  - Queue sizes, percentages, and worker utilization exposed via API
+  - Periodic health logging (every 30 seconds)
+  - Warnings when queues exceed 80% capacity
+  - UI integration: LLM Queue Status panel in Monitor Overview screen
+  - API endpoints: `GET /api/v1/llm/queue/stats` (HDN), `GET /api/llm/queue/stats` (Monitor)
 
 - **✅ FSM Async HTTP Queue**: Priority-based async queue system for all HTTP calls from FSM to HDN
   - High and low priority stacks with LIFO processing
@@ -1011,7 +1054,7 @@ make help
 This architecture document should be updated whenever tools lifecycle, registry schema, or executor policy changes. See `Tools.md` for the canonical tool catalog format and usage.
 
 **Last Updated**: December 2024
-**Version**: 1.3
+**Version**: 1.4
 **Maintainer**: Development Team
 
 ### Learning Focus Improvements (v1.2)
@@ -1038,6 +1081,16 @@ All async queue systems have been implemented and integrated:
 
 See `hdn/ASYNC_LLM_QUEUE_POC.md` and `async_llm/README.md` for complete details.
 
+### LLM Queue Backpressure & Monitoring (v1.4)
+
+Queue management and monitoring improvements:
+- ✅ LLM Queue Backpressure System
+- ✅ Auto-Disable/Enable for Background Tasks
+- ✅ Queue Health Monitoring & Statistics API
+- ✅ UI Integration for Queue Status Display
+
+See `docs/BACKPRESSURE_IMPLEMENTATION.md` for complete details.
+
 ## 🔌 Ports and Endpoints Reference
 
 - Principles Server: 8080 (HTTP)
@@ -1058,16 +1111,6 @@ Environment variables (defaults):
 - NEO4J_URI: bolt://localhost:7687
 - NEO4J_USER: neo4j
 - NEO4J_PASS: test1234
-
-**Async Queue Configuration**:
-- `USE_ASYNC_LLM_QUEUE`: Enable async LLM queue (default: disabled)
-- `LLM_MAX_CONCURRENT_REQUESTS`: Max concurrent LLM workers (default: 2)
-- `ASYNC_LLM_MAX_WORKERS`: Max workers for async_llm package (default: 3)
-- `ASYNC_LLM_TIMEOUT_SECONDS`: Timeout for async LLM requests (default: 60)
-- `USE_ASYNC_HTTP_QUEUE`: Enable async HTTP queue for FSM (default: disabled)
-- `FSM_MAX_CONCURRENT_HTTP_REQUESTS`: Max concurrent HTTP workers (default: 5)
-- `FSM_HTTP_TIMEOUT_SECONDS`: Timeout for HTTP requests (default: 30)
-- `DISABLE_BACKGROUND_LLM`: Disable background LLM work (default: 0)
 
 **Async Queue Configuration**:
 - `USE_ASYNC_LLM_QUEUE`: Enable async LLM queue (default: disabled)

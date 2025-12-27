@@ -11,7 +11,7 @@ graph TB
     %% External Interface Layer
     subgraph "External Interface Layer"
         User[👤 User / Client Apps]
-        Monitor[📊 Monitor UI<br/>Dashboard & Chain-of-Thought]
+        Monitor[📊 Monitor UI<br/>Dashboard, Chain-of-Thought<br/>LLM Queue Stats]
     end
 
     %% Cognition & Control Layer
@@ -33,7 +33,7 @@ graph TB
         Reasoning[💭 Reasoning Engine<br/>Curiosity & Hypotheses]
         MCP[🔌 MCP Knowledge Server<br/>Neo4j / Weaviate Tools]
         LLM[🤖 LLM Provider(s)<br/>OpenAI / Anthropic / Local]
-        AsyncLLM[⚡ Async LLM Queue<br/>Priority Queues & Worker Pools]
+        AsyncLLM[⚡ Async LLM Queue<br/>Priority Queues, Worker Pools<br/>Backpressure & Auto-Disable]
     end
 
     %% Memory & Data Layer
@@ -83,6 +83,8 @@ graph TB
     Reasoning -->|Hypothesis Screening<br/>via Async LLM Queue| LLM
     HDN -->|LLM Requests| AsyncLLM
     AsyncLLM -->|Queued Requests| LLM
+    AsyncLLM -->|Queue Stats| Monitor
+    AsyncLLM -->|Auto-Disable State| Redis
 
     %% Memory & Data Flows
     HDN -->|Sessions, State, Tools, Projects| Redis
@@ -193,6 +195,18 @@ graph TB
   - Worker pools limit concurrent requests
   - LIFO processing ensures recent requests handled first
   - Configurable concurrency limits per component
+- **LLM Queue Backpressure**: Queue size limits prevent backlog buildup
+  - High-priority queue: 100 requests max (configurable)
+  - Low-priority queue: 50 requests max (configurable)
+  - Immediate rejection when queues are full
+- **Auto-Disable/Enable**: Automatic throttling of background tasks
+  - Disables background LLM when queue reaches 90% capacity
+  - Re-enables when queue drops to 50% capacity
+  - State persisted in Redis for coordination
+- **Queue Health Monitoring**: Real-time statistics and observability
+  - Queue sizes, percentages, and worker utilization
+  - UI integration in Monitor Overview screen
+  - API endpoints for programmatic access
 
 ---
 

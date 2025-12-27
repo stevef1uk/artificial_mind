@@ -395,6 +395,7 @@ func main() {
 	r.POST("/api/v1/chat/sessions/:sessionId/thoughts/express", monitor.expressSessionThoughts)
 	r.GET("/api/v1/chat/sessions/:sessionId/history", monitor.getSessionHistory)
 	r.GET("/api/status", monitor.getSystemStatus)
+	r.GET("/api/llm/queue/stats", monitor.getLLMQueueStats)
 	r.GET("/api/workflows", monitor.getActiveWorkflows)
 	r.GET("/api/workflow/:workflow_id/details", monitor.getWorkflowDetails)
 	r.GET("/api/projects", monitor.getProjects)
@@ -2189,6 +2190,46 @@ func (m *MonitorService) analyzeLastWorkflow(c *gin.Context) {
 }
 
 // getExecutionMetricsFromRedis retrieves metrics from Redis
+// getLLMQueueStats proxies LLM queue stats from HDN
+func (m *MonitorService) getLLMQueueStats(c *gin.Context) {
+	url := m.hdnURL + "/api/v1/llm/queue/stats"
+	
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":     "Failed to fetch LLM queue stats",
+			"details":   err.Error(),
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+		return
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error":     "HDN returned error",
+			"status":    resp.StatusCode,
+			"details":    string(body),
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+		return
+	}
+	
+	var stats map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":     "Failed to parse LLM queue stats",
+			"details":   err.Error(),
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+		return
+	}
+	
+	c.JSON(http.StatusOK, stats)
+}
+
 func (m *MonitorService) getExecutionMetricsFromRedis() ExecutionMetrics {
 	metrics := ExecutionMetrics{
 		ByLanguage: make(map[string]int),
