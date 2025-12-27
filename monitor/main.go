@@ -1456,23 +1456,11 @@ func (m *MonitorService) checkNATS() ServiceInfo {
 func (m *MonitorService) getSystemMetrics() SystemMetrics {
 	metrics := SystemMetrics{}
 
-	// Get active workflows count from Redis using SCAN (non-blocking) instead of KEYS
-	// This is much faster and doesn't block Redis
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-
-	// Use SCAN to count workflow keys without blocking
-	workflowCount := 0
-	iter := m.redisClient.Scan(ctx, 0, "workflow:*", 100).Iterator()
-	for iter.Next(ctx) {
-		workflowCount++
-		// Limit scan to prevent it from taking too long
-		if workflowCount > 10000 {
-			break
-		}
-	}
-	if err := iter.Err(); err == nil {
-		metrics.ActiveWorkflows = workflowCount
+	// Get active workflows count from Redis
+	ctx := context.Background()
+	workflowKeys, err := m.redisClient.Keys(ctx, "workflow:*").Result()
+	if err == nil {
+		metrics.ActiveWorkflows = len(workflowKeys)
 	}
 
 	// Get execution metrics
@@ -1482,8 +1470,7 @@ func (m *MonitorService) getSystemMetrics() SystemMetrics {
 	metrics.AverageExecutionTime = execMetrics.AverageTime
 
 	// Get Redis info
-	infoCtx := context.Background()
-	_, err := m.redisClient.Info(infoCtx, "clients").Result()
+	_, err = m.redisClient.Info(ctx, "clients").Result()
 	if err == nil {
 		// Parse connected clients from Redis info
 		// This is a simplified version - in production you'd parse the full info
@@ -1501,25 +1488,17 @@ func (m *MonitorService) getActiveWorkflows(c *gin.Context) {
 	workflows := []WorkflowStatus{}
 
 	// Get workflows from HDN server
-	// Use shorter timeout to fail fast when HDN is down (5 seconds)
-	// File/step fetching happens in parallel with shorter timeouts, so we don't need 30s here
-	client := &http.Client{Timeout: 5 * time.Second}
+	// Increased timeout to 30 seconds to allow for file/step fetching
+	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Get(m.hdnURL + "/api/v1/hierarchical/workflows")
 	if err != nil {
-		// Check if it's a timeout or connection error
+		// Check if it's a timeout error
 		if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
-			log.Printf("⏱️ [MONITOR] Timeout getting workflows from HDN (exceeded 5s) - HDN may be down")
-			c.JSON(http.StatusGatewayTimeout, gin.H{
-				"error":     "HDN server timeout - server may be down or unreachable",
-				"workflows": []WorkflowStatus{},
-			})
+			log.Printf("⏱️ [MONITOR] Timeout getting workflows from HDN (exceeded 8s)")
+			c.JSON(http.StatusGatewayTimeout, gin.H{"error": "HDN server timeout - workflows endpoint took too long to respond"})
 		} else {
-			log.Printf("❌ [MONITOR] Failed to get workflows from HDN: %v - HDN may be down", err)
-			// Return empty workflows list instead of error so UI can still function
-			c.JSON(http.StatusOK, gin.H{
-				"workflows": []WorkflowStatus{},
-				"error":     fmt.Sprintf("HDN server unavailable: %v", err),
-			})
+			log.Printf("❌ [MONITOR] Failed to get workflows from HDN: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get workflows from HDN server"})
 		}
 		return
 	}
@@ -1936,11 +1915,9 @@ func (m *MonitorService) getWorkflowDetails(c *gin.Context) {
 		return
 	}
 	urlStr := fmt.Sprintf("%s/api/v1/hierarchical/workflow/%s/details", m.hdnURL, workflowID)
-	client := &http.Client{Timeout: 5 * time.Second} // Add timeout for faster failover
-	resp, err := client.Get(urlStr)
+	resp, err := http.Get(urlStr)
 	if err != nil {
-		log.Printf("❌ [MONITOR] Failed to get workflow details from HDN: %v - HDN may be down", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch workflow details - HDN server may be down"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch workflow details"})
 		return
 	}
 	defer resp.Body.Close()
@@ -1956,12 +1933,10 @@ func (m *MonitorService) getExecutionMetrics(c *gin.Context) {
 
 // getProjects proxies the list of projects from the HDN API
 func (m *MonitorService) getProjects(c *gin.Context) {
-	client := &http.Client{Timeout: 5 * time.Second} // Reduced timeout for faster failover
+	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(m.hdnURL + "/api/v1/projects")
 	if err != nil {
-		log.Printf("❌ [MONITOR] Failed to get projects from HDN: %v - HDN may be down", err)
-		// Return empty projects list so UI can still function
-		c.JSON(http.StatusOK, gin.H{"projects": []interface{}{}})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch projects"})
 		return
 	}
 	defer resp.Body.Close()
@@ -2330,22 +2305,10 @@ func (m *MonitorService) getRedisInfo(c *gin.Context) {
 		info.ConnectedClients = 1
 	}
 
-	// Get keyspace info using SCAN (non-blocking) instead of KEYS
-	// This prevents blocking Redis when there are many keys
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-
-	keyCount := 0
-	iter := m.redisClient.Scan(ctxWithTimeout, 0, "*", 100).Iterator()
-	for iter.Next(ctxWithTimeout) {
-		keyCount++
-		// Limit scan to prevent it from taking too long
-		if keyCount > 50000 {
-			break
-		}
-	}
-	if err := iter.Err(); err == nil {
-		info.Keyspace["total"] = keyCount
+	// Get keyspace info
+	keys, err := m.redisClient.Keys(ctx, "*").Result()
+	if err == nil {
+		info.Keyspace["total"] = len(keys)
 	}
 
 	c.JSON(http.StatusOK, info)

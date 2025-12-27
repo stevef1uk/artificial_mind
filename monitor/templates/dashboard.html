@@ -2126,7 +2126,7 @@
         // Load system status
         async function loadSystemStatus() {
             try {
-                const response = await axios.get('/api/status', { timeout: 20000 });
+                const response = await axios.get('/api/status', { timeout: 12000 });
                 const data = response.data;
                 
                 // Update system status
@@ -2188,15 +2188,6 @@
 
             } catch (error) {
                 console.error('Error loading system status:', error);
-                // Handle timeout specifically with a user-friendly message
-                const servicesStatusEl = document.getElementById('services-status');
-                if (servicesStatusEl) {
-                    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-                        servicesStatusEl.innerHTML = '<div style="color: #f59e0b; padding: 10px;">System status check timed out. Services may be slow to respond. <button onclick="loadSystemStatus()" style="margin-left: 8px; padding: 4px 8px;">Retry</button></div>';
-                    } else {
-                        servicesStatusEl.innerHTML = `<div style="color: #e74c3c; padding: 10px;">Error loading system status: ${error.message}</div>`;
-                    }
-                }
             }
         }
 
