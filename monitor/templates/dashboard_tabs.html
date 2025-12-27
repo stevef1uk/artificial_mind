@@ -1328,8 +1328,9 @@
             
             try {
                 console.log('Making API call to /api/status...');
-                // Load system status (backend can take up to 11 seconds when services are down: 5s service timeout + 6s collection)
-                const statusResponse = await axios.get('/api/status', { timeout: 12000 });
+                // Load system status (backend can take up to 11 seconds when services are down: 3s service timeout + 4s collection + overhead)
+                // Use a more generous timeout to handle slow networks or overloaded services
+                const statusResponse = await axios.get('/api/status', { timeout: 20000 });
                 console.log('Status response received:', statusResponse.status);
                 console.log('Status data:', statusResponse.data);
                 const status = statusResponse.data;
@@ -1493,7 +1494,12 @@
 
             } catch (error) {
                 console.error('Error loading overview data:', error);
-                systemStatusDiv.innerHTML = `<div class="error">Error loading system status: ${error.message}</div>`;
+                // Handle timeout specifically with a more user-friendly message
+                if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+                    systemStatusDiv.innerHTML = `<div class="error" style="color: #f59e0b;">System status check timed out. Services may be slow to respond. <button class="btn" style="margin-top: 8px; padding: 4px 8px; font-size: 12px;" onclick="loadOverview()">Retry</button></div>`;
+                } else {
+                    systemStatusDiv.innerHTML = `<div class="error">Error loading system status: ${error.message}</div>`;
+                }
                 quickStatsDiv.innerHTML = `<div class="error">Error loading quick stats: ${error.message}</div>`;
                 databaseStatusDiv.innerHTML = `<div class="error">Error loading database status: ${error.message}</div>`;
                 newsContentDiv.innerHTML = `<div class="error">Error loading news content: ${error.message}</div>`;

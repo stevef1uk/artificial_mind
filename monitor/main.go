@@ -1456,11 +1456,23 @@ func (m *MonitorService) checkNATS() ServiceInfo {
 func (m *MonitorService) getSystemMetrics() SystemMetrics {
 	metrics := SystemMetrics{}
 
-	// Get active workflows count from Redis
-	ctx := context.Background()
-	workflowKeys, err := m.redisClient.Keys(ctx, "workflow:*").Result()
-	if err == nil {
-		metrics.ActiveWorkflows = len(workflowKeys)
+	// Get active workflows count from Redis using SCAN (non-blocking) instead of KEYS
+	// This is much faster and doesn't block Redis
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	// Use SCAN to count workflow keys without blocking
+	workflowCount := 0
+	iter := m.redisClient.Scan(ctx, 0, "workflow:*", 100).Iterator()
+	for iter.Next(ctx) {
+		workflowCount++
+		// Limit scan to prevent it from taking too long
+		if workflowCount > 10000 {
+			break
+		}
+	}
+	if err := iter.Err(); err == nil {
+		metrics.ActiveWorkflows = workflowCount
 	}
 
 	// Get execution metrics
@@ -1470,7 +1482,8 @@ func (m *MonitorService) getSystemMetrics() SystemMetrics {
 	metrics.AverageExecutionTime = execMetrics.AverageTime
 
 	// Get Redis info
-	_, err = m.redisClient.Info(ctx, "clients").Result()
+	infoCtx := context.Background()
+	_, err := m.redisClient.Info(infoCtx, "clients").Result()
 	if err == nil {
 		// Parse connected clients from Redis info
 		// This is a simplified version - in production you'd parse the full info
@@ -2305,10 +2318,22 @@ func (m *MonitorService) getRedisInfo(c *gin.Context) {
 		info.ConnectedClients = 1
 	}
 
-	// Get keyspace info
-	keys, err := m.redisClient.Keys(ctx, "*").Result()
-	if err == nil {
-		info.Keyspace["total"] = len(keys)
+	// Get keyspace info using SCAN (non-blocking) instead of KEYS
+	// This prevents blocking Redis when there are many keys
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	keyCount := 0
+	iter := m.redisClient.Scan(ctxWithTimeout, 0, "*", 100).Iterator()
+	for iter.Next(ctxWithTimeout) {
+		keyCount++
+		// Limit scan to prevent it from taking too long
+		if keyCount > 50000 {
+			break
+		}
+	}
+	if err := iter.Err(); err == nil {
+		info.Keyspace["total"] = keyCount
 	}
 
 	c.JSON(http.StatusOK, info)
