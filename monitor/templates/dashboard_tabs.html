@@ -745,6 +745,12 @@
                     </div>
                 </div>
                 <div class="card">
+                    <h3>🤖 LLM Queue Status</h3>
+                    <div id="llm-queue-stats">
+                        <div class="loading">Loading LLM queue stats...</div>
+                    </div>
+                </div>
+                <div class="card">
                     <h3>📅 Daily Summary</h3>
                     <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
                         <input id="ds-date" type="date" style="padding:8px; border:1px solid #e1e8ed; border-radius:6px;"/>
@@ -2976,10 +2982,19 @@
                 
                 if (isCodeRequest) {
                     // Code-related requests use intelligent execution
-                    // Detect language from user input
+                    // Detect language from user input (check Rust FIRST before Go to avoid false matches)
                     const inputLower = input.toLowerCase();
                     let detectedLang = "python"; // Default to Python
-                    if (inputLower.includes("python") || inputLower.includes("py script") || inputLower.includes(".py")) {
+                    // Check for Rust first (before Go, since "go" is a common word)
+                    // More comprehensive Rust detection - check for "rust" anywhere in the input
+                    if (inputLower.includes("rust") || inputLower.includes("rust program") || 
+                        inputLower.includes("rust code") || inputLower.includes(".rs") ||
+                        inputLower.includes(" in rust") || inputLower.includes("create a rust") ||
+                        inputLower.includes("write a rust") || inputLower.includes("build a rust") ||
+                        inputLower.includes("make a rust") || inputLower.includes("generate rust") ||
+                        inputLower.includes("print") && inputLower.includes("rust")) {
+                        detectedLang = "rust";
+                    } else if (inputLower.includes("python") || inputLower.includes("py script") || inputLower.includes(".py")) {
                         detectedLang = "python";
                     } else if (inputLower.includes(" go ") || inputLower.includes("golang") || inputLower.includes("go program") || inputLower.includes("go code") || inputLower.includes(".go")) {
                         detectedLang = "go";
@@ -2988,8 +3003,11 @@
                     } else if (inputLower.includes("java") && !inputLower.includes("javascript") || inputLower.includes(".java")) {
                         detectedLang = "java";
                     }
-                    console.log('Detected code request, using /api/v1/intelligent/execute with language:', detectedLang);
-                    response = await axios.post('/api/v1/intelligent/execute', {
+                    console.log('🔍 [UI] Detected code request, input:', input);
+                    console.log('🔍 [UI] Detected language:', detectedLang);
+                    console.log('🔍 [UI] Using /api/v1/intelligent/execute with language:', detectedLang);
+                    
+                    const requestPayload = {
                         task_name: "artifact_task",
                         description: input,
                         context: {
@@ -3000,9 +3018,16 @@
                         language: detectedLang,
                         force_regenerate: true,
                         max_retries: 3
-                    }, { timeout: 300000 });
+                    };
+                    console.log('🔍 [UI] Request payload:', JSON.stringify(requestPayload, null, 2));
                     
-                    console.log('Intelligent execution response:', response.data);
+                    response = await axios.post('/api/v1/intelligent/execute', requestPayload, { timeout: 300000 });
+                    
+                    console.log('🔍 [UI] Intelligent execution response:', response.data);
+                    if (response.data.generated_code) {
+                        console.log('🔍 [UI] Response generated_code.language:', response.data.generated_code.language);
+                        console.log('🔍 [UI] Response generated_code.code (first 200 chars):', response.data.generated_code.code?.substring(0, 200));
+                    }
                     // Display the formatted response directly
                     try {
                         displayExecutionResponse(response.data);
@@ -4119,8 +4144,11 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
 
             // Show generated code info
             if (data.generated_code) {
-                html += '<div class="step-description">Generated Code:</div>';
+                const lang = data.generated_code.language || 'unknown';
+                html += `<div class="step-description">Generated Code (${lang}):</div>`;
                 html += `<div class="code-block"><pre>${data.generated_code.code || 'No code generated'}</pre></div>`;
+                console.log('🔍 [UI] Generated code language:', lang);
+                console.log('🔍 [UI] Generated code:', data.generated_code.code?.substring(0, 200));
             }
 
             // Show validation steps

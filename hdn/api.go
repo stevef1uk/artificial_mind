@@ -2286,9 +2286,13 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 		// Try to infer language from the user request before applying defaults
 		if inferred := inferLanguageFromRequest(&req); inferred != "" {
 			req.Language = inferred
+			log.Printf("🔍 [API] Language inferred from request: %s", req.Language)
 		} else {
 			req.Language = "python"
+			log.Printf("🔍 [API] No language detected, defaulting to: %s", req.Language)
 		}
+	} else {
+		log.Printf("🔍 [API] Language explicitly provided: %s", req.Language)
 	}
 	if req.MaxRetries == 0 {
 		req.MaxRetries = 3

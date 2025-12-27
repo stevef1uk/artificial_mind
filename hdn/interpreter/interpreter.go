@@ -528,9 +528,18 @@ func formatContext(context map[string]string) string {
 func (i *Interpreter) inferLanguageFromRequest(input string, context map[string]string) string {
 	inputLower := strings.ToLower(input)
 
-	// Check for explicit language mentions
+	// Check for Rust FIRST (before Go, since "go" is a common word)
+	if strings.Contains(inputLower, "rust") || strings.Contains(inputLower, "rust program") ||
+		strings.Contains(inputLower, "rust code") || strings.Contains(inputLower, ".rs") ||
+		strings.Contains(inputLower, " in rust") || strings.Contains(inputLower, "create a rust") ||
+		strings.Contains(inputLower, "write a rust") || strings.Contains(inputLower, "build a rust") {
+		return "rust"
+	}
+
+	// Check for explicit language mentions (Go after Rust)
 	if strings.Contains(inputLower, "go program") || strings.Contains(inputLower, "golang") ||
-		strings.Contains(inputLower, "go code") || strings.Contains(inputLower, "go script") {
+		strings.Contains(inputLower, "go code") || strings.Contains(inputLower, "go script") ||
+		strings.Contains(inputLower, " go ") || strings.HasPrefix(inputLower, "go ") {
 		return "go"
 	}
 
@@ -547,10 +556,6 @@ func (i *Interpreter) inferLanguageFromRequest(input string, context map[string]
 		return "java"
 	}
 
-	if strings.Contains(inputLower, "rust") {
-		return "rust"
-	}
-
 	if strings.Contains(inputLower, "c++") || strings.Contains(inputLower, "cpp") {
 		return "cpp"
 	}
@@ -564,7 +569,10 @@ func (i *Interpreter) inferLanguageFromRequest(input string, context map[string]
 		return strings.ToLower(lang)
 	}
 
-	// Check for file extensions in the input
+	// Check for file extensions in the input (Rust first)
+	if strings.Contains(inputLower, ".rs") {
+		return "rust"
+	}
 	if strings.Contains(inputLower, ".go") {
 		return "go"
 	}

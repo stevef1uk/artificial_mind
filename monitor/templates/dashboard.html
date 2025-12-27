@@ -2906,7 +2906,13 @@
             // Detect language from user input
             const inputLower = input.toLowerCase();
             let detectedLang = "python"; // Default to Python
-            if (inputLower.includes("python") || inputLower.includes("py script") || inputLower.includes(".py")) {
+            // Check for Rust first (before Go, since "go" is a common word)
+            if (inputLower.includes("rust") || inputLower.includes("rust program") || 
+                inputLower.includes("rust code") || inputLower.includes(".rs") ||
+                inputLower.includes(" in rust") || inputLower.includes("create a rust") ||
+                inputLower.includes("write a rust") || inputLower.includes("build a rust")) {
+                detectedLang = "rust";
+            } else if (inputLower.includes("python") || inputLower.includes("py script") || inputLower.includes(".py")) {
                 detectedLang = "python";
             } else if (inputLower.includes(" go ") || inputLower.includes("golang") || inputLower.includes("go program") || inputLower.includes("go code") || inputLower.includes(".go")) {
                 detectedLang = "go";
@@ -3385,10 +3391,11 @@
                 
                 // Show generated code (collapsible)
                 if (data.generated_code && data.generated_code.code) {
+                    const codeLang = data.generated_code.language || 'code';
                     html += `<div class="task-item">
-                        <h4>💻 Generated Code:</h4>
+                        <h4>💻 Generated Code (${codeLang}):</h4>
                         <details>
-                            <summary>Click to view Python code</summary>
+                            <summary>Click to view ${codeLang} code</summary>
                             <pre style="background: #1e293b; color: #e2e8f0; padding: 15px; border-radius: 8px; margin-top: 10px; overflow-x: auto;"><code>${data.generated_code.code}</code></pre>
                         </details>
                     </div>`;

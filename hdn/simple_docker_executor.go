@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -378,7 +379,7 @@ func (sde *SimpleDockerExecutor) getLanguageConfig(language string) (image, cmd 
 	case "go":
 		return "golang:1.21-alpine", "go run", nil
 	case "java":
-		return "openjdk:17-slim", "java", nil
+		return "eclipse-temurin:17-jdk", "java", nil
 	case "cpp", "c++":
 		return "gcc:latest", "g++ -o main && ./main", nil
 	case "c":
@@ -856,6 +857,85 @@ else:
             echo "--- /app/output contents ---" 1>&2
             ls -l /app/output 1>&2 || true
 		`, sde.getFileExtensionFromFile(codeFile), sde.getFileExtensionFromFile(codeFile)))
+		}
+	} else if sde.getFileExtensionFromFile(codeFile) == "rs" {
+		// For Rust, we need to set up a Cargo project or use rustc directly
+		// Using rustc is simpler for single-file scripts
+		if quiet {
+			args = append(args, "sh", "-c", fmt.Sprintf(`
+			set -e
+			cd /app && 
+			mkdir -p /app/data /app/tmp && 
+			rustc code.%s -o /app/tmp/app 2>&1 && 
+			/app/tmp/app
+		`, sde.getFileExtensionFromFile(codeFile)))
+		} else {
+			args = append(args, "sh", "-c", fmt.Sprintf(`
+			set -e
+			cd /app && 
+			mkdir -p /app/data /app/tmp && 
+			rustc code.%s -o /app/tmp/app 2>&1 && 
+			/app/tmp/app &&
+			# Ensure output dir is writable inside container
+			chmod 777 /app/output 2>/dev/null || true
+			# Copy generated artifacts
+			find . \
+			  -path './output' -prune -o \
+			  -path './.git' -prune -o \
+			  -path './tmp' -prune -o \
+			  -type f \
+			  \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.rs' \) \
+			  -exec cp {} /app/output/ \; 2>/dev/null || true
+		`, sde.getFileExtensionFromFile(codeFile)))
+		}
+	} else if sde.getFileExtensionFromFile(codeFile) == "java" {
+		// For Java, we need to compile first with javac, then run with java
+		// Java requires public classes to be in files matching the class name
+		// Try to extract class name from code file
+		className := "Main" // Default class name
+		if codeContent, err := os.ReadFile(codeFile); err == nil {
+			codeStr := string(codeContent)
+			// Look for "public class X" pattern
+			re := regexp.MustCompile(`public\s+class\s+(\w+)`)
+			if matches := re.FindStringSubmatch(codeStr); len(matches) > 1 {
+				className = matches[1]
+			} else {
+				// Try "class X" without public
+				re2 := regexp.MustCompile(`class\s+(\w+)`)
+				if matches := re2.FindStringSubmatch(codeStr); len(matches) > 1 {
+					className = matches[1]
+				}
+			}
+		}
+		// Copy code.java to ClassName.java before compilation (Java requirement for public classes)
+		if quiet {
+			args = append(args, "sh", "-c", fmt.Sprintf(`
+			set -e
+			cd /app && 
+			mkdir -p /app/data /app/tmp && 
+			cp code.%s %s.java && 
+			javac -d /app/tmp %s.java 2>&1 && 
+			java -cp /app/tmp %s
+		`, sde.getFileExtensionFromFile(codeFile), className, className, className))
+		} else {
+			args = append(args, "sh", "-c", fmt.Sprintf(`
+			set -e
+			cd /app && 
+			mkdir -p /app/data /app/tmp && 
+			cp code.%s %s.java && 
+			javac -d /app/tmp %s.java 2>&1 && 
+			java -cp /app/tmp %s &&
+			# Ensure output dir is writable inside container
+			chmod 777 /app/output 2>/dev/null || true
+			# Copy generated artifacts
+			find . \
+			  -path './output' -prune -o \
+			  -path './.git' -prune -o \
+			  -path './tmp' -prune -o \
+			  -type f \
+			  \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.java' -o -name '*.class' \) \
+			  -exec cp {} /app/output/ \; 2>/dev/null || true
+		`, sde.getFileExtensionFromFile(codeFile), className, className, className))
 		}
 	} else {
 		// For other languages (JavaScript, etc.), run the code and copy generated files

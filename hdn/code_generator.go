@@ -17,15 +17,15 @@ type CodeGenerator struct {
 
 // CodeGenerationRequest represents a request to generate code
 type CodeGenerationRequest struct {
-	TaskName    string            `json:"task_name"`
-	Description string            `json:"description"`
-	Language    string            `json:"language"`
-	Context     map[string]string `json:"context"`
-	Tags        []string          `json:"tags"`
-	Executable  bool              `json:"executable"`
-	Tools       []Tool            `json:"tools,omitempty"`        // Available tools to use
-	ToolAPIURL  string            `json:"tool_api_url,omitempty"` // Base URL for tool API
-	HighPriority bool             `json:"high_priority"`          // true for user requests, false for background tasks
+	TaskName     string            `json:"task_name"`
+	Description  string            `json:"description"`
+	Language     string            `json:"language"`
+	Context      map[string]string `json:"context"`
+	Tags         []string          `json:"tags"`
+	Executable   bool              `json:"executable"`
+	Tools        []Tool            `json:"tools,omitempty"`        // Available tools to use
+	ToolAPIURL   string            `json:"tool_api_url,omitempty"` // Base URL for tool API
+	HighPriority bool              `json:"high_priority"`          // true for user requests, false for background tasks
 }
 
 // CodeGenerationResponse represents the response from code generation
@@ -182,7 +182,7 @@ func (cg *CodeGenerator) buildCodeGenerationPrompt(req *CodeGenerationRequest) s
 		}
 		return req.Description
 	}())
-	
+
 	// Special case for daily_summary - generate a simple placeholder
 	if strings.EqualFold(req.TaskName, "daily_summary") {
 		return `Generate a simple Python script that prints a placeholder message for daily summary generation.
@@ -193,13 +193,10 @@ Just print a message indicating this is a placeholder.
 Code:`
 	}
 
-	// Special handling for very simple print tasks - make the prompt extremely explicit
-	// Check for simple print patterns: "print X", "create program that prints X", etc.
-	// IMPORTANT: Use req.Description directly, not cleanDesc, because we want to detect simple tasks
-	// before any JSON cleaning happens
+	// Detect if this is a simple task that doesn't need external libraries
+	// This is used to skip tool instructions that might cause unnecessary imports
 	descLower := strings.ToLower(req.Description)
-	log.Printf("📝 [CODEGEN] Checking for simple print task - descLower contains 'print': %v", strings.Contains(descLower, "print"))
-	isSimplePrintTask := (strings.Contains(descLower, "print") || strings.Contains(descLower, "prints")) &&
+	isSimpleTask := (strings.Contains(descLower, "print") || strings.Contains(descLower, "prints")) &&
 		!strings.Contains(descLower, "matrix") &&
 		!strings.Contains(descLower, "json") &&
 		!strings.Contains(descLower, "read") &&
@@ -209,81 +206,11 @@ Code:`
 		!strings.Contains(descLower, "parse") &&
 		!strings.Contains(descLower, "operation") &&
 		!strings.Contains(descLower, "chained") &&
-		!strings.Contains(descLower, "sequential")
-	
-	if isSimplePrintTask && req.Language == "go" {
-		// Extract what to print from description - try both single and double quotes
-		// Also handle patterns like "prints 'X'", "print 'X'", "prints X", etc.
-		printTarget := ""
-		
-		// Try to extract from single quotes first
-		if strings.Contains(req.Description, "'") {
-			// Find text between single quotes
-			startIdx := strings.Index(req.Description, "'")
-			if startIdx >= 0 {
-				endIdx := strings.Index(req.Description[startIdx+1:], "'")
-				if endIdx >= 0 {
-					printTarget = req.Description[startIdx+1 : startIdx+1+endIdx]
-				}
-			}
-		}
-		
-		// If no single quotes, try double quotes
-		if printTarget == "" && strings.Contains(req.Description, "\"") {
-			startIdx := strings.Index(req.Description, "\"")
-			if startIdx >= 0 {
-				endIdx := strings.Index(req.Description[startIdx+1:], "\"")
-				if endIdx >= 0 {
-					printTarget = req.Description[startIdx+1 : startIdx+1+endIdx]
-				}
-			}
-		}
-		
-		// If still no target, try to extract after "prints" or "print"
-		if printTarget == "" {
-			descLower := strings.ToLower(req.Description)
-			if idx := strings.Index(descLower, "prints "); idx >= 0 {
-				afterPrints := req.Description[idx+7:] // Skip "prints "
-				// Take the next word or phrase
-				afterPrints = strings.TrimSpace(afterPrints)
-				// Remove common words like "just", "the", "a", "an"
-				words := strings.Fields(afterPrints)
-				var filteredWords []string
-				skipWords := map[string]bool{"just": true, "the": true, "a": true, "an": true, "that": true}
-				for _, word := range words {
-					if !skipWords[strings.ToLower(word)] {
-						filteredWords = append(filteredWords, word)
-					}
-				}
-				if len(filteredWords) > 0 {
-					// Take up to 5 words as the print target
-					maxWords := 5
-					if len(filteredWords) < maxWords {
-						maxWords = len(filteredWords)
-					}
-					printTarget = strings.Join(filteredWords[:maxWords], " ")
-				}
-			}
-		}
-		
-		// If we found a print target, use the simple prompt
-		if printTarget != "" {
-			log.Printf("📝 [CODEGEN] Detected simple print task - generating explicit prompt for: %s (language: %s)", printTarget, req.Language)
-			lang := req.Language
-			if lang == "" {
-				// If language is not specified, don't use the simple prompt - let the normal prompt handle it
-				log.Printf("⚠️ [CODEGEN] Language not specified for simple print task, using normal prompt")
-			} else if lang == "go" {
-				return fmt.Sprintf(`Create a Go program that prints: %s
-
-Return only the Go code in a markdown code block.`, printTarget)
-			} else if lang == "python" || lang == "py" {
-				return fmt.Sprintf(`Create a Python program that prints: %s
-
-Return only the Python code in a markdown code block.`, printTarget)
-			}
-		}
-	}
+		!strings.Contains(descLower, "sequential") &&
+		!strings.Contains(descLower, "http") &&
+		!strings.Contains(descLower, "api") &&
+		!strings.Contains(descLower, "web") &&
+		!strings.Contains(descLower, "network")
 
 	// Simple, direct prompt - let the LLM handle everything
 	// Only clean up obvious JSON blobs in description
@@ -306,39 +233,42 @@ Return only the Python code in a markdown code block.`, printTarget)
 	}
 
 	// Add available tools and instructions for tool usage
+	// BUT: Skip tool instructions for simple tasks to avoid unnecessary imports
 	toolInstructions := ""
-	if len(req.Tools) > 0 {
-		toolInstructions = "\n\n🔧 AVAILABLE TOOLS (use these via HTTP API, do NOT import as modules):\n"
-		for _, tool := range req.Tools {
-			toolInstructions += fmt.Sprintf("- %s: %s\n", tool.ID, tool.Description)
-			if len(tool.InputSchema) > 0 {
-				toolInstructions += "  Parameters: "
-				params := []string{}
-				for paramName, paramType := range tool.InputSchema {
-					params = append(params, fmt.Sprintf("%s (%s)", paramName, paramType))
+	if !isSimpleTask {
+		if len(req.Tools) > 0 {
+			toolInstructions = "\n\n🔧 AVAILABLE TOOLS (use these via HTTP API, do NOT import as modules):\n"
+			for _, tool := range req.Tools {
+				toolInstructions += fmt.Sprintf("- %s: %s\n", tool.ID, tool.Description)
+				if len(tool.InputSchema) > 0 {
+					toolInstructions += "  Parameters: "
+					params := []string{}
+					for paramName, paramType := range tool.InputSchema {
+						params = append(params, fmt.Sprintf("%s (%s)", paramName, paramType))
+					}
+					toolInstructions += strings.Join(params, ", ") + "\n"
 				}
-				toolInstructions += strings.Join(params, ", ") + "\n"
 			}
-		}
-		toolInstructions += "\n🚨 CRITICAL: To use these tools, call them via HTTP API:\n"
-		if req.ToolAPIURL != "" {
-			toolInstructions += fmt.Sprintf("- Base URL: %s\n", req.ToolAPIURL)
-		} else {
-			toolInstructions += "- Get HDN_URL from environment: `hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')`\n"
-		}
-		toolInstructions += "- Call tool via POST request: `requests.post(f'{hdn_url}/api/v1/tools/{tool_id}/invoke', json={params})`\n"
-		toolInstructions += "- Example for tool_http_get: `requests.post(f'{hdn_url}/api/v1/tools/tool_http_get/invoke', json={'url': 'https://example.com'})`\n"
-		toolInstructions += "- Make sure to import `requests` and `os` modules, and handle the response JSON properly.\n"
-		toolInstructions += "- PREFER using available tools over writing custom code when a tool can accomplish the task!\n"
-	} else {
-		// Fallback: add instructions if task mentions tools but no tools provided
-		descLowerForTools := strings.ToLower(cleanDesc)
-		if strings.Contains(descLowerForTools, "tool_") || strings.Contains(descLowerForTools, "use tool") {
-			toolInstructions = "\n\n🚨 CRITICAL: If the task mentions using a tool (like tool_http_get, tool_html_scraper, etc.), DO NOT import it as a Python module. Instead, call the tool via HTTP API:\n"
-			toolInstructions += "- Get HDN_URL from environment: `hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')`\n"
+			toolInstructions += "\n🚨 CRITICAL: To use these tools, call them via HTTP API:\n"
+			if req.ToolAPIURL != "" {
+				toolInstructions += fmt.Sprintf("- Base URL: %s\n", req.ToolAPIURL)
+			} else {
+				toolInstructions += "- Get HDN_URL from environment: `hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')`\n"
+			}
 			toolInstructions += "- Call tool via POST request: `requests.post(f'{hdn_url}/api/v1/tools/{tool_id}/invoke', json={params})`\n"
 			toolInstructions += "- Example for tool_http_get: `requests.post(f'{hdn_url}/api/v1/tools/tool_http_get/invoke', json={'url': 'https://example.com'})`\n"
 			toolInstructions += "- Make sure to import `requests` and `os` modules, and handle the response JSON properly.\n"
+			toolInstructions += "- PREFER using available tools over writing custom code when a tool can accomplish the task!\n"
+		} else {
+			// Fallback: add instructions if task mentions tools but no tools provided
+			descLowerForTools := strings.ToLower(cleanDesc)
+			if strings.Contains(descLowerForTools, "tool_") || strings.Contains(descLowerForTools, "use tool") {
+				toolInstructions = "\n\n🚨 CRITICAL: If the task mentions using a tool (like tool_http_get, tool_html_scraper, etc.), DO NOT import it as a Python module. Instead, call the tool via HTTP API:\n"
+				toolInstructions += "- Get HDN_URL from environment: `hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')`\n"
+				toolInstructions += "- Call tool via POST request: `requests.post(f'{hdn_url}/api/v1/tools/{tool_id}/invoke', json={params})`\n"
+				toolInstructions += "- Example for tool_http_get: `requests.post(f'{hdn_url}/api/v1/tools/tool_http_get/invoke', json={'url': 'https://example.com'})`\n"
+				toolInstructions += "- Make sure to import `requests` and `os` modules, and handle the response JSON properly.\n"
+			}
 		}
 	}
 
@@ -346,15 +276,24 @@ Return only the Python code in a markdown code block.`, printTarget)
 	langEnforcement := ""
 	if req.Language != "" {
 		langEnforcement = fmt.Sprintf("\n\n🚨🚨🚨 CRITICAL LANGUAGE REQUIREMENT 🚨🚨🚨\nYou MUST generate %s code ONLY! Do NOT generate any other language!\nIf the task description mentions another language, IGNORE it - you MUST generate %s code!\n🚨🚨🚨 END OF CRITICAL REQUIREMENT 🚨🚨🚨\n", req.Language, req.Language)
+		log.Printf("🔍 [CODEGEN] Added language enforcement for: %s", req.Language)
+	} else {
+		log.Printf("⚠️ [CODEGEN] WARNING: No language specified in request!")
 	}
-	
+
+	// Add general instruction about avoiding unnecessary imports
+	importInstruction := ""
+	if isSimpleTask {
+		importInstruction = "\n\n🚨 IMPORTANT: This is a simple task. DO NOT import external libraries unless explicitly required. Use only built-in language features."
+	}
+
 	codeBlockTag := "```" + req.Language
 	return fmt.Sprintf(`Generate %s code for this task:
 
-%s%s%s%s
+%s%s%s%s%s
 
 Return only the %s code in a markdown code block with the language tag: %s
-`, req.Language, cleanDesc, langEnforcement, contextStr, toolInstructions, req.Language, codeBlockTag)
+`, req.Language, cleanDesc, langEnforcement, contextStr, toolInstructions, importInstruction, req.Language, codeBlockTag)
 }
 
 // extractCodeFromResponse extracts code from the LLM response
@@ -373,7 +312,9 @@ func (cg *CodeGenerator) extractCodeFromResponse(response, language string) (str
 			// If response looks like code (has imports, functions, etc.), use it directly
 			if strings.Contains(trimmed, "package ") || strings.Contains(trimmed, "import ") ||
 				strings.Contains(trimmed, "def ") || strings.Contains(trimmed, "func ") ||
-				strings.Contains(trimmed, "class ") {
+				strings.Contains(trimmed, "class ") || strings.Contains(trimmed, "fn main") ||
+				strings.Contains(trimmed, "use ") || strings.Contains(trimmed, "public class") ||
+				strings.Contains(trimmed, "public static void main") {
 				log.Printf("⚠️ [CODEGEN] No code block found, but response looks like code - using entire response")
 				return trimmed, nil
 			}
@@ -507,7 +448,7 @@ func (cg *CodeGenerator) extractCodeFromResponse(response, language string) (str
 			log.Printf("⚠️ [CODEGEN] Filtered out Go code from Python response")
 		}
 	} else if language == "go" {
-		// For Go code, we should NOT filter anything - Go single-line imports like "import \"fmt\"" 
+		// For Go code, we should NOT filter anything - Go single-line imports like "import \"fmt\""
 		// are valid and should not be confused with Python imports
 		// The only time we'd filter is if there's a clear Python code block mixed in,
 		// but that's very rare and the LLM should generate correct code

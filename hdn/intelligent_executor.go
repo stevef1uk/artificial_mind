@@ -1388,10 +1388,14 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		// Try to infer language from the user request before applying defaults
 		if inferred := ie.inferLanguageFromRequest(req); inferred != "" {
 			req.Language = inferred
+			log.Printf("🔍 [INTELLIGENT] Language inferred from request: %s", req.Language)
 		} else {
 			// Default to Python for mathematical tasks
 			req.Language = "python"
+			log.Printf("🔍 [INTELLIGENT] No language detected, defaulting to: %s", req.Language)
 		}
+	} else {
+		log.Printf("🔍 [INTELLIGENT] Language explicitly provided: %s", req.Language)
 	}
 	if req.MaxRetries == 0 {
 		req.MaxRetries = ie.maxRetries
@@ -2716,6 +2720,43 @@ func (ie *IntelligentExecutor) buildFixPrompt(originalCode *GeneratedCode, valid
    - MUST import "io" and "os" for stdin reading
 12. 🚨 CRITICAL: Fix ALL errors in ONE code revision - don't fix one error at a time!
 `
+	} else if originalCode.Language == "rust" {
+		languageGuidance = `
+🚨 CRITICAL FOR RUST CODE FIXES:
+- Read the compilation error message CAREFULLY - Rust's borrow checker is very specific!
+- Common Rust compilation errors:
+  * "cannot borrow `X` as mutable, as it is not declared as mutable" - Variable needs `mut` keyword
+    - FIX: Change `let x = ...` to `let mut x = ...`
+    - If it's already `mut`, check if you're trying to borrow it incorrectly
+  * "cannot borrow `X` as mutable because it is also borrowed as immutable" - Conflicting borrows
+    - FIX: Restructure code to avoid simultaneous mutable and immutable borrows
+    - Use scopes to limit borrow lifetimes: `{ let borrow = &x; ... }` then `x.mut_method()`
+  * "cannot move out of `X` which is behind a shared reference" - Trying to move from a reference
+    - FIX: Clone the value: `let y = x.clone();` or use references instead of moving
+  * "expected `X`, found `Y`" - Type mismatch
+    - FIX: Check types match - use `.to_string()`, `.parse()`, or explicit type conversions
+  * "use of moved value: `X`" - Value was moved and can't be used again
+    - FIX: Use references `&X` instead of moving, or clone if needed
+  * "mismatched types" - Function expects different type
+    - FIX: Check function signature and provide correct type
+- For Box<T> mutable borrows:
+  - WRONG: `increment_age(&mut person_box);` when person_box is `Box<Person>`
+  - CORRECT: `increment_age(&mut *person_box);` (dereference then borrow)
+  - OR: `let person = &mut *person_box; increment_age(person);`
+- For Box<T> immutable borrows:
+  - WRONG: `print_person(person_box);` when person_box is `Box<Person>`
+  - CORRECT: `print_person(&*person_box);` or `print_person(&person_box);`
+- If you see "cannot borrow as mutable":
+  1. Check if the variable is declared with `mut`: `let mut x = ...`
+  2. If it's a Box, dereference first: `&mut *box_value`
+  3. If it's already borrowed immutably, end that borrow before mutable borrow
+- After fixing, verify:
+  - ✅ All variables that need mutation are declared with `mut`
+  - ✅ Box values are properly dereferenced before borrowing: `&mut *box` or `&*box`
+  - ✅ No conflicting borrows (mutable and immutable at the same time)
+  - ✅ No use of moved values
+  - ✅ Types match function signatures
+`
 	}
 
 	return fmt.Sprintf(`You are an expert programmer. The following code failed to execute properly and needs to be fixed.
@@ -2789,14 +2830,15 @@ func (ie *IntelligentExecutor) inferLanguageFromRequest(req *ExecutionRequest) s
 	// Strong hints in description
 	desc := strings.ToLower(strings.TrimSpace(req.Description))
 
-	// Check for Python first (more specific patterns)
-	if strings.Contains(desc, "python") || strings.Contains(desc, "py script") ||
-		strings.Contains(desc, "python program") || strings.Contains(desc, "python code") ||
-		strings.Contains(desc, ".py") {
-		return "python"
+	// Check for Rust FIRST (before Go and Python, since "go" is a common word that might appear in other contexts)
+	if strings.Contains(desc, "rust") || strings.Contains(desc, "rust program") ||
+		strings.Contains(desc, "rust code") || strings.Contains(desc, ".rs") ||
+		strings.Contains(desc, " in rust") || strings.Contains(desc, "create a rust") ||
+		strings.Contains(desc, "write a rust") || strings.Contains(desc, "build a rust") {
+		return "rust"
 	}
 
-	// Check for Go
+	// Check for Go (after Rust to avoid false matches)
 	if strings.Contains(desc, " go ") || strings.HasPrefix(desc, "go ") || strings.HasSuffix(desc, " in go") ||
 		strings.Contains(desc, " in golang") || strings.Contains(desc, "golang") ||
 		strings.Contains(desc, "main.go") || strings.Contains(desc, "go program") ||
@@ -2804,15 +2846,20 @@ func (ie *IntelligentExecutor) inferLanguageFromRequest(req *ExecutionRequest) s
 		return "go"
 	}
 
-	// Check for Rust
-	if strings.Contains(desc, "rust") || strings.Contains(desc, "rust program") ||
-		strings.Contains(desc, "rust code") || strings.Contains(desc, ".rs") ||
-		strings.Contains(desc, " in rust") {
-		return "rust"
+	// Check for Python (after Rust and Go)
+	if strings.Contains(desc, "python") || strings.Contains(desc, "py script") ||
+		strings.Contains(desc, "python program") || strings.Contains(desc, "python code") ||
+		strings.Contains(desc, ".py") {
+		return "python"
 	}
 
 	// Hints in task name
 	task := strings.ToLower(strings.TrimSpace(req.TaskName))
+
+	// Check for Rust in task name first (before Go to avoid false matches)
+	if strings.Contains(task, "rust") || strings.Contains(task, ".rs") {
+		return "rust"
+	}
 
 	// Check for Python in task name
 	if strings.Contains(task, "python") || strings.Contains(task, ".py") {
@@ -2825,11 +2872,6 @@ func (ie *IntelligentExecutor) inferLanguageFromRequest(req *ExecutionRequest) s
 		return "go"
 	}
 
-	// Check for Rust in task name
-	if strings.Contains(task, "rust") || strings.Contains(task, ".rs") {
-		return "rust"
-	}
-
 	return ""
 }
 
@@ -2838,6 +2880,16 @@ func (ie *IntelligentExecutor) inferLanguageFromRequest(req *ExecutionRequest) s
 func inferLanguageFromRequest(req *IntelligentExecutionRequest) string {
 	// Strong hints in description
 	desc := strings.ToLower(strings.TrimSpace(req.Description))
+
+	// Check for Rust FIRST (before Go, since "go" is a common word)
+	if strings.Contains(desc, "rust") || strings.Contains(desc, "rust program") ||
+		strings.Contains(desc, "rust code") || strings.Contains(desc, ".rs") ||
+		strings.Contains(desc, " in rust") || strings.Contains(desc, "write a rust") ||
+		strings.Contains(desc, "create a rust") || strings.Contains(desc, "build a rust") {
+		return "rust"
+	}
+
+	// Check for Go (after Rust to avoid false matches)
 	if strings.Contains(desc, " go ") || strings.HasPrefix(desc, "go ") || strings.HasSuffix(desc, " in go") ||
 		strings.Contains(desc, " in golang") || strings.Contains(desc, "golang") ||
 		strings.Contains(desc, "main.go") || strings.Contains(desc, "go program") ||
@@ -2849,24 +2901,17 @@ func inferLanguageFromRequest(req *IntelligentExecutionRequest) string {
 		return "go"
 	}
 
-	// Check for Rust
-	if strings.Contains(desc, "rust") || strings.Contains(desc, "rust program") ||
-		strings.Contains(desc, "rust code") || strings.Contains(desc, ".rs") ||
-		strings.Contains(desc, " in rust") || strings.Contains(desc, "write a rust") ||
-		strings.Contains(desc, "create a rust") || strings.Contains(desc, "build a rust") {
+	// Hints in task name
+	task := strings.ToLower(strings.TrimSpace(req.TaskName))
+
+	// Check for Rust in task name first (before Go to avoid false matches)
+	if strings.Contains(task, "rust") || strings.Contains(task, ".rs") {
 		return "rust"
 	}
 
-	// Hints in task name
-	task := strings.ToLower(strings.TrimSpace(req.TaskName))
 	if strings.Contains(task, "go ") || strings.Contains(task, " golang") ||
 		strings.Contains(task, ".go") || strings.Contains(task, "golang") {
 		return "go"
-	}
-
-	// Check for Rust in task name
-	if strings.Contains(task, "rust") || strings.Contains(task, ".rs") {
-		return "rust"
 	}
 
 	// Context override

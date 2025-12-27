@@ -114,13 +114,25 @@ The Artificial Mind system consists of several interconnected components that wo
 git clone https://github.com/yourusername/agi-project.git
 cd agi-project
 
-# 2. Start infrastructure (Redis, Neo4j, Weaviate, NATS)
-docker compose up -d  # or: docker-compose up -d
+# 2. Restart the entire system (infrastructure + services)
+./restart.sh
 
-# 3. Start app services without touching infra (safer on macOS)
+# 3. Open your browser to http://localhost:8082
+```
+
+The `restart.sh` script automatically:
+- Stops all application services
+- Restarts infrastructure (Redis, Neo4j, Weaviate, NATS)
+- Starts all application services
+- Provides status check URLs
+
+**Alternative (if you prefer manual control):**
+```bash
+# Start infrastructure only
+docker compose up -d
+
+# Start app services without touching infra (safer on macOS)
 ./scripts/start_servers.sh --skip-infra
-
-# 4. Open your browser to http://localhost:8082
 ```
 
 ### 📋 Prerequisites
@@ -326,7 +338,7 @@ The project includes several utility scripts for common operations:
 
 **Restart System** (`restart.sh`):
 ```bash
-# Quick restart of entire system
+# Quick restart of entire system (recommended for quick start)
 ./restart.sh
 
 # This script:
@@ -334,7 +346,10 @@ The project includes several utility scripts for common operations:
 # - Restarts infrastructure (Docker Compose)
 # - Starts all application services
 # - Provides status check URLs
+# - Simplifies the startup process to a single command
 ```
+
+**Note:** The `restart.sh` script is the simplest way to get started. It handles all the complexity of starting infrastructure and services in the correct order.
 
 **Using Make Targets**:
 ```bash
@@ -425,6 +440,44 @@ See [Activity Log Documentation](docs/ACTIVITY_LOG.md) for complete details.
 - **Multi-modal communication** - Text, structured data, and visual interfaces
 - **Session management** - Persistent conversation context
 
+### 💻 Multi-Language Code Generation & Execution
+The system supports intelligent code generation and execution in multiple programming languages:
+
+- **🐍 Python** - Full support with built-in libraries and external package management
+- **🦀 Rust** - Compilation and execution with borrow checker error fixing
+- **🐹 Go** - Native Go compilation and execution
+- **☕ Java** - Java compilation with automatic class name detection
+- **📜 JavaScript/Node.js** - Node.js execution with npm package support
+
+**Features:**
+- **Automatic language detection** from natural language requests
+- **Intelligent code generation** using LLM with language-specific prompts
+- **Docker-based execution** in isolated containers for safety
+- **Automatic error fixing** - System retries and fixes compilation errors using LLM feedback
+- **Language-specific guidance** - Specialized error fixing for Rust borrow checker, Go compilation, JavaScript runtime errors
+- **Code validation** - Multi-step validation with retry mechanism
+- **Artifact generation** - Saves generated code as project artifacts
+
+**Example Usage:**
+```bash
+# Request code in any supported language
+curl -X POST http://localhost:8081/api/v1/intelligent/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_name": "hello_world",
+    "description": "Create a Rust program that prints Hello from Rust",
+    "language": "rust",
+    "force_regenerate": true
+  }'
+```
+
+The system will automatically:
+1. Detect the requested language (or infer from description)
+2. Generate appropriate code with language-specific syntax
+3. Compile/execute in a Docker container
+4. Fix any errors automatically using LLM feedback
+5. Return the execution results and generated code
+
 ---
 
 ## 🔌 API Endpoints
@@ -499,6 +552,64 @@ curl -X POST http://localhost:8081/api/v1/interpret/execute \
 
 ### Code Generation and Execution
 
+The system supports intelligent code generation and execution in **Python, Rust, Go, Java, and JavaScript**. Simply describe what you want in natural language, and the system will generate and execute code in the appropriate language.
+
+**Python Example:**
+```bash
+curl -X POST http://localhost:8081/api/v1/intelligent/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_name": "fibonacci",
+    "description": "Create a Python program that calculates the Fibonacci sequence",
+    "language": "python"
+  }'
+```
+
+**Rust Example:**
+```bash
+curl -X POST http://localhost:8081/api/v1/intelligent/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_name": "hello_rust",
+    "description": "Create a Rust program that prints Hello from Rust",
+    "language": "rust"
+  }'
+```
+
+**Go Example:**
+```bash
+curl -X POST http://localhost:8081/api/v1/intelligent/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_name": "hello_go",
+    "description": "Create a Go program that prints Hello from Go",
+    "language": "go"
+  }'
+```
+
+**Java Example:**
+```bash
+curl -X POST http://localhost:8081/api/v1/intelligent/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_name": "hello_java",
+    "description": "Create a Java program that prints Hello from Java",
+    "language": "java"
+  }'
+```
+
+**JavaScript Example:**
+```bash
+curl -X POST http://localhost:8081/api/v1/intelligent/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_name": "hello_js",
+    "description": "Create a JavaScript program that prints Hello from JavaScript",
+    "language": "javascript"
+  }'
+```
+
+**Direct Code Execution (if you already have code):**
 ```bash
 curl -X POST http://localhost:8081/api/v1/docker/execute \
   -H "Content-Type: application/json" \

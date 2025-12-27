@@ -156,24 +156,50 @@ func NewMonitorService() *MonitorService {
 	}
 
 	redisClient := redis.NewClient(&redis.Options{
-		Addr: addr,
+		Addr:         addr,
+		DialTimeout:  5 * time.Second, // Connection timeout
+		ReadTimeout:  3 * time.Second, // Read timeout
+		WriteTimeout: 3 * time.Second, // Write timeout
+		PoolTimeout:  4 * time.Second, // Pool timeout
 	})
 
-	// Test Redis connection on startup with timeout
-	// Use longer timeout for Kubernetes DNS resolution which can be slow
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		log.Printf("⚠️  [MONITOR] Failed to connect to Redis at %s: %v", addr, err)
-		log.Printf("⚠️  [MONITOR] Make sure Redis is running and accessible at %s", addr)
-		log.Printf("⚠️  [MONITOR] For Docker Redis: docker ps | grep redis")
-		log.Printf("⚠️  [MONITOR] For Kubernetes: check service DNS resolution")
-		log.Printf("⚠️  [MONITOR] Monitor UI will continue but tools/metrics may not work")
-		// Set redisClient to nil so we can check for it later
-		redisClient = nil
-	} else {
-		log.Printf("✅ [MONITOR] Successfully connected to Redis at %s", addr)
+	// Test Redis connection on startup with timeout (non-blocking)
+	// Use goroutine to avoid blocking startup if DNS is slow
+	connected := make(chan bool, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		if err := redisClient.Ping(ctx).Err(); err != nil {
+			log.Printf("⚠️  [MONITOR] Failed to connect to Redis at %s: %v", addr, err)
+			log.Printf("⚠️  [MONITOR] Make sure Redis is running and accessible at %s", addr)
+			log.Printf("⚠️  [MONITOR] For Docker Redis: docker ps | grep redis")
+			log.Printf("⚠️  [MONITOR] For Kubernetes: check service DNS resolution")
+			log.Printf("⚠️  [MONITOR] Monitor UI will continue but tools/metrics may not work")
+			log.Printf("⚠️  [MONITOR] Will retry Redis connection in background...")
+			connected <- false
+		} else {
+			log.Printf("✅ [MONITOR] Successfully connected to Redis at %s", addr)
+			connected <- true
+		}
+	}()
+
+	// Wait briefly for initial connection, but don't block startup
+	select {
+	case success := <-connected:
+		if !success {
+			// Connection failed, set to nil
+			redisClient = nil
+		}
+	case <-time.After(2 * time.Second):
+		// Timeout waiting for connection - continue startup
+		log.Printf("⏳ [MONITOR] Redis connection check taking longer than expected, continuing startup...")
+		go func() {
+			success := <-connected
+			if !success {
+				redisClient = nil
+			}
+		}()
 	}
-	cancel()
 
 	hdnURL := strings.TrimSpace(os.Getenv("HDN_URL"))
 	if hdnURL == "" {
@@ -4836,8 +4862,13 @@ func (m *MonitorService) interpretAndExecute(c *gin.Context) {
 		strings.Contains(strings.ToLower(req.Input), "main.go") {
 		files, wantPDF, wantPreview := extractArtifactsFromInput(req.Input)
 		lang := detectLanguage(req.Input, files)
-		if strings.Contains(strings.ToLower(projectID), "go") || strings.Contains(strings.ToLower(projectID), "golang") ||
-			(strings.Contains(strings.ToLower(projectNameHint), "go") || strings.Contains(strings.ToLower(projectNameHint), "golang")) {
+		projectIDLower := strings.ToLower(projectID)
+		projectNameLower := strings.ToLower(projectNameHint)
+		if strings.Contains(projectIDLower, "rust") || strings.Contains(projectNameLower, "rust") {
+			lang = "rust"
+			log.Printf("[DEBUG] fast-path(language) override by project (%s or %s) => rust", projectID, projectNameHint)
+		} else if strings.Contains(projectIDLower, "go") || strings.Contains(projectIDLower, "golang") ||
+			strings.Contains(projectNameLower, "go") || strings.Contains(projectNameLower, "golang") {
 			lang = "go"
 			log.Printf("[DEBUG] fast-path(language) override by project (%s or %s) => go", projectID, projectNameHint)
 		}
@@ -5197,9 +5228,14 @@ func (m *MonitorService) interpretAndExecute(c *gin.Context) {
 	if len(tasksAny) == 0 {
 		files, wantPDF, wantPreview := extractArtifactsFromInput(req.Input)
 		lang := detectLanguage(req.Input, files)
-		// Project-based language override
-		if strings.Contains(strings.ToLower(projectID), "go") || strings.Contains(strings.ToLower(projectID), "golang") ||
-			(strings.Contains(strings.ToLower(projectNameHint), "go") || strings.Contains(strings.ToLower(projectNameHint), "golang")) {
+		// Project-based language override: check Rust first, then Go
+		projectIDLower := strings.ToLower(projectID)
+		projectNameLower := strings.ToLower(projectNameHint)
+		if strings.Contains(projectIDLower, "rust") || strings.Contains(projectNameLower, "rust") {
+			lang = "rust"
+			log.Printf("[DEBUG] fallback(language) override by project (%s or %s) => rust", projectID, projectNameHint)
+		} else if strings.Contains(projectIDLower, "go") || strings.Contains(projectIDLower, "golang") ||
+			strings.Contains(projectNameLower, "go") || strings.Contains(projectNameLower, "golang") {
 			lang = "go"
 			log.Printf("[DEBUG] fallback(language) override by project (%s or %s) => go", projectID, projectNameHint)
 		}
@@ -5384,9 +5420,14 @@ func (m *MonitorService) interpretAndExecute(c *gin.Context) {
 			log.Printf("[DEBUG] language conflict, prefer global => %s", language)
 		}
 
-		// Project-based language override: if project name suggests Go, force Go
-		if strings.Contains(strings.ToLower(projectID), "go") || strings.Contains(strings.ToLower(projectID), "golang") ||
-			(strings.Contains(strings.ToLower(projectNameHint), "go") || strings.Contains(strings.ToLower(projectNameHint), "golang")) {
+		// Project-based language override: check Rust first, then Go
+		projectIDLower := strings.ToLower(projectID)
+		projectNameLower := strings.ToLower(projectNameHint)
+		if strings.Contains(projectIDLower, "rust") || strings.Contains(projectNameLower, "rust") {
+			language = "rust"
+			log.Printf("[DEBUG] language override by project (%s) => rust", projectID)
+		} else if strings.Contains(projectIDLower, "go") || strings.Contains(projectIDLower, "golang") ||
+			strings.Contains(projectNameLower, "go") || strings.Contains(projectNameLower, "golang") {
 			language = "go"
 			log.Printf("[DEBUG] language override by project (%s) => go", projectID)
 		}
@@ -5560,7 +5601,7 @@ func extractProjectNameFromText(input string) string {
 }
 
 // detectLanguage chooses a language based on filenames and keywords in text
-// Priority: go > rust > javascript > java > python
+// Priority: rust > go > javascript > java > python (Rust checked first to avoid false Go matches)
 func detectLanguage(text string, files []string) string {
 	lang := "python"
 	lower := strings.ToLower(text)
@@ -5577,11 +5618,12 @@ func detectLanguage(text string, files []string) string {
 			hasJava = true
 		}
 	}
-	if hasGo {
-		return "go"
-	}
+	// Check Rust first (before Go, since "go" is a common word)
 	if hasRust {
 		return "rust"
+	}
+	if hasGo {
+		return "go"
 	}
 	if hasJS {
 		return "javascript"
@@ -5589,11 +5631,12 @@ func detectLanguage(text string, files []string) string {
 	if hasJava {
 		return "java"
 	}
-	if strings.Contains(lower, "golang") || strings.Contains(lower, " go ") || strings.HasSuffix(lower, " go") || strings.Contains(lower, ".go") {
-		return "go"
-	}
+	// Check Rust keywords first (before Go keywords)
 	if strings.Contains(lower, "rust") || strings.Contains(lower, ".rs") || strings.Contains(lower, " rust program") || strings.Contains(lower, " in rust") {
 		return "rust"
+	}
+	if strings.Contains(lower, "golang") || strings.Contains(lower, " go ") || strings.HasSuffix(lower, " go") || strings.Contains(lower, ".go") {
+		return "go"
 	}
 	if strings.Contains(lower, "javascript") || strings.Contains(lower, " node ") || strings.Contains(lower, ".js") || strings.Contains(lower, " typescript") {
 		return "javascript"
@@ -7208,6 +7251,19 @@ func (m *MonitorService) proxyIntelligentExecute(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
 		return
+	}
+
+	// Log the request to debug language issues
+	var reqData map[string]interface{}
+	if err := json.Unmarshal(body, &reqData); err == nil {
+		if lang, ok := reqData["language"].(string); ok {
+			log.Printf("🔍 [MONITOR PROXY] Received intelligent execute request with language: %s", lang)
+		} else {
+			log.Printf("⚠️ [MONITOR PROXY] Received intelligent execute request WITHOUT language field")
+		}
+		if desc, ok := reqData["description"].(string); ok {
+			log.Printf("🔍 [MONITOR PROXY] Request description: %s", desc)
+		}
 	}
 
 	// Create a new request to the HDN server
