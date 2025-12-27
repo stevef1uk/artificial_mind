@@ -1158,8 +1158,8 @@ func (m *MonitorService) getSystemStatus(c *gin.Context) {
 		results <- serviceResult{key: "nats", info: m.checkNATS()}
 	}()
 
-	// Collect all results (wait up to 6 seconds for all checks to complete)
-	timeout := time.After(6 * time.Second)
+	// Collect all results (wait up to 4 seconds for all checks to complete)
+	timeout := time.After(4 * time.Second)
 	collected := 0
 	expectedServices := []string{"hdn", "principles", "fsm", "goal_manager", "redis", "neo4j", "vector-db", "nats"}
 	timeoutReached := false
@@ -1184,7 +1184,7 @@ func (m *MonitorService) getSystemStatus(c *gin.Context) {
 					Name:         key,
 					Status:       "unhealthy",
 					LastCheck:    time.Now(),
-					ResponseTime: 6000, // Timeout value
+					ResponseTime: 4000, // Timeout value
 					Error:        "Service check timed out",
 				}
 			}
@@ -1239,8 +1239,8 @@ func (m *MonitorService) getSystemStatus(c *gin.Context) {
 func (m *MonitorService) checkService(name, url string) ServiceInfo {
 	start := time.Now()
 
-	// Reduced timeout from 30s to 5s for faster health checks
-	client := &http.Client{Timeout: 5 * time.Second}
+	// Reduced timeout from 30s to 3s for faster health checks
+	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get(url)
 
 	responseTime := time.Since(start).Milliseconds()
@@ -1273,8 +1273,8 @@ func (m *MonitorService) checkService(name, url string) ServiceInfo {
 func (m *MonitorService) checkServicePOST(name, url string) ServiceInfo {
 	start := time.Now()
 
-	// Reduced timeout from 30s to 5s for faster health checks
-	client := &http.Client{Timeout: 5 * time.Second}
+	// Reduced timeout from 30s to 3s for faster health checks
+	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Post(url, "application/json", strings.NewReader("{}"))
 
 	responseTime := time.Since(start).Milliseconds()
@@ -1307,8 +1307,8 @@ func (m *MonitorService) checkServicePOST(name, url string) ServiceInfo {
 func (m *MonitorService) checkRedis() ServiceInfo {
 	start := time.Now()
 
-	// Use context with timeout for Redis ping (5 seconds)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Use context with timeout for Redis ping (3 seconds)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	pong, err := m.redisClient.Ping(ctx).Result()
 
@@ -1341,8 +1341,8 @@ func (m *MonitorService) checkRedis() ServiceInfo {
 func (m *MonitorService) checkNeo4j() ServiceInfo {
 	start := time.Now()
 
-	// Reduced timeout from 30s to 5s for faster health checks
-	client := &http.Client{Timeout: 5 * time.Second}
+	// Reduced timeout from 30s to 3s for faster health checks
+	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get(m.neo4jURL)
 
 	responseTime := time.Since(start).Milliseconds()
@@ -1374,8 +1374,8 @@ func (m *MonitorService) checkNeo4j() ServiceInfo {
 // checkQdrant checks vector database connection and health (Qdrant or Weaviate)
 func (m *MonitorService) checkQdrant() ServiceInfo {
 	start := time.Now()
-	// Reduced timeout from 30s to 5s for faster health checks
-	client := &http.Client{Timeout: 5 * time.Second}
+	// Reduced timeout from 30s to 3s for faster health checks
+	client := &http.Client{Timeout: 3 * time.Second}
 
 	var resp *http.Response
 	var err error
@@ -1422,8 +1422,8 @@ func (m *MonitorService) checkQdrant() ServiceInfo {
 func (m *MonitorService) checkNATS() ServiceInfo {
 	start := time.Now()
 
-	// Reduced timeout from 30s to 5s for faster health checks
-	client := &http.Client{Timeout: 5 * time.Second}
+	// Reduced timeout from 30s to 3s for faster health checks
+	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get(m.natsURL + "/varz")
 
 	responseTime := time.Since(start).Milliseconds()
