@@ -1493,10 +1493,12 @@
                 newsContentDiv.innerHTML = `<div class="error">Error loading news content: ${error.message}</div>`;
             }
             
-            // Load LLM queue stats independently (non-blocking, won't break overview if it fails)
-            loadLLMQueueStats().catch(err => {
-                console.error('[LLM Queue] Failed to load stats:', err);
-            });
+            // Load LLM queue stats independently (fire-and-forget, won't break overview)
+            setTimeout(() => {
+                loadLLMQueueStats().catch(err => {
+                    console.error('[LLM Queue] Failed to load stats:', err);
+                });
+            }, 100);
         }
 
         // Load LLM queue stats
