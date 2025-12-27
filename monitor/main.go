@@ -1501,17 +1501,25 @@ func (m *MonitorService) getActiveWorkflows(c *gin.Context) {
 	workflows := []WorkflowStatus{}
 
 	// Get workflows from HDN server
-	// Increased timeout to 30 seconds to allow for file/step fetching
-	client := &http.Client{Timeout: 30 * time.Second}
+	// Use shorter timeout to fail fast when HDN is down (5 seconds)
+	// File/step fetching happens in parallel with shorter timeouts, so we don't need 30s here
+	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(m.hdnURL + "/api/v1/hierarchical/workflows")
 	if err != nil {
-		// Check if it's a timeout error
+		// Check if it's a timeout or connection error
 		if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
-			log.Printf("⏱️ [MONITOR] Timeout getting workflows from HDN (exceeded 8s)")
-			c.JSON(http.StatusGatewayTimeout, gin.H{"error": "HDN server timeout - workflows endpoint took too long to respond"})
+			log.Printf("⏱️ [MONITOR] Timeout getting workflows from HDN (exceeded 5s) - HDN may be down")
+			c.JSON(http.StatusGatewayTimeout, gin.H{
+				"error":     "HDN server timeout - server may be down or unreachable",
+				"workflows": []WorkflowStatus{},
+			})
 		} else {
-			log.Printf("❌ [MONITOR] Failed to get workflows from HDN: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get workflows from HDN server"})
+			log.Printf("❌ [MONITOR] Failed to get workflows from HDN: %v - HDN may be down", err)
+			// Return empty workflows list instead of error so UI can still function
+			c.JSON(http.StatusOK, gin.H{
+				"workflows": []WorkflowStatus{},
+				"error":     fmt.Sprintf("HDN server unavailable: %v", err),
+			})
 		}
 		return
 	}
@@ -1928,9 +1936,11 @@ func (m *MonitorService) getWorkflowDetails(c *gin.Context) {
 		return
 	}
 	urlStr := fmt.Sprintf("%s/api/v1/hierarchical/workflow/%s/details", m.hdnURL, workflowID)
-	resp, err := http.Get(urlStr)
+	client := &http.Client{Timeout: 5 * time.Second} // Add timeout for faster failover
+	resp, err := client.Get(urlStr)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch workflow details"})
+		log.Printf("❌ [MONITOR] Failed to get workflow details from HDN: %v - HDN may be down", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch workflow details - HDN server may be down"})
 		return
 	}
 	defer resp.Body.Close()
@@ -1946,10 +1956,12 @@ func (m *MonitorService) getExecutionMetrics(c *gin.Context) {
 
 // getProjects proxies the list of projects from the HDN API
 func (m *MonitorService) getProjects(c *gin.Context) {
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Second} // Reduced timeout for faster failover
 	resp, err := client.Get(m.hdnURL + "/api/v1/projects")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch projects"})
+		log.Printf("❌ [MONITOR] Failed to get projects from HDN: %v - HDN may be down", err)
+		// Return empty projects list so UI can still function
+		c.JSON(http.StatusOK, gin.H{"projects": []interface{}{}})
 		return
 	}
 	defer resp.Body.Close()
@@ -5572,17 +5584,15 @@ func extractProjectNameFromText(input string) string {
 }
 
 // detectLanguage chooses a language based on filenames and keywords in text
-// Priority: go > rust > javascript > java > python
+// Priority: go > javascript > java > python
 func detectLanguage(text string, files []string) string {
 	lang := "python"
 	lower := strings.ToLower(text)
-	hasGo, hasRust, hasJS, hasJava := false, false, false, false
+	hasGo, hasJS, hasJava := false, false, false
 	for _, f := range files {
 		lf := strings.ToLower(f)
 		if strings.HasSuffix(lf, ".go") {
 			hasGo = true
-		} else if strings.HasSuffix(lf, ".rs") {
-			hasRust = true
 		} else if strings.HasSuffix(lf, ".js") {
 			hasJS = true
 		} else if strings.HasSuffix(lf, ".java") {
@@ -5592,9 +5602,6 @@ func detectLanguage(text string, files []string) string {
 	if hasGo {
 		return "go"
 	}
-	if hasRust {
-		return "rust"
-	}
 	if hasJS {
 		return "javascript"
 	}
@@ -5603,9 +5610,6 @@ func detectLanguage(text string, files []string) string {
 	}
 	if strings.Contains(lower, "golang") || strings.Contains(lower, " go ") || strings.HasSuffix(lower, " go") || strings.Contains(lower, ".go") {
 		return "go"
-	}
-	if strings.Contains(lower, "rust") || strings.Contains(lower, ".rs") || strings.Contains(lower, " rust program") || strings.Contains(lower, " in rust") {
-		return "rust"
 	}
 	if strings.Contains(lower, "javascript") || strings.Contains(lower, " node ") || strings.Contains(lower, ".js") || strings.Contains(lower, " typescript") {
 		return "javascript"

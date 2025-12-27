@@ -2804,13 +2804,6 @@ func (ie *IntelligentExecutor) inferLanguageFromRequest(req *ExecutionRequest) s
 		return "go"
 	}
 
-	// Check for Rust
-	if strings.Contains(desc, "rust") || strings.Contains(desc, "rust program") ||
-		strings.Contains(desc, "rust code") || strings.Contains(desc, ".rs") ||
-		strings.Contains(desc, " in rust") {
-		return "rust"
-	}
-
 	// Hints in task name
 	task := strings.ToLower(strings.TrimSpace(req.TaskName))
 
@@ -2823,11 +2816,6 @@ func (ie *IntelligentExecutor) inferLanguageFromRequest(req *ExecutionRequest) s
 	if strings.Contains(task, "go ") || strings.Contains(task, " golang") ||
 		strings.Contains(task, ".go") || strings.Contains(task, "golang") {
 		return "go"
-	}
-
-	// Check for Rust in task name
-	if strings.Contains(task, "rust") || strings.Contains(task, ".rs") {
-		return "rust"
 	}
 
 	return ""
@@ -2849,24 +2837,11 @@ func inferLanguageFromRequest(req *IntelligentExecutionRequest) string {
 		return "go"
 	}
 
-	// Check for Rust
-	if strings.Contains(desc, "rust") || strings.Contains(desc, "rust program") ||
-		strings.Contains(desc, "rust code") || strings.Contains(desc, ".rs") ||
-		strings.Contains(desc, " in rust") || strings.Contains(desc, "write a rust") ||
-		strings.Contains(desc, "create a rust") || strings.Contains(desc, "build a rust") {
-		return "rust"
-	}
-
 	// Hints in task name
 	task := strings.ToLower(strings.TrimSpace(req.TaskName))
 	if strings.Contains(task, "go ") || strings.Contains(task, " golang") ||
 		strings.Contains(task, ".go") || strings.Contains(task, "golang") {
 		return "go"
-	}
-
-	// Check for Rust in task name
-	if strings.Contains(task, "rust") || strings.Contains(task, ".rs") {
-		return "rust"
 	}
 
 	// Context override
@@ -4092,9 +4067,7 @@ func (ie *IntelligentExecutor) parseChainedPrograms(req *ExecutionRequest) ([]Ch
 		lang := req.Language
 		if lang == "" {
 			lowerDesc := strings.ToLower(req.Description)
-			if strings.Contains(lowerDesc, "rust") || strings.Contains(lowerDesc, ".rs") {
-				lang = "rust"
-			} else if strings.Contains(lowerDesc, "go") && !strings.Contains(lowerDesc, "python") {
+			if strings.Contains(lowerDesc, "go") && !strings.Contains(lowerDesc, "python") {
 				lang = "go"
 			} else if strings.Contains(lowerDesc, "python") {
 				lang = "python"
