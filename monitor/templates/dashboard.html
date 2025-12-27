@@ -2055,8 +2055,10 @@
         // Load LLM queue stats
         async function loadLLMQueueStats() {
             try {
+                console.log('[LLM Queue] Loading queue stats...');
                 const response = await axios.get('/api/llm/queue/stats', { timeout: 5000 });
                 const stats = response.data;
+                console.log('[LLM Queue] Stats received:', stats);
                 
                 // Determine status color based on queue fullness
                 const highPercent = stats.high_priority_percent || 0;
@@ -2104,11 +2106,20 @@
                         Last updated: ${stats.timestamp ? new Date(stats.timestamp).toLocaleTimeString() : 'N/A'}
                     </div>
                 `;
-                document.getElementById('llm-queue-stats').innerHTML = statsHtml;
+                const statsElement = document.getElementById('llm-queue-stats');
+                if (statsElement) {
+                    statsElement.innerHTML = statsHtml;
+                    console.log('[LLM Queue] Stats updated in UI');
+                } else {
+                    console.error('[LLM Queue] Element #llm-queue-stats not found!');
+                }
             } catch (error) {
-                console.error('Error loading LLM queue stats:', error);
-                document.getElementById('llm-queue-stats').innerHTML = 
-                    '<div style="color: #e74c3c;">Error loading LLM queue stats</div>';
+                console.error('[LLM Queue] Error loading queue stats:', error);
+                const statsElement = document.getElementById('llm-queue-stats');
+                if (statsElement) {
+                    statsElement.innerHTML = 
+                        '<div style="color: #e74c3c;">Error loading LLM queue stats: ' + error.message + '</div>';
+                }
             }
         }
 
