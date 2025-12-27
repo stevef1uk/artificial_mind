@@ -3250,14 +3250,19 @@ func (ie *IntelligentExecutor) executeChainedPrograms(ctx context.Context, req *
 
 		// Store individual program artifacts with correct filename based on language
 		artifactName := fmt.Sprintf("prog%d", i+1)
-		if program.Language == "go" {
-			artifactName = fmt.Sprintf("prog%d.go", i+1)
-		} else if program.Language == "python" {
-			artifactName = fmt.Sprintf("prog%d.py", i+1)
-		} else if program.Language == "javascript" {
-			artifactName = fmt.Sprintf("prog%d.js", i+1)
-		} else if program.Language == "java" {
-			artifactName = fmt.Sprintf("prog%d.java", i+1)
+		// Map language to file extension
+		langExt := map[string]string{
+			"go":         ".go",
+			"python":     ".py",
+			"javascript": ".js",
+			"js":         ".js",
+			"java":       ".java",
+			"rust":       ".rs",
+			"cpp":        ".cpp",
+			"c":          ".c",
+		}
+		if ext, ok := langExt[program.Language]; ok {
+			artifactName = fmt.Sprintf("prog%d%s", i+1, ext)
 		}
 		ie.storeChainedProgramArtifact(programResult.GeneratedCode, workflowID, artifactName)
 
@@ -3648,6 +3653,37 @@ JSON Response:`, req.Description, req.Context, multipleProgramsHint)
 	return programs, nil
 }
 
+// detectLanguageFromText detects programming language from text description
+// This is a helper function for chained program detection
+func detectLanguageFromText(text string) string {
+	textLower := strings.ToLower(text)
+	// Check for Rust first (before Go, since "go" is a common word)
+	if strings.Contains(textLower, "rust") || strings.Contains(textLower, ".rs") {
+		return "rust"
+	}
+	// Check for Go
+	if strings.Contains(textLower, " go ") || strings.HasPrefix(textLower, "go ") ||
+		strings.Contains(textLower, "golang") || strings.Contains(textLower, ".go") {
+		return "go"
+	}
+	// Check for Python
+	if strings.Contains(textLower, "python") || strings.Contains(textLower, ".py") {
+		return "python"
+	}
+	// Check for JavaScript
+	if strings.Contains(textLower, "javascript") || strings.Contains(textLower, "js") ||
+		strings.Contains(textLower, "node") || strings.Contains(textLower, ".js") {
+		return "javascript"
+	}
+	// Check for Java
+	if strings.Contains(textLower, "java") && !strings.Contains(textLower, "javascript") ||
+		strings.Contains(textLower, ".java") {
+		return "java"
+	}
+	// Default to Python if no language detected
+	return "python"
+}
+
 // manuallySplitMultiplePrograms attempts to manually split a request into multiple programs
 // when the LLM fails to do so correctly
 func (ie *IntelligentExecutor) manuallySplitMultiplePrograms(req *ExecutionRequest) []struct {
@@ -3695,11 +3731,21 @@ func (ie *IntelligentExecutor) manuallySplitMultiplePrograms(req *ExecutionReque
 		}
 	}
 
-	// If no "then" found, try splitting on "and" if both languages are mentioned
-	if len(parts) < 2 && strings.Contains(lowerDesc, "go") && strings.Contains(lowerDesc, "python") {
-		if idx := strings.Index(lowerDesc, " and "); idx > 0 {
-			parts = []string{desc[:idx], desc[idx+5:]}
-			log.Printf("🔍 [MANUAL-SPLIT] Split on 'and' at position %d", idx)
+	// If no "then" found, try splitting on "and" if multiple languages are mentioned
+	if len(parts) < 2 {
+		// Check for multiple languages
+		langs := []string{"rust", "go", "python", "java", "javascript", "js"}
+		langCount := 0
+		for _, lang := range langs {
+			if strings.Contains(lowerDesc, lang) {
+				langCount++
+			}
+		}
+		if langCount >= 2 {
+			if idx := strings.Index(lowerDesc, " and "); idx > 0 {
+				parts = []string{desc[:idx], desc[idx+5:]}
+				log.Printf("🔍 [MANUAL-SPLIT] Split on 'and' at position %d", idx)
+			}
 		}
 	}
 
@@ -3707,33 +3753,19 @@ func (ie *IntelligentExecutor) manuallySplitMultiplePrograms(req *ExecutionReque
 	if len(parts) >= 2 {
 
 		if len(parts) >= 2 {
-			// Extract first program (usually Go)
+			// Extract first program - detect language from description
 			part1 := strings.TrimSpace(parts[0])
 			part1Lower := strings.ToLower(part1)
-			lang1 := "go"
-			if strings.Contains(part1Lower, "python") {
-				lang1 = "python"
-			} else if strings.Contains(part1Lower, "javascript") || strings.Contains(part1Lower, "js") {
-				lang1 = "javascript"
-			} else if strings.Contains(part1Lower, "java") {
-				lang1 = "java"
-			}
+			lang1 := detectLanguageFromText(part1Lower) // Use flexible detection
 
-			// Extract second program (usually Python)
+			// Extract second program - detect language from description
 			part2 := strings.TrimSpace(parts[1])
 			// Remove "create" or "generate" prefix if present
 			part2 = strings.TrimPrefix(part2, "create ")
 			part2 = strings.TrimPrefix(part2, "generate ")
 			part2 = strings.TrimSpace(part2)
 			part2Lower := strings.ToLower(part2)
-			lang2 := "python"
-			if strings.Contains(part2Lower, "go") && !strings.Contains(part2Lower, "python") {
-				lang2 = "go"
-			} else if strings.Contains(part2Lower, "javascript") || strings.Contains(part2Lower, "js") {
-				lang2 = "javascript"
-			} else if strings.Contains(part2Lower, "java") {
-				lang2 = "java"
-			}
+			lang2 := detectLanguageFromText(part2Lower) // Use flexible detection
 
 			// Create program definitions
 			prog1 := struct {
@@ -3760,33 +3792,30 @@ func (ie *IntelligentExecutor) manuallySplitMultiplePrograms(req *ExecutionReque
 			log.Printf("✅ [CHAINED-LLM] Manually split: Program 1 (%s): %s", lang1, part1)
 			log.Printf("✅ [CHAINED-LLM] Manually split: Program 2 (%s): %s", lang2, part2)
 		}
-	} else if strings.Contains(lowerDesc, "go") && strings.Contains(lowerDesc, "python") {
-		// Both languages mentioned but no "then" - try to find where they're mentioned
-		// This is a fallback for requests like "Create Go and Python programs"
-		goIdx := strings.Index(lowerDesc, "go")
-		pythonIdx := strings.Index(lowerDesc, "python")
-
-		if goIdx < pythonIdx {
-			// Go comes first
-			prog1 := struct {
-				Name        string `json:"name"`
-				Language    string `json:"language"`
-				Description string `json:"description"`
-			}{
-				Name:        "program_1_go",
-				Language:    "go",
-				Description: desc,
+	} else {
+		// Multiple languages mentioned but no "then" - try to detect languages from description
+		// This is a fallback for requests like "Create Rust and Java programs"
+		langs := []string{"rust", "go", "python", "java", "javascript", "js"}
+		var foundLangs []string
+		for _, lang := range langs {
+			if strings.Contains(lowerDesc, lang) {
+				foundLangs = append(foundLangs, lang)
 			}
-			prog2 := struct {
-				Name        string `json:"name"`
-				Language    string `json:"language"`
-				Description string `json:"description"`
-			}{
-				Name:        "program_2_python",
-				Language:    "python",
-				Description: desc,
+		}
+		if len(foundLangs) >= 2 {
+			// Create programs for each detected language
+			for i, lang := range foundLangs {
+				prog := struct {
+					Name        string `json:"name"`
+					Language    string `json:"language"`
+					Description string `json:"description"`
+				}{
+					Name:        fmt.Sprintf("program_%d_%s", i+1, lang),
+					Language:    lang,
+					Description: desc,
+				}
+				programs = append(programs, prog)
 			}
-			programs = append(programs, prog1, prog2)
 		}
 	}
 
@@ -3966,8 +3995,15 @@ func (ie *IntelligentExecutor) parseChainedPrograms(req *ExecutionRequest) ([]Ch
 	// This is critical - if the request has "then" or mentions multiple languages, force manual split
 	lowerDesc := strings.ToLower(req.Description)
 	hasThen := strings.Contains(lowerDesc, "then")
-	hasMultipleLangs := (strings.Contains(lowerDesc, "go") && strings.Contains(lowerDesc, "python")) ||
-		(strings.Contains(lowerDesc, "python") && strings.Contains(lowerDesc, "go"))
+	// Check for multiple languages more flexibly
+	langs := []string{"rust", "go", "python", "java", "javascript", "js"}
+	langCount := 0
+	for _, lang := range langs {
+		if strings.Contains(lowerDesc, lang) {
+			langCount++
+		}
+	}
+	hasMultipleLangs := langCount >= 2
 
 	if hasThen || hasMultipleLangs {
 		log.Printf("🔄 [CHAINED] Request has 'then' or multiple languages, forcing manual split")
