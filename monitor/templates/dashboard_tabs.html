@@ -1485,9 +1485,6 @@
                     </div>
                 `;
 
-                // Load LLM queue stats
-                loadLLMQueueStats();
-
             } catch (error) {
                 console.error('Error loading overview data:', error);
                 systemStatusDiv.innerHTML = `<div class="error">Error loading system status: ${error.message}</div>`;
@@ -1495,6 +1492,11 @@
                 databaseStatusDiv.innerHTML = `<div class="error">Error loading database status: ${error.message}</div>`;
                 newsContentDiv.innerHTML = `<div class="error">Error loading news content: ${error.message}</div>`;
             }
+            
+            // Load LLM queue stats independently (non-blocking, won't break overview if it fails)
+            loadLLMQueueStats().catch(err => {
+                console.error('[LLM Queue] Failed to load stats:', err);
+            });
         }
 
         // Load LLM queue stats
@@ -1517,7 +1519,7 @@
                 const highColor = getStatusColor(highPercent);
                 const lowColor = getStatusColor(lowPercent);
                 
-                // Build status indicator with more context
+                // Build status indicator
                 let statusIndicator = '';
                 if (stats.auto_disabled) {
                     // Show why it's still disabled (queue needs to drop to 50% to re-enable)
@@ -1528,14 +1530,7 @@
                 } else if (stats.background_llm_disabled) {
                     statusIndicator = '<div style="background: #f39c12; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-bottom: 8px;">⏸️ Manually Disabled</div>';
                 } else {
-                    // Show queue health status
-                    let healthStatus = '✅ Active';
-                    if (lowPercent >= 80) {
-                        healthStatus = '⚠️ Queue High (' + lowPercent.toFixed(1) + '%)';
-                    } else if (lowPercent >= 70) {
-                        healthStatus = '⚡ Queue Moderate (' + lowPercent.toFixed(1) + '%)';
-                    }
-                    statusIndicator = `<div style="background: #27ae60; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-bottom: 8px;">${healthStatus}</div>`;
+                    statusIndicator = '<div style="background: #27ae60; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-bottom: 8px;">✅ Active</div>';
                 }
                 
                 const statsHtml = `
