@@ -306,6 +306,13 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 	// Initialize self-model manager
 	selfModelManager := selfmodel.NewManager(redisAddr, "hdn_self_model")
 
+	// Get HDN base URL from environment variable, fallback to localhost for local development
+	hdnBaseURL := getenvTrim("HDN_URL")
+	if hdnBaseURL == "" {
+		hdnBaseURL = "http://localhost:8080" // Default for local development
+	}
+	log.Printf("✅ [HDN] Using HDN base URL: %s", hdnBaseURL)
+
 	// Create intelligent executor for planner
 	intelligentExecutor := NewIntelligentExecutor(
 		server.domainManager,
@@ -318,8 +325,8 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 		selfModelManager,
 		server.toolMetrics,
 		server.fileStorage,
-		"http://localhost:8080", // HDN base URL for tool calling
-		redisAddr,                // Redis address for learning data
+		hdnBaseURL, // HDN base URL for tool calling (from HDN_URL env var)
+		redisAddr,  // Redis address for learning data
 	)
 
 	// Create planner integration

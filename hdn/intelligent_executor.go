@@ -2337,7 +2337,16 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 
 	// Choose execution method based on EXECUTION_METHOD environment variable
 	executionMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
-	useSSH := executionMethod == "ssh" || (executionMethod == "" && (runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64" || os.Getenv("ENABLE_ARM64_TOOLS") == "true"))
+
+	// Force Docker for Rust and Java (not available on RPI host)
+	// These languages require Docker containers with proper toolchains
+	forceDocker := code.Language == "rust" || code.Language == "java"
+
+	if forceDocker {
+		log.Printf("🐳 [VALIDATION] Forcing Docker executor for %s (not available on RPI host)", code.Language)
+	}
+
+	useSSH := !forceDocker && (executionMethod == "ssh" || (executionMethod == "" && (runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64" || os.Getenv("ENABLE_ARM64_TOOLS") == "true")))
 
 	var result *DockerExecutionResponse
 	var err error

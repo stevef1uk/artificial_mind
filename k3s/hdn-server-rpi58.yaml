@@ -84,7 +84,7 @@ spec:
                   key: OLLAMA_BASE_URL
                   optional: true
             - name: HDN_URL
-              value: "http://localhost:8080"
+              value: "http://hdn-server-rpi58.agi.svc.cluster.local:8080"
             - name: SECURE_CUSTOMER_PRIVATE_PATH
               value: "/keys/customer_private.pem"
             - name: SECURE_VENDOR_TOKEN
