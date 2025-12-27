@@ -133,17 +133,21 @@ spec:
                 secretName: secure-customer-private
           restartPolicy: Never  # Don't restart on failure, let the cronjob handle retries
           activeDeadlineSeconds: 1800  # 30 minutes timeout - Kubernetes will kill the pod if exceeded
-          dnsPolicy: ClusterFirst
+          dnsPolicy: None  # Use custom DNS configuration for better reliability
           dnsConfig:
             nameservers:
-            - "10.43.0.10"  # CoreDNS
-            - "8.8.8.8"     # Google DNS fallback
+            - "10.43.0.10"  # CoreDNS first for cluster services
+            - "8.8.8.8"     # Google DNS for external
             - "8.8.4.4"     # Google DNS fallback
+            searches:
+            - "agi.svc.cluster.local"
+            - "svc.cluster.local"
+            - "cluster.local"
             options:
             - name: ndots
               value: "2"
             - name: edns0
             - name: timeout
-              value: "2"
+              value: "1"  # Reduced from 2s to 1s for faster failover
             - name: attempts
-              value: "3"
+              value: "2"  # Reduced from 3 to 2 for faster failover
