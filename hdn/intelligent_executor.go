@@ -2725,34 +2725,34 @@ func (ie *IntelligentExecutor) buildFixPrompt(originalCode *GeneratedCode, valid
 🚨 CRITICAL FOR RUST CODE FIXES:
 - Read the compilation error message CAREFULLY - Rust's borrow checker is very specific!
 - Common Rust compilation errors:
-  * "cannot borrow `X` as mutable, as it is not declared as mutable" - Variable needs `mut` keyword
-    - FIX: Change `let x = ...` to `let mut x = ...`
-    - If it's already `mut`, check if you're trying to borrow it incorrectly
-  * "cannot borrow `X` as mutable because it is also borrowed as immutable" - Conflicting borrows
+  * "cannot borrow X as mutable, as it is not declared as mutable" - Variable needs mut keyword
+    - FIX: Change "let x = ..." to "let mut x = ..."
+    - If it's already mut, check if you're trying to borrow it incorrectly
+  * "cannot borrow X as mutable because it is also borrowed as immutable" - Conflicting borrows
     - FIX: Restructure code to avoid simultaneous mutable and immutable borrows
-    - Use scopes to limit borrow lifetimes: `{ let borrow = &x; ... }` then `x.mut_method()`
-  * "cannot move out of `X` which is behind a shared reference" - Trying to move from a reference
-    - FIX: Clone the value: `let y = x.clone();` or use references instead of moving
-  * "expected `X`, found `Y`" - Type mismatch
-    - FIX: Check types match - use `.to_string()`, `.parse()`, or explicit type conversions
-  * "use of moved value: `X`" - Value was moved and can't be used again
-    - FIX: Use references `&X` instead of moving, or clone if needed
+    - Use scopes to limit borrow lifetimes: "{ let borrow = &x; ... }" then "x.mut_method()"
+  * "cannot move out of X which is behind a shared reference" - Trying to move from a reference
+    - FIX: Clone the value: "let y = x.clone();" or use references instead of moving
+  * "expected X, found Y" - Type mismatch
+    - FIX: Check types match - use ".to_string()", ".parse()", or explicit type conversions
+  * "use of moved value: X" - Value was moved and can't be used again
+    - FIX: Use references "&X" instead of moving, or clone if needed
   * "mismatched types" - Function expects different type
     - FIX: Check function signature and provide correct type
-- For Box<T> mutable borrows:
-  - WRONG: `increment_age(&mut person_box);` when person_box is `Box<Person>`
-  - CORRECT: `increment_age(&mut *person_box);` (dereference then borrow)
-  - OR: `let person = &mut *person_box; increment_age(person);`
-- For Box<T> immutable borrows:
-  - WRONG: `print_person(person_box);` when person_box is `Box<Person>`
-  - CORRECT: `print_person(&*person_box);` or `print_person(&person_box);`
+- For Box type mutable borrows:
+  - WRONG: "increment_age(&mut person_box);" when person_box is Box<Person>
+  - CORRECT: "increment_age(&mut *person_box);" (dereference then borrow)
+  - OR: "let person = &mut *person_box; increment_age(person);"
+- For Box type immutable borrows:
+  - WRONG: "print_person(person_box);" when person_box is Box<Person>
+  - CORRECT: "print_person(&*person_box);" or "print_person(&person_box);"
 - If you see "cannot borrow as mutable":
-  1. Check if the variable is declared with `mut`: `let mut x = ...`
-  2. If it's a Box, dereference first: `&mut *box_value`
+  1. Check if the variable is declared with "mut": "let mut x = ..."
+  2. If it's a Box, dereference first: "&mut *box_value"
   3. If it's already borrowed immutably, end that borrow before mutable borrow
 - After fixing, verify:
-  - ✅ All variables that need mutation are declared with `mut`
-  - ✅ Box values are properly dereferenced before borrowing: `&mut *box` or `&*box`
+  - ✅ All variables that need mutation are declared with "mut"
+  - ✅ Box values are properly dereferenced before borrowing: "&mut *box" or "&*box"
   - ✅ No conflicting borrows (mutable and immutable at the same time)
   - ✅ No use of moved values
   - ✅ Types match function signatures
