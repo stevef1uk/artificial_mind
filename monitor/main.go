@@ -1158,8 +1158,8 @@ func (m *MonitorService) getSystemStatus(c *gin.Context) {
 		results <- serviceResult{key: "nats", info: m.checkNATS()}
 	}()
 
-	// Collect all results (wait up to 8 seconds for all checks to complete)
-	timeout := time.After(8 * time.Second)
+	// Collect all results (wait up to 6 seconds for all checks to complete)
+	timeout := time.After(6 * time.Second)
 	collected := 0
 	expectedServices := []string{"hdn", "principles", "fsm", "goal_manager", "redis", "neo4j", "vector-db", "nats"}
 	timeoutReached := false
@@ -1184,7 +1184,7 @@ func (m *MonitorService) getSystemStatus(c *gin.Context) {
 					Name:         key,
 					Status:       "unhealthy",
 					LastCheck:    time.Now(),
-					ResponseTime: 8000, // Timeout value
+					ResponseTime: 6000, // Timeout value
 					Error:        "Service check timed out",
 				}
 			}

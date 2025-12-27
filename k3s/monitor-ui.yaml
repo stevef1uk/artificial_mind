@@ -78,15 +78,15 @@ spec:
               port: http
             initialDelaySeconds: 30
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 15
+            initialDelaySeconds: 20
             periodSeconds: 5
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 3
           resources:
             requests:
