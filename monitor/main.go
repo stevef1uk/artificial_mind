@@ -5547,15 +5547,17 @@ func extractProjectNameFromText(input string) string {
 }
 
 // detectLanguage chooses a language based on filenames and keywords in text
-// Priority: go > javascript > java > python
+// Priority: go > rust > javascript > java > python
 func detectLanguage(text string, files []string) string {
 	lang := "python"
 	lower := strings.ToLower(text)
-	hasGo, hasJS, hasJava := false, false, false
+	hasGo, hasRust, hasJS, hasJava := false, false, false, false
 	for _, f := range files {
 		lf := strings.ToLower(f)
 		if strings.HasSuffix(lf, ".go") {
 			hasGo = true
+		} else if strings.HasSuffix(lf, ".rs") {
+			hasRust = true
 		} else if strings.HasSuffix(lf, ".js") {
 			hasJS = true
 		} else if strings.HasSuffix(lf, ".java") {
@@ -5565,6 +5567,9 @@ func detectLanguage(text string, files []string) string {
 	if hasGo {
 		return "go"
 	}
+	if hasRust {
+		return "rust"
+	}
 	if hasJS {
 		return "javascript"
 	}
@@ -5573,6 +5578,9 @@ func detectLanguage(text string, files []string) string {
 	}
 	if strings.Contains(lower, "golang") || strings.Contains(lower, " go ") || strings.HasSuffix(lower, " go") || strings.Contains(lower, ".go") {
 		return "go"
+	}
+	if strings.Contains(lower, "rust") || strings.Contains(lower, ".rs") || strings.Contains(lower, " rust program") || strings.Contains(lower, " in rust") {
+		return "rust"
 	}
 	if strings.Contains(lower, "javascript") || strings.Contains(lower, " node ") || strings.Contains(lower, ".js") || strings.Contains(lower, " typescript") {
 		return "javascript"

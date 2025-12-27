@@ -4103,7 +4103,8 @@
                 const trimmed = outputText.trim();
                 if (trimmed) {
                     html += `<div class="step-description"><strong>Result:</strong></div>`;
-                    html += `<div class="code-block" style="background: #f0f9ff; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9; margin: 10px 0;"><pre style="margin: 0; font-size: 14px;">${trimmed}</pre></div>`;
+                    // Escape HTML to prevent issues with quotes and special characters
+                    html += `<div class="code-block" style="background: #f0f9ff; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9; margin: 10px 0;"><pre style="margin: 0; font-size: 14px;">${escapeHtml(trimmed)}</pre></div>`;
                 } else {
                     html += `<div class="step-description">Result: (empty output)</div>`;
                 }
@@ -4137,6 +4138,18 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
                         let outputText;
                         if (typeof step.output === 'string') {
                             outputText = step.output.trim();
+                            // Check if output is a JSON-encoded string (starts and ends with quotes)
+                            // and try to parse it to get the actual content
+                            if (outputText.startsWith('"') && outputText.endsWith('"') && outputText.length > 1) {
+                                try {
+                                    const parsed = JSON.parse(outputText);
+                                    if (typeof parsed === 'string') {
+                                        outputText = parsed;
+                                    }
+                                } catch (e) {
+                                    // Not valid JSON, use as-is
+                                }
+                            }
                         } else if (typeof step.output === 'object') {
                             outputText = JSON.stringify(step.output, null, 2);
                         } else {
@@ -4144,7 +4157,8 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
                         }
                         if (outputText) {
                             html += `<div class="step-description">Program Output:</div>`;
-                            html += `<div class="code-block"><pre>${outputText}</pre></div>`;
+                            // Escape HTML to prevent issues with quotes and special characters
+                            html += `<div class="code-block"><pre>${escapeHtml(outputText)}</pre></div>`;
                         } else {
                             html += `<div class="step-description">Program Output: (empty)</div>`;
                         }
