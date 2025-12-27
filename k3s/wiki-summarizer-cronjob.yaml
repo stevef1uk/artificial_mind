@@ -36,7 +36,7 @@ spec:
               imagePullPolicy: Always
               env:
                 - name: WEAVIATE_URL
-                  value: "http://weaviate.agi.svc.cluster.local:8080"
+                  value: "http://weaviate:8080"
                 - name: REDIS_ADDR
                   value: "redis.agi.svc.cluster.local:6379"
                 # LLM configuration from secret (can be updated without changing deployment)

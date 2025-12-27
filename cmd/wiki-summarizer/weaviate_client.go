@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
 )
@@ -18,10 +19,25 @@ type WeaviateClient struct {
 }
 
 func NewWeaviateClient(baseURL, class string) *WeaviateClient {
+	// Create transport with custom dialer to handle DNS timeouts better
+	// DNS lookup timeout is separate from HTTP timeout
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second, // DNS lookup + TCP connection timeout
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:        100,
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	
 	return &WeaviateClient{
 		BaseURL:    baseURL,
 		Class:      class,
-		HTTPClient: &http.Client{Timeout: 120 * time.Second}, // Increased from 30s to 120s for large queries
+		HTTPClient: &http.Client{
+			Timeout:   120 * time.Second, // HTTP request timeout
+			Transport: transport,
+		},
 	}
 }
 
