@@ -1672,30 +1672,30 @@ func (m *MonitorService) getActiveWorkflows(c *gin.Context) {
 			// Fetch files and steps in parallel (only if under limit)
 			if shouldFetchFiles {
 				for idx, wd := range workflowDataList {
-				go func(i int, data workflowData) {
-					var files []FileInfo
-					var steps []WorkflowStepStatus
-					var fetchErr error
+					go func(i int, data workflowData) {
+						var files []FileInfo
+						var steps []WorkflowStepStatus
+						var fetchErr error
 
-					// Fetch files
-					files, fetchErr = m.getWorkflowFiles(data.fileID)
-					if fetchErr != nil {
-						files = []FileInfo{}
-					}
+						// Fetch files
+						files, fetchErr = m.getWorkflowFiles(data.fileID)
+						if fetchErr != nil {
+							files = []FileInfo{}
+						}
 
-					// Fetch steps
-					steps, fetchErr = m.getWorkflowStepDetails(data.resolvedID)
-					if fetchErr != nil {
-						steps = []WorkflowStepStatus{}
-					}
+						// Fetch steps
+						steps, fetchErr = m.getWorkflowStepDetails(data.resolvedID)
+						if fetchErr != nil {
+							steps = []WorkflowStepStatus{}
+						}
 
-					resultChan <- fetchResult{
-						workflowIdx: i,
-						files:       files,
-						steps:       steps,
-						err:         fetchErr,
-					}
-				}(idx, wd)
+						resultChan <- fetchResult{
+							workflowIdx: i,
+							files:       files,
+							steps:       steps,
+							err:         fetchErr,
+						}
+					}(idx, wd)
 				}
 			} else {
 				// For large lists, skip file/step fetching and use empty results
@@ -2193,7 +2193,7 @@ func (m *MonitorService) analyzeLastWorkflow(c *gin.Context) {
 // getLLMQueueStats proxies LLM queue stats from HDN
 func (m *MonitorService) getLLMQueueStats(c *gin.Context) {
 	url := m.hdnURL + "/api/v1/llm/queue/stats"
-	
+
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
@@ -2205,18 +2205,18 @@ func (m *MonitorService) getLLMQueueStats(c *gin.Context) {
 		return
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		c.JSON(http.StatusBadGateway, gin.H{
 			"error":     "HDN returned error",
 			"status":    resp.StatusCode,
-			"details":    string(body),
+			"details":   string(body),
 			"timestamp": time.Now().Format(time.RFC3339),
 		})
 		return
 	}
-	
+
 	var stats map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -2226,7 +2226,7 @@ func (m *MonitorService) getLLMQueueStats(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, stats)
 }
 
