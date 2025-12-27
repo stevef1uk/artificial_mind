@@ -16,6 +16,7 @@ spec:
       serviceAccountName: monitor-ui
       nodeSelector:
         kubernetes.io/arch: arm64
+        performance-tier: main
       tolerations:
         - key: "node-role.kubernetes.io/control-plane"
           operator: "Exists"
