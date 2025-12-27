@@ -2115,26 +2115,37 @@
                 }
 
                 contentDiv.innerHTML = projects.map(project => {
+                    if (!project) return ''; // Skip null/undefined projects
+                    
+                    // Safely get project properties
+                    const projectId = String(project.id || '');
+                    const projectName = String(project.name || '');
+                    const projectDesc = String(project.description || 'No description');
+                    const projectStatus = project.status ? String(project.status).toLowerCase() : 'unknown';
+                    
                     // Check if this is a system project that shouldn't be deletable
-                    const isSystemProject = project.name === 'Goals' || 
-                                          project.name === 'FMS' || 
-                                          project.id.includes('goals') || 
-                                          project.id.includes('fms') ||
-                                          project.id.includes('system') ||
-                                          project.name?.toLowerCase().includes('system');
+                    const isSystemProject = projectName === 'Goals' || 
+                                          projectName === 'FMS' || 
+                                          (projectId && projectId.includes('goals')) || 
+                                          (projectId && projectId.includes('fms')) ||
+                                          (projectId && projectId.includes('system')) ||
+                                          (projectName && projectName.toLowerCase().includes('system'));
+                    
+                    // Escape project ID for use in onclick handlers
+                    const safeProjectId = escapeHtml(projectId).replace(/'/g, "\\'");
                     
                     return `
                         <div class="workflow-item">
                             <div class="step-header">
-                                <span class="step-name">${project.name || project.id}</span>
-                                <span class="step-status status-${project.status?.toLowerCase() || 'unknown'}">${project.status?.toUpperCase() || 'UNKNOWN'}</span>
+                                <span class="step-name">${escapeHtml(projectName || projectId || 'Unknown')}</span>
+                                <span class="step-status status-${projectStatus}">${(project.status || 'UNKNOWN').toUpperCase()}</span>
                             </div>
-                            <div class="step-description">${project.description || 'No description'}</div>
+                            <div class="step-description">${escapeHtml(projectDesc)}</div>
                             <div style="margin-top: 10px;">
-                                <button class="btn" onclick="openProject('${project.id}')">Open</button>
+                                <button class="btn" onclick="openProject('${safeProjectId}')">Open</button>
                                 ${isSystemProject ? 
                                     '<button class="btn btn-secondary" disabled title="System projects cannot be deleted">Delete</button>' : 
-                                    `<button class="btn btn-danger" onclick="deleteProject('${project.id}')">Delete</button>`
+                                    `<button class="btn btn-danger" onclick="deleteProject('${safeProjectId}')">Delete</button>`
                                 }
                             </div>
                         </div>
@@ -4053,18 +4064,27 @@
 
         // Display execution response in a user-friendly format
         function displayExecutionResponse(data) {
-            console.log('Displaying execution response:', data);
-            
-            const resultDiv = document.getElementById('tools-result');
-            if (!resultDiv) {
-                console.error('Result div not found');
-                return;
-            }
+            try {
+                console.log('Displaying execution response:', data);
+                
+                const resultDiv = document.getElementById('tools-result');
+                if (!resultDiv) {
+                    console.error('Result div not found');
+                    return;
+                }
 
-            if (!data.success) {
-                resultDiv.innerHTML = `<div class="error">Execution failed: ${data.error || 'Unknown error'}</div>`;
-                return;
-            }
+                // Handle null/undefined data
+                if (!data) {
+                    resultDiv.innerHTML = `<div class="error">No response data received</div>`;
+                    return;
+                }
+
+                // Handle error responses
+                if (data.success === false || (!data.success && data.error)) {
+                    const errorMsg = data.error || data.message || 'Unknown error';
+                    resultDiv.innerHTML = `<div class="error">Execution failed: ${escapeHtml(String(errorMsg))}</div>`;
+                    return;
+                }
 
             // Format the response based on the type
             let html = '<div class="workflow-item">';
@@ -4075,7 +4095,7 @@
 
             // Show the result - check multiple sources
             let outputText = null;
-            if (data.result) {
+            if (data && data.result !== undefined && data.result !== null) {
                 // Handle both string and object results
                 if (typeof data.result === 'string') {
                     outputText = data.result;
@@ -4085,10 +4105,10 @@
                 } else {
                     outputText = String(data.result);
                 }
-            } else if (data.validation_steps && data.validation_steps.length > 0) {
+            } else if (data && data.validation_steps && Array.isArray(data.validation_steps) && data.validation_steps.length > 0) {
                 // If no result but we have validation steps, show the last step's output
                 const lastStep = data.validation_steps[data.validation_steps.length - 1];
-                if (lastStep.output !== undefined && lastStep.output !== null) {
+                if (lastStep && lastStep.output !== undefined && lastStep.output !== null) {
                     if (typeof lastStep.output === 'string') {
                         outputText = lastStep.output;
                     } else if (typeof lastStep.output === 'object') {
@@ -4111,28 +4131,40 @@
             } else {
                 // Debug: show what we have
                 html += `<div class="step-description"><strong>Debug Info:</strong></div>`;
-                html += `<div class="code-block" style="background: #fff3cd; padding: 15px; border-radius: 8px; border-left: 4px solid #ffc107; margin: 10px 0;"><pre style="margin: 0; font-size: 12px;">data.result: ${JSON.stringify(data.result)}
-data.result type: ${typeof data.result}
-data.result truthy: ${!!data.result}
-validation_steps: ${data.validation_steps ? data.validation_steps.length : 0} steps
-last step output: ${data.validation_steps && data.validation_steps.length > 0 ? JSON.stringify(data.validation_steps[data.validation_steps.length - 1].output) : 'N/A'}</pre></div>`;
+                try {
+                    const debugInfo = {
+                        result: data ? data.result : 'data is null/undefined',
+                        resultType: data ? typeof data.result : 'N/A',
+                        resultTruthy: data ? !!data.result : false,
+                        validationSteps: data && data.validation_steps ? data.validation_steps.length : 0,
+                        lastStepOutput: data && data.validation_steps && data.validation_steps.length > 0 && data.validation_steps[data.validation_steps.length - 1] 
+                            ? JSON.stringify(data.validation_steps[data.validation_steps.length - 1].output) 
+                            : 'N/A'
+                    };
+                    html += `<div class="code-block" style="background: #fff3cd; padding: 15px; border-radius: 8px; border-left: 4px solid #ffc107; margin: 10px 0;"><pre style="margin: 0; font-size: 12px;">${escapeHtml(JSON.stringify(debugInfo, null, 2))}</pre></div>`;
+                } catch (e) {
+                    html += `<div class="code-block" style="background: #fff3cd; padding: 15px; border-radius: 8px; border-left: 4px solid #ffc107; margin: 10px 0;"><pre style="margin: 0; font-size: 12px;">Error generating debug info: ${escapeHtml(String(e.message))}</pre></div>`;
+                }
             }
 
             // Show generated code info
-            if (data.generated_code) {
+            if (data && data.generated_code) {
                 html += '<div class="step-description">Generated Code:</div>';
-                html += `<div class="code-block"><pre>${data.generated_code.code || 'No code generated'}</pre></div>`;
+                const code = data.generated_code.code || 'No code generated';
+                html += `<div class="code-block"><pre>${escapeHtml(String(code))}</pre></div>`;
             }
 
             // Show validation steps
-            if (data.validation_steps && data.validation_steps.length > 0) {
+            if (data && data.validation_steps && Array.isArray(data.validation_steps) && data.validation_steps.length > 0) {
                 html += '<div class="step-description">Validation Steps:</div>';
                 data.validation_steps.forEach(step => {
+                    if (!step) return; // Skip null/undefined steps
                     html += `<div class="validation-step">`;
-                    html += `<span class="step-name">${step.step}</span>`;
-                    html += `<span class="step-status ${step.success ? 'status-completed' : 'status-failed'}">${step.success ? 'SUCCESS' : 'FAILED'}</span>`;
+                    html += `<span class="step-name">${escapeHtml(String(step.step || 'unknown'))}</span>`;
+                    const isSuccess = step.success === true;
+                    html += `<span class="step-status ${isSuccess ? 'status-completed' : 'status-failed'}">${isSuccess ? 'SUCCESS' : 'FAILED'}</span>`;
                     if (step.message) {
-                        html += `<div class="step-message">${step.message}</div>`;
+                        html += `<div class="step-message">${escapeHtml(String(step.message))}</div>`;
                     }
                     if (step.output !== undefined && step.output !== null) {
                         let outputText;
@@ -4169,6 +4201,13 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
 
             html += '</div>';
             resultDiv.innerHTML = html;
+            } catch (error) {
+                console.error('Error in displayExecutionResponse:', error);
+                const resultDiv = document.getElementById('tools-result');
+                if (resultDiv) {
+                    resultDiv.innerHTML = `<div class="error">Error displaying response: ${escapeHtml(String(error.message || 'Unknown error'))}<br><small>Check console for details</small></div>`;
+                }
+            }
         }
     </script>
 </body>
