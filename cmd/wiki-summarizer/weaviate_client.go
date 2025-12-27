@@ -21,7 +21,7 @@ func NewWeaviateClient(baseURL, class string) *WeaviateClient {
 	return &WeaviateClient{
 		BaseURL:    baseURL,
 		Class:      class,
-		HTTPClient: &http.Client{Timeout: 30 * time.Second},
+		HTTPClient: &http.Client{Timeout: 120 * time.Second}, // Increased from 30s to 120s for large queries
 	}
 }
 
@@ -48,11 +48,17 @@ type WeaviateObject struct {
 func (c *WeaviateClient) SearchArticles(ctx context.Context, limit int, filters map[string]interface{}) ([]wikipediaArticle, error) {
 	// Note: Weaviate doesn't support filtering on nested JSON fields directly in where clause
 	// So we'll fetch all and filter in code, or use a different approach
-	where := map[string]interface{}{}
-
-	objects, err := c.SearchObjects(ctx, limit*2, where) // Fetch more to account for filtering
+	// Start with a reasonable multiplier, but increase if needed
+	fetchLimit := limit * 3 // Increased from limit*2 to account for filtering
+	maxFetchLimit := 100     // Cap at 100 to avoid huge queries
+	
+	if fetchLimit > maxFetchLimit {
+		fetchLimit = maxFetchLimit
+	}
+	
+	objects, err := c.SearchObjects(ctx, fetchLimit, map[string]interface{}{})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to search objects (limit=%d): %w", fetchLimit, err)
 	}
 
 	var articles []wikipediaArticle
@@ -215,15 +221,36 @@ func (c *WeaviateClient) SearchObjects(ctx context.Context, limit int, where map
 	}
 
 	queryBytes, _ := json.Marshal(query)
-	req, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/v1/graphql", bytes.NewReader(queryBytes))
+	
+	// Create a context with timeout that respects both the passed context and HTTP client timeout
+	// Use the shorter of the two timeouts
+	queryCtx := ctx
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		// If context doesn't have a deadline, create one with the HTTP client's timeout
+		var cancel context.CancelFunc
+		queryCtx, cancel = context.WithTimeout(ctx, c.HTTPClient.Timeout)
+		defer cancel()
+	}
+	
+	req, err := http.NewRequestWithContext(queryCtx, "POST", c.BaseURL+"/v1/graphql", bytes.NewReader(queryBytes))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	startTime := time.Now()
 	resp, err := c.HTTPClient.Do(req)
+	elapsed := time.Since(startTime)
+	
 	if err != nil {
-		return nil, err
+		// Provide more detailed error information
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("weaviate query deadline exceeded after %v: %w", elapsed, err)
+		}
+		if ctx.Err() == context.Canceled {
+			return nil, fmt.Errorf("weaviate query canceled: %w", err)
+		}
+		return nil, fmt.Errorf("weaviate query failed after %v: %w", elapsed, err)
 	}
 	defer resp.Body.Close()
 

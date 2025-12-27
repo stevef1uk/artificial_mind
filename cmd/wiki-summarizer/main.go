@@ -213,9 +213,30 @@ func main() {
 		}
 
 		// Get batch of Wikipedia articles from vector database
-		articles, err := vectorDB.SearchArticles(ctx, cfg.BatchSize, map[string]interface{}{})
+		// Retry with exponential backoff on timeout errors
+		var articles []wikipediaArticle
+		var err error
+		maxRetries := 3
+		retryDelay := 5 * time.Second
+		for attempt := 0; attempt < maxRetries; attempt++ {
+			articles, err = vectorDB.SearchArticles(ctx, cfg.BatchSize, map[string]interface{}{})
+			if err == nil {
+				break
+			}
+			// Check if it's a timeout error
+			if strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "deadline exceeded") {
+				if attempt < maxRetries-1 {
+					log.Printf("⚠️ Weaviate query timeout (attempt %d/%d), retrying in %v...", attempt+1, maxRetries, retryDelay)
+					time.Sleep(retryDelay)
+					retryDelay *= 2 // Exponential backoff
+					continue
+				}
+			}
+			// For non-timeout errors, break immediately
+			break
+		}
 		if err != nil {
-			log.Printf("❌ Failed to get articles: %v", err)
+			log.Printf("❌ Failed to get articles after %d attempts: %v", maxRetries, err)
 			time.Sleep(10 * time.Second)
 			continue
 		}
