@@ -1093,6 +1093,7 @@
         let currentTab = 'overview';
         let autoRefreshInterval = null;
         let reasoningInterval = null;
+        let llmQueueStatsInterval = null;
         let tabDataLoaded = {
             overview: false,
             workflows: false,
@@ -1487,6 +1488,14 @@
 
                 // Load LLM queue stats
                 loadLLMQueueStats();
+                
+                // Set up auto-refresh for LLM queue stats (every 5 seconds)
+                if (llmQueueStatsInterval) {
+                    clearInterval(llmQueueStatsInterval);
+                }
+                llmQueueStatsInterval = setInterval(() => {
+                    loadLLMQueueStats();
+                }, 5000);
 
             } catch (error) {
                 console.error('Error loading overview data:', error);
@@ -1504,6 +1513,7 @@
                 const response = await axios.get('/api/llm/queue/stats', { timeout: 10000 });
                 const stats = response.data;
                 console.log('[LLM Queue] Stats received:', stats);
+                console.log('[LLM Queue] Active workers:', stats.active_workers, 'Max workers:', stats.max_workers);
                 
                 // Determine status color based on queue fullness
                 const highPercent = stats.high_priority_percent || 0;
@@ -1556,7 +1566,7 @@
                     </div>
                     <div style="display: flex; justify-content: space-between; margin-bottom: 12px; padding: 8px 0; border-bottom: 1px solid #ecf0f1;">
                         <span style="color: #7f8c8d;">Active Workers</span>
-                        <span style="font-weight: 600; color: #2c3e50;">${stats.active_workers || 0}/${stats.max_workers || 0}</span>
+                        <span style="font-weight: 600; color: #2c3e50;">${String(stats.active_workers ?? 0)}/${String(stats.max_workers ?? '?')}</span>
                     </div>
                     <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #ecf0f1; font-size: 0.85em; color: #7f8c8d;">
                         Last updated: ${stats.timestamp ? new Date(stats.timestamp).toLocaleTimeString() : 'N/A'}

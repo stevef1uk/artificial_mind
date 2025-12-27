@@ -374,7 +374,7 @@ func NewAPIServer(domainPath string, redisAddr string) *APIServer {
 		Addr: redisAddr,
 	})
 	server.redisAddr = redisAddr // Store for learning data
-	
+
 	// Test Redis connection
 	ctx := context.Background()
 	if err := server.redis.Ping(ctx).Err(); err != nil {
@@ -761,7 +761,7 @@ func (h *SimpleChatHDN) LearnFromLLM(ctx context.Context, input string, context 
 
 func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input string, context map[string]string) (*conversational.InterpretResult, error) {
 	log.Printf("🔍 [SIMPLE-CHAT-HDN] InterpretNaturalLanguage called with input: %s", input)
-	
+
 	// Use the actual interpreter to process the input with tool support
 	if h.server == nil || h.server.interpreter == nil {
 		log.Printf("⚠️ [SIMPLE-CHAT-HDN] Server or interpreter not available, using fallback")
@@ -787,7 +787,7 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 			},
 		}, nil
 	}
-	
+
 	log.Printf("✅ [SIMPLE-CHAT-HDN] Using flexible interpreter with tool support")
 
 	// Create natural language request
@@ -948,7 +948,7 @@ func (l *SimpleChatLLM) ExtractEntities(ctx context.Context, text string, entity
 func (s *APIServer) setupRoutes() {
 	// Health check
 	s.router.HandleFunc("/health", s.handleHealth).Methods("GET")
-	
+
 	// Register MCP knowledge server routes
 	s.RegisterMCPKnowledgeServerRoutes()
 
@@ -3177,7 +3177,7 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 		hash := sha256.Sum256([]byte(strings.TrimSpace(req.TaskName) + "|" + strings.TrimSpace(req.Description)))
 		taskHash := hex.EncodeToString(hash[:])
 		duplicateKey = fmt.Sprintf("workflow:duplicate:%s", taskHash)
-		
+
 		// Check if a workflow for this task already exists and is active or recently completed
 		existingWorkflowID, err := s.redis.Get(ctx, duplicateKey).Result()
 		if err == nil && existingWorkflowID != "" {
@@ -3189,7 +3189,7 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 				if err := json.Unmarshal([]byte(workflowJSON), &workflow); err == nil {
 					status, _ := workflow["status"].(string)
 					startedAtStr, _ := workflow["started_at"].(string)
-					
+
 					// If workflow is running or pending, reject duplicate
 					if status == "running" || status == "pending" {
 						log.Printf("🚫 [API] Rejecting duplicate workflow - '%s' already has active workflow: %s", req.TaskName, existingWorkflowID)
@@ -3204,7 +3204,7 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 						json.NewEncoder(w).Encode(response)
 						return
 					}
-					
+
 					// If workflow was completed recently (within last hour), reject duplicate
 					if startedAtStr != "" {
 						if startedAt, err := time.Parse(time.RFC3339, startedAtStr); err == nil {
@@ -3241,7 +3241,7 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 		} else {
 			maxActiveWorkflows = 2
 		}
-		
+
 		if activeWorkflowCount >= maxActiveWorkflows {
 			log.Printf("⚠️ [API] Rejecting hierarchical execute - %d active workflows (max: %d, UI: %v)", activeWorkflowCount, maxActiveWorkflows, isUI)
 			response := HierarchicalTaskResponse{
@@ -3273,7 +3273,7 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 	if b, err := json.Marshal(initial); err == nil {
 		key := fmt.Sprintf("workflow:%s", wfID)
 		_ = s.redis.Set(ctx, key, string(b), 24*time.Hour).Err()
-		
+
 		// Store duplicate key mapping for deduplication
 		if s.redis != nil {
 			hash := sha256.Sum256([]byte(strings.TrimSpace(req.TaskName) + "|" + strings.TrimSpace(req.Description)))
@@ -3281,7 +3281,7 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 			duplicateKey := fmt.Sprintf("workflow:duplicate:%s", taskHash)
 			_ = s.redis.Set(ctx, duplicateKey, wfID, 24*time.Hour).Err()
 		}
-		
+
 		log.Printf("📊 [API] Created initial workflow record (running): %s", wfID)
 	}
 
@@ -3292,14 +3292,14 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 		if isUI {
 			slotTimeout = 60 * time.Second // UI requests get 60s to wait for a slot
 		}
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), slotTimeout)
 		defer cancel()
-		
+
 		// Try to acquire slot - UI requests try UI slot first, then general
 		var acquired bool
 		var release func()
-		
+
 		if isUI {
 			// UI request: try UI slot first, then general slot
 			select {
@@ -3326,7 +3326,7 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 				acquired = false
 			}
 		}
-		
+
 		if !acquired {
 			log.Printf("❌ [API] Async execution rejected - timeout waiting for execution slot after %v (UI: %v)", slotTimeout, isUI)
 			// Update workflow status to failed
@@ -3381,7 +3381,9 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 			// Use 10 minutes to allow for queue waits and slow LLM responses
 			execCtx, execCancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer execCancel()
-			
+
+			// Determine priority: UI requests get high priority, background gets low
+			highPriority := isUI // UI requests are high priority
 			result, err := executor.ExecuteTaskIntelligently(execCtx, &ExecutionRequest{
 				TaskName:        req.TaskName,
 				Description:     req.Description,
@@ -3390,6 +3392,7 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 				ForceRegenerate: false,
 				MaxRetries:      2,
 				Timeout:         600,
+				HighPriority:    highPriority,
 			})
 			if err != nil {
 				log.Printf("❌ [API] Async direct execution failed: %v", err)
@@ -4625,6 +4628,11 @@ func (s *APIServer) handleInterpretAndExecute(w http.ResponseWriter, r *http.Req
 			s.redisAddr,
 		)
 
+		// Default to high priority for user-facing requests (from flexible interpreter)
+		highPriority := true
+		if intelligentReq.Priority == "low" {
+			highPriority = false
+		}
 		result, err := executor.ExecuteTaskIntelligently(ctx, &ExecutionRequest{
 			TaskName:        intelligentReq.TaskName,
 			Description:     intelligentReq.Description,
@@ -4633,6 +4641,7 @@ func (s *APIServer) handleInterpretAndExecute(w http.ResponseWriter, r *http.Req
 			ForceRegenerate: intelligentReq.ForceRegenerate,
 			MaxRetries:      intelligentReq.MaxRetries,
 			Timeout:         intelligentReq.Timeout,
+			HighPriority:    highPriority,
 		})
 
 		// Record the execution result
@@ -4714,7 +4723,7 @@ func (s *APIServer) handleInterpretAndExecute(w http.ResponseWriter, r *http.Req
 // isInformationalQuery checks if the input is asking about capabilities, tools, or knowledge
 func (s *APIServer) isInformationalQuery(input string) bool {
 	inputLower := strings.ToLower(strings.TrimSpace(input))
-	
+
 	// Keywords that suggest informational queries
 	infoKeywords := []string{
 		"what do you know",
@@ -4730,20 +4739,20 @@ func (s *APIServer) isInformationalQuery(input string) bool {
 		"list available tools",
 		"what can you help with",
 	}
-	
+
 	for _, keyword := range infoKeywords {
 		if strings.Contains(inputLower, keyword) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
 // handleInformationalQuery provides formatted information about system capabilities
 func (s *APIServer) handleInformationalQuery(ctx context.Context, query string) interpreter.InterpretAndExecuteResponse {
 	var responseText strings.Builder
-	
+
 	// Get capabilities
 	executor := NewIntelligentExecutor(
 		s.domainManager,
@@ -4759,12 +4768,12 @@ func (s *APIServer) handleInformationalQuery(ctx context.Context, query string) 
 		s.hdnBaseURL,
 		s.redisAddr,
 	)
-	
+
 	capabilities, err := executor.ListCachedCapabilities()
 	stats := executor.GetExecutionStats()
-	
+
 	responseText.WriteString("Here's what I know how to do:\n\n")
-	
+
 	// Add capabilities summary
 	if err == nil && len(capabilities) > 0 {
 		totalCapabilities := len(capabilities)
@@ -4772,7 +4781,7 @@ func (s *APIServer) handleInformationalQuery(ctx context.Context, query string) 
 			totalCapabilities = totalCap
 		}
 		responseText.WriteString(fmt.Sprintf("📚 **Capabilities**: I have learned %d capabilities that I can execute.\n\n", totalCapabilities))
-		
+
 		// Show sample capabilities (up to 10)
 		sampleCount := 10
 		if len(capabilities) < sampleCount {
@@ -4788,11 +4797,11 @@ func (s *APIServer) handleInformationalQuery(ctx context.Context, query string) 
 			}
 			// Skip generic/unhelpful descriptions
 			descTrimmed := strings.TrimSpace(desc)
-			if strings.HasPrefix(descTrimmed, "Execute capability:") || 
-			   strings.HasPrefix(descTrimmed, "🚨 CRITICAL") ||
-			   strings.HasPrefix(descTrimmed, "{") || // Skip JSON strings
-			   strings.HasPrefix(descTrimmed, "\"interpreted_at\"") ||
-			   len(descTrimmed) < 15 {
+			if strings.HasPrefix(descTrimmed, "Execute capability:") ||
+				strings.HasPrefix(descTrimmed, "🚨 CRITICAL") ||
+				strings.HasPrefix(descTrimmed, "{") || // Skip JSON strings
+				strings.HasPrefix(descTrimmed, "\"interpreted_at\"") ||
+				len(descTrimmed) < 15 {
 				continue
 			}
 			// Clean up description - remove markdown formatting if present
@@ -4816,7 +4825,7 @@ func (s *APIServer) handleInformationalQuery(ctx context.Context, query string) 
 	} else {
 		responseText.WriteString("📚 **Capabilities**: No cached capabilities found.\n\n")
 	}
-	
+
 	// Get tools
 	tools, err := s.listTools(ctx)
 	if err == nil && len(tools) > 0 {
@@ -4828,9 +4837,9 @@ func (s *APIServer) handleInformationalQuery(ctx context.Context, query string) 
 	} else {
 		responseText.WriteString("🔧 **Tools**: No tools available.\n\n")
 	}
-	
+
 	responseText.WriteString("You can ask me to execute tasks, and I'll generate code to accomplish them. I can also use the available tools to help with various operations.\n")
-	
+
 	return interpreter.InterpretAndExecuteResponse{
 		Success: true,
 		Interpretation: &interpreter.InterpretationResult{
@@ -5204,55 +5213,55 @@ func (s *APIServer) generateDailySummaryFromSystemData(ctx context.Context) stri
 		if err == nil && len(errorKeys) > 0 {
 			summary.WriteString(fmt.Sprintf("- %d error-related entries in system logs\n", len(errorKeys)))
 		}
-		
+
 		// Get token usage statistics for today
 		// Start with aggregated totals (consolidated hourly snapshots)
 		aggPromptKey := fmt.Sprintf("token_usage:aggregated:%s:prompt", today)
 		aggCompletionKey := fmt.Sprintf("token_usage:aggregated:%s:completion", today)
 		aggTotalKey := fmt.Sprintf("token_usage:aggregated:%s:total", today)
-		
+
 		promptTokens, _ := s.redis.Get(ctx, aggPromptKey).Int()
 		completionTokens, _ := s.redis.Get(ctx, aggCompletionKey).Int()
 		totalTokens, _ := s.redis.Get(ctx, aggTotalKey).Int()
-		
+
 		// Add any individual records that exist (recent calls since last aggregation)
 		indPromptKey := fmt.Sprintf("token_usage:%s:prompt", today)
 		indCompletionKey := fmt.Sprintf("token_usage:%s:completion", today)
 		indTotalKey := fmt.Sprintf("token_usage:%s:total", today)
-		
+
 		indPrompt, _ := s.redis.Get(ctx, indPromptKey).Int()
 		indCompletion, _ := s.redis.Get(ctx, indCompletionKey).Int()
 		indTotal, _ := s.redis.Get(ctx, indTotalKey).Int()
-		
+
 		// Combine aggregated + individual totals
 		promptTokens += indPrompt
 		completionTokens += indCompletion
 		totalTokens += indTotal
-		
+
 		if totalTokens > 0 {
-			summary.WriteString(fmt.Sprintf("- LLM token usage (overall): %d total tokens (%d prompt + %d completion)\n", 
+			summary.WriteString(fmt.Sprintf("- LLM token usage (overall): %d total tokens (%d prompt + %d completion)\n",
 				totalTokens, promptTokens, completionTokens))
-			
+
 			// Get per-component breakdown
 			// Start with aggregated component totals
 			aggComponentKeys, err := s.redis.Keys(ctx, fmt.Sprintf("token_usage:aggregated:%s:component:*:total", today)).Result()
 			if err != nil {
 				aggComponentKeys = []string{}
 			}
-			
+
 			// Also get individual component keys (recent calls)
 			indComponentKeys, err2 := s.redis.Keys(ctx, fmt.Sprintf("token_usage:%s:component:*:total", today)).Result()
 			if err2 != nil {
 				indComponentKeys = []string{}
 			}
-			
+
 			// Combine both sets of keys
 			allComponentKeys := append(aggComponentKeys, indComponentKeys...)
-			
+
 			if len(allComponentKeys) > 0 {
 				summary.WriteString("  Component breakdown:\n")
 				componentTotals := make(map[string]int)
-				
+
 				// Process aggregated component keys first
 				for _, key := range aggComponentKeys {
 					parts := strings.Split(key, ":")
@@ -5264,7 +5273,7 @@ func (s *APIServer) generateDailySummaryFromSystemData(ctx context.Context) stri
 						}
 					}
 				}
-				
+
 				// Add individual component keys (will add to existing or create new)
 				for _, key := range indComponentKeys {
 					parts := strings.Split(key, ":")
@@ -5276,7 +5285,7 @@ func (s *APIServer) generateDailySummaryFromSystemData(ctx context.Context) stri
 						}
 					}
 				}
-				
+
 				// Sort components by token usage (descending)
 				type compStat struct {
 					name  string
@@ -5294,7 +5303,7 @@ func (s *APIServer) generateDailySummaryFromSystemData(ctx context.Context) stri
 						}
 					}
 				}
-				
+
 				// Write component breakdown (aggregated + individual)
 				for _, comp := range sortedComps {
 					// Get aggregated values
@@ -5302,18 +5311,18 @@ func (s *APIServer) generateDailySummaryFromSystemData(ctx context.Context) stri
 					aggCompCompletionKey := fmt.Sprintf("token_usage:aggregated:%s:component:%s:completion", today, comp.name)
 					aggCompPrompt, _ := s.redis.Get(ctx, aggCompPromptKey).Int()
 					aggCompCompletion, _ := s.redis.Get(ctx, aggCompCompletionKey).Int()
-					
+
 					// Get individual values
 					indCompPromptKey := fmt.Sprintf("token_usage:%s:component:%s:prompt", today, comp.name)
 					indCompCompletionKey := fmt.Sprintf("token_usage:%s:component:%s:completion", today, comp.name)
 					indCompPrompt, _ := s.redis.Get(ctx, indCompPromptKey).Int()
 					indCompCompletion, _ := s.redis.Get(ctx, indCompCompletionKey).Int()
-					
+
 					// Combine aggregated + individual
 					totalPrompt := aggCompPrompt + indCompPrompt
 					totalCompletion := aggCompCompletion + indCompCompletion
-					
-					summary.WriteString(fmt.Sprintf("    - %s: %d total (%d prompt + %d completion)\n", 
+
+					summary.WriteString(fmt.Sprintf("    - %s: %d total (%d prompt + %d completion)\n",
 						comp.name, comp.total, totalPrompt, totalCompletion))
 				}
 			}
@@ -5332,7 +5341,7 @@ func (s *APIServer) generateDailySummaryFromSystemData(ctx context.Context) stri
 	summary.WriteString("- Processed intelligent execution requests\n")
 	summary.WriteString("- Updated working memory with recent events\n")
 	summary.WriteString("- Indexed episodic memories in vector database\n")
-	
+
 	// Add token usage cost estimate (if tokens were used)
 	if s.redis != nil {
 		today := time.Now().UTC().Format("2006-01-02")
@@ -5346,10 +5355,10 @@ func (s *APIServer) generateDailySummaryFromSystemData(ctx context.Context) stri
 			completionKey := fmt.Sprintf("token_usage:%s:completion", today)
 			promptTokens, _ := s.redis.Get(ctx, promptKey).Int()
 			completionTokens, _ := s.redis.Get(ctx, completionKey).Int()
-			
+
 			estimatedCost := (float64(promptTokens)/1_000_000.0)*0.50 + (float64(completionTokens)/1_000_000.0)*1.50
 			if estimatedCost > 0.001 { // Only show if meaningful
-				summary.WriteString(fmt.Sprintf("- Estimated commercial LLM cost: $%.4f (based on %d tokens)\n", 
+				summary.WriteString(fmt.Sprintf("- Estimated commercial LLM cost: $%.4f (based on %d tokens)\n",
 					estimatedCost, totalTokens))
 			}
 		}
@@ -5370,46 +5379,46 @@ func (s *APIServer) aggregateTokenUsage(ctx context.Context) error {
 	if s.redis == nil {
 		return fmt.Errorf("Redis client not available")
 	}
-	
+
 	today := time.Now().UTC().Format("2006-01-02")
-	
+
 	// Find all component token keys for today
 	componentPattern := fmt.Sprintf("token_usage:%s:component:*:total", today)
 	componentKeys, err := s.redis.Keys(ctx, componentPattern).Result()
 	if err != nil {
 		return fmt.Errorf("failed to get component keys: %v", err)
 	}
-	
+
 	if len(componentKeys) == 0 {
 		log.Printf("📊 [TOKEN-AGG] No component token keys found for today, skipping aggregation")
 		return nil
 	}
-	
+
 	log.Printf("📊 [TOKEN-AGG] Starting token aggregation for %d components", len(componentKeys))
-	
+
 	// Aggregate totals by component
 	componentTotals := make(map[string]struct {
 		prompt     int64
 		completion int64
 		total      int64
 	})
-	
+
 	// Extract component names and aggregate values
 	for _, key := range componentKeys {
 		// Key format: token_usage:YYYY-MM-DD:component:COMPONENT:total
 		parts := strings.Split(key, ":")
 		if len(parts) >= 5 && parts[3] == "component" {
 			component := parts[4]
-			
+
 			// Get totals for this component
 			totalKey := fmt.Sprintf("token_usage:%s:component:%s:total", today, component)
 			promptKey := fmt.Sprintf("token_usage:%s:component:%s:prompt", today, component)
 			completionKey := fmt.Sprintf("token_usage:%s:component:%s:completion", today, component)
-			
+
 			total, _ := s.redis.Get(ctx, totalKey).Int64()
 			prompt, _ := s.redis.Get(ctx, promptKey).Int64()
 			completion, _ := s.redis.Get(ctx, completionKey).Int64()
-			
+
 			if total > 0 {
 				componentTotals[component] = struct {
 					prompt     int64
@@ -5423,7 +5432,7 @@ func (s *APIServer) aggregateTokenUsage(ctx context.Context) error {
 			}
 		}
 	}
-	
+
 	// Update aggregated totals (these persist longer)
 	aggregatedExpiration := 90 * 24 * time.Hour // Keep aggregated data for 90 days
 	for component, totals := range componentTotals {
@@ -5431,49 +5440,49 @@ func (s *APIServer) aggregateTokenUsage(ctx context.Context) error {
 		aggTotalKey := fmt.Sprintf("token_usage:aggregated:%s:component:%s:total", today, component)
 		aggPromptKey := fmt.Sprintf("token_usage:aggregated:%s:component:%s:prompt", today, component)
 		aggCompletionKey := fmt.Sprintf("token_usage:aggregated:%s:component:%s:completion", today, component)
-		
+
 		// Use SET instead of INCRBY since we're aggregating (not incrementing)
 		s.redis.Set(ctx, aggTotalKey, totals.total, aggregatedExpiration)
 		s.redis.Set(ctx, aggPromptKey, totals.prompt, aggregatedExpiration)
 		s.redis.Set(ctx, aggCompletionKey, totals.completion, aggregatedExpiration)
-		
-		log.Printf("📊 [TOKEN-AGG] Aggregated %s: %d total (%d prompt + %d completion)", 
+
+		log.Printf("📊 [TOKEN-AGG] Aggregated %s: %d total (%d prompt + %d completion)",
 			component, totals.total, totals.prompt, totals.completion)
-		
+
 		// Delete individual component keys after aggregation
 		totalKey := fmt.Sprintf("token_usage:%s:component:%s:total", today, component)
 		promptKey := fmt.Sprintf("token_usage:%s:component:%s:prompt", today, component)
 		completionKey := fmt.Sprintf("token_usage:%s:component:%s:completion", today, component)
-		
+
 		s.redis.Del(ctx, totalKey, promptKey, completionKey)
 		log.Printf("🗑️ [TOKEN-AGG] Deleted individual keys for component %s", component)
 	}
-	
+
 	// Also aggregate overall totals
 	overallTotalKey := fmt.Sprintf("token_usage:%s:total", today)
 	overallPromptKey := fmt.Sprintf("token_usage:%s:prompt", today)
 	overallCompletionKey := fmt.Sprintf("token_usage:%s:completion", today)
-	
+
 	overallTotal, _ := s.redis.Get(ctx, overallTotalKey).Int64()
 	overallPrompt, _ := s.redis.Get(ctx, overallPromptKey).Int64()
 	overallCompletion, _ := s.redis.Get(ctx, overallCompletionKey).Int64()
-	
+
 	if overallTotal > 0 {
 		aggOverallTotalKey := fmt.Sprintf("token_usage:aggregated:%s:total", today)
 		aggOverallPromptKey := fmt.Sprintf("token_usage:aggregated:%s:prompt", today)
 		aggOverallCompletionKey := fmt.Sprintf("token_usage:aggregated:%s:completion", today)
-		
+
 		s.redis.Set(ctx, aggOverallTotalKey, overallTotal, aggregatedExpiration)
 		s.redis.Set(ctx, aggOverallPromptKey, overallPrompt, aggregatedExpiration)
 		s.redis.Set(ctx, aggOverallCompletionKey, overallCompletion, aggregatedExpiration)
-		
-		log.Printf("📊 [TOKEN-AGG] Aggregated overall totals: %d total (%d prompt + %d completion)", 
+
+		log.Printf("📊 [TOKEN-AGG] Aggregated overall totals: %d total (%d prompt + %d completion)",
 			overallTotal, overallPrompt, overallCompletion)
-		
+
 		// Note: We keep overall totals for the day (they're already aggregated), but reset them
 		// so new calls can continue tracking. The aggregated version preserves the hourly snapshot.
 	}
-	
+
 	log.Printf("✅ [TOKEN-AGG] Token aggregation completed successfully")
 	return nil
 }
@@ -5485,22 +5494,22 @@ func (s *APIServer) startTokenAggregationScheduler() {
 		now := time.Now()
 		next := now.Truncate(time.Hour).Add(time.Hour)
 		d := time.Until(next)
-		log.Printf("⏰ [TOKEN-AGG] Token aggregation scheduler will start at %s (in %s)", 
+		log.Printf("⏰ [TOKEN-AGG] Token aggregation scheduler will start at %s (in %s)",
 			next.Format(time.RFC3339), d.String())
-		
+
 		// Initial wait
 		time.Sleep(d)
-		
+
 		// Run immediately on first tick
 		ctx := context.Background()
 		if err := s.aggregateTokenUsage(ctx); err != nil {
 			log.Printf("❌ [TOKEN-AGG] Initial aggregation failed: %v", err)
 		}
-		
+
 		// Then run every hour
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ticker.C:
@@ -5519,20 +5528,20 @@ func (s *APIServer) startTokenAggregationScheduler() {
 // handleLLMQueueStats returns current LLM queue statistics
 func (s *APIServer) handleLLMQueueStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	// Get async queue manager if available
 	queueMgr := getAsyncLLMQueueManager()
 	if queueMgr == nil {
 		// Queue not initialized, return empty stats
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"high_priority_queue_size": 0,
-			"low_priority_queue_size":   0,
-			"max_high_priority_queue":   0,
-			"max_low_priority_queue":     0,
-			"active_workers":            0,
-			"max_workers":               0,
-			"high_priority_percent":     0,
-			"low_priority_percent":      0,
+			"low_priority_queue_size":  0,
+			"max_high_priority_queue":  0,
+			"max_low_priority_queue":   0,
+			"active_workers":           0,
+			"max_workers":              0,
+			"high_priority_percent":    0,
+			"low_priority_percent":     0,
 			"background_llm_disabled":  false,
 			"auto_disabled":            false,
 			"timestamp":                time.Now().Format(time.RFC3339),
@@ -5542,11 +5551,11 @@ func (s *APIServer) handleLLMQueueStats(w http.ResponseWriter, r *http.Request) 
 
 	// Get queue stats
 	stats := queueMgr.GetStats()
-	
+
 	// Check if background LLM is disabled via environment variable
-	backgroundDisabled := strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "1" || 
-	                   strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "true"
-	
+	backgroundDisabled := strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "1" ||
+		strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "true"
+
 	// Check Redis for auto-disable state
 	var autoDisabled bool
 	if s.redis != nil {
@@ -5558,15 +5567,15 @@ func (s *APIServer) handleLLMQueueStats(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"high_priority_queue_size": stats.HighPrioritySize,
 		"low_priority_queue_size":  stats.LowPrioritySize,
-		"max_high_priority_queue": stats.MaxHighPriorityQueue,
+		"max_high_priority_queue":  stats.MaxHighPriorityQueue,
 		"max_low_priority_queue":   stats.MaxLowPriorityQueue,
 		"active_workers":           stats.ActiveWorkers,
 		"max_workers":              stats.MaxWorkers,
 		"high_priority_percent":    stats.HighPriorityPercent,
 		"low_priority_percent":     stats.LowPriorityPercent,
-		"background_llm_disabled": backgroundDisabled,
+		"background_llm_disabled":  backgroundDisabled,
 		"auto_disabled":            autoDisabled,
-		"timestamp":               time.Now().Format(time.RFC3339),
+		"timestamp":                time.Now().Format(time.RFC3339),
 	})
 }
 

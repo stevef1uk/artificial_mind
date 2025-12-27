@@ -759,6 +759,7 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 	log.Printf("🧠 [INTELLIGENT] Starting intelligent execution for task: %s", req.TaskName)
 	log.Printf("🧠 [INTELLIGENT] Description: %s", req.Description)
 	log.Printf("🧠 [INTELLIGENT] Context: %+v", req.Context)
+	log.Printf("🎯 [INTELLIGENT] HighPriority: %v", req.HighPriority)
 
 	// Fast-path: pure LLM summarization tasks should not go through codegen/Docker
 	// Note: daily_summary removed from this path - it now uses system data generation
