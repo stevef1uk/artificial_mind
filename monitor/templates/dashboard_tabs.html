@@ -1519,7 +1519,6 @@
                 
                 // Build status indicator with more context
                 let statusIndicator = '';
-                const lowPercent = stats.low_priority_percent || 0;
                 if (stats.auto_disabled) {
                     // Show why it's still disabled (queue needs to drop to 50% to re-enable)
                     const statusText = lowPercent > 50 

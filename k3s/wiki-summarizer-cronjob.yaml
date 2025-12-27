@@ -19,7 +19,6 @@ spec:
         spec:
           nodeSelector:
             kubernetes.io/arch: arm64
-            performance-tier: utility
           affinity:
             nodeAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:
