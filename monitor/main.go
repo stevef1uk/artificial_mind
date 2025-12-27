@@ -159,16 +159,21 @@ func NewMonitorService() *MonitorService {
 		Addr: addr,
 	})
 
-	// Test Redis connection on startup
-	ctx := context.Background()
+	// Test Redis connection on startup with timeout
+	// Use longer timeout for Kubernetes DNS resolution which can be slow
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	if err := redisClient.Ping(ctx).Err(); err != nil {
 		log.Printf("⚠️  [MONITOR] Failed to connect to Redis at %s: %v", addr, err)
 		log.Printf("⚠️  [MONITOR] Make sure Redis is running and accessible at %s", addr)
 		log.Printf("⚠️  [MONITOR] For Docker Redis: docker ps | grep redis")
+		log.Printf("⚠️  [MONITOR] For Kubernetes: check service DNS resolution")
 		log.Printf("⚠️  [MONITOR] Monitor UI will continue but tools/metrics may not work")
+		// Set redisClient to nil so we can check for it later
+		redisClient = nil
 	} else {
 		log.Printf("✅ [MONITOR] Successfully connected to Redis at %s", addr)
 	}
+	cancel()
 
 	hdnURL := strings.TrimSpace(os.Getenv("HDN_URL"))
 	if hdnURL == "" {
@@ -1307,19 +1312,27 @@ func (m *MonitorService) checkServicePOST(name, url string) ServiceInfo {
 func (m *MonitorService) checkRedis() ServiceInfo {
 	start := time.Now()
 
+	info := ServiceInfo{
+		Name:         "Redis",
+		URL:          "localhost:6379",
+		LastCheck:    time.Now(),
+		ResponseTime: 0,
+	}
+
+	// If Redis client is nil or not initialized, mark as unhealthy
+	if m.redisClient == nil {
+		info.Status = "unhealthy"
+		info.Error = "Redis client not initialized"
+		return info
+	}
+
 	// Use context with timeout for Redis ping (3 seconds)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	pong, err := m.redisClient.Ping(ctx).Result()
 
 	responseTime := time.Since(start).Milliseconds()
-
-	info := ServiceInfo{
-		Name:         "Redis",
-		URL:          "localhost:6379",
-		LastCheck:    time.Now(),
-		ResponseTime: responseTime,
-	}
+	info.ResponseTime = responseTime
 
 	if err != nil {
 		info.Status = "unhealthy"
@@ -5547,15 +5560,17 @@ func extractProjectNameFromText(input string) string {
 }
 
 // detectLanguage chooses a language based on filenames and keywords in text
-// Priority: go > javascript > java > python
+// Priority: go > rust > javascript > java > python
 func detectLanguage(text string, files []string) string {
 	lang := "python"
 	lower := strings.ToLower(text)
-	hasGo, hasJS, hasJava := false, false, false
+	hasGo, hasRust, hasJS, hasJava := false, false, false, false
 	for _, f := range files {
 		lf := strings.ToLower(f)
 		if strings.HasSuffix(lf, ".go") {
 			hasGo = true
+		} else if strings.HasSuffix(lf, ".rs") {
+			hasRust = true
 		} else if strings.HasSuffix(lf, ".js") {
 			hasJS = true
 		} else if strings.HasSuffix(lf, ".java") {
@@ -5565,6 +5580,9 @@ func detectLanguage(text string, files []string) string {
 	if hasGo {
 		return "go"
 	}
+	if hasRust {
+		return "rust"
+	}
 	if hasJS {
 		return "javascript"
 	}
@@ -5573,6 +5591,9 @@ func detectLanguage(text string, files []string) string {
 	}
 	if strings.Contains(lower, "golang") || strings.Contains(lower, " go ") || strings.HasSuffix(lower, " go") || strings.Contains(lower, ".go") {
 		return "go"
+	}
+	if strings.Contains(lower, "rust") || strings.Contains(lower, ".rs") || strings.Contains(lower, " rust program") || strings.Contains(lower, " in rust") {
+		return "rust"
 	}
 	if strings.Contains(lower, "javascript") || strings.Contains(lower, " node ") || strings.Contains(lower, ".js") || strings.Contains(lower, " typescript") {
 		return "javascript"
