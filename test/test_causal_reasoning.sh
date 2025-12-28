@@ -131,17 +131,24 @@ print_status "Step 2: Checking intervention goals..."
 echo ""
 
 INTERVENTION_COUNT=0
-GOAL_KEYS=$($REDIS_CMD KEYS "*curiosity_goals*" 2>/dev/null | head -5 || echo "")
 
-if [ -z "$GOAL_KEYS" ]; then
-    print_warning "No curiosity goals keys found in Redis"
+# Try to find curiosity goals keys with timeout (KEYS can be slow)
+print_status "Searching for curiosity goals (this may take a moment)..."
+GOAL_KEYS=$(timeout 10 $REDIS_CMD KEYS "*curiosity_goals*" 2>/dev/null | head -5 || echo "")
+
+if [ -z "$GOAL_KEYS" ] || [ "$GOAL_KEYS" = "" ]; then
+    print_warning "No curiosity goals keys found (or Redis KEYS command timed out)"
+    echo "   This is OK - goals may be stored under different keys or not created yet"
 else
+    print_status "Found goal keys, checking for intervention goals..."
     for GOAL_KEY in $GOAL_KEYS; do
-        GOALS=$($REDIS_CMD LRANGE "$GOAL_KEY" 0 50 2>/dev/null || echo "")
+        [ -z "$GOAL_KEY" ] && continue
+        GOALS=$(timeout 5 $REDIS_CMD LRANGE "$GOAL_KEY" 0 50 2>/dev/null || echo "")
         if [ -z "$GOALS" ]; then
             continue
         fi
         for GOAL_DATA in $GOALS; do
+            [ -z "$GOAL_DATA" ] && continue
             if echo "$GOAL_DATA" | grep -q '"type".*"intervention_testing"'; then
                 INTERVENTION_COUNT=$((INTERVENTION_COUNT + 1))
                 if [ $INTERVENTION_COUNT -le 2 ]; then
@@ -162,6 +169,8 @@ else
     if [ "$INTERVENTION_COUNT" = "0" ]; then
         print_warning "No intervention goals found in curiosity goals"
         echo "   (This is OK - intervention goals may not have been created yet)"
+    else
+        print_success "Found $INTERVENTION_COUNT intervention goal(s)"
     fi
 fi
 
