@@ -16,6 +16,10 @@ This document describes the reasoning layer that enables querying and inference 
   - Implements intelligent exploration tracking to avoid redundant exploration
   - Comprehensive deduplication to prevent duplicate hypothesis generation
   - Smart re-exploration when new facts are available
+  - **Causal Reasoning Enrichment**: Automatically enriches all hypotheses with causal reasoning signals
+    - Classifies hypotheses by causal type (observational, inferred causal candidate, experimentally testable)
+    - Generates counterfactual reasoning actions to challenge beliefs
+    - Creates intervention goals for experimental testing
 
 - FSM Hypothesis Screening (`fsm/engine.go`):
   - Screens hypotheses using LLM evaluation via HDN interpreter
@@ -98,8 +102,13 @@ The system generates testable hypotheses from facts and domain knowledge:
 3. **Hypothesis Creation**: Two types of hypotheses are generated:
    - **Fact-Based**: Created directly from extracted facts with domain context
    - **Pattern-Based**: Generated from domain-specific patterns and concepts
-4. **LLM Screening**: Each hypothesis is evaluated by HDN interpreter for impact and tractability
-5. **Goal Creation**: Only approved hypotheses become curiosity goals for testing
+4. **Causal Reasoning Enrichment**: All hypotheses are automatically enriched with causal reasoning signals:
+   - **Causal Classification**: Hypotheses are tagged as `observational_relation`, `inferred_causal_candidate`, or `experimentally_testable_relation`
+   - **Counterfactual Actions**: Generates questions like "what outcome would change my belief?" to challenge beliefs
+   - **Intervention Goals**: Creates experimental goals to test causal hypotheses
+5. **LLM Screening**: Each hypothesis is evaluated by HDN interpreter for impact and tractability (includes causal reasoning fields)
+6. **Goal Creation**: Only approved hypotheses become curiosity goals for testing
+   - **Intervention Goals**: Causal hypotheses automatically generate intervention goals with higher priority (priority=10)
 
 ### Configuration
 
@@ -111,9 +120,11 @@ agent:
 ### LLM Screening Details
 
 - **Evaluation Prompt**: "Rate the following hypothesis for impact and tractability in domain 'X' on a 0.0-1.0 scale"
+- **Causal Reasoning Context**: Prompt includes causal type, counterfactual actions, and intervention goals for better evaluation
 - **Response Format**: JSON with `score` and `reason` fields
 - **Fallback**: If LLM evaluation fails, hypothesis is approved by default
 - **Threshold**: Only hypotheses scoring above threshold become testing goals
+- **Intervention Goals**: Causal hypotheses automatically generate intervention goals with higher priority (priority=10) and boosted value (1.2x multiplier)
 
 ## Default Inference Rules (toy)
 
