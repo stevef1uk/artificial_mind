@@ -224,8 +224,13 @@ graph TB
 - **Purpose**: AI planning and execution system with ethical safeguards
 - **Port**: 8081
 - **Key Components**:
-  - **Intelligent Executor**: Core orchestration engine
-  - **Code Generator**: LLM-powered code generation
+  - **Intelligent Executor**: Core orchestration engine with learning capabilities
+    - **Failure Pattern Learning**: Records common error patterns (compilation, runtime, validation) by language and task category
+    - **Prevention Hint System**: Retrieves learned prevention hints from Redis and adds them to code generation prompts
+    - **Code Generation Strategy Learning**: Tracks effectiveness of different strategies (prompt styles, success rates, retry counts)
+    - **Intelligent Prompt Enhancement**: Automatically enhances prompts with learned prevention hints before code generation
+    - **Learning Data Storage**: Stores failure patterns, strategies, and prevention hints in Redis for persistent learning
+  - **Code Generator**: LLM-powered code generation with learned prevention hints
   - **Docker API**: Safe code execution environment
   - **Code Storage**: Redis-based capability caching
   - **File Storage**: Redis-based file management with metadata
@@ -423,7 +428,9 @@ Alerts
 
 ### 1. **Task Request Processing**
 ```
-User Request → HDN API → Safety Analysis → Principles Check → Code Generation → Execution → Learning → Response
+User Request → HDN API → Safety Analysis → Principles Check → Retrieve Prevention Hints (Redis) → 
+Enhanced Code Generation (with learned hints) → Execution → Validation → 
+Learn from Failures (if any) → Update Patterns & Strategies → Response
 ```
 
 All significant steps emit canonical events on NATS (e.g., `user_message`, `plan_created`, `step_started`, `execution_result`). Downstream modules subscribe to subjects they care about.
@@ -590,6 +597,10 @@ agi/
 - Automatic code validation and fixing
 - Capability learning and reuse
 - Hierarchical workflow planning
+- **Failure Pattern Learning**: System learns from code generation failures and stores common error patterns (compilation, runtime, validation errors) in Redis
+- **Prevention Hints**: Learned prevention hints are automatically retrieved and added to code generation prompts to avoid known failure patterns
+- **Code Generation Strategy Learning**: Tracks effectiveness of different code generation strategies (prompt styles, success rates, retry counts) and prioritizes successful approaches
+- **Intelligent Code Improvement**: Uses learned knowledge to improve future code generation by avoiding previously encountered errors
 
 ### 🧠 **Self-Awareness**
 - Goal tracking and management
@@ -864,6 +875,39 @@ make help
 
 ## 🔄 Recent Improvements
 
+### Intelligence Learning System (Latest)
+- **✅ Failure Pattern Learning**: System learns from code generation failures and stores common error patterns
+  - Tracks error types: compilation, runtime, validation, type errors
+  - Categorizes errors: undefined symbols, type mismatches, import errors, syntax errors
+  - Records frequency, success rates after fixes, and common fixes
+  - Stores in Redis: `failure_pattern:{type}:{category}:{language}`
+  - Generates prevention hints: `prevention_hint:{type}:{category}:{language}`
+- **✅ Prevention Hint System**: Automatically uses learned knowledge to improve code generation
+  - Retrieves relevant prevention hints from Redis before code generation
+  - Only uses hints for patterns that occurred at least 2 times (proven patterns)
+  - Adds hints to code generation prompts as "🧠 LEARNED FROM EXPERIENCE - Common errors to avoid"
+  - Logs intelligence activity: `🧠 [INTELLIGENCE] Added X prevention hints from learned experience`
+- **✅ Code Generation Strategy Learning**: Tracks effectiveness of different code generation approaches
+  - Monitors prompt styles, success rates, average retries, and quality scores
+  - Stores strategies in Redis: `codegen_strategy:{category}:{language}`
+  - Prioritizes successful strategies in future code generation
+- **✅ Intelligent Prompt Enhancement**: Code generation prompts automatically include learned prevention hints
+  - Hints retrieved based on task category and language
+  - Integrated into prompt building process before LLM call
+  - Transparent logging shows when intelligence is being used
+- **✅ Planner Integration**: Planner uses historical success rates to prioritize capabilities
+  - Capabilities with better success rates are prioritized
+  - Learning data influences capability selection during planning
+- **✅ Hypothesis Avoidance**: FSM avoids testing hypotheses similar to previously failed ones
+  - Checks Redis for similar failed hypotheses before generating new ones
+  - Prevents wasted effort on unproductive hypotheses
+- **Benefits**:
+  - Improved code generation quality: System avoids known error patterns
+  - Reduced retries: Prevention hints help generate correct code on first attempt
+  - Continuous improvement: System gets better over time as it learns
+  - Transparent learning: All intelligence activity is logged for observability
+  - Proven patterns: Only uses hints for patterns that occurred multiple times
+
 ### Async Queue Systems (Latest)
 - **✅ HDN Async LLM Queue**: Priority-based async queue system for all LLM calls in HDN
   - High and low priority stacks with LIFO (Last In, First Out) processing
@@ -1054,7 +1098,7 @@ make help
 This architecture document should be updated whenever tools lifecycle, registry schema, or executor policy changes. See `Tools.md` for the canonical tool catalog format and usage.
 
 **Last Updated**: December 2024
-**Version**: 1.4
+**Version**: 1.5
 **Maintainer**: Development Team
 
 ### Learning Focus Improvements (v1.2)
@@ -1090,6 +1134,18 @@ Queue management and monitoring improvements:
 - ✅ UI Integration for Queue Status Display
 
 See `docs/BACKPRESSURE_IMPLEMENTATION.md` for complete details.
+
+### Intelligence Learning System (v1.5)
+
+Intelligence and learning improvements:
+- ✅ Failure Pattern Learning System
+- ✅ Prevention Hint System
+- ✅ Code Generation Strategy Learning
+- ✅ Intelligent Prompt Enhancement
+- ✅ Planner Integration with Historical Success Rates
+- ✅ Hypothesis Avoidance in FSM
+
+See intelligence learning system section above for complete details.
 
 ## 🔌 Ports and Endpoints Reference
 

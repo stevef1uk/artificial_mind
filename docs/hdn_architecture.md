@@ -124,13 +124,29 @@ graph TB
 ## System Components
 
 ### 🧠 **Intelligent Executor (IE)**
-- **Purpose**: Core orchestration engine
+- **Purpose**: Core orchestration engine with intelligent learning capabilities
 - **Functions**:
   - LLM safety analysis and categorization
   - Principles server integration
   - Code validation and execution
   - Capability caching and reuse
   - Self-model integration for learning
+  - **Failure Pattern Learning**: Records common error patterns (compilation, runtime, validation) by language and task category
+    - Tracks error frequency, success rates after fixes, and common fixes
+    - Stores patterns in Redis: `failure_pattern:{type}:{category}:{language}`
+    - Generates prevention hints from learned patterns: `prevention_hint:{type}:{category}:{language}`
+  - **Prevention Hint System**: Retrieves learned prevention hints and adds them to code generation prompts
+    - Searches Redis for relevant hints based on task category and language
+    - Only uses hints for patterns that occurred at least 2 times (proven patterns)
+    - Adds hints to prompts as "🧠 LEARNED FROM EXPERIENCE - Common errors to avoid"
+  - **Code Generation Strategy Learning**: Tracks effectiveness of different strategies
+    - Monitors prompt styles, success rates, average retries, and quality scores
+    - Stores strategies in Redis: `codegen_strategy:{category}:{language}`
+    - Prioritizes successful strategies in future code generation
+  - **Intelligent Prompt Enhancement**: Automatically enhances prompts with learned knowledge
+    - Retrieves prevention hints before code generation
+    - Incorporates successful strategies into prompt construction
+    - Logs intelligence activity for observability
 
 ### 🧠 **Self-Model Manager (SM)**
 - **Purpose**: Self-awareness and learning system
@@ -250,6 +266,10 @@ graph TB
 - Capability learning and reuse
 - Self-aware learning from experience
 - Cached capability reuse with cold-start vs cached execution surfaced to UI
+- **Failure Pattern Learning**: System learns from code generation failures and stores patterns in Redis
+- **Prevention Hints**: Learned prevention hints automatically added to code generation prompts
+- **Strategy Learning**: Tracks and prioritizes successful code generation strategies
+- **Intelligent Improvement**: Uses learned knowledge to avoid previously encountered errors
 
 ### 🧠 **Self-Awareness**
 - Goal tracking and management
@@ -275,12 +295,14 @@ graph TB
 
 1. **User Request** → HDN API Server
 2. **Safety Check** → Principles Server
-3. **Code Generation** → Async LLM Queue → LLM Client (asynchronous, non-blocking)
-4. **Code Storage** → Redis
-5. **Code Execution** → Docker Container (or reuse cached result when capability is hot)
-6. **Validation** → Results verification
-7. **Learning** → Self-Model Manager (goals, episodes, beliefs)
-8. **Response** → User with results
+3. **Intelligence Enhancement** → Retrieve learned prevention hints from Redis → Add to prompt
+4. **Code Generation** → Async LLM Queue → LLM Client (asynchronous, non-blocking, with prevention hints)
+5. **Code Storage** → Redis
+6. **Code Execution** → Docker Container (or reuse cached result when capability is hot)
+7. **Validation** → Results verification
+8. **Learning** → Record failure patterns if validation fails → Generate prevention hints → Update strategies
+9. **Learning** → Self-Model Manager (goals, episodes, beliefs)
+10. **Response** → User with results
 
 **Async Queue Flow**:
 - LLM requests enqueued into priority stack (high/low)
