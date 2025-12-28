@@ -307,6 +307,7 @@ For a deeper, HDN-specific architecture diagram and narrative, see `hdn_architec
   - **Focused Learning Strategy**: Identifies promising areas and focuses learning there (70% focused, 30% exploration)
   - **Meta-Learning System**: Learns about its own learning process to continuously improve strategies
   - **Async HTTP Queue System**: Priority-based async queue for all HTTP calls to HDN with LIFO processing, worker pools, and callback routing
+  - **Uncertainty Modeling & Confidence Calibration**: Formal uncertainty tracking with epistemic (lack of knowledge) and aleatoric (inherent randomness) uncertainty, calibrated confidence, and belief stability/volatility tracking
 - **New Actions**:
   - `reasoning.belief_query` - Query beliefs from knowledge base
   - `reasoning.inference` - Apply inference rules to generate new beliefs
@@ -314,6 +315,39 @@ For a deeper, HDN-specific architecture diagram and narrative, see `hdn_architec
   - `reasoning.explanation` - Generate human-readable explanations
   - `reasoning.trace_logger` - Log reasoning traces
   - `planner.hypothesis_generator` - Generate hypotheses from facts and domain knowledge
+
+#### Uncertainty Modeling & Confidence Calibration
+
+The FSM engine implements a formal uncertainty modeling system that distinguishes between different types of uncertainty and enables more principled decision-making:
+
+**Uncertainty Types:**
+- **Epistemic Uncertainty** (0-1): Reducible through gathering more information. Represents lack of knowledge about the true state. Higher values indicate less knowledge.
+- **Aleatoric Uncertainty** (0-1): Irreducible, inherent randomness/variability. Represents inherent unpredictability in the system. Higher values indicate more inherent randomness.
+- **Calibrated Confidence** (0-1): Overall confidence accounting for both uncertainty types. Calculated as `1 - sqrt(epistemic² + aleatoric²) / sqrt(2)`, ensuring both types of uncertainty reduce confidence.
+
+**Belief Tracking:**
+- **Stability** (0-1): How stable a belief has been over time. Higher stability = less volatility in confidence updates.
+- **Volatility** (0-1): Measure of how much confidence has changed over time. Higher volatility = more frequent/large changes.
+- **Confidence History**: Tracks confidence snapshots over time for stability/volatility calculations.
+
+**Key Features:**
+- **Confidence Propagation**: Propagates confidence through inference chains with chain length penalties
+- **Confidence Decay**: Epistemic uncertainty increases over time without reinforcement (configurable decay rate)
+- **Uncertainty-Based Goal Scoring**: Goal prioritization incorporates uncertainty models for more cautious decision-making
+- **Automatic Uncertainty Estimation**: Estimates epistemic/aleatoric uncertainty based on evidence quality, domain characteristics, and goal types
+
+**Integration:**
+- All new hypotheses, goals, and beliefs automatically include uncertainty models
+- Uncertainty models are stored in Redis alongside confidence values
+- Goal scoring incorporates calibrated confidence, epistemic uncertainty penalties, and stability bonuses
+- Backward compatible: old data without uncertainty models continues to work
+
+**Benefits:**
+- More cautious decision-making through uncertainty-aware confidence
+- Principled exploration vs exploitation trade-offs
+- Fewer spurious curiosity loops through volatility tracking
+- Better inference chain handling with appropriate confidence degradation
+- Time-aware beliefs that decay without reinforcement
 
 Motivation & Goal Manager (policy layer):
 - Role: Provides direction/constraints for FSM/HDN by curating active goals and scoring priorities.

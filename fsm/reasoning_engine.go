@@ -40,13 +40,14 @@ func NewReasoningEngine(hdnURL string, redis *redis.Client) *ReasoningEngine {
 type Belief struct {
 	ID          string                 `json:"id"`
 	Statement   string                 `json:"statement"`
-	Confidence  float64                `json:"confidence"`
+	Confidence  float64                `json:"confidence"` // Legacy field, use Uncertainty.CalibratedConfidence
 	Source      string                 `json:"source"`
 	Domain      string                 `json:"domain"`
 	Evidence    []string               `json:"evidence"` // IDs of supporting facts
 	Properties  map[string]interface{} `json:"properties"`
 	CreatedAt   time.Time              `json:"created_at"`
 	LastUpdated time.Time              `json:"last_updated"`
+	Uncertainty *UncertaintyModel      `json:"uncertainty,omitempty"` // Formal uncertainty model
 }
 
 // InferenceRule represents a rule for making inferences
@@ -86,14 +87,16 @@ type ReasoningStep struct {
 
 // CuriosityGoal represents an intrinsic goal for knowledge exploration
 type CuriosityGoal struct {
-	ID          string    `json:"id"`
-	Type        string    `json:"type"` // gap_filling, contradiction_resolution, concept_exploration
-	Description string    `json:"description"`
-	Domain      string    `json:"domain"`
-	Priority    int       `json:"priority"` // 1-10, higher is more important
-	Status      string    `json:"status"`   // pending, active, completed, failed
-	Targets     []string  `json:"targets"`  // Concept names or patterns to explore
-	CreatedAt   time.Time `json:"created_at"`
+	ID          string           `json:"id"`
+	Type        string           `json:"type"` // gap_filling, contradiction_resolution, concept_exploration
+	Description string           `json:"description"`
+	Domain      string           `json:"domain"`
+	Priority    int              `json:"priority"` // 1-10, higher is more important
+	Status      string           `json:"status"`   // pending, active, completed, failed
+	Targets     []string         `json:"targets"`  // Concept names or patterns to explore
+	CreatedAt   time.Time        `json:"created_at"`
+	Uncertainty *UncertaintyModel `json:"uncertainty,omitempty"` // Formal uncertainty model for goal confidence
+	Value       float64          `json:"value,omitempty"`        // Expected value (0-1)
 }
 
 // GoalOutcome represents the outcome of a goal execution for learning
@@ -156,6 +159,7 @@ func (re *ReasoningEngine) QueryBeliefs(query string, domain string) ([]Belief, 
 }
 
 // InferNewBeliefs applies inference rules to generate new beliefs
+// Tracks inference chain length and propagates confidence through the chain
 func (re *ReasoningEngine) InferNewBeliefs(domain string) ([]Belief, error) {
 	log.Printf("🔍 Applying inference rules for domain: %s", domain)
 	log.Printf("🔍 Reasoning engine HDN URL: %s", re.hdnURL)
@@ -168,14 +172,25 @@ func (re *ReasoningEngine) InferNewBeliefs(domain string) ([]Belief, error) {
 	log.Printf("📋 Retrieved %d inference rules for domain %s", len(rules), domain)
 
 	var newBeliefs []Belief
+	var allInputConfidences []float64 // Track confidences for propagation
 
 	// Apply each rule
 	for _, rule := range rules {
-		inferred, err := re.applyInferenceRule(rule)
+		inferred, err := re.applyInferenceRule(rule, 1) // Start with chain length 1
 		if err != nil {
 			log.Printf("Warning: Failed to apply rule %s: %v", rule.Name, err)
 			continue
 		}
+		
+		// Collect confidences for propagation tracking
+		for _, belief := range inferred {
+			if belief.Uncertainty != nil {
+				allInputConfidences = append(allInputConfidences, belief.Uncertainty.CalibratedConfidence)
+			} else {
+				allInputConfidences = append(allInputConfidences, belief.Confidence)
+			}
+		}
+		
 		newBeliefs = append(newBeliefs, inferred...)
 	}
 
@@ -190,6 +205,23 @@ func (re *ReasoningEngine) InferNewBeliefs(domain string) ([]Belief, error) {
 			log.Printf("ℹ️ No concepts found in domain %s, no beliefs to infer", domain)
 		} else {
 			log.Printf("ℹ️ Found %d concepts but no new beliefs inferred - rules may not match existing data", len(concepts))
+		}
+	}
+
+	// Apply confidence propagation if we have multiple beliefs in a chain
+	if len(newBeliefs) > 1 && len(allInputConfidences) > 0 {
+		propagatedConf := PropagateConfidenceThroughChain(allInputConfidences, len(newBeliefs))
+		log.Printf("📊 Propagated confidence through chain of %d beliefs: %.3f", len(newBeliefs), propagatedConf)
+		
+		// Update beliefs with propagated confidence if significantly different
+		for i := range newBeliefs {
+			if newBeliefs[i].Uncertainty != nil {
+				// Update epistemic uncertainty based on chain length
+				chainUncertaintyPenalty := float64(len(newBeliefs)) * 0.05
+				newBeliefs[i].Uncertainty.EpistemicUncertainty = clamp(
+					newBeliefs[i].Uncertainty.EpistemicUncertainty+chainUncertaintyPenalty, 0.0, 1.0)
+				newBeliefs[i].Uncertainty.updateCalibratedConfidence()
+			}
 		}
 	}
 
@@ -269,6 +301,10 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 
 		log.Printf("ℹ️ No concepts found in domain %s, generating basic exploration goals", domain)
 		// Generate basic exploration goals when no data exists
+		// Create goals with uncertainty models
+		goal1Uncertainty := NewUncertaintyModel(0.7, 0.4, EstimateAleatoricUncertainty(domain, "exploration"))
+		goal2Uncertainty := NewUncertaintyModel(0.8, 0.3, EstimateAleatoricUncertainty(domain, "knowledge_building"))
+		
 		basicGoals := []CuriosityGoal{
 			{
 				ID:          fmt.Sprintf("explore_%s_%d", domain, time.Now().UnixNano()),
@@ -278,6 +314,8 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 				Priority:    8,
 				Domain:      domain,
 				CreatedAt:   time.Now(),
+				Uncertainty: goal1Uncertainty,
+				Value:       0.7,
 			},
 			{
 				ID:          fmt.Sprintf("populate_%s_%d", domain, time.Now().UnixNano()),
@@ -287,6 +325,8 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 				Priority:    9,
 				Domain:      domain,
 				CreatedAt:   time.Now(),
+				Uncertainty: goal2Uncertainty,
+				Value:       0.8,
 			},
 		}
 
@@ -554,6 +594,25 @@ func (re *ReasoningEngine) executeCypherQuery(cypherQuery string) ([]Belief, err
 			filteredCount++
 			continue
 		}
+		
+		// Estimate uncertainties for the belief
+		hasDefinition := false
+		hasExamples := false
+		evidenceCount := 1
+		
+		// Check result for definition and examples
+		if props, ok := res["Props"].(map[string]interface{}); ok {
+			if def, ok := props["definition"].(string); ok && len(def) > 20 {
+				hasDefinition = true
+			}
+			if examples, ok := props["examples"]; ok && examples != nil {
+				hasExamples = true
+			}
+		}
+		
+		epistemicUncertainty := EstimateEpistemicUncertainty(evidenceCount, hasDefinition, hasExamples)
+		aleatoricUncertainty := EstimateAleatoricUncertainty(re.extractDomainFromResult(res), "")
+		uncertainty := NewUncertaintyModel(confidence, epistemicUncertainty, aleatoricUncertainty)
 
 		// Skip LLM assessment for simple concept names (they're already in KB as concepts)
 		// Only assess beliefs that have substantial content beyond just a name
@@ -589,11 +648,12 @@ func (re *ReasoningEngine) executeCypherQuery(cypherQuery string) ([]Belief, err
 		belief := Belief{
 			ID:          fmt.Sprintf("belief_%d_%d", time.Now().UnixNano(), i),
 			Statement:   statement,
-			Confidence:  confidence,
+			Confidence:  uncertainty.CalibratedConfidence, // Use calibrated confidence
 			Source:      "knowledge_query",
 			Domain:      re.extractDomainFromResult(res),
 			CreatedAt:   time.Now(),
 			LastUpdated: time.Now(),
+			Uncertainty: uncertainty,
 		}
 		beliefs = append(beliefs, belief)
 	}
@@ -765,10 +825,10 @@ func (re *ReasoningEngine) getDefaultInferenceRules(domain string) []InferenceRu
 	}
 }
 
-func (re *ReasoningEngine) applyInferenceRule(rule InferenceRule) ([]Belief, error) {
+func (re *ReasoningEngine) applyInferenceRule(rule InferenceRule, chainLength int) ([]Belief, error) {
 	// Replace $domain parameter with actual domain value
 	query := strings.ReplaceAll(rule.Pattern, "$domain", fmt.Sprintf("'%s'", rule.Domain))
-	log.Printf("🔍 Applying rule %s with query: %s", rule.ID, query)
+	log.Printf("🔍 Applying rule %s with query: %s (chain length: %d)", rule.ID, query, chainLength)
 
 	// Execute the pattern query
 	results, err := re.executeCypherQuery(query)
@@ -783,18 +843,51 @@ func (re *ReasoningEngine) applyInferenceRule(rule InferenceRule) ([]Belief, err
 
 	// For each match, create the conclusion
 	for i, result := range results {
+		// Estimate uncertainties based on evidence quality
+		hasDefinition := false
+		hasExamples := false
+		evidenceCount := 1 // At least the result itself
+		
+		// Check result properties for evidence quality
+		// result.Properties is already map[string]interface{}, no type assertion needed
+		if result.Properties != nil {
+			if def, ok := result.Properties["definition"].(string); ok && len(def) > 20 {
+				hasDefinition = true
+			}
+			if examples, ok := result.Properties["examples"]; ok && examples != nil {
+				hasExamples = true
+			}
+		}
+		
+		// Also check if statement itself contains substantial content (acts as definition)
+		if len(result.Statement) > 50 {
+			hasDefinition = true
+		}
+		
+		epistemicUncertainty := EstimateEpistemicUncertainty(evidenceCount, hasDefinition, hasExamples)
+		aleatoricUncertainty := EstimateAleatoricUncertainty(rule.Domain, "")
+		
+		// Apply chain length penalty to epistemic uncertainty
+		chainPenalty := float64(chainLength-1) * 0.05
+		epistemicUncertainty = clamp(epistemicUncertainty+chainPenalty, 0.0, 1.0)
+		
+		// Create uncertainty model
+		uncertainty := NewUncertaintyModel(rule.Confidence, epistemicUncertainty, aleatoricUncertainty)
+		
 		// Create new belief based on the conclusion pattern
 		belief := Belief{
 			ID:          fmt.Sprintf("inferred_%s_%d_%d", rule.ID, time.Now().UnixNano(), i),
 			Statement:   re.generateStatementFromConclusion(rule.Conclusion, result),
-			Confidence:  rule.Confidence,
+			Confidence:  uncertainty.CalibratedConfidence, // Use calibrated confidence
 			Source:      "inference_rule",
 			Domain:      rule.Domain,
 			Evidence:    []string{result.ID},
 			CreatedAt:   time.Now(),
 			LastUpdated: time.Now(),
+			Uncertainty: uncertainty,
 		}
-		log.Printf("✨ Created belief: %s", belief.Statement)
+		log.Printf("✨ Created belief: %s (confidence: %.3f, epistemic: %.3f, aleatoric: %.3f)", 
+			belief.Statement, uncertainty.CalibratedConfidence, epistemicUncertainty, aleatoricUncertainty)
 		newBeliefs = append(newBeliefs, belief)
 	}
 
@@ -831,6 +924,12 @@ func (re *ReasoningEngine) generateGapFillingGoals(domain string) ([]CuriosityGo
 	var goals []CuriosityGoal
 	for i, result := range results {
 		concept := result.Statement
+		
+		// Create uncertainty model for gap filling goal
+		// Gap filling has moderate epistemic uncertainty (we know there's a gap)
+		epistemicUncertainty := EstimateEpistemicUncertainty(1, false, false)
+		aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "gap_filling")
+		uncertainty := NewUncertaintyModel(0.6, epistemicUncertainty, aleatoricUncertainty)
 
 		goal := CuriosityGoal{
 			ID:          fmt.Sprintf("gap_filling_%d_%d", time.Now().UnixNano(), i),
@@ -841,6 +940,8 @@ func (re *ReasoningEngine) generateGapFillingGoals(domain string) ([]CuriosityGo
 			Status:      "pending",
 			Targets:     []string{concept},
 			CreatedAt:   time.Now(),
+			Uncertainty: uncertainty,
+			Value:       0.6,
 		}
 		goals = append(goals, goal)
 	}
@@ -851,6 +952,10 @@ func (re *ReasoningEngine) generateGapFillingGoals(domain string) ([]CuriosityGo
 func (re *ReasoningEngine) generateContradictionGoals(domain string) ([]CuriosityGoal, error) {
 	// Look for potential contradictions in the knowledge base
 	// This is simplified - in reality would use more sophisticated contradiction detection
+	epistemicUncertainty := EstimateEpistemicUncertainty(0, false, false) // No direct evidence yet
+	aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "contradiction_resolution")
+	uncertainty := NewUncertaintyModel(0.7, epistemicUncertainty, aleatoricUncertainty)
+	
 	return []CuriosityGoal{
 		{
 			ID:          fmt.Sprintf("contradiction_%d", time.Now().UnixNano()),
@@ -861,12 +966,18 @@ func (re *ReasoningEngine) generateContradictionGoals(domain string) ([]Curiosit
 			Status:      "pending",
 			Targets:     []string{},
 			CreatedAt:   time.Now(),
+			Uncertainty: uncertainty,
+			Value:       0.7,
 		},
 	}, nil
 }
 
 func (re *ReasoningEngine) generateExplorationGoals(domain string) ([]CuriosityGoal, error) {
 	// Generate goals to explore new concepts and relationships
+	epistemicUncertainty := EstimateEpistemicUncertainty(0, false, false)
+	aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "concept_exploration")
+	uncertainty := NewUncertaintyModel(0.5, epistemicUncertainty, aleatoricUncertainty)
+	
 	return []CuriosityGoal{
 		{
 			ID:          fmt.Sprintf("exploration_%d", time.Now().UnixNano()),
@@ -877,6 +988,8 @@ func (re *ReasoningEngine) generateExplorationGoals(domain string) ([]CuriosityG
 			Status:      "pending",
 			Targets:     []string{},
 			CreatedAt:   time.Now(),
+			Uncertainty: uncertainty,
+			Value:       0.5,
 		},
 	}, nil
 }
@@ -913,6 +1026,11 @@ func (re *ReasoningEngine) generateNewsCuriosityGoals(domain string) ([]Curiosit
 				tail, _ := relation["tail"].(string)
 
 				if head != "" && relationType != "" && tail != "" {
+					// News analysis has higher aleatoric uncertainty (events are unpredictable)
+					epistemicUncertainty := EstimateEpistemicUncertainty(1, false, false)
+					aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "news_analysis")
+					uncertainty := NewUncertaintyModel(0.6, epistemicUncertainty, aleatoricUncertainty)
+					
 					goal := CuriosityGoal{
 						ID:          fmt.Sprintf("news_relation_%d_%d", time.Now().UnixNano(), i),
 						Type:        "news_analysis",
@@ -922,6 +1040,8 @@ func (re *ReasoningEngine) generateNewsCuriosityGoals(domain string) ([]Curiosit
 						Status:      "pending",
 						Targets:     []string{head, tail},
 						CreatedAt:   time.Now(),
+						Uncertainty: uncertainty,
+						Value:       0.6,
 					}
 					goals = append(goals, goal)
 
