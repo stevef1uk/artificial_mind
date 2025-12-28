@@ -71,42 +71,52 @@ func (cm *CoherenceMonitor) CheckCoherence() ([]Inconsistency, error) {
 	var inconsistencies []Inconsistency
 	
 	// 1. Check for belief contradictions
+	log.Printf("🔍 [Coherence] Checking belief contradictions...")
 	beliefContradictions, err := cm.checkBeliefContradictions()
 	if err != nil {
 		log.Printf("⚠️ [Coherence] Error checking belief contradictions: %v", err)
 	} else {
+		log.Printf("✅ [Coherence] Belief contradiction check complete: %d found", len(beliefContradictions))
 		inconsistencies = append(inconsistencies, beliefContradictions...)
 	}
 	
 	// 2. Check for policy conflicts
+	log.Printf("🔍 [Coherence] Checking policy conflicts...")
 	policyConflicts, err := cm.checkPolicyConflicts()
 	if err != nil {
 		log.Printf("⚠️ [Coherence] Error checking policy conflicts: %v", err)
 	} else {
+		log.Printf("✅ [Coherence] Policy conflict check complete: %d found", len(policyConflicts))
 		inconsistencies = append(inconsistencies, policyConflicts...)
 	}
 	
 	// 3. Check for learned strategy conflicts
+	log.Printf("🔍 [Coherence] Checking strategy conflicts...")
 	strategyConflicts, err := cm.checkStrategyConflicts()
 	if err != nil {
 		log.Printf("⚠️ [Coherence] Error checking strategy conflicts: %v", err)
 	} else {
+		log.Printf("✅ [Coherence] Strategy conflict check complete: %d found", len(strategyConflicts))
 		inconsistencies = append(inconsistencies, strategyConflicts...)
 	}
 	
 	// 4. Check for long-running goal drift
+	log.Printf("🔍 [Coherence] Checking goal drift...")
 	goalDrift, err := cm.checkGoalDrift()
 	if err != nil {
 		log.Printf("⚠️ [Coherence] Error checking goal drift: %v", err)
 	} else {
+		log.Printf("✅ [Coherence] Goal drift check complete: %d found", len(goalDrift))
 		inconsistencies = append(inconsistencies, goalDrift...)
 	}
 	
 	// 5. Check for unexplainable behavior loops
+	log.Printf("🔍 [Coherence] Checking behavior loops...")
 	behaviorLoops, err := cm.checkBehaviorLoops()
 	if err != nil {
 		log.Printf("⚠️ [Coherence] Error checking behavior loops: %v", err)
 	} else {
+		log.Printf("✅ [Coherence] Behavior loop check complete: %d found", len(behaviorLoops))
 		inconsistencies = append(inconsistencies, behaviorLoops...)
 	}
 	
@@ -130,26 +140,43 @@ func (cm *CoherenceMonitor) checkBeliefContradictions() ([]Inconsistency, error)
 		return inconsistencies, nil
 	}
 	
-	// Get recent beliefs from reasoning traces
+	// Get recent beliefs from reasoning traces (limit to 10 most recent to avoid slow checks)
 	tracesKey := "reasoning:traces:all"
-	tracesData, err := cm.redis.LRange(cm.ctx, tracesKey, 0, 49).Result()
+	tracesData, err := cm.redis.LRange(cm.ctx, tracesKey, 0, 9).Result() // Limit to 10 traces
 	if err != nil {
 		return inconsistencies, nil // No traces yet, no contradictions
 	}
 	
-	// Extract beliefs from traces
+	log.Printf("🔍 [Coherence] Checking %d reasoning traces for belief contradictions", len(tracesData))
+	
+	// Extract beliefs from traces (limit domains to avoid too many HTTP calls)
 	beliefs := make(map[string][]Belief)
+	domainsChecked := make(map[string]bool)
+	maxDomains := 5 // Limit to 5 unique domains to avoid hanging
+	
 	for _, traceData := range tracesData {
 		var trace ReasoningTrace
 		if err := json.Unmarshal([]byte(traceData), &trace); err != nil {
 			continue
 		}
 		
-		// Query beliefs for this domain
-		domainBeliefs, err := cm.reasoning.QueryBeliefs("all concepts", trace.Domain)
-		if err == nil {
-			beliefs[trace.Domain] = domainBeliefs
+		// Skip if we've already checked this domain or hit the limit
+		if domainsChecked[trace.Domain] || len(domainsChecked) >= maxDomains {
+			continue
 		}
+		
+		domainsChecked[trace.Domain] = true
+		log.Printf("🔍 [Coherence] Querying beliefs for domain: %s", trace.Domain)
+		
+		// Query beliefs for this domain (may be slow if HDN is busy)
+		domainBeliefs, err := cm.reasoning.QueryBeliefs("all concepts", trace.Domain)
+		if err != nil {
+			log.Printf("⚠️ [Coherence] Failed to query beliefs for domain %s: %v", trace.Domain, err)
+			continue
+		}
+		
+		beliefs[trace.Domain] = domainBeliefs
+		log.Printf("✅ [Coherence] Retrieved %d beliefs for domain %s", len(domainBeliefs), trace.Domain)
 	}
 	
 	// Check for contradictions within each domain
