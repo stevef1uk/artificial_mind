@@ -7,15 +7,43 @@ REDIS_HOST="${REDIS_HOST:-localhost}"
 REDIS_PORT="${REDIS_PORT:-6379}"
 FSM_URL="${FSM_URL:-http://localhost:8083}"
 HDN_URL="${HDN_URL:-http://localhost:8081}"
+NAMESPACE="${K8S_NAMESPACE:-agi}"
 
 echo "🧪 Testing Uncertainty Modeling & Confidence Calibration"
 echo "=========================================================="
 echo ""
 
+# Detect if we're in a k3s/k8s environment
+USE_KUBECTL=false
+REDIS_POD=""
+if command -v kubectl &> /dev/null; then
+  # Try to find Redis pod
+  REDIS_POD=$(kubectl get pods -n "$NAMESPACE" -l app=redis -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+  if [ -n "$REDIS_POD" ]; then
+    USE_KUBECTL=true
+    echo "🔍 Detected k3s/k8s environment"
+    echo "   Using Redis pod: $REDIS_POD"
+  fi
+fi
+
+# Redis access function (works with both local and k3s)
+redis_cmd() {
+  if [ "$USE_KUBECTL" = true ]; then
+    kubectl exec -n "$NAMESPACE" "$REDIS_POD" -- redis-cli "$@" 2>/dev/null
+  else
+    redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" "$@" 2>/dev/null
+  fi
+}
+
 # Check if Redis is accessible
-if ! redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping > /dev/null 2>&1; then
-  echo "❌ Cannot connect to Redis at $REDIS_HOST:$REDIS_PORT"
-  echo "   Make sure Redis is running and accessible"
+if ! redis_cmd PING > /dev/null 2>&1; then
+  if [ "$USE_KUBECTL" = true ]; then
+    echo "❌ Cannot connect to Redis pod: $REDIS_POD"
+    echo "   Check if pod is running: kubectl get pods -n $NAMESPACE -l app=redis"
+  else
+    echo "❌ Cannot connect to Redis at $REDIS_HOST:$REDIS_PORT"
+    echo "   Make sure Redis is running and accessible"
+  fi
   exit 1
 fi
 echo "✅ Redis connection: OK"
@@ -30,10 +58,10 @@ check_uncertainty_in_redis() {
   # Get data from Redis
   if [ "$type" = "hypothesis" ]; then
     # Hypotheses are stored in a hash
-    data=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" HGETALL "$key" 2>/dev/null | head -20)
+    data=$(redis_cmd HGETALL "$key" | head -20)
   else
     # Goals and beliefs are in lists
-    data=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" LRANGE "$key" 0 4 2>/dev/null)
+    data=$(redis_cmd LRANGE "$key" 0 4)
   fi
   
   if [ -z "$data" ]; then
@@ -141,14 +169,22 @@ echo ""
 # Test 7: Check FSM logs for uncertainty-related messages
 echo "Test 7: Checking FSM logs for uncertainty messages"
 echo "---------------------------------------------------"
-if command -v journalctl &> /dev/null; then
+LOGS=""
+if [ "$USE_KUBECTL" = true ]; then
+  # Get FSM pod and check logs
+  FSM_POD=$(kubectl get pods -n "$NAMESPACE" -l app=fsm-server -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+  if [ -z "$FSM_POD" ]; then
+    FSM_POD=$(kubectl get pods -n "$NAMESPACE" -o jsonpath='{.items[?(@.metadata.name=~"fsm.*")].metadata.name}' 2>/dev/null | awk '{print $1}')
+  fi
+  if [ -n "$FSM_POD" ]; then
+    LOGS=$(kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=200 2>/dev/null | grep -i "uncertainty\|epistemic\|aleatoric\|calibrated\|stability\|volatility" | tail -10)
+  fi
+elif command -v journalctl &> /dev/null; then
   # Systemd service
   LOGS=$(journalctl -u fsm-server --since "5 minutes ago" --no-pager 2>/dev/null | grep -i "uncertainty\|epistemic\|aleatoric\|calibrated\|stability\|volatility" | tail -10)
 elif [ -f "/tmp/fsm-server.log" ]; then
   # Log file
   LOGS=$(tail -100 /tmp/fsm-server.log 2>/dev/null | grep -i "uncertainty\|epistemic\|aleatoric\|calibrated\|stability\|volatility" | tail -10)
-else
-  LOGS=""
 fi
 
 if [ -n "$LOGS" ]; then
@@ -163,7 +199,7 @@ echo ""
 # Test 8: Detailed JSON inspection of a hypothesis
 echo "Test 8: Detailed inspection of hypothesis uncertainty model"
 echo "------------------------------------------------------------"
-HYP_DATA=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" HGETALL "$HYP_KEY" 2>/dev/null | grep -A 1 "hyp_" | head -2)
+HYP_DATA=$(redis_cmd HGETALL "$HYP_KEY" | grep -A 1 "hyp_" | head -2)
 if [ -n "$HYP_DATA" ]; then
   HYP_JSON=$(echo "$HYP_DATA" | tail -1)
   if command -v jq &> /dev/null; then
@@ -202,7 +238,7 @@ echo ""
 # Test 9: Check goal scoring with uncertainty
 echo "Test 9: Checking goal scoring with uncertainty models"
 echo "------------------------------------------------------"
-GOAL_DATA=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" LRANGE "$GOAL_KEY" 0 0 2>/dev/null)
+GOAL_DATA=$(redis_cmd LRANGE "$GOAL_KEY" 0 0)
 if [ -n "$GOAL_DATA" ]; then
   if command -v jq &> /dev/null; then
     echo "$GOAL_DATA" | jq '.' 2>/dev/null | head -40 | sed 's/^/      /'
@@ -242,8 +278,14 @@ echo "  - Goals: http://localhost:8084/goals/General"
 echo "  - Beliefs: http://localhost:8084/beliefs/General"
 echo ""
 echo "To manually inspect Redis:"
-echo "  redis-cli HGETALL fsm:agent_1:hypotheses"
-echo "  redis-cli LRANGE reasoning:curiosity_goals:General 0 4"
-echo "  redis-cli LRANGE reasoning:beliefs:General 0 4"
+if [ "$USE_KUBECTL" = true ]; then
+  echo "  kubectl exec -n $NAMESPACE $REDIS_POD -- redis-cli HGETALL fsm:agent_1:hypotheses"
+  echo "  kubectl exec -n $NAMESPACE $REDIS_POD -- redis-cli LRANGE reasoning:curiosity_goals:General 0 4"
+  echo "  kubectl exec -n $NAMESPACE $REDIS_POD -- redis-cli LRANGE reasoning:beliefs:General 0 4"
+else
+  echo "  redis-cli HGETALL fsm:agent_1:hypotheses"
+  echo "  redis-cli LRANGE reasoning:curiosity_goals:General 0 4"
+  echo "  redis-cli LRANGE reasoning:beliefs:General 0 4"
+fi
 echo ""
 
