@@ -98,44 +98,71 @@ func (mc *MemoryConsolidator) Start() {
 }
 
 // RunConsolidation executes the full consolidation pipeline
+// This runs in a goroutine and should not block the main server
 func (mc *MemoryConsolidator) RunConsolidation() {
 	log.Printf("🔄 [CONSOLIDATION] Starting consolidation cycle")
 	startTime := time.Now()
 
-	// 1. Compress redundant episodes into generalized schemas
-	compressed, err := mc.CompressEpisodes()
-	if err != nil {
-		log.Printf("❌ [CONSOLIDATION] Episode compression failed: %v", err)
-	} else {
-		log.Printf("✅ [CONSOLIDATION] Compressed %d episode groups", compressed)
-	}
+	// Add timeout context to prevent hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
-	// 2. Promote stable structures to semantic memory
-	promoted, err := mc.PromoteToSemantic()
-	if err != nil {
-		log.Printf("❌ [CONSOLIDATION] Semantic promotion failed: %v", err)
-	} else {
-		log.Printf("✅ [CONSOLIDATION] Promoted %d structures to semantic memory", promoted)
-	}
+	// Use a channel to detect if consolidation completes or times out
+	done := make(chan bool, 1)
+	
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("❌ [CONSOLIDATION] Panic recovered: %v", r)
+			}
+			done <- true
+		}()
 
-	// 3. Archive stale or low-utility traces
-	archived, err := mc.ArchiveTraces()
-	if err != nil {
-		log.Printf("❌ [CONSOLIDATION] Trace archiving failed: %v", err)
-	} else {
-		log.Printf("✅ [CONSOLIDATION] Archived %d traces", archived)
-	}
+		// 1. Compress redundant episodes into generalized schemas
+		compressed, err := mc.CompressEpisodes()
+		if err != nil {
+			log.Printf("❌ [CONSOLIDATION] Episode compression failed: %v", err)
+		} else {
+			log.Printf("✅ [CONSOLIDATION] Compressed %d episode groups", compressed)
+		}
 
-	// 4. Derive skill abstractions from repeated workflows
-	skills, err := mc.ExtractSkills()
-	if err != nil {
-		log.Printf("❌ [CONSOLIDATION] Skill extraction failed: %v", err)
-	} else {
-		log.Printf("✅ [CONSOLIDATION] Extracted %d skill abstractions", skills)
-	}
+		// 2. Promote stable structures to semantic memory
+		promoted, err := mc.PromoteToSemantic()
+		if err != nil {
+			log.Printf("❌ [CONSOLIDATION] Semantic promotion failed: %v", err)
+		} else {
+			log.Printf("✅ [CONSOLIDATION] Promoted %d structures to semantic memory", promoted)
+		}
 
-	duration := time.Since(startTime)
-	log.Printf("✅ [CONSOLIDATION] Consolidation cycle completed in %v", duration)
+		// 3. Archive stale or low-utility traces
+		archived, err := mc.ArchiveTraces()
+		if err != nil {
+			log.Printf("❌ [CONSOLIDATION] Trace archiving failed: %v", err)
+		} else {
+			log.Printf("✅ [CONSOLIDATION] Archived %d traces", archived)
+		}
+
+		// 4. Derive skill abstractions from repeated workflows
+		skills, err := mc.ExtractSkills()
+		if err != nil {
+			log.Printf("❌ [CONSOLIDATION] Skill extraction failed: %v", err)
+		} else {
+			log.Printf("✅ [CONSOLIDATION] Extracted %d skill abstractions", skills)
+		}
+
+		duration := time.Since(startTime)
+		log.Printf("✅ [CONSOLIDATION] Consolidation cycle completed in %v", duration)
+	}()
+
+	// Wait for completion or timeout
+	select {
+	case <-done:
+		// Consolidation completed
+	case <-ctx.Done():
+		log.Printf("⏱️ [CONSOLIDATION] Consolidation timed out after 5 minutes")
+	case <-time.After(5 * time.Minute):
+		log.Printf("⏱️ [CONSOLIDATION] Consolidation exceeded 5 minute limit")
+	}
 }
 
 // EpisodeGroup represents a group of similar episodes
@@ -168,7 +195,8 @@ func (mc *MemoryConsolidator) CompressEpisodes() (int, error) {
 	queryVec := make([]float32, 8) // Placeholder vector - in production, use actual embedding
 	
 	// Get a sample of episodes (we'll filter by timestamp in memory)
-	episodes, err := mc.vectorDB.SearchEpisodes(queryVec, 1000, nil)
+	// Limit to 500 episodes to avoid O(n²) performance issues
+	episodes, err := mc.vectorDB.SearchEpisodes(queryVec, 500, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to search episodes: %w", err)
 	}
@@ -219,13 +247,28 @@ func (mc *MemoryConsolidator) CompressEpisodes() (int, error) {
 }
 
 // groupSimilarEpisodes groups episodes by similarity
+// Optimized to limit processing time - stops after finding enough groups
 func (mc *MemoryConsolidator) groupSimilarEpisodes(episodes []EpisodicRecord, threshold float64) []EpisodeGroup {
 	groups := []EpisodeGroup{}
 	used := make(map[int]bool)
+	maxGroups := 50 // Limit number of groups to process
+	maxEpisodes := 200 // Limit episodes to compare (O(n²) becomes expensive)
+
+	// Limit episodes if too many
+	if len(episodes) > maxEpisodes {
+		log.Printf("ℹ️ [CONSOLIDATION] Limiting episode comparison to %d (from %d) to avoid performance issues", maxEpisodes, len(episodes))
+		episodes = episodes[:maxEpisodes]
+	}
 
 	for i, ep1 := range episodes {
 		if used[i] {
 			continue
+		}
+
+		// Stop if we've found enough groups
+		if len(groups) >= maxGroups {
+			log.Printf("ℹ️ [CONSOLIDATION] Reached max groups limit (%d), stopping early", maxGroups)
+			break
 		}
 
 		group := EpisodeGroup{
@@ -643,8 +686,9 @@ func (mc *MemoryConsolidator) ExtractSkills() (int, error) {
 	extractedCount := 0
 
 	// Search for episodes with workflow_id in metadata
+	// Limit to 500 episodes to avoid performance issues
 	queryVec := make([]float32, 8)
-	episodes, err := mc.vectorDB.SearchEpisodes(queryVec, 1000, nil)
+	episodes, err := mc.vectorDB.SearchEpisodes(queryVec, 500, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to search episodes: %w", err)
 	}
