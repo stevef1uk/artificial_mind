@@ -83,11 +83,18 @@ echo "   Found $NEW_HYPS potentially new hypotheses"
 echo ""
 
 # Check if any have uncertainty
-UNCERTAIN_HYPS=$(echo "$HYP_DATA" | grep -c "uncertainty" || echo "0")
+UNCERTAIN_HYPS=$(echo "$HYP_DATA" | grep -c "uncertainty" 2>/dev/null || echo "0")
+# Remove any newlines/whitespace
+UNCERTAIN_HYPS=$(echo "$UNCERTAIN_HYPS" | tr -d '\n' | tr -d ' ')
 echo "   Hypotheses with uncertainty models: $UNCERTAIN_HYPS"
 echo ""
 
-if [ "$UNCERTAIN_HYPS" -gt 0 ]; then
+# Convert to integer for comparison (handle empty string)
+if [ -z "$UNCERTAIN_HYPS" ] || [ "$UNCERTAIN_HYPS" = "0" ] || [ "$UNCERTAIN_HYPS" = "0\n0" ]; then
+  UNCERTAIN_HYPS=0
+fi
+
+if [ "$UNCERTAIN_HYPS" -gt 0 ] 2>/dev/null; then
   echo "   ✅ SUCCESS: New hypotheses have uncertainty models!"
   echo ""
   echo "   Sample uncertainty data:"
