@@ -307,9 +307,18 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 	}
 
 	// 1) Belief query: aim at the first target if present, otherwise use the goal description
+	// For knowledge_building goals, extract a meaningful query from the description
 	targetQuery := selected.Description
 	if len(selected.Targets) > 0 && strings.TrimSpace(selected.Targets[0]) != "" {
 		targetQuery = fmt.Sprintf("related to %s", selected.Targets[0])
+	} else if selected.Type == "knowledge_building" || selected.Type == "gap_filling" || selected.Type == "concept_exploration" {
+		// For these goal types, use a simple query that won't cause Cypher syntax errors
+		// Extract domain or use a generic query
+		if strings.ToLower(strings.TrimSpace(domain)) == "general" {
+			targetQuery = "all concepts"
+		} else {
+			targetQuery = fmt.Sprintf("concepts in %s", domain)
+		}
 	}
 
 	// Attempt autonomous Wikipedia bootstrap for gap-filling / exploration / knowledge building

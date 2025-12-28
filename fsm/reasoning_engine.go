@@ -646,12 +646,12 @@ func (re *ReasoningEngine) extractDomainFromResult(result map[string]interface{}
 }
 
 func (re *ReasoningEngine) getInferenceRules(domain string) ([]InferenceRule, error) {
-	// Get rules from Redis or default rules
+	// Get rules from Redis only (no fallback to defaults)
 	key := fmt.Sprintf("inference_rules:%s", domain)
 	rulesData, err := re.redis.LRange(re.ctx, key, 0, -1).Result()
 	if err != nil {
-		// Return default rules if none stored
-		return re.getDefaultInferenceRules(domain), nil
+		// Return empty if Redis error
+		return []InferenceRule{}, nil
 	}
 
 	var rules []InferenceRule
@@ -662,12 +662,31 @@ func (re *ReasoningEngine) getInferenceRules(domain string) ([]InferenceRule, er
 		}
 	}
 
-	// If no rules found in Redis, return default rules
-	if len(rules) == 0 {
-		return re.getDefaultInferenceRules(domain), nil
-	}
-
 	return rules, nil
+}
+
+// StoreInferenceRule stores an inference rule in Redis for the given domain
+func (re *ReasoningEngine) StoreInferenceRule(rule InferenceRule) error {
+	key := fmt.Sprintf("inference_rules:%s", rule.Domain)
+	ruleData, err := json.Marshal(rule)
+	if err != nil {
+		return fmt.Errorf("failed to marshal rule: %w", err)
+	}
+	return re.redis.LPush(re.ctx, key, ruleData).Err()
+}
+
+// StoreDefaultInferenceRules stores the default inference rules in Redis for a domain
+// This can be called during initialization to populate rules
+func (re *ReasoningEngine) StoreDefaultInferenceRules(domain string) error {
+	defaultRules := re.getDefaultInferenceRules(domain)
+	for _, rule := range defaultRules {
+		rule.Domain = domain // Ensure domain is set
+		if err := re.StoreInferenceRule(rule); err != nil {
+			return fmt.Errorf("failed to store rule %s: %w", rule.ID, err)
+		}
+	}
+	log.Printf("✅ Stored %d default inference rules for domain %s", len(defaultRules), domain)
+	return nil
 }
 
 func (re *ReasoningEngine) getDefaultInferenceRules(domain string) []InferenceRule {
