@@ -3348,6 +3348,17 @@ func (e *FSMEngine) storeHypotheses(hypotheses []Hypothesis, domain string) {
 				"last_updated":           hypothesis.Uncertainty.LastUpdated.Format(time.RFC3339),
 			}
 		}
+		
+		// Include causal reasoning fields if available
+		if hypothesis.CausalType != "" {
+			hypothesisData["causal_type"] = hypothesis.CausalType
+		}
+		if len(hypothesis.CounterfactualActions) > 0 {
+			hypothesisData["counterfactual_actions"] = hypothesis.CounterfactualActions
+		}
+		if len(hypothesis.InterventionGoals) > 0 {
+			hypothesisData["intervention_goals"] = hypothesis.InterventionGoals
+		}
 
 		data, err := json.Marshal(hypothesisData)
 		if err != nil {
@@ -3403,6 +3414,59 @@ func (e *FSMEngine) createHypothesisTestingGoals(hypotheses []Hypothesis, domain
 		newGoals := 0
 		filteredCount := 0
 		for _, hypothesis := range uniqueApproved {
+			// For causal hypotheses with intervention goals, create intervention-style goals
+			// These push toward grounded learning and self-designed experiments
+			if hypothesis.CausalType != "" && len(hypothesis.InterventionGoals) > 0 {
+				// Prioritize intervention goals for causal hypotheses
+				for i, interventionGoal := range hypothesis.InterventionGoals {
+					// Create uncertainty model for intervention goal
+					var uncertainty *UncertaintyModel
+					if hypothesis.Uncertainty != nil {
+						// Intervention goals have slightly higher epistemic uncertainty (experiments are exploratory)
+						uncertainty = NewUncertaintyModel(
+							hypothesis.Uncertainty.CalibratedConfidence,
+							clamp(hypothesis.Uncertainty.EpistemicUncertainty+0.1, 0.0, 1.0),
+							hypothesis.Uncertainty.AleatoricUncertainty,
+						)
+					} else {
+						epistemicUncertainty := EstimateEpistemicUncertainty(len(hypothesis.Facts), false, false)
+						aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "intervention_testing")
+						uncertainty = NewUncertaintyModel(hypothesis.Confidence, epistemicUncertainty, aleatoricUncertainty)
+					}
+					
+					// Higher priority for intervention goals (they're more actionable)
+					priority := 9
+					if hypothesis.CausalType == "experimentally_testable_relation" {
+						priority = 10 // Highest priority for experimentally testable relations
+					}
+					
+					goal := CuriosityGoal{
+						ID:          fmt.Sprintf("intervention_%s_%d", hypothesis.ID, i),
+						Type:        "intervention_testing",
+						Description: interventionGoal,
+						Targets:     []string{hypothesis.ID},
+						Priority:    priority,
+						Status:      "pending",
+						Domain:      domain,
+						CreatedAt:   time.Now(),
+						Uncertainty: uncertainty,
+						Value:       uncertainty.CalibratedConfidence * 1.1, // Slight boost for intervention goals
+					}
+					
+					// Check for duplicates
+					dedupKey := e.createDedupKey(goal)
+					if _, exists := existing[dedupKey]; !exists {
+						goalData, _ := json.Marshal(goal)
+						e.redis.LPush(e.ctx, goalKey, goalData)
+						e.redis.LTrim(e.ctx, goalKey, 0, 199)
+						existing[dedupKey] = goal
+						newGoals++
+						log.Printf("🔬 [CAUSAL] Created intervention goal: %s", interventionGoal[:min(60, len(interventionGoal))])
+					}
+				}
+			}
+			
+			// Also create standard hypothesis testing goal (but with lower priority if intervention goals exist)
 			// Create actionable goal description, avoiding nested prefixes
 			hypDesc := hypothesis.Description
 			goalDesc := hypDesc
@@ -3451,12 +3515,18 @@ func (e *FSMEngine) createHypothesisTestingGoals(hypotheses []Hypothesis, domain
 				uncertainty = NewUncertaintyModel(hypothesis.Confidence, epistemicUncertainty, aleatoricUncertainty)
 			}
 			
+			// Lower priority if intervention goals exist (interventions are preferred for causal hypotheses)
+			priority := 8
+			if len(hypothesis.InterventionGoals) > 0 {
+				priority = 7 // Slightly lower priority when intervention goals exist
+			}
+			
 			goal := CuriosityGoal{
 				ID:          fmt.Sprintf("hyp_test_%s", hypothesis.ID),
 				Type:        "hypothesis_testing",
 				Description: goalDesc,
 				Targets:     []string{hypothesis.ID},
-				Priority:    8,
+				Priority:    priority,
 				Status:      "pending",
 				Domain:      domain,
 				CreatedAt:   time.Now(),
@@ -3517,6 +3587,16 @@ func (e *FSMEngine) screenHypothesesWithLLM(hypotheses []Hypothesis, domain stri
 		// Improved prompt with clearer instructions and examples
 		// CRITICAL: Use explicit instruction to return JSON directly, not a task
 		// Request text response type explicitly to bypass tool_call preference
+		
+		// Include causal type information in the prompt
+		causalTypeInfo := ""
+		if h.CausalType != "" {
+			causalTypeInfo = fmt.Sprintf("\nCausal Type: %s", h.CausalType)
+			if len(h.InterventionGoals) > 0 {
+				causalTypeInfo += fmt.Sprintf("\nIntervention Goals Available: %d", len(h.InterventionGoals))
+			}
+		}
+		
 		prompt := fmt.Sprintf(`You are evaluating a hypothesis. This is a SIMPLE SCORING TASK that requires NO tools, NO actions, and NO queries. Just return a JSON score.
 
 CRITICAL: You MUST respond with type "text" containing ONLY a JSON object. Do NOT use tools. Do NOT create tasks. This is a pure evaluation task.
@@ -3524,9 +3604,10 @@ CRITICAL: You MUST respond with type "text" containing ONLY a JSON object. Do NO
 Rate this hypothesis on a scale of 0.0 to 1.0:
 - IMPACT: How valuable would confirming this hypothesis be? (0.0 = no value, 1.0 = very valuable)
 - TRACTABILITY: How testable/verifiable is this hypothesis? (0.0 = untestable, 1.0 = easily testable)
+- CAUSAL REASONING: If this is a causal hypothesis (not just correlation), give higher score for testability. Causal hypotheses with intervention goals are more valuable.
 
 Domain: %s
-Hypothesis: %s
+Hypothesis: %s%s
 
 You MUST respond with type "text" containing ONLY this JSON (no other text):
 {"type": "text", "content": "{\"score\": 0.75, \"reason\": \"Brief explanation\"}"}

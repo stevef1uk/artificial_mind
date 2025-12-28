@@ -70,6 +70,10 @@ type Hypothesis struct {
 	Constraints []string          `json:"constraints"`
 	CreatedAt   time.Time         `json:"created_at"`
 	Uncertainty *UncertaintyModel `json:"uncertainty,omitempty"` // Formal uncertainty model
+	// Causal reasoning fields
+	CausalType            string   `json:"causal_type,omitempty"`            // "observational_relation", "inferred_causal_candidate", "experimentally_testable_relation"
+	CounterfactualActions []string `json:"counterfactual_actions,omitempty"` // Actions for counterfactual reasoning ("what outcome would change my belief?")
+	InterventionGoals     []string `json:"intervention_goals,omitempty"`     // Goals for intervention-style experiments
 }
 
 // Plan represents a hierarchical plan
@@ -747,7 +751,9 @@ func (ki *KnowledgeIntegration) GenerateHypotheses(facts []Fact, domain string) 
 
 				// Check for duplicates before adding
 				if !ki.isDuplicateHypothesis(hypothesis, existingHypotheses) {
-					basicHypotheses = append(basicHypotheses, hypothesis)
+					// Enrich basic hypotheses with causal reasoning too
+					enrichedHypothesis := ki.enrichHypothesisWithCausalReasoning(hypothesis, domain)
+					basicHypotheses = append(basicHypotheses, enrichedHypothesis)
 				} else {
 					log.Printf("⚠️ Skipping duplicate hypothesis: %s", hypothesis.Description)
 				}
@@ -869,7 +875,12 @@ func (ki *KnowledgeIntegration) GenerateHypotheses(facts []Fact, domain string) 
 			}
 		}
 		if !isDuplicate {
-			finalHypotheses = append(finalHypotheses, hypothesis)
+			// Enrich hypothesis with causal reasoning signals
+			log.Printf("🔬 [CAUSAL-DEBUG] About to enrich hypothesis (not duplicate): %s", hypothesis.Description[:min(60, len(hypothesis.Description))])
+			enrichedHypothesis := ki.enrichHypothesisWithCausalReasoning(hypothesis, domain)
+			finalHypotheses = append(finalHypotheses, enrichedHypothesis)
+		} else {
+			log.Printf("🔬 [CAUSAL-DEBUG] Skipping enrichment for duplicate hypothesis: %s", hypothesis.Description[:min(60, len(hypothesis.Description))])
 		}
 	}
 
@@ -1864,4 +1875,190 @@ func (ki *KnowledgeIntegration) evaluateFactHypothesisPotential(fact Fact, domai
 	}
 
 	return value
+}
+
+// enrichHypothesisWithCausalReasoning classifies and enriches a hypothesis with causal reasoning signals
+func (ki *KnowledgeIntegration) enrichHypothesisWithCausalReasoning(hypothesis Hypothesis, domain string) Hypothesis {
+	// Always log when this function is called for debugging
+	log.Printf("🔬 [CAUSAL-DEBUG] Enriching hypothesis: %s", hypothesis.Description[:min(80, len(hypothesis.Description))])
+
+	// Classify the hypothesis as causal vs correlation
+	causalType := ki.classifyCausalType(hypothesis.Description, domain)
+	hypothesis.CausalType = causalType
+
+	// Generate counterfactual reasoning actions
+	hypothesis.CounterfactualActions = ki.generateCounterfactualActions(hypothesis, domain)
+
+	// Generate intervention-style goals for experimental testing
+	hypothesis.InterventionGoals = ki.generateInterventionGoals(hypothesis, domain)
+
+	log.Printf("🔬 [CAUSAL] Hypothesis '%s' classified as: %s (counterfactuals: %d, interventions: %d)",
+		hypothesis.Description[:min(60, len(hypothesis.Description))],
+		causalType,
+		len(hypothesis.CounterfactualActions),
+		len(hypothesis.InterventionGoals))
+
+	return hypothesis
+}
+
+// classifyCausalType determines if a hypothesis represents a causal relationship or just correlation
+// Returns: "observational_relation", "inferred_causal_candidate", or "experimentally_testable_relation"
+func (ki *KnowledgeIntegration) classifyCausalType(description, domain string) string {
+	descLower := strings.ToLower(description)
+
+	// Patterns that suggest causal relationships
+	causalIndicators := []string{
+		"if we", "if we apply", "if we optimize", "if we enhance", "if we build",
+		"causes", "leads to", "results in", "produces", "triggers", "enables",
+		"affects", "influences", "determines", "controls", "drives",
+		"when we", "by doing", "through", "by means of",
+	}
+
+	// Patterns that suggest experimental testability
+	experimentalIndicators := []string{
+		"test", "experiment", "trial", "measure", "verify", "validate",
+		"compare", "contrast", "control", "intervention", "manipulate",
+	}
+
+	// Patterns that suggest only observational correlation
+	observationalIndicators := []string{
+		"related to", "associated with", "correlated with", "linked to",
+		"co-occurs", "appears with", "found together",
+	}
+
+	// Count indicators
+	causalCount := 0
+	experimentalCount := 0
+	observationalCount := 0
+
+	for _, indicator := range causalIndicators {
+		if strings.Contains(descLower, indicator) {
+			causalCount++
+		}
+	}
+
+	for _, indicator := range experimentalIndicators {
+		if strings.Contains(descLower, indicator) {
+			experimentalCount++
+		}
+	}
+
+	for _, indicator := range observationalIndicators {
+		if strings.Contains(descLower, indicator) {
+			observationalCount++
+		}
+	}
+
+	// Classification logic
+	// If it has experimental indicators and causal indicators, it's experimentally testable
+	if experimentalCount > 0 && causalCount > 0 {
+		return "experimentally_testable_relation"
+	}
+
+	// If it has causal indicators but no experimental ones, it's an inferred causal candidate
+	if causalCount > 0 {
+		return "inferred_causal_candidate"
+	}
+
+	// If it only has observational indicators, it's observational
+	if observationalCount > 0 {
+		return "observational_relation"
+	}
+
+	// Default: if it has "if" statements suggesting action, treat as causal candidate
+	if strings.Contains(descLower, "if ") && (strings.Contains(descLower, "can") || strings.Contains(descLower, "will")) {
+		return "inferred_causal_candidate"
+	}
+
+	// Otherwise, default to observational (most conservative)
+	return "observational_relation"
+}
+
+// generateCounterfactualActions creates actions for counterfactual reasoning
+// These answer: "what outcome would change my belief?"
+func (ki *KnowledgeIntegration) generateCounterfactualActions(hypothesis Hypothesis, domain string) []string {
+	var actions []string
+	descLower := strings.ToLower(hypothesis.Description)
+
+	// Extract key entities/concepts from the hypothesis
+	// Look for patterns like "If we [action] [entity], we can [outcome]"
+	// Generate counterfactual questions about what would change the belief
+
+	// Base counterfactual actions
+	actions = append(actions, fmt.Sprintf("What outcome would refute the hypothesis: %s?", hypothesis.Description))
+	actions = append(actions, fmt.Sprintf("What evidence would change my confidence in: %s?", hypothesis.Description))
+
+	// Domain-specific counterfactuals
+	if strings.Contains(descLower, "improve") || strings.Contains(descLower, "enhance") {
+		actions = append(actions, fmt.Sprintf("What would happen if we did NOT apply this approach to %s?", domain))
+		actions = append(actions, "What alternative explanations could account for the observed pattern?")
+	}
+
+	if strings.Contains(descLower, "optimize") || strings.Contains(descLower, "system") {
+		actions = append(actions, "What would the outcome be if we changed a different variable?")
+		actions = append(actions, "What if the relationship is reversed (reverse causality)?")
+	}
+
+	if strings.Contains(descLower, "combine") || strings.Contains(descLower, "integrate") {
+		actions = append(actions, "What would happen if we tested each component separately?")
+		actions = append(actions, "What if the interaction effect is different than expected?")
+	}
+
+	// For causal candidates, add more specific counterfactuals
+	if hypothesis.CausalType == "inferred_causal_candidate" || hypothesis.CausalType == "experimentally_testable_relation" {
+		actions = append(actions, "What would happen if we removed the proposed cause?")
+		actions = append(actions, "What if a confounding variable explains the relationship?")
+		actions = append(actions, "What outcome would demonstrate this is correlation, not causation?")
+	}
+
+	return actions
+}
+
+// generateInterventionGoals creates goals for intervention-style experiments
+// These answer: "design an experiment to test this hypothesis"
+func (ki *KnowledgeIntegration) generateInterventionGoals(hypothesis Hypothesis, domain string) []string {
+	var goals []string
+	descLower := strings.ToLower(hypothesis.Description)
+
+	// Base intervention goal
+	goals = append(goals, fmt.Sprintf("Design a controlled experiment to test: %s", hypothesis.Description))
+
+	// For experimentally testable relations, create specific intervention goals
+	if hypothesis.CausalType == "experimentally_testable_relation" {
+		goals = append(goals, fmt.Sprintf("Create intervention: manipulate key variables in %s to test causal relationship", domain))
+		goals = append(goals, "Set up control and treatment groups to isolate causal effects")
+		goals = append(goals, "Measure outcomes before and after intervention to assess causality")
+	}
+
+	// For inferred causal candidates, create goals to make them testable
+	if hypothesis.CausalType == "inferred_causal_candidate" {
+		goals = append(goals, fmt.Sprintf("Design experiment to test if %s causes the proposed outcome", hypothesis.Description))
+		goals = append(goals, "Identify variables to manipulate and outcomes to measure")
+		goals = append(goals, "Create testable predictions from the causal hypothesis")
+	}
+
+	// Domain-specific intervention goals
+	if strings.Contains(descLower, "improve") || strings.Contains(descLower, "enhance") {
+		goals = append(goals, fmt.Sprintf("Test intervention: apply proposed improvement to %s and measure results", domain))
+		goals = append(goals, "Compare baseline performance with intervention performance")
+	}
+
+	if strings.Contains(descLower, "optimize") || strings.Contains(descLower, "system") {
+		goals = append(goals, "A/B test: compare optimized system with current system")
+		goals = append(goals, "Measure system performance metrics before and after optimization")
+	}
+
+	if strings.Contains(descLower, "combine") || strings.Contains(descLower, "integrate") {
+		goals = append(goals, "Test integration: measure outcomes when components are combined vs separate")
+		goals = append(goals, "Isolate interaction effects through factorial design")
+	}
+
+	// For observational relations, create goals to move toward causal testing
+	if hypothesis.CausalType == "observational_relation" {
+		goals = append(goals, fmt.Sprintf("Design study to test if observed correlation in %s is causal", domain))
+		goals = append(goals, "Identify potential confounders and control for them")
+		goals = append(goals, "Create experimental design to move from correlation to causation")
+	}
+
+	return goals
 }

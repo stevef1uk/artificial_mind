@@ -168,10 +168,12 @@ graph TB
   - Apply dynamic, data-driven inference rules that adapt to actual concept patterns
   - Generate intrinsic curiosity goals (gap filling, contradictions, exploration, news analysis)
   - Generate testable hypotheses from facts and domain knowledge with intelligent deduplication
-  - Screen hypotheses using LLM evaluation for impact and tractability
+  - Screen hypotheses using LLM evaluation for impact and tractability (includes causal reasoning fields in evaluation)
   - Store news events for automatic goal generation
   - Emit comprehensive reasoning traces with Goal → Steps → Evidence → Conclusion → Confidence
   - Enhanced debug logging for troubleshooting inference execution
+  - **Causal Hypothesis Processing**: Creates intervention goals with higher priority (priority=10) for causal hypotheses
+  - **Intervention Goal Generation**: Automatically generates experimental goals from causal hypotheses' intervention goals
 
 - **Knowledge Integration** (`fsm/knowledge_integration.go`):
   - Intelligent exploration tracking to prevent redundant exploration (6-hour cooldown)
@@ -183,6 +185,11 @@ graph TB
   - **Value-Based Confidence Scaling**: Scales hypothesis confidence by potential value
   - **Concept Depth Assessment**: Evaluates concept completeness before hypothesis generation
   - **Actionable Properties Detection**: Identifies concepts with actionable characteristics
+  - **Causal Reasoning Signals**: Distinguishes between correlation-based and causal-candidate inferences
+    - **Causal Hypothesis Tagging**: Classifies hypotheses as `observational_relation`, `inferred_causal_candidate`, or `experimentally_testable_relation`
+    - **Counterfactual Reasoning Actions**: Generates questions like "what outcome would change my belief?" to challenge beliefs
+    - **Intervention-Style Goals**: Creates experimental goals to test causal hypotheses ("design an experiment to test this hypothesis")
+    - **Grounded Learning**: Pushes the agent toward self-designed experiments and fewer speculative belief chains
 
 - **Knowledge Growth Engine** (`fsm/knowledge_growth.go`):
   - **LLM-Based Semantic Concept Discovery**: Uses HDN API for semantic analysis instead of pattern matching
@@ -200,7 +207,8 @@ graph TB
 - FSM logs `ReasoningTrace` to Redis keys: `reasoning:traces:<domain>`, `reasoning:traces:goal:<goal>`
 - News events stored in Redis: `reasoning:news_relations:recent`, `reasoning:news_alerts:recent`
 - Curiosity goals stored in Redis: `reasoning:curiosity_goals:<domain>` with status tracking
-- Hypotheses stored in Redis: `fsm:agent_1:hypotheses` with LLM screening scores
+- Hypotheses stored in Redis: `fsm:agent_1:hypotheses` with LLM screening scores and causal reasoning fields (`causal_type`, `counterfactual_actions`, `intervention_goals`)
+- Intervention goals stored in Redis: `reasoning:curiosity_goals:<domain>` with type `intervention_testing` and priority=10
 - Monitor UI fetches traces at `/api/reasoning/traces/:domain` and displays on the dashboard
 
 **Recent Improvements**:
@@ -301,13 +309,14 @@ For a deeper, HDN-specific architecture diagram and narrative, see `hdn_architec
   - **Curiosity Goals**: Autonomous goal generation for knowledge exploration
   - **Dynamic Inference**: Data-driven inference rules that adapt to concept patterns
   - **Intelligent Exploration**: Smart exploration tracking with deduplication and cooldown
-  - **Hypothesis Screening**: LLM-based evaluation of hypotheses for impact and tractability
+  - **Hypothesis Screening**: LLM-based evaluation of hypotheses for impact and tractability (includes causal reasoning fields)
   - **Goal Outcome Learning**: Tracks goal execution outcomes and learns from success/failure
   - **Enhanced Goal Scoring**: Incorporates historical success rates and values into goal prioritization
   - **Focused Learning Strategy**: Identifies promising areas and focuses learning there (70% focused, 30% exploration)
   - **Meta-Learning System**: Learns about its own learning process to continuously improve strategies
   - **Async HTTP Queue System**: Priority-based async queue for all HTTP calls to HDN with LIFO processing, worker pools, and callback routing
   - **Uncertainty Modeling & Confidence Calibration**: Formal uncertainty tracking with epistemic (lack of knowledge) and aleatoric (inherent randomness) uncertainty, calibrated confidence, and belief stability/volatility tracking
+  - **Causal Reasoning Integration**: Distinguishes causal hypotheses and creates intervention goals with higher priority for experimental testing
 - **New Actions**:
   - `reasoning.belief_query` - Query beliefs from knowledge base
   - `reasoning.inference` - Apply inference rules to generate new beliefs
@@ -1005,6 +1014,12 @@ make help
 - **✅ Hypothesis Screening**: LLM-based evaluation of hypotheses for impact and tractability with configurable thresholds
 - **✅ Fact-Based Hypothesis Generation**: Creates hypotheses directly from extracted facts with domain context
 - **✅ Pattern-Based Hypothesis Generation**: Generates hypotheses from domain-specific patterns and concepts
+- **✅ Causal Reasoning Signals**: Distinguishes between correlation-based and causal-candidate inferences
+  - **Causal Hypothesis Classification**: Automatically tags hypotheses as `observational_relation`, `inferred_causal_candidate`, or `experimentally_testable_relation`
+  - **Counterfactual Reasoning**: Generates counterfactual questions ("what outcome would change my belief?") to challenge beliefs
+  - **Intervention Goals**: Creates experimental goals to test causal hypotheses with higher priority (priority=10)
+  - **Grounded Learning**: Pushes the agent toward self-designed experiments and fewer speculative belief chains
+  - **Integration**: Causal reasoning fields included in LLM screening, stored in Redis, and used for goal prioritization
 
 ### Curiosity Goals System Improvements
 - **✅ News-Driven Goals**: News events now automatically generate curiosity goals for analysis
