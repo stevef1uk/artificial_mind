@@ -899,13 +899,60 @@ func (e *FSMEngine) executeKnowledgeExtractor(action ActionConfig, event map[str
 		})
 	}
 
-	// Extract from context
+	// Extract from event payload (for new_input events)
+	if payload, ok := event["payload"].(map[string]interface{}); ok {
+		if text, ok := payload["text"].(string); ok && text != "" {
+			// Store input in context for future reference
+			e.context["input"] = text
+			// Use knowledge integration to extract meaningful facts
+			if e.knowledgeIntegration != nil {
+				domain := e.getCurrentDomain()
+				extractedFacts, err := e.knowledgeIntegration.ExtractFacts(text, domain)
+				if err == nil && len(extractedFacts) > 0 {
+					log.Printf("📚 Extracted %d facts from input using knowledge integration", len(extractedFacts))
+					for _, fact := range extractedFacts {
+						facts = append(facts, map[string]interface{}{
+							"fact":       fact.Content,
+							"confidence": fact.Confidence,
+							"domain":     fact.Domain,
+						})
+					}
+				} else {
+					// Fallback to simple fact if extraction fails
+					facts = append(facts, map[string]interface{}{
+						"fact":       text,
+						"confidence": 0.7,
+						"domain":     domain,
+					})
+				}
+			} else {
+				// No knowledge integration, use simple fact
+				facts = append(facts, map[string]interface{}{
+					"fact":       text,
+					"confidence": 0.7,
+					"domain":     e.getCurrentDomain(),
+				})
+			}
+		}
+	}
+
+	// Extract from context (fallback)
 	if input, ok := e.context["input"].(string); ok && input != "" {
-		facts = append(facts, map[string]interface{}{
-			"fact":       fmt.Sprintf("User input: %s", input),
-			"confidence": 0.9,
-			"domain":     e.getCurrentDomain(),
-		})
+		// Only add if not already added from payload
+		alreadyAdded := false
+		for _, f := range facts {
+			if factStr, ok := f["fact"].(string); ok && factStr == input {
+				alreadyAdded = true
+				break
+			}
+		}
+		if !alreadyAdded {
+			facts = append(facts, map[string]interface{}{
+				"fact":       fmt.Sprintf("User input: %s", input),
+				"confidence": 0.9,
+				"domain":     e.getCurrentDomain(),
+			})
+		}
 	}
 
 	// Extract system state facts
