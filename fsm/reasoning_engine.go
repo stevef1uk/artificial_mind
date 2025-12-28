@@ -1400,40 +1400,70 @@ If the knowledge is obvious, common knowledge, or not actionable, mark is_worth_
 
 	// Extract assessment from response
 	// The /api/v1/interpret endpoint returns InterpretationResult with tasks/message
-	// The LLM response (including JSON) is in the task description
+	// The LLM response (including JSON) may be in various fields
 	var assessmentJSON string
 
 	// Try to get JSON from task descriptions first (most likely location)
+	// But only if it contains JSON, not just task instructions
 	if tasks, ok := interpretResp["tasks"].([]interface{}); ok && len(tasks) > 0 {
 		for _, t := range tasks {
 			if task, ok := t.(map[string]interface{}); ok {
-				// Check description field
+				// Check description field - look for JSON in it
 				if desc, ok := task["description"].(string); ok && desc != "" {
-					assessmentJSON = desc
-					break
+					// Check if description contains JSON (has { and })
+					if strings.Contains(desc, "{") && (strings.Contains(desc, "is_novel") || strings.Contains(desc, "is_worth_learning")) {
+						assessmentJSON = desc
+						log.Printf("🔍 [BELIEF-ASSESS] Found task description with potential JSON: %s", desc[:minInt(200, len(desc))])
+						break
+					}
 				}
 			}
 		}
 	}
 
-	// Fallback to message field
+	// Check text_response field (if available)
+	if assessmentJSON == "" {
+		if textResp, ok := interpretResp["text_response"].(string); ok && textResp != "" {
+			assessmentJSON = textResp
+			log.Printf("🔍 [BELIEF-ASSESS] Found text_response field: %s", textResp[:minInt(100, len(textResp))])
+		}
+	}
+
+	// Check metadata for text_response (legacy format stores it there)
+	if assessmentJSON == "" {
+		if metadata, ok := interpretResp["metadata"].(map[string]interface{}); ok {
+			if textResp, ok := metadata["text_response"].(string); ok && textResp != "" {
+				assessmentJSON = textResp
+				log.Printf("🔍 [BELIEF-ASSESS] Found text_response in metadata: %s", textResp[:minInt(100, len(textResp))])
+			}
+		}
+	}
+
+	// Fallback to message field (but skip if it's just a status message)
 	if assessmentJSON == "" {
 		if msg, ok := interpretResp["message"].(string); ok && msg != "" {
-			assessmentJSON = msg
+			// Skip common status messages that don't contain assessment
+			lowerMsg := strings.ToLower(msg)
+			if !strings.Contains(lowerMsg, "processed input successfully") &&
+			   !strings.Contains(lowerMsg, "text response provided") &&
+			   (strings.Contains(msg, "{") || strings.Contains(msg, "is_novel") || strings.Contains(msg, "is_worth_learning")) {
+				assessmentJSON = msg
+				log.Printf("🔍 [BELIEF-ASSESS] Found message field: %s", msg[:minInt(100, len(msg))])
+			}
 		}
 	}
 
 	// Final fallback: try result/output fields (for other endpoints)
 	if assessmentJSON == "" {
-		if result, ok := interpretResp["result"].(string); ok {
+		if result, ok := interpretResp["result"].(string); ok && result != "" {
 			assessmentJSON = result
-		} else if output, ok := interpretResp["output"].(string); ok {
+		} else if output, ok := interpretResp["output"].(string); ok && output != "" {
 			assessmentJSON = output
 		} else {
 			// Log full response structure for debugging
 			responseDebug, _ := json.MarshalIndent(interpretResp, "", "  ")
-			log.Printf("⚠️ Belief assessment response structure: %s", string(responseDebug))
-			return false, false, fmt.Errorf("no assessment data in response (checked tasks, message, result, output)")
+			log.Printf("⚠️ [BELIEF-ASSESS] Response structure (no assessment found): %s", string(responseDebug))
+			return false, false, fmt.Errorf("no assessment data in response (checked tasks, text_response, metadata, message, result, output)")
 		}
 	}
 
