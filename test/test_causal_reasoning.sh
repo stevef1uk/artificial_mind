@@ -137,8 +137,19 @@ KNOWN_GOAL_KEY="reasoning:curiosity_goals:General"
 print_status "Checking goal key: $KNOWN_GOAL_KEY"
 
 # Check if key exists first (faster than LRANGE on non-existent key)
+# Use timeout for kubectl exec which can hang on RPI
 print_status "Checking if key exists..."
-KEY_EXISTS=$($REDIS_CMD EXISTS "$KNOWN_GOAL_KEY" 2>/dev/null || echo "0")
+if [ "$USE_KUBECTL" = true ]; then
+    # kubectl exec can hang, use timeout
+    KEY_EXISTS=$(timeout 10 kubectl exec -n "$NAMESPACE" "$REDIS_POD" -- redis-cli EXISTS "$KNOWN_GOAL_KEY" 2>/dev/null || echo "0")
+else
+    KEY_EXISTS=$($REDIS_CMD EXISTS "$KNOWN_GOAL_KEY" 2>/dev/null || echo "0")
+fi
+
+if [ -z "$KEY_EXISTS" ]; then
+    KEY_EXISTS="0"
+fi
+
 print_status "Key exists check result: $KEY_EXISTS"
 
 if [ "$KEY_EXISTS" = "0" ]; then
@@ -146,8 +157,14 @@ if [ "$KEY_EXISTS" = "0" ]; then
     GOALS=""
 else
     print_status "Key exists, fetching goals..."
-    GOALS=$($REDIS_CMD LRANGE "$KNOWN_GOAL_KEY" 0 50 2>/dev/null || echo "")
-    print_status "LRANGE completed, found $(echo "$GOALS" | wc -l | tr -d ' ') goal(s)"
+    if [ "$USE_KUBECTL" = true ]; then
+        # Use timeout for kubectl exec
+        GOALS=$(timeout 15 kubectl exec -n "$NAMESPACE" "$REDIS_POD" -- redis-cli LRANGE "$KNOWN_GOAL_KEY" 0 50 2>/dev/null || echo "")
+    else
+        GOALS=$($REDIS_CMD LRANGE "$KNOWN_GOAL_KEY" 0 50 2>/dev/null || echo "")
+    fi
+    GOAL_COUNT=$(echo "$GOALS" | grep -v "^$" | wc -l | tr -d ' ' || echo "0")
+    print_status "LRANGE completed, found $GOAL_COUNT goal(s)"
 fi
 
 if [ -n "$GOALS" ] && [ "$GOALS" != "" ]; then
