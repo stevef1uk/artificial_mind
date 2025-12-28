@@ -1439,16 +1439,17 @@ If the knowledge is obvious, common knowledge, or not actionable, mark is_worth_
 		}
 	}
 
-	// Fallback to message field (but skip if it's just a status message)
+	// Fallback to message field - but check if it contains JSON even if it's a status message
+	// Sometimes HDN returns status messages but the actual response might be elsewhere
 	if assessmentJSON == "" {
 		if msg, ok := interpretResp["message"].(string); ok && msg != "" {
-			// Skip common status messages that don't contain assessment
-			lowerMsg := strings.ToLower(msg)
-			if !strings.Contains(lowerMsg, "processed input successfully") &&
-			   !strings.Contains(lowerMsg, "text response provided") &&
-			   (strings.Contains(msg, "{") || strings.Contains(msg, "is_novel") || strings.Contains(msg, "is_worth_learning")) {
+			// Check if message contains JSON (even if it's a status message, it might have the data)
+			if strings.Contains(msg, "{") && (strings.Contains(msg, "is_novel") || strings.Contains(msg, "is_worth_learning")) {
 				assessmentJSON = msg
-				log.Printf("🔍 [BELIEF-ASSESS] Found message field: %s", msg[:minInt(100, len(msg))])
+				log.Printf("🔍 [BELIEF-ASSESS] Found JSON in message field: %s", msg[:minInt(200, len(msg))])
+			} else {
+				// Log what we got for debugging
+				log.Printf("🔍 [BELIEF-ASSESS] Message field contains: %s (no JSON found)", msg[:minInt(200, len(msg))])
 			}
 		}
 	}
@@ -1473,17 +1474,17 @@ If the knowledge is obvious, common knowledge, or not actionable, mark is_worth_
 	end := strings.LastIndex(assessmentJSON, "}")
 	if start >= 0 && end > start {
 		assessmentJSON = assessmentJSON[start : end+1]
-	} else {
-		// Log the actual response for debugging
-		log.Printf("⚠️ Belief assessment response (no JSON found): %s", assessmentJSON[:minInt(200, len(assessmentJSON))])
-		// Check if this is just a status message - if so, default to conservative assessment
-		if strings.Contains(strings.ToLower(assessmentJSON), "processed") || 
-		   strings.Contains(strings.ToLower(assessmentJSON), "success") {
-			log.Printf("⚠️ HDN returned status message instead of assessment - defaulting to conservative (not novel, not worth learning)")
-			return false, false, fmt.Errorf("HDN returned status message instead of JSON assessment: %s", assessmentJSON[:minInt(100, len(assessmentJSON))])
+		} else {
+			// Log the actual response for debugging
+			log.Printf("⚠️ [BELIEF-ASSESS] Response (no JSON found): %s", assessmentJSON[:minInt(200, len(assessmentJSON))])
+			// Check if this is just a status message - if so, we can't assess, so skip this belief
+			if strings.Contains(strings.ToLower(assessmentJSON), "processed input successfully") || 
+			   strings.Contains(strings.ToLower(assessmentJSON), "text response provided") {
+				log.Printf("⚠️ [BELIEF-ASSESS] HDN returned status message instead of assessment - this may indicate HDN is not processing the request correctly")
+				return false, false, fmt.Errorf("HDN returned status message instead of JSON assessment (HDN may need configuration or the LLM response wasn't captured): %s", assessmentJSON[:minInt(100, len(assessmentJSON))])
+			}
+			return false, false, fmt.Errorf("no JSON found in assessment response: %s", assessmentJSON[:minInt(100, len(assessmentJSON))])
 		}
-		return false, false, fmt.Errorf("no JSON found in assessment response: %s", assessmentJSON[:minInt(100, len(assessmentJSON))])
-	}
 
 	// Parse assessment JSON (already extracted above)
 	var assessment map[string]interface{}
