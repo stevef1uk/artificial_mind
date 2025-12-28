@@ -132,46 +132,37 @@ echo ""
 
 INTERVENTION_COUNT=0
 
-# Try to find curiosity goals keys with timeout (KEYS can be slow)
-print_status "Searching for curiosity goals (this may take a moment)..."
-GOAL_KEYS=$(timeout 10 $REDIS_CMD KEYS "*curiosity_goals*" 2>/dev/null | head -5 || echo "")
+# Check known goal key only (KEYS * is too slow in production Redis)
+KNOWN_GOAL_KEY="reasoning:curiosity_goals:General"
+print_status "Checking goal key: $KNOWN_GOAL_KEY"
 
-if [ -z "$GOAL_KEYS" ] || [ "$GOAL_KEYS" = "" ]; then
-    print_warning "No curiosity goals keys found (or Redis KEYS command timed out)"
-    echo "   This is OK - goals may be stored under different keys or not created yet"
-else
-    print_status "Found goal keys, checking for intervention goals..."
-    for GOAL_KEY in $GOAL_KEYS; do
-        [ -z "$GOAL_KEY" ] && continue
-        GOALS=$(timeout 5 $REDIS_CMD LRANGE "$GOAL_KEY" 0 50 2>/dev/null || echo "")
-        if [ -z "$GOALS" ]; then
-            continue
-        fi
-        for GOAL_DATA in $GOALS; do
-            [ -z "$GOAL_DATA" ] && continue
-            if echo "$GOAL_DATA" | grep -q '"type".*"intervention_testing"'; then
-                INTERVENTION_COUNT=$((INTERVENTION_COUNT + 1))
-                if [ $INTERVENTION_COUNT -le 2 ]; then
-                    if command -v jq >/dev/null 2>&1; then
-                        DESC=$(echo "$GOAL_DATA" | jq -r '.description // ""' 2>/dev/null | cut -c1-70)
-                        PRIORITY=$(echo "$GOAL_DATA" | jq -r '.priority // "N/A"' 2>/dev/null)
-                        echo "✅ Intervention goal: $DESC..."
-                        echo "   Priority: $PRIORITY"
-                        echo ""
-                    else
-                        echo "✅ Intervention goal found (type=intervention_testing)"
-                    fi
+GOALS=$($REDIS_CMD LRANGE "$KNOWN_GOAL_KEY" 0 50 2>/dev/null || echo "")
+
+if [ -n "$GOALS" ] && [ "$GOALS" != "" ]; then
+    for GOAL_DATA in $GOALS; do
+        [ -z "$GOAL_DATA" ] && continue
+        if echo "$GOAL_DATA" | grep -q '"type".*"intervention_testing"'; then
+            INTERVENTION_COUNT=$((INTERVENTION_COUNT + 1))
+            if [ $INTERVENTION_COUNT -le 2 ]; then
+                if command -v jq >/dev/null 2>&1; then
+                    DESC=$(echo "$GOAL_DATA" | jq -r '.description // ""' 2>/dev/null | cut -c1-70)
+                    PRIORITY=$(echo "$GOAL_DATA" | jq -r '.priority // "N/A"' 2>/dev/null)
+                    echo "✅ Intervention goal: $DESC..."
+                    echo "   Priority: $PRIORITY"
+                    echo ""
+                else
+                    echo "✅ Intervention goal found (type=intervention_testing)"
                 fi
             fi
-        done
+        fi
     done
-    
-    if [ "$INTERVENTION_COUNT" = "0" ]; then
-        print_warning "No intervention goals found in curiosity goals"
-        echo "   (This is OK - intervention goals may not have been created yet)"
-    else
-        print_success "Found $INTERVENTION_COUNT intervention goal(s)"
-    fi
+fi
+
+if [ "$INTERVENTION_COUNT" = "0" ]; then
+    print_warning "No intervention goals found in $KNOWN_GOAL_KEY"
+    echo "   (This is OK - they may be in other keys or not created yet)"
+else
+    print_success "Found $INTERVENTION_COUNT intervention goal(s)"
 fi
 
 # Check logs if available
