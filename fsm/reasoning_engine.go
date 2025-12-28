@@ -605,27 +605,48 @@ func (re *ReasoningEngine) executeCypherQuery(cypherQuery string) ([]Belief, err
 }
 
 func (re *ReasoningEngine) extractStatementFromResult(result map[string]interface{}) string {
+	// Prefer definition over name - a belief should be a statement, not just a name
 	// Flat fields
-	if name, ok := result["name"].(string); ok && name != "" {
-		return name
+	var name, definition string
+	
+	if n, ok := result["name"].(string); ok && n != "" {
+		name = n
 	}
-	if definition, ok := result["definition"].(string); ok && definition != "" {
-		return definition
+	if d, ok := result["definition"].(string); ok && d != "" {
+		definition = d
 	}
+	
 	// Nested Neo4j node formats (from HDN /knowledge/query): keys like "n","c","a","b"
 	// Expect shape: map[key] -> map{"Props": map{"name":..., "definition":..., "domain":...}}
-	for _, k := range []string{"n", "c", "a", "b", "related"} {
-		if node, ok := result[k].(map[string]interface{}); ok {
-			if props, ok := node["Props"].(map[string]interface{}); ok {
-				if name, ok := props["name"].(string); ok && name != "" {
-					return name
-				}
-				if definition, ok := props["definition"].(string); ok && definition != "" {
-					return definition
+	if name == "" || definition == "" {
+		for _, k := range []string{"n", "c", "a", "b", "related"} {
+			if node, ok := result[k].(map[string]interface{}); ok {
+				if props, ok := node["Props"].(map[string]interface{}); ok {
+					if name == "" {
+						if n, ok := props["name"].(string); ok && n != "" {
+							name = n
+						}
+					}
+					if definition == "" {
+						if d, ok := props["definition"].(string); ok && d != "" {
+							definition = d
+						}
+					}
 				}
 			}
 		}
 	}
+	
+	// Prefer definition if available (it's a proper statement)
+	if definition != "" {
+		return definition
+	}
+	
+	// If only name is available, format it as a statement
+	if name != "" {
+		return fmt.Sprintf("%s is a concept in the knowledge base", name)
+	}
+	
 	return "Unknown concept"
 }
 
