@@ -140,6 +140,7 @@ print_status "Checking goal key: $KNOWN_GOAL_KEY"
 # Use background process with kill for timeout on RPI (timeout command may not be available)
 print_status "Checking if key exists..."
 KEY_EXISTS="0"
+TIMED_OUT=false
 
 if [ "$USE_KUBECTL" = true ]; then
     # Use background process with kill for timeout simulation
@@ -150,8 +151,10 @@ if [ "$USE_KUBECTL" = true ]; then
         # Still running, kill it
         kill $REDIS_PID 2>/dev/null
         wait $REDIS_PID 2>/dev/null
-        print_warning "Redis command timed out, skipping intervention goals check"
+        print_warning "Redis EXISTS command timed out, skipping intervention goals check"
+        TIMED_OUT=true
         GOALS=""
+        rm -f /tmp/redis_exists.$$ 2>/dev/null
     else
         # Completed
         KEY_EXISTS=$(cat /tmp/redis_exists.$$ 2>/dev/null || echo "0")
@@ -165,14 +168,12 @@ if [ -z "$KEY_EXISTS" ]; then
     KEY_EXISTS="0"
 fi
 
-if [ "$KEY_EXISTS" = "0" ] || [ -z "$GOALS" ]; then
-    if [ -z "$GOALS" ]; then
-        # Already handled timeout case above
-        :
-    else
-        print_warning "Goal key does not exist (goals may not have been created yet)"
-        GOALS=""
-    fi
+if [ "$TIMED_OUT" = true ]; then
+    # Already handled, skip
+    :
+elif [ "$KEY_EXISTS" = "0" ]; then
+    print_warning "Goal key does not exist (goals may not have been created yet)"
+    GOALS=""
 else
     print_status "Key exists, fetching goals..."
     if [ "$USE_KUBECTL" = true ]; then
