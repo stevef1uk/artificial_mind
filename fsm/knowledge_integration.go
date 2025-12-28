@@ -1229,15 +1229,21 @@ func (ki *KnowledgeIntegration) generateFactBasedHypothesis(fact Fact, concepts 
 		hypothesisDesc = fmt.Sprintf("If we investigate %s further, we can discover new %s opportunities", fact.Content, domain)
 	}
 
+	// Create uncertainty model for fact-based hypothesis
+	epistemicUncertainty := EstimateEpistemicUncertainty(1, false, false) // 1 fact, no definition/examples yet
+	aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "")
+	uncertainty := NewUncertaintyModel(confidence, epistemicUncertainty, aleatoricUncertainty)
+	
 	return &Hypothesis{
 		ID:          fmt.Sprintf("hyp_fact_%d_%d", time.Now().UnixNano(), index),
 		Description: hypothesisDesc,
 		Domain:      domain,
-		Confidence:  confidence,
+		Confidence:  uncertainty.CalibratedConfidence, // Use calibrated confidence
 		Status:      "proposed",
 		Facts:       []string{fact.ID},
 		Constraints: fact.Constraints,
 		CreatedAt:   time.Now(),
+		Uncertainty: uncertainty,
 	}
 }
 
