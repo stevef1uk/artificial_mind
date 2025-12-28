@@ -137,11 +137,26 @@ KNOWN_GOAL_KEY="reasoning:curiosity_goals:General"
 print_status "Checking goal key: $KNOWN_GOAL_KEY"
 
 # Check if key exists first (faster than LRANGE on non-existent key)
-# Use timeout for kubectl exec which can hang on RPI
+# Use background process with kill for timeout on RPI (timeout command may not be available)
 print_status "Checking if key exists..."
+KEY_EXISTS="0"
+
 if [ "$USE_KUBECTL" = true ]; then
-    # kubectl exec can hang, use timeout
-    KEY_EXISTS=$(timeout 10 kubectl exec -n "$NAMESPACE" "$REDIS_POD" -- redis-cli EXISTS "$KNOWN_GOAL_KEY" 2>/dev/null || echo "0")
+    # Use background process with kill for timeout simulation
+    (kubectl exec -n "$NAMESPACE" "$REDIS_POD" -- redis-cli EXISTS "$KNOWN_GOAL_KEY" 2>/dev/null > /tmp/redis_exists.$$) &
+    REDIS_PID=$!
+    sleep 5
+    if kill -0 $REDIS_PID 2>/dev/null; then
+        # Still running, kill it
+        kill $REDIS_PID 2>/dev/null
+        wait $REDIS_PID 2>/dev/null
+        print_warning "Redis command timed out, skipping intervention goals check"
+        GOALS=""
+    else
+        # Completed
+        KEY_EXISTS=$(cat /tmp/redis_exists.$$ 2>/dev/null || echo "0")
+        rm -f /tmp/redis_exists.$$ 2>/dev/null
+    fi
 else
     KEY_EXISTS=$($REDIS_CMD EXISTS "$KNOWN_GOAL_KEY" 2>/dev/null || echo "0")
 fi
@@ -150,21 +165,40 @@ if [ -z "$KEY_EXISTS" ]; then
     KEY_EXISTS="0"
 fi
 
-print_status "Key exists check result: $KEY_EXISTS"
-
-if [ "$KEY_EXISTS" = "0" ]; then
-    print_warning "Goal key does not exist (goals may not have been created yet)"
-    GOALS=""
+if [ "$KEY_EXISTS" = "0" ] || [ -z "$GOALS" ]; then
+    if [ -z "$GOALS" ]; then
+        # Already handled timeout case above
+        :
+    else
+        print_warning "Goal key does not exist (goals may not have been created yet)"
+        GOALS=""
+    fi
 else
     print_status "Key exists, fetching goals..."
     if [ "$USE_KUBECTL" = true ]; then
-        # Use timeout for kubectl exec
-        GOALS=$(timeout 15 kubectl exec -n "$NAMESPACE" "$REDIS_POD" -- redis-cli LRANGE "$KNOWN_GOAL_KEY" 0 50 2>/dev/null || echo "")
+        # Use background process with kill for timeout
+        (kubectl exec -n "$NAMESPACE" "$REDIS_POD" -- redis-cli LRANGE "$KNOWN_GOAL_KEY" 0 50 2>/dev/null > /tmp/redis_goals.$$) &
+        REDIS_PID=$!
+        sleep 10
+        if kill -0 $REDIS_PID 2>/dev/null; then
+            # Still running, kill it
+            kill $REDIS_PID 2>/dev/null
+            wait $REDIS_PID 2>/dev/null
+            print_warning "LRANGE command timed out, skipping goals"
+            GOALS=""
+            rm -f /tmp/redis_goals.$$ 2>/dev/null
+        else
+            # Completed
+            GOALS=$(cat /tmp/redis_goals.$$ 2>/dev/null || echo "")
+            rm -f /tmp/redis_goals.$$ 2>/dev/null
+        fi
     else
         GOALS=$($REDIS_CMD LRANGE "$KNOWN_GOAL_KEY" 0 50 2>/dev/null || echo "")
     fi
-    GOAL_COUNT=$(echo "$GOALS" | grep -v "^$" | wc -l | tr -d ' ' || echo "0")
-    print_status "LRANGE completed, found $GOAL_COUNT goal(s)"
+    if [ -n "$GOALS" ]; then
+        GOAL_COUNT=$(echo "$GOALS" | grep -v "^$" | wc -l | tr -d ' ' || echo "0")
+        print_status "LRANGE completed, found $GOAL_COUNT goal(s)"
+    fi
 fi
 
 if [ -n "$GOALS" ] && [ "$GOALS" != "" ]; then
