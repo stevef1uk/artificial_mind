@@ -439,49 +439,68 @@ func (e *FSMEngine) coherenceMonitoringLoop() {
 
 	log.Printf("🔍 [Coherence] Coherence monitoring loop started (interval: %v)", interval)
 
+	// Run an immediate check on startup (don't wait for first tick)
+	go func() {
+		// Wait a few seconds for system to be ready
+		time.Sleep(10 * time.Second)
+		
+		if e.coherenceMonitor == nil {
+			log.Printf("⚠️ [Coherence] Coherence monitor is nil, skipping initial check")
+			return
+		}
+		
+		log.Printf("🔍 [Coherence] Running initial coherence check...")
+		e.runCoherenceCheck()
+	}()
+
 	for {
 		select {
 		case <-e.ctx.Done():
 			return
 		case <-ticker.C:
-			// Check if coherence monitor is initialized
-			if e.coherenceMonitor == nil {
-				log.Printf("⚠️ [Coherence] Coherence monitor is nil, skipping check")
-				continue
-			}
-			
-			// Perform coherence check
-			inconsistencies, err := e.coherenceMonitor.CheckCoherence()
-			if err != nil {
-				log.Printf("⚠️ [Coherence] Error during coherence check: %v", err)
-				continue
-			}
+			e.runCoherenceCheck()
+		}
+	}
+}
 
-			if len(inconsistencies) > 0 {
-				log.Printf("⚠️ [Coherence] Detected %d inconsistencies", len(inconsistencies))
-				
-				// Generate self-reflection tasks for each inconsistency
-				for _, inc := range inconsistencies {
-					if !inc.Resolved {
-						// Generate reflection task
-						task, err := e.coherenceMonitor.GenerateSelfReflectionTask(inc)
-						if err != nil {
-							log.Printf("⚠️ [Coherence] Failed to generate reflection task: %v", err)
-							continue
-						}
-						
-						// Attempt to resolve the inconsistency
-						if err := e.coherenceMonitor.ResolveInconsistency(inc); err != nil {
-							log.Printf("⚠️ [Coherence] Failed to resolve inconsistency %s: %v", inc.ID, err)
-						} else {
-							log.Printf("✅ [Coherence] Generated resolution task for inconsistency: %s (task: %s)", inc.ID, task.ID)
-						}
-					}
+// runCoherenceCheck performs a single coherence check
+func (e *FSMEngine) runCoherenceCheck() {
+	// Check if coherence monitor is initialized
+	if e.coherenceMonitor == nil {
+		log.Printf("⚠️ [Coherence] Coherence monitor is nil, skipping check")
+		return
+	}
+	
+	// Perform coherence check
+	inconsistencies, err := e.coherenceMonitor.CheckCoherence()
+	if err != nil {
+		log.Printf("⚠️ [Coherence] Error during coherence check: %v", err)
+		return
+	}
+
+	if len(inconsistencies) > 0 {
+		log.Printf("⚠️ [Coherence] Detected %d inconsistencies", len(inconsistencies))
+		
+		// Generate self-reflection tasks for each inconsistency
+		for _, inc := range inconsistencies {
+			if !inc.Resolved {
+				// Generate reflection task
+				task, err := e.coherenceMonitor.GenerateSelfReflectionTask(inc)
+				if err != nil {
+					log.Printf("⚠️ [Coherence] Failed to generate reflection task: %v", err)
+					continue
 				}
-			} else {
-				log.Printf("✅ [Coherence] No inconsistencies detected")
+				
+				// Attempt to resolve the inconsistency
+				if err := e.coherenceMonitor.ResolveInconsistency(inc); err != nil {
+					log.Printf("⚠️ [Coherence] Failed to resolve inconsistency %s: %v", inc.ID, err)
+				} else {
+					log.Printf("✅ [Coherence] Generated resolution task for inconsistency: %s (task: %s)", inc.ID, task.ID)
+				}
 			}
 		}
+	} else {
+		log.Printf("✅ [Coherence] No inconsistencies detected")
 	}
 }
 
