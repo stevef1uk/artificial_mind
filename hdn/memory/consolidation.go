@@ -164,18 +164,24 @@ func (mc *MemoryConsolidator) CompressEpisodes() (int, error) {
 	config := DefaultConsolidationConfig()
 	
 	// Search for recent episodes (last 30 days)
-	cutoff := time.Now().Add(-30 * 24 * time.Hour)
+	// Note: Weaviate filtering is complex, so we'll get all episodes and filter in memory
 	queryVec := make([]float32, 8) // Placeholder vector - in production, use actual embedding
 	
-	// Get a sample of recent episodes
-	episodes, err := mc.vectorDB.SearchEpisodes(queryVec, 1000, map[string]any{
-		"timestamp": map[string]any{
-			"gte": cutoff.Format(time.RFC3339),
-		},
-	})
+	// Get a sample of episodes (we'll filter by timestamp in memory)
+	episodes, err := mc.vectorDB.SearchEpisodes(queryVec, 1000, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to search episodes: %w", err)
 	}
+
+	// Filter by timestamp in memory (last 30 days)
+	cutoff := time.Now().Add(-30 * 24 * time.Hour)
+	recentEpisodes := []EpisodicRecord{}
+	for _, ep := range episodes {
+		if ep.Timestamp.After(cutoff) {
+			recentEpisodes = append(recentEpisodes, ep)
+		}
+	}
+	episodes = recentEpisodes
 
 	if len(episodes) < config.MinSimilarEpisodes {
 		log.Printf("ℹ️ [CONSOLIDATION] Not enough episodes for compression (%d < %d)", len(episodes), config.MinSimilarEpisodes)
