@@ -345,6 +345,7 @@ type APIServer struct {
 	toolMetrics          *ToolMetricsManager
 	hdnBaseURL           string // For tool calling
 	mcpKnowledgeServer   *MCPKnowledgeServer
+	memoryConsolidator   *mempkg.MemoryConsolidator
 }
 
 func NewAPIServer(domainPath string, redisAddr string) *APIServer {

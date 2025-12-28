@@ -53,6 +53,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - **Session Management** - Conversation sessions with message previews and thought history
 - **Daily Summary Pipeline** - Nightly autonomous analysis that produces a human-readable daily summary of system activity
 - **Multi-Modal Memory System** - Unified working, episodic (Qdrant), and semantic (Neo4j) memory used for planning, reasoning, and learning
+- **Memory Consolidation & Compression** - Periodic pipeline that compresses redundant episodes, promotes stable patterns to semantic memory, archives stale traces, and extracts skill abstractions from repeated workflows
 
 ---
 
@@ -71,6 +72,8 @@ The Artificial Mind system consists of several interconnected components that wo
 - [**Knowledge Growth**](docs/KNOWLEDGE_GROWTH.md) - Continuous learning system
 - [**Domain Knowledge**](docs/DOMAIN_KNOWLEDGE.md) - Knowledge representation and management
 - [**LLM-Based Knowledge Filtering**](docs/LLM_BASED_KNOWLEDGE_FILTERING.md) - Intelligent filtering of novel, valuable knowledge
+- [**Memory Consolidation**](docs/MEMORY_CONSOLIDATION.md) - Periodic memory optimization and compression system
+- [**Testing Memory Consolidation**](docs/TESTING_MEMORY_CONSOLIDATION.md) - Guide for testing consolidation locally
 
 ### 💬 Interfaces & Communication
 - [**Conversational AI Summary**](docs/CONVERSATIONAL_AI_SUMMARY.md) - Natural language interface

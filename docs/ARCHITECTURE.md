@@ -1314,6 +1314,18 @@ docker run -d --name qdrant -p 6333:6333 -v $(pwd)/qdrant_storage:/qdrant/storag
 - Clearing State (Makefile targets)
   - Redis, Qdrant (and optional Neo4j) clears are wired into the reset targets so “clear cache” also clears memory stores.
 
+- Memory Consolidation & Compression
+  - **Purpose**: Periodic optimization pipeline that reduces memory footprint and promotes stable patterns
+  - **Components**:
+    - **Episode Compression**: Groups similar episodes (≥5) into generalized schemas stored in Redis
+    - **Semantic Promotion**: Promotes stable schemas (stability ≥0.7) to Neo4j as domain concepts
+    - **Trace Archiving**: Archives old traces (7+ days, utility <0.3) to long-term storage
+    - **Skill Extraction**: Derives skill abstractions from repeated workflows (≥3 repetitions)
+  - **Schedule**: Runs 30 seconds after server startup, then every hour (configurable)
+  - **Configuration**: See `hdn/memory/consolidation.go` and `DefaultConsolidationConfig()`
+  - **Monitoring**: Check logs for `[CONSOLIDATION]` messages, Redis keys `consolidation:schema:*`, `consolidation:skill:*`
+  - **Documentation**: See [Memory Consolidation](MEMORY_CONSOLIDATION.md) and [Testing Memory Consolidation](TESTING_MEMORY_CONSOLIDATION.md)
+
 - Notes
   - The Monitor UI Recent Episodes panel queries the Monitor proxy which forwards to HDN. Default query uses `q=*` with optional `session_id`.
   - Qdrant indexing uses numeric point IDs and requests include `with_payload: true` to return full episodic payloads.

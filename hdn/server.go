@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	selfmodel "agi/self"
+	mempkg "hdn/memory"
 
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
@@ -355,6 +356,21 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 	// Start token aggregation scheduler (runs hourly to consolidate token usage)
 	server.startTokenAggregationScheduler()
 	log.Printf("✅ [HDN] Token aggregation scheduler started (hourly)")
+
+	// Initialize and start memory consolidation
+	if server.vectorDB != nil && server.domainKnowledge != nil {
+		consolidator := mempkg.NewMemoryConsolidator(
+			redisClient,
+			server.vectorDB,
+			server.domainKnowledge,
+			mempkg.DefaultConsolidationConfig(),
+		)
+		server.memoryConsolidator = consolidator
+		consolidator.Start()
+		log.Printf("✅ [HDN] Memory consolidation scheduler started (interval: %v)", mempkg.DefaultConsolidationConfig().Interval)
+	} else {
+		log.Printf("⚠️ [HDN] Memory consolidation disabled (vectorDB or domainKnowledge not available)")
+	}
 
 	// Start server
 	log.Printf("🔧 [HDN] About to start HTTP server...")
