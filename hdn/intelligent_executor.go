@@ -1784,6 +1784,9 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	}
 
 	// 🧠 INTELLIGENCE: Use learned prevention hints to avoid common errors
+	if ie.learningRedis == nil {
+		log.Printf("⚠️  [INTELLIGENCE] learningRedis is nil - cannot retrieve prevention hints")
+	}
 	preventionHints := ie.getPreventionHintsForTask(req)
 	if len(preventionHints) > 0 {
 		enhancedDesc += "\n\n🧠 LEARNED FROM EXPERIENCE - Common errors to avoid:\n"
@@ -5009,19 +5012,23 @@ func (ie *IntelligentExecutor) generatePreventionHint(errorMsg, language string)
 // This is where the system demonstrates intelligence by using what it learned
 func (ie *IntelligentExecutor) getPreventionHintsForTask(req *ExecutionRequest) []string {
 	if ie.learningRedis == nil {
+		log.Printf("⚠️  [INTELLIGENCE] getPreventionHintsForTask: learningRedis is nil for task %s (language: %s)", req.TaskName, req.Language)
 		return []string{}
 	}
+	log.Printf("🧠 [INTELLIGENCE] getPreventionHintsForTask: Searching for hints (task: %s, language: %s)", req.TaskName, req.Language)
 
 	taskCategory := ie.deriveTaskCategory(req.TaskName, req.Description)
 	var hints []string
 
 	// Get prevention hints for common error patterns in this language
 	patternTypes := []string{"compilation", "runtime", "type_error", "validation"}
+	searchedKeys := []string{}
 	for _, patternType := range patternTypes {
 		// Try to get hints for common error categories
 		errorCategories := []string{"undefined", "type_mismatch", "import_error", "syntax_error"}
 		for _, errorCategory := range errorCategories {
 			preventionKey := fmt.Sprintf("prevention_hint:%s:%s:%s", patternType, errorCategory, req.Language)
+			searchedKeys = append(searchedKeys, preventionKey)
 			hint, err := ie.learningRedis.Get(ie.ctx, preventionKey).Result()
 			if err == nil && hint != "" {
 				// Check if this hint is relevant to the task category
@@ -5036,11 +5043,18 @@ func (ie *IntelligentExecutor) getPreventionHintsForTask(req *ExecutionRequest) 
 						if pattern.Frequency >= 2 {
 							hints = append(hints, hint)
 							log.Printf("🧠 [INTELLIGENCE] Retrieved learned prevention hint: %s (seen %d times)", hint, pattern.Frequency)
+						} else {
+							log.Printf("🧠 [INTELLIGENCE] Found hint but frequency too low: %s (frequency: %d, need >= 2)", preventionKey, pattern.Frequency)
 						}
 					}
+				} else {
+					log.Printf("🧠 [INTELLIGENCE] Found hint but no matching pattern: %s", preventionKey)
 				}
 			}
 		}
+	}
+	if len(hints) == 0 && len(searchedKeys) > 0 {
+		log.Printf("🧠 [INTELLIGENCE] Searched %d keys for prevention hints, found 0 matching hints for task %s (language: %s)", len(searchedKeys), req.TaskName, req.Language)
 	}
 
 	// Also check for task-category-specific strategies that worked well
