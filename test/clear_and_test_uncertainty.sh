@@ -44,13 +44,25 @@ fi
 
 FSM_URL="${FSM_URL:-http://localhost:8083}"
 
-# Try to send input - use kubectl exec if in k3s, otherwise curl
+# Try to send input - use port-forward if in k3s, otherwise direct curl
 if [ "$USE_KUBECTL" = true ] && [ -n "$FSM_POD" ]; then
   echo "   Using FSM pod: $FSM_POD"
-  # Use kubectl exec to send input via the pod
-  INPUT_DATA='{"input": "Artificial intelligence and machine learning systems use neural networks to process complex data patterns", "session_id": "uncertainty_fresh_test_'$(date +%s)'"}'
-  kubectl exec -n "$NAMESPACE" "$FSM_POD" -- sh -c "echo '$INPUT_DATA' | curl -s -X POST http://localhost:8083/input -H 'Content-Type: application/json' -d @-" > /dev/null 2>&1
-  echo "   ✅ Input sent via pod"
+  echo "   Setting up port-forward..."
+  # Start port-forward in background
+  kubectl port-forward -n "$NAMESPACE" "$FSM_POD" 8083:8083 > /dev/null 2>&1 &
+  PF_PID=$!
+  sleep 2
+  # Send input via localhost
+  curl -s -X POST "http://localhost:8083/input" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "input": "Artificial intelligence and machine learning systems use neural networks to process complex data patterns",
+      "session_id": "uncertainty_fresh_test_'$(date +%s)'"
+    }' > /dev/null 2>&1
+  # Kill port-forward
+  kill $PF_PID 2>/dev/null
+  wait $PF_PID 2>/dev/null
+  echo "   ✅ Input sent via port-forward"
 else
   # Try direct curl
   curl -s -X POST "$FSM_URL/input" \
@@ -69,7 +81,13 @@ echo ""
 # Check FSM status
 echo "   Checking FSM status..."
 if [ "$USE_KUBECTL" = true ] && [ -n "$FSM_POD" ]; then
-  FSM_STATUS=$(kubectl exec -n "$NAMESPACE" "$FSM_POD" -- sh -c "curl -s http://localhost:8083/status 2>/dev/null" | grep -o '"current_state":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+  # Use port-forward for status check
+  kubectl port-forward -n "$NAMESPACE" "$FSM_POD" 8083:8083 > /dev/null 2>&1 &
+  PF_PID=$!
+  sleep 2
+  FSM_STATUS=$(curl -s "http://localhost:8083/status" 2>/dev/null | grep -o '"current_state":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+  kill $PF_PID 2>/dev/null
+  wait $PF_PID 2>/dev/null
 else
   FSM_STATUS=$(curl -s "$FSM_URL/status" 2>/dev/null | grep -o '"current_state":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
 fi
@@ -92,14 +110,11 @@ if [ -z "$HYP_DATA" ]; then
   echo "     kubectl exec -n $NAMESPACE $REDIS_POD -- redis-cli HGETALL fsm:agent_1:hypotheses"
   echo ""
   echo "   Or check FSM logs for hypothesis generation:"
-  if [ "$USE_KUBECTL" = true ]; then
-    FSM_POD=$(kubectl get pods -n "$NAMESPACE" -l app=fsm-server -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-    if [ -z "$FSM_POD" ]; then
-      FSM_POD=$(kubectl get pods -n "$NAMESPACE" -o jsonpath='{.items[?(@.metadata.name=~"fsm.*")].metadata.name}' 2>/dev/null | awk '{print $1}')
-    fi
-    if [ -n "$FSM_POD" ]; then
-      echo "     kubectl logs -n $NAMESPACE $FSM_POD --tail=50 | grep -i hypothesis"
-    fi
+  if [ "$USE_KUBECTL" = true ] && [ -n "$FSM_POD" ]; then
+    echo "     kubectl logs -n $NAMESPACE $FSM_POD --tail=50 | grep -i hypothesis"
+    echo ""
+    echo "   Recent FSM logs (last 20 lines):"
+    kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=20 2>/dev/null | tail -10 | sed 's/^/     /'
   fi
   exit 1
 fi
