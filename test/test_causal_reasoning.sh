@@ -5,6 +5,7 @@
 # - Causal hypothesis classification
 # - Counterfactual reasoning actions
 # - Intervention-style goals
+# Supports both local Docker and Kubernetes/k3s environments
 
 set -e
 
@@ -35,36 +36,102 @@ echo "🔬 Testing Causal Reasoning Signals"
 echo "===================================="
 echo ""
 
-# Check if Redis is running
-print_status "Checking Redis connection..."
-if docker exec agi-redis redis-cli ping > /dev/null 2>&1; then
-    print_success "Redis is running"
-    REDIS_CMD="docker exec agi-redis redis-cli"
-else
-    print_error "Redis is not running. Please start Redis first."
-    echo "   Try: docker-compose up -d redis"
-    exit 1
+# Detect environment (local Docker vs Kubernetes/k3s)
+NAMESPACE="${K8S_NAMESPACE:-agi}"
+USE_KUBECTL=false
+REDIS_CMD=""
+FSM_URL="${FSM_URL:-http://localhost:8083}"
+HDN_URL="${HDN_URL:-http://localhost:8081}"
+
+# Check for kubectl and Kubernetes environment
+if command -v kubectl &> /dev/null; then
+    REDIS_POD=$(kubectl get pods -n "$NAMESPACE" -l app=redis -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [ -n "$REDIS_POD" ]; then
+        # Try alternative label patterns
+        if [ -z "$REDIS_POD" ]; then
+            REDIS_POD=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null | grep -E "redis.*Running" | awk '{print $1}' | head -1)
+        fi
+    fi
+    
+    if [ -n "$REDIS_POD" ]; then
+        USE_KUBECTL=true
+        REDIS_CMD="kubectl exec -n $NAMESPACE $REDIS_POD -- redis-cli"
+        print_status "Detected Kubernetes/k3s environment"
+        print_status "Using Redis pod: $REDIS_POD"
+        
+        # Get FSM and HDN service URLs (may need port-forward)
+        FSM_POD=$(kubectl get pods -n "$NAMESPACE" -l app=fsm-server -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+        if [ -z "$FSM_POD" ]; then
+            FSM_POD=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null | grep -E "fsm.*Running" | awk '{print $1}' | head -1)
+        fi
+        
+        HDN_POD=$(kubectl get pods -n "$NAMESPACE" -l app=hdn-server -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+        if [ -z "$HDN_POD" ]; then
+            HDN_POD=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null | grep -E "hdn.*Running" | awk '{print $1}' | head -1)
+        fi
+        
+        # Check if services are accessible, if not suggest port-forward
+        if ! curl -s --max-time 2 "${FSM_URL}/health" > /dev/null 2>&1; then
+            print_warning "FSM service not accessible at $FSM_URL"
+            print_status "You may need to port-forward:"
+            echo "   kubectl port-forward -n $NAMESPACE svc/fsm-server 8083:8083 &"
+            FSM_URL="http://localhost:8083"
+        fi
+        
+        if ! curl -s --max-time 2 "${HDN_URL}/health" > /dev/null 2>&1; then
+            print_warning "HDN service not accessible at $HDN_URL"
+            print_status "You may need to port-forward:"
+            echo "   kubectl port-forward -n $NAMESPACE svc/hdn-server 8081:8081 &"
+            HDN_URL="http://localhost:8081"
+        fi
+    fi
+fi
+
+# Fallback to local Docker
+if [ "$USE_KUBECTL" = false ]; then
+    print_status "Checking Redis connection (local Docker)..."
+    if docker exec agi-redis redis-cli ping > /dev/null 2>&1; then
+        print_success "Redis is running (Docker)"
+        REDIS_CMD="docker exec agi-redis redis-cli"
+    else
+        print_error "Redis is not running. Please start Redis first."
+        echo "   Try: docker-compose up -d redis"
+        exit 1
+    fi
 fi
 
 # Check if FSM server is running
 print_status "Checking FSM server..."
-if curl -s http://localhost:8083/health > /dev/null 2>&1; then
-    print_success "FSM server is running"
+if curl -s --max-time 2 "${FSM_URL}/health" > /dev/null 2>&1; then
+    print_success "FSM server is running at $FSM_URL"
+    if [ "$USE_KUBECTL" = true ] && [ -n "$FSM_POD" ]; then
+        FSM_STATUS=$(kubectl get pod "$FSM_POD" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)
+        echo "   Pod: $FSM_POD ($FSM_STATUS)"
+    fi
 else
-    print_warning "FSM server is not running. Starting it..."
-    echo "   You may need to start it manually:"
-    echo "   cd fsm && go run . -config config/artificial_mind.yaml"
+    print_warning "FSM server is not accessible at $FSM_URL"
+    if [ "$USE_KUBECTL" = false ]; then
+        echo "   You may need to start it manually:"
+        echo "   cd fsm && go run . -config config/artificial_mind.yaml"
+    else
+        echo "   You may need to port-forward:"
+        echo "   kubectl port-forward -n $NAMESPACE svc/fsm-server 8083:8083 &"
+    fi
     echo ""
     read -p "Press Enter to continue (will test with Redis only) or Ctrl+C to exit..."
 fi
 
 # Check if HDN server is running (needed for hypothesis generation)
 print_status "Checking HDN server..."
-if curl -s http://localhost:8081/health > /dev/null 2>&1; then
-    print_success "HDN server is running"
+if curl -s --max-time 2 "${HDN_URL}/health" > /dev/null 2>&1; then
+    print_success "HDN server is running at $HDN_URL"
     HDN_RUNNING=true
+    if [ "$USE_KUBECTL" = true ] && [ -n "$HDN_POD" ]; then
+        HDN_STATUS=$(kubectl get pod "$HDN_POD" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null)
+        echo "   Pod: $HDN_POD ($HDN_STATUS)"
+    fi
 else
-    print_warning "HDN server is not running. Some features may not work."
+    print_warning "HDN server is not accessible at $HDN_URL. Some features may not work."
     HDN_RUNNING=false
 fi
 
@@ -112,9 +179,9 @@ echo ""
 
 # First, try to get hypotheses from FSM API endpoint
 HYPOTHESES_JSON=""
-if curl -s http://localhost:8083/hypotheses > /dev/null 2>&1; then
-    print_status "Fetching hypotheses from FSM API..."
-    HYPOTHESES_JSON=$(curl -s http://localhost:8083/hypotheses 2>/dev/null)
+if curl -s --max-time 5 "${FSM_URL}/hypotheses" > /dev/null 2>&1; then
+    print_status "Fetching hypotheses from FSM API at $FSM_URL..."
+    HYPOTHESES_JSON=$(curl -s --max-time 5 "${FSM_URL}/hypotheses" 2>/dev/null)
     if [ -n "$HYPOTHESES_JSON" ] && [ "$HYPOTHESES_JSON" != "null" ] && [ "$HYPOTHESES_JSON" != "[]" ]; then
         print_success "Found hypotheses via FSM API"
         if command -v jq >/dev/null 2>&1; then
@@ -419,20 +486,38 @@ echo ""
 print_status "Step 6: Checking FSM logs for causal reasoning messages..."
 echo ""
 
-if [ -f "/tmp/fsm_server.log" ]; then
-    CAUSAL_LOG_COUNT=$(grep -c "\[CAUSAL\]" /tmp/fsm_server.log 2>/dev/null || echo "0")
+if [ "$USE_KUBECTL" = true ] && [ -n "$FSM_POD" ]; then
+    print_status "Checking FSM pod logs..."
+    CAUSAL_LOG_COUNT=$(kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=500 2>/dev/null | grep -c "\[CAUSAL\]" || echo "0")
     if [ "$CAUSAL_LOG_COUNT" -gt 0 ]; then
         print_success "Found $CAUSAL_LOG_COUNT causal reasoning log entries"
         echo ""
         print_status "Recent causal reasoning logs:"
-        grep "\[CAUSAL\]" /tmp/fsm_server.log | tail -5
+        kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=500 2>/dev/null | grep "\[CAUSAL\]" | tail -5
     else
-        print_warning "No [CAUSAL] log entries found"
+        print_warning "No [CAUSAL] log entries found in FSM pod logs"
         echo "  This suggests hypothesis generation hasn't run with the new code"
+        echo ""
+        print_status "To watch logs in real-time:"
+        echo "  kubectl logs -n $NAMESPACE -f $FSM_POD | grep CAUSAL"
     fi
 else
-    print_warning "FSM log file not found at /tmp/fsm_server.log"
-    echo "  Check where your FSM server logs are written"
+    # Local Docker environment
+    if [ -f "/tmp/fsm_server.log" ]; then
+        CAUSAL_LOG_COUNT=$(grep -c "\[CAUSAL\]" /tmp/fsm_server.log 2>/dev/null || echo "0")
+        if [ "$CAUSAL_LOG_COUNT" -gt 0 ]; then
+            print_success "Found $CAUSAL_LOG_COUNT causal reasoning log entries"
+            echo ""
+            print_status "Recent causal reasoning logs:"
+            grep "\[CAUSAL\]" /tmp/fsm_server.log | tail -5
+        else
+            print_warning "No [CAUSAL] log entries found"
+            echo "  This suggests hypothesis generation hasn't run with the new code"
+        fi
+    else
+        print_warning "FSM log file not found at /tmp/fsm_server.log"
+        echo "  Check where your FSM server logs are written"
+    fi
 fi
 
 echo ""
@@ -440,18 +525,36 @@ echo "=========================================================="
 print_status "Test Complete!"
 echo ""
 print_status "Next steps:"
-echo "  1. View hypotheses in Monitor UI: http://localhost:8082"
-echo "  2. View hypotheses via FSM API: curl http://localhost:8083/hypotheses | jq"
-echo "  3. Check FSM logs: tail -f /tmp/fsm_server.log | grep CAUSAL"
-echo "  4. Trigger hypothesis generation:"
-echo "     - Send NATS event: echo 'test input' | nats pub agi.events.input --stdin"
-echo "     - Or wait for autonomy cycle (if enabled)"
-echo "     - Or use Monitor UI to send input"
-echo "  5. Verify intervention goals are created with higher priority"
-echo ""
-echo "To manually test causal reasoning:"
-echo "  1. Restart FSM server to load new code: cd fsm && go run . -config config/artificial_mind.yaml"
-echo "  2. Send input via Monitor UI or NATS to trigger hypothesis generation"
-echo "  3. Check that hypotheses have causal_type, counterfactual_actions, and intervention_goals fields"
+if [ "$USE_KUBECTL" = true ]; then
+    echo "  1. View hypotheses in Monitor UI (port-forward if needed)"
+    echo "  2. View hypotheses via FSM API: curl ${FSM_URL}/hypotheses | jq"
+    echo "  3. Check FSM logs: kubectl logs -n $NAMESPACE -f $FSM_POD | grep CAUSAL"
+    echo "  4. Trigger hypothesis generation:"
+    echo "     - Send NATS event: echo 'test input' | nats pub agi.events.input --stdin"
+    echo "     - Or wait for autonomy cycle (if enabled)"
+    echo "     - Or use Monitor UI to send input"
+    echo "  5. Verify intervention goals are created with higher priority"
+    echo ""
+    echo "To manually test causal reasoning:"
+    echo "  1. Restart FSM deployment to load new code:"
+    echo "     kubectl rollout restart deployment/fsm-server -n $NAMESPACE"
+    echo "  2. Wait for pod to be ready: kubectl wait --for=condition=ready pod -l app=fsm-server -n $NAMESPACE"
+    echo "  3. Send input via Monitor UI or NATS to trigger hypothesis generation"
+    echo "  4. Check that hypotheses have causal_type, counterfactual_actions, and intervention_goals fields"
+else
+    echo "  1. View hypotheses in Monitor UI: http://localhost:8082"
+    echo "  2. View hypotheses via FSM API: curl ${FSM_URL}/hypotheses | jq"
+    echo "  3. Check FSM logs: tail -f /tmp/fsm_server.log | grep CAUSAL"
+    echo "  4. Trigger hypothesis generation:"
+    echo "     - Send NATS event: echo 'test input' | nats pub agi.events.input --stdin"
+    echo "     - Or wait for autonomy cycle (if enabled)"
+    echo "     - Or use Monitor UI to send input"
+    echo "  5. Verify intervention goals are created with higher priority"
+    echo ""
+    echo "To manually test causal reasoning:"
+    echo "  1. Restart FSM server to load new code: cd fsm && go run . -config config/artificial_mind.yaml"
+    echo "  2. Send input via Monitor UI or NATS to trigger hypothesis generation"
+    echo "  3. Check that hypotheses have causal_type, counterfactual_actions, and intervention_goals fields"
+fi
 echo ""
 
