@@ -1430,7 +1430,10 @@ If the knowledge is obvious, common knowledge, or not actionable, mark is_worth_
 		} else if output, ok := interpretResp["output"].(string); ok {
 			assessmentJSON = output
 		} else {
-			return false, false, fmt.Errorf("no assessment data in response")
+			// Log full response structure for debugging
+			responseDebug, _ := json.MarshalIndent(interpretResp, "", "  ")
+			log.Printf("⚠️ Belief assessment response structure: %s", string(responseDebug))
+			return false, false, fmt.Errorf("no assessment data in response (checked tasks, message, result, output)")
 		}
 	}
 
@@ -1441,6 +1444,14 @@ If the knowledge is obvious, common knowledge, or not actionable, mark is_worth_
 	if start >= 0 && end > start {
 		assessmentJSON = assessmentJSON[start : end+1]
 	} else {
+		// Log the actual response for debugging
+		log.Printf("⚠️ Belief assessment response (no JSON found): %s", assessmentJSON[:minInt(200, len(assessmentJSON))])
+		// Check if this is just a status message - if so, default to conservative assessment
+		if strings.Contains(strings.ToLower(assessmentJSON), "processed") || 
+		   strings.Contains(strings.ToLower(assessmentJSON), "success") {
+			log.Printf("⚠️ HDN returned status message instead of assessment - defaulting to conservative (not novel, not worth learning)")
+			return false, false, fmt.Errorf("HDN returned status message instead of JSON assessment: %s", assessmentJSON[:minInt(100, len(assessmentJSON))])
+		}
 		return false, false, fmt.Errorf("no JSON found in assessment response: %s", assessmentJSON[:minInt(100, len(assessmentJSON))])
 	}
 
