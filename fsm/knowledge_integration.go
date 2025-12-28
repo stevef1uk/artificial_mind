@@ -61,14 +61,14 @@ type Fact struct {
 
 // Hypothesis represents a generated hypothesis
 type Hypothesis struct {
-	ID          string           `json:"id"`
-	Description string           `json:"description"`
-	Domain      string           `json:"domain"`
-	Confidence  float64          `json:"confidence"` // Legacy field, use Uncertainty.CalibratedConfidence
-	Status      string           `json:"status"`     // proposed, testing, confirmed, refuted
-	Facts       []string         `json:"facts"`      // IDs of supporting facts
-	Constraints []string         `json:"constraints"`
-	CreatedAt   time.Time        `json:"created_at"`
+	ID          string            `json:"id"`
+	Description string            `json:"description"`
+	Domain      string            `json:"domain"`
+	Confidence  float64           `json:"confidence"` // Legacy field, use Uncertainty.CalibratedConfidence
+	Status      string            `json:"status"`     // proposed, testing, confirmed, refuted
+	Facts       []string          `json:"facts"`      // IDs of supporting facts
+	Constraints []string          `json:"constraints"`
+	CreatedAt   time.Time         `json:"created_at"`
 	Uncertainty *UncertaintyModel `json:"uncertainty,omitempty"` // Formal uncertainty model
 }
 
@@ -559,32 +559,32 @@ func (ki *KnowledgeIntegration) hasSimilarFailedHypothesis(description, domain s
 	}
 
 	descLower := strings.ToLower(description)
-	
+
 	// Check each stored hypothesis
 	for _, hypData := range hypothesesData {
 		var hypothesis map[string]interface{}
 		if err := json.Unmarshal([]byte(hypData), &hypothesis); err != nil {
 			continue
 		}
-		
+
 		// Check if this hypothesis failed or was refuted
 		status, ok := hypothesis["status"].(string)
 		if !ok || (status != "refuted" && status != "failed") {
 			continue // Only check failed/refuted hypotheses
 		}
-		
+
 		// Check if descriptions are similar
 		existingDesc, ok := hypothesis["description"].(string)
 		if !ok {
 			continue
 		}
 		existingDescLower := strings.ToLower(existingDesc)
-		
+
 		// Check for similarity (shared keywords or substring match)
 		// Extract key terms (words longer than 4 chars)
 		newTerms := ki.extractKeyTerms(descLower)
 		existingTerms := ki.extractKeyTerms(existingDescLower)
-		
+
 		// If they share 2+ key terms, consider them similar
 		sharedTerms := 0
 		for _, term := range newTerms {
@@ -595,15 +595,15 @@ func (ki *KnowledgeIntegration) hasSimilarFailedHypothesis(description, domain s
 				}
 			}
 		}
-		
+
 		// If similar and failed, avoid testing
 		if sharedTerms >= 2 {
-			log.Printf("🧠 [INTELLIGENCE] Skipping hypothesis similar to failed one: '%s' (similar to failed: '%s')", 
+			log.Printf("🧠 [INTELLIGENCE] Skipping hypothesis similar to failed one: '%s' (similar to failed: '%s')",
 				description[:min(60, len(description))], existingDesc[:min(60, len(existingDesc))])
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -732,7 +732,7 @@ func (ki *KnowledgeIntegration) GenerateHypotheses(facts []Fact, domain string) 
 				epistemicUncertainty := EstimateEpistemicUncertainty(1, false, false)
 				aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "")
 				uncertainty := NewUncertaintyModel(baseConfidence, epistemicUncertainty, aleatoricUncertainty)
-				
+
 				hypothesis := Hypothesis{
 					ID:          fmt.Sprintf("hyp_basic_%d_%d", time.Now().UnixNano(), i),
 					Description: fmt.Sprintf("Investigate %s to discover new %s opportunities", fact.Content, domain),
@@ -793,7 +793,7 @@ func (ki *KnowledgeIntegration) GenerateHypotheses(facts []Fact, domain string) 
 				log.Printf("🧠 [INTELLIGENCE] Skipping hypothesis similar to failed one: %s", hypothesis.Description[:min(60, len(hypothesis.Description))])
 				continue
 			}
-			
+
 			// Check for duplicates before adding
 			if !ki.isDuplicateHypothesis(*hypothesis, existingHypotheses) {
 				hypotheses = append(hypotheses, *hypothesis)
@@ -920,7 +920,7 @@ func (ki *KnowledgeIntegration) generateConceptBasedHypothesis(conceptName, conc
 	// Hypotheses start with higher epistemic uncertainty (we don't know if they're true yet)
 	epistemicUncertainty := EstimateEpistemicUncertainty(1, false, false) // 1 fact, no definition/examples yet
 	aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "")
-	
+
 	// Create uncertainty model
 	uncertainty := NewUncertaintyModel(confidence, epistemicUncertainty, aleatoricUncertainty)
 
@@ -1192,15 +1192,21 @@ func (ki *KnowledgeIntegration) generateRelationshipHypotheses(concepts []map[st
 			if strings.Contains(strings.ToLower(def1), strings.ToLower(name2)) ||
 				strings.Contains(strings.ToLower(def2), strings.ToLower(name1)) {
 
+				// Create uncertainty model for relationship-based hypothesis
+				epistemicUncertainty := EstimateEpistemicUncertainty(2, false, false) // 2 concepts
+				aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "")
+				uncertainty := NewUncertaintyModel(0.6, epistemicUncertainty, aleatoricUncertainty)
+				
 				hypothesis := Hypothesis{
 					ID:          fmt.Sprintf("hyp_rel_%d_%d_%d", time.Now().UnixNano(), i, j),
 					Description: fmt.Sprintf("If we combine %s and %s, we can create new %s capabilities", name1, name2, domain),
 					Domain:      domain,
-					Confidence:  0.6,
+					Confidence:  uncertainty.CalibratedConfidence,
 					Status:      "proposed",
 					Facts:       []string{fmt.Sprintf("concept_%s", name1), fmt.Sprintf("concept_%s", name2)},
 					Constraints: []string{},
 					CreatedAt:   time.Now(),
+					Uncertainty: uncertainty,
 				}
 				hypotheses = append(hypotheses, hypothesis)
 			}
@@ -1233,7 +1239,7 @@ func (ki *KnowledgeIntegration) generateFactBasedHypothesis(fact Fact, concepts 
 	epistemicUncertainty := EstimateEpistemicUncertainty(1, false, false) // 1 fact, no definition/examples yet
 	aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "")
 	uncertainty := NewUncertaintyModel(confidence, epistemicUncertainty, aleatoricUncertainty)
-	
+
 	return &Hypothesis{
 		ID:          fmt.Sprintf("hyp_fact_%d_%d", time.Now().UnixNano(), index),
 		Description: hypothesisDesc,
