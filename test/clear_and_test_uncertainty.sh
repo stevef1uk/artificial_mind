@@ -43,15 +43,41 @@ curl -s -X POST "$FSM_URL/input" \
   }' > /dev/null
 
 echo "   ✅ Input sent"
-echo "   ⏳ Waiting 20 seconds for processing..."
-sleep 20
+echo "   ⏳ Waiting 30 seconds for processing (hypothesis generation can take time)..."
+sleep 30
+echo ""
+
+# Check FSM status
+echo "   Checking FSM status..."
+FSM_STATUS=$(curl -s "$FSM_URL/status" 2>/dev/null | grep -o '"current_state":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+echo "   FSM current state: $FSM_STATUS"
 echo ""
 
 echo "3. Checking NEW hypotheses for uncertainty models..."
 HYP_DATA=$(redis_cmd HGETALL fsm:agent_1:hypotheses)
 
 if [ -z "$HYP_DATA" ]; then
-  echo "   ⚠️  No hypotheses found (may need more time)"
+  echo "   ⚠️  No hypotheses found yet"
+  echo ""
+  echo "   This could mean:"
+  echo "     - Hypothesis generation is still in progress (wait longer)"
+  echo "     - FSM needs to be in the right state (check: curl $FSM_URL/status)"
+  echo "     - No facts were extracted from the input"
+  echo ""
+  echo "   Try waiting another 30 seconds and checking again:"
+  echo "     sleep 30"
+  echo "     kubectl exec -n $NAMESPACE $REDIS_POD -- redis-cli HGETALL fsm:agent_1:hypotheses"
+  echo ""
+  echo "   Or check FSM logs for hypothesis generation:"
+  if [ "$USE_KUBECTL" = true ]; then
+    FSM_POD=$(kubectl get pods -n "$NAMESPACE" -l app=fsm-server -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [ -z "$FSM_POD" ]; then
+      FSM_POD=$(kubectl get pods -n "$NAMESPACE" -o jsonpath='{.items[?(@.metadata.name=~"fsm.*")].metadata.name}' 2>/dev/null | awk '{print $1}')
+    fi
+    if [ -n "$FSM_POD" ]; then
+      echo "     kubectl logs -n $NAMESPACE $FSM_POD --tail=50 | grep -i hypothesis"
+    fi
+  fi
   exit 1
 fi
 
