@@ -61,14 +61,15 @@ type Fact struct {
 
 // Hypothesis represents a generated hypothesis
 type Hypothesis struct {
-	ID          string    `json:"id"`
-	Description string    `json:"description"`
-	Domain      string    `json:"domain"`
-	Confidence  float64   `json:"confidence"`
-	Status      string    `json:"status"` // proposed, testing, confirmed, refuted
-	Facts       []string  `json:"facts"`  // IDs of supporting facts
-	Constraints []string  `json:"constraints"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID          string           `json:"id"`
+	Description string           `json:"description"`
+	Domain      string           `json:"domain"`
+	Confidence  float64          `json:"confidence"` // Legacy field, use Uncertainty.CalibratedConfidence
+	Status      string           `json:"status"`     // proposed, testing, confirmed, refuted
+	Facts       []string         `json:"facts"`      // IDs of supporting facts
+	Constraints []string         `json:"constraints"`
+	CreatedAt   time.Time        `json:"created_at"`
+	Uncertainty *UncertaintyModel `json:"uncertainty,omitempty"` // Formal uncertainty model
 }
 
 // Plan represents a hierarchical plan
@@ -726,15 +727,22 @@ func (ki *KnowledgeIntegration) GenerateHypotheses(facts []Fact, domain string) 
 		if len(facts) > 0 {
 			var basicHypotheses []Hypothesis
 			for i, fact := range facts {
+				baseConfidence := fact.Confidence * 0.5
+				// Estimate uncertainties
+				epistemicUncertainty := EstimateEpistemicUncertainty(1, false, false)
+				aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "")
+				uncertainty := NewUncertaintyModel(baseConfidence, epistemicUncertainty, aleatoricUncertainty)
+				
 				hypothesis := Hypothesis{
 					ID:          fmt.Sprintf("hyp_basic_%d_%d", time.Now().UnixNano(), i),
 					Description: fmt.Sprintf("Investigate %s to discover new %s opportunities", fact.Content, domain),
 					Domain:      domain,
-					Confidence:  fact.Confidence * 0.5,
+					Confidence:  uncertainty.CalibratedConfidence,
 					Status:      "proposed",
 					Facts:       []string{fact.ID},
 					Constraints: fact.Constraints,
 					CreatedAt:   time.Now(),
+					Uncertainty: uncertainty,
 				}
 
 				// Check for duplicates before adding
@@ -908,15 +916,24 @@ func (ki *KnowledgeIntegration) generateConceptBasedHypothesis(conceptName, conc
 	// Scale confidence by potential value
 	confidence = confidence * potentialValue
 
+	// Estimate uncertainties for hypothesis
+	// Hypotheses start with higher epistemic uncertainty (we don't know if they're true yet)
+	epistemicUncertainty := EstimateEpistemicUncertainty(1, false, false) // 1 fact, no definition/examples yet
+	aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "")
+	
+	// Create uncertainty model
+	uncertainty := NewUncertaintyModel(confidence, epistemicUncertainty, aleatoricUncertainty)
+
 	return &Hypothesis{
 		ID:          fmt.Sprintf("hyp_concept_%d_%d", time.Now().UnixNano(), index),
 		Description: hypothesisDesc,
 		Domain:      domain,
-		Confidence:  confidence,
+		Confidence:  uncertainty.CalibratedConfidence, // Use calibrated confidence
 		Status:      "proposed",
 		Facts:       []string{fmt.Sprintf("concept_%s", conceptName)},
 		Constraints: []string{},
 		CreatedAt:   time.Now(),
+		Uncertainty: uncertainty,
 	}
 }
 

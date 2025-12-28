@@ -3289,6 +3289,18 @@ func (e *FSMEngine) storeHypotheses(hypotheses []Hypothesis, domain string) {
 			"constraints": hypothesis.Constraints,
 			"created_at":  hypothesis.CreatedAt.Format(time.RFC3339),
 		}
+		
+		// Include uncertainty model data if available
+		if hypothesis.Uncertainty != nil {
+			hypothesisData["uncertainty"] = map[string]interface{}{
+				"epistemic_uncertainty":  hypothesis.Uncertainty.EpistemicUncertainty,
+				"aleatoric_uncertainty":  hypothesis.Uncertainty.AleatoricUncertainty,
+				"calibrated_confidence": hypothesis.Uncertainty.CalibratedConfidence,
+				"stability":              hypothesis.Uncertainty.Stability,
+				"volatility":             hypothesis.Uncertainty.Volatility,
+				"last_updated":           hypothesis.Uncertainty.LastUpdated.Format(time.RFC3339),
+			}
+		}
 
 		data, err := json.Marshal(hypothesisData)
 		if err != nil {
@@ -3373,6 +3385,25 @@ func (e *FSMEngine) createHypothesisTestingGoals(hypotheses []Hypothesis, domain
 				goalDesc = fmt.Sprintf("Test hypothesis: %s", hypDesc)
 			}
 			
+			// Create uncertainty model for hypothesis testing goal
+			// Use hypothesis uncertainty if available, otherwise estimate
+			var uncertainty *UncertaintyModel
+			if hypothesis.Uncertainty != nil {
+				// Copy hypothesis uncertainty but adjust for testing context
+				uncertainty = NewUncertaintyModel(
+					hypothesis.Uncertainty.CalibratedConfidence,
+					hypothesis.Uncertainty.EpistemicUncertainty,
+					hypothesis.Uncertainty.AleatoricUncertainty,
+				)
+				uncertainty.Stability = hypothesis.Uncertainty.Stability
+				uncertainty.Volatility = hypothesis.Uncertainty.Volatility
+			} else {
+				// Estimate uncertainties for testing goal
+				epistemicUncertainty := EstimateEpistemicUncertainty(len(hypothesis.Facts), false, false)
+				aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "hypothesis_testing")
+				uncertainty = NewUncertaintyModel(hypothesis.Confidence, epistemicUncertainty, aleatoricUncertainty)
+			}
+			
 			goal := CuriosityGoal{
 				ID:          fmt.Sprintf("hyp_test_%s", hypothesis.ID),
 				Type:        "hypothesis_testing",
@@ -3382,6 +3413,8 @@ func (e *FSMEngine) createHypothesisTestingGoals(hypotheses []Hypothesis, domain
 				Status:      "pending",
 				Domain:      domain,
 				CreatedAt:   time.Now(),
+				Uncertainty: uncertainty,
+				Value:       uncertainty.CalibratedConfidence,
 			}
 
 		// Skip generic filter for LLM-approved hypotheses - they've already been screened
@@ -4055,15 +4088,24 @@ func (e *FSMEngine) handleConfirmedHypothesis(hypothesis map[string]interface{},
 
 	log.Printf("✅ Hypothesis confirmed: %s", description)
 
-	// 1. Convert hypothesis to a belief
+	// 1. Convert hypothesis to a belief with uncertainty model
+	// Confirmed hypotheses have lower epistemic uncertainty (we have evidence)
+	epistemicUncertainty := EstimateEpistemicUncertainty(len(result.Evidence), true, false)
+	aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "")
+	uncertainty := NewUncertaintyModel(result.Confidence, epistemicUncertainty, aleatoricUncertainty)
+	// Reinforce with evidence strength
+	uncertainty.Reinforce(result.Confidence)
+	
 	belief := Belief{
 		ID:         fmt.Sprintf("belief_from_hyp_%s", hypothesisID),
 		Statement:  description,
-		Confidence: result.Confidence,
+		Confidence: uncertainty.CalibratedConfidence,
 		Domain:     domain,
 		Source:     "hypothesis_testing",
 		Evidence:   []string{hypothesisID},
 		CreatedAt:  time.Now(),
+		LastUpdated: time.Now(),
+		Uncertainty: uncertainty,
 		Properties: map[string]interface{}{
 			"original_hypothesis_id": hypothesisID,
 			"testing_method":         "tool_based",
@@ -4269,15 +4311,22 @@ func (e *FSMEngine) generateFollowUpHypotheses(originalHypothesis map[string]int
 
 	// Create follow-up hypotheses
 	for i, followUpDesc := range followUpDescriptions {
+		// Create uncertainty model for follow-up hypothesis
+		// Follow-ups have slightly higher epistemic uncertainty (less direct evidence)
+		epistemicUncertainty := EstimateEpistemicUncertainty(1, false, false)
+		aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "")
+		uncertainty := NewUncertaintyModel(0.6, epistemicUncertainty, aleatoricUncertainty)
+		
 		followUpHypothesis := Hypothesis{
 			ID:          fmt.Sprintf("followup_%s_%d_%d", resultType, time.Now().UnixNano(), i),
 			Description: followUpDesc,
 			Domain:      domain,
-			Confidence:  0.6, // Moderate confidence for follow-ups
+			Confidence:  uncertainty.CalibratedConfidence,
 			Status:      "proposed",
 			Facts:       []string{originalHypothesis["id"].(string)},
 			Constraints: []string{"Must follow domain safety principles"},
 			CreatedAt:   time.Now(),
+			Uncertainty: uncertainty,
 		}
 
 		// Store follow-up hypothesis

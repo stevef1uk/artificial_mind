@@ -639,14 +639,20 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 			if val, ok := e.context["last_bootstrap_ok"].(bool); ok && val {
 				conf = 0.7
 			}
+			// Create uncertainty model for minimal belief
+			epistemicUncertainty := EstimateEpistemicUncertainty(0, false, false)
+			aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "")
+			uncertainty := NewUncertaintyModel(conf, epistemicUncertainty, aleatoricUncertainty)
+			
 			minimal := Belief{
 				ID:          fmt.Sprintf("belief_%d", time.Now().UnixNano()),
 				Statement:   fmt.Sprintf("Examined %s", targetQuery),
-				Confidence:  conf,
+				Confidence:  uncertainty.CalibratedConfidence,
 				Source:      "autonomy.scan",
 				Domain:      domain,
 				CreatedAt:   time.Now(),
 				LastUpdated: time.Now(),
+				Uncertainty: uncertainty,
 			}
 			if data, err := json.Marshal(minimal); err == nil {
 				key := fmt.Sprintf("reasoning:beliefs:%s", domain)
@@ -1507,8 +1513,45 @@ func minInt(a, b int) int {
 }
 
 // calculateGoalScore calculates a priority score for a goal
+// Now incorporates uncertainty models for more principled decision-making
 func (e *FSMEngine) calculateGoalScore(goal CuriosityGoal, domain string) float64 {
 	score := float64(goal.Priority) // Base priority (1-10)
+
+	// Uncertainty-based adjustments
+	if goal.Uncertainty != nil {
+		// Apply decay if needed
+		ApplyDecayToGoal(&goal)
+		
+		// Higher calibrated confidence increases score (more certain goals are preferred)
+		confidenceBonus := goal.Uncertainty.CalibratedConfidence * 2.0
+		score += confidenceBonus
+		log.Printf("📊 Goal %s: uncertainty confidence bonus +%.2f (calibrated: %.3f)", 
+			goal.ID, confidenceBonus, goal.Uncertainty.CalibratedConfidence)
+		
+		// Lower epistemic uncertainty is preferred (we know more about it)
+		epistemicPenalty := goal.Uncertainty.EpistemicUncertainty * 1.0
+		score -= epistemicPenalty
+		log.Printf("📉 Goal %s: epistemic uncertainty penalty -%.2f (uncertainty: %.3f)", 
+			goal.ID, epistemicPenalty, goal.Uncertainty.EpistemicUncertainty)
+		
+		// Higher stability is preferred (less volatile goals)
+		stabilityBonus := goal.Uncertainty.Stability * 0.5
+		score += stabilityBonus
+		log.Printf("📈 Goal %s: stability bonus +%.2f (stability: %.3f)", 
+			goal.ID, stabilityBonus, goal.Uncertainty.Stability)
+		
+		// Use uncertainty-calibrated value if available
+		if goal.Value > 0 {
+			valueBonus := goal.Value * 1.5
+			score += valueBonus
+			log.Printf("💰 Goal %s: value bonus +%.2f (value: %.3f)", goal.ID, valueBonus, goal.Value)
+		}
+	} else if goal.Value > 0 {
+		// Fallback to value if uncertainty model not available
+		valueBonus := goal.Value * 1.5
+		score += valueBonus
+		log.Printf("💰 Goal %s: value bonus +%.2f (value: %.3f, no uncertainty model)", goal.ID, valueBonus, goal.Value)
+	}
 
 	// Historical success bonus - goals of types that succeed more often get bonus
 	successRate := e.getSuccessRate(goal.Type, domain)
@@ -2093,6 +2136,16 @@ func (e *FSMEngine) generateHypothesisTestingGoalsForExisting(domain string) ([]
 			}
 		}
 
+		// Create uncertainty model for hypothesis testing goal
+		// Estimate based on hypothesis confidence if available
+		hypConfidence := 0.5 // Default
+		if conf, ok := hypothesis["confidence"].(float64); ok {
+			hypConfidence = conf
+		}
+		epistemicUncertainty := EstimateEpistemicUncertainty(0, false, false) // No direct evidence yet
+		aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "hypothesis_testing")
+		uncertainty := NewUncertaintyModel(hypConfidence, epistemicUncertainty, aleatoricUncertainty)
+		
 		goal := CuriosityGoal{
 			ID:          fmt.Sprintf("hyp_test_%s", hypID),
 			Type:        "hypothesis_testing",
@@ -2102,6 +2155,8 @@ func (e *FSMEngine) generateHypothesisTestingGoalsForExisting(domain string) ([]
 			Status:      "pending",
 			Domain:      domain,
 			CreatedAt:   time.Now(),
+			Uncertainty: uncertainty,
+			Value:       uncertainty.CalibratedConfidence,
 		}
 
 		// Skip generic hypotheses (same filter as createHypothesisTestingGoals)
