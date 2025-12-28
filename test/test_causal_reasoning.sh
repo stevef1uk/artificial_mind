@@ -136,7 +136,14 @@ INTERVENTION_COUNT=0
 KNOWN_GOAL_KEY="reasoning:curiosity_goals:General"
 print_status "Checking goal key: $KNOWN_GOAL_KEY"
 
-GOALS=$($REDIS_CMD LRANGE "$KNOWN_GOAL_KEY" 0 50 2>/dev/null || echo "")
+# Check if key exists first (faster than LRANGE on non-existent key)
+KEY_EXISTS=$($REDIS_CMD EXISTS "$KNOWN_GOAL_KEY" 2>/dev/null || echo "0")
+if [ "$KEY_EXISTS" = "0" ]; then
+    print_warning "Goal key does not exist (goals may not have been created yet)"
+    GOALS=""
+else
+    GOALS=$($REDIS_CMD LRANGE "$KNOWN_GOAL_KEY" 0 50 2>/dev/null || echo "")
+fi
 
 if [ -n "$GOALS" ] && [ "$GOALS" != "" ]; then
     for GOAL_DATA in $GOALS; do
