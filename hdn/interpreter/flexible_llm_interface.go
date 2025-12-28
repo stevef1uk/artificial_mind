@@ -66,7 +66,12 @@ func isScoringRequest(input string) bool {
 		strings.Contains(lowerInput, "evaluating hypotheses") ||
 		strings.Contains(lowerInput, "return only the json score") ||
 		strings.Contains(lowerInput, "simple scoring task") ||
-		strings.Contains(lowerInput, "no tools") && strings.Contains(lowerInput, "no actions")
+		(strings.Contains(lowerInput, "no tools") && strings.Contains(lowerInput, "no actions")) ||
+		// Belief assessment patterns
+		strings.Contains(lowerInput, "assess whether this knowledge") ||
+		strings.Contains(lowerInput, "worth storing as a belief") ||
+		(strings.Contains(lowerInput, "is_novel") && strings.Contains(lowerInput, "is_worth_learning")) ||
+		strings.Contains(lowerInput, "assess whether") && strings.Contains(lowerInput, "belief")
 }
 
 // ProcessNaturalLanguageWithPriority processes natural language input with tool awareness and priority

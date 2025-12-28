@@ -1331,23 +1331,27 @@ func (re *ReasoningEngine) assessBeliefValue(statement string, domain string) (b
 	}
 
 	// Create prompt for LLM assessment
-	prompt := fmt.Sprintf(`Assess whether this knowledge from the knowledge base is worth storing as a belief.
+	// Use language that matches scoring request patterns to ensure proper detection
+	prompt := fmt.Sprintf(`This is a SIMPLE ASSESSMENT TASK that requires NO tools, NO actions, and NO queries. Just return a JSON assessment.
+
+Assess whether this knowledge from the knowledge base is worth storing as a belief.
 
 Knowledge: %s
 Domain: %s
 
 This knowledge already exists in the knowledge base. Should we store it as a belief?
 
+CRITICAL: You MUST respond with type "text" containing ONLY a JSON object. Do NOT use tools. Do NOT create tasks. This is a pure assessment task.
+
 Evaluate:
 1. NOVELTY: Is this knowledge novel/interesting, or is it obvious/common knowledge?
 2. VALUE: Is this knowledge worth storing as a belief? Will it help with tasks or decisions?
 
-Return JSON:
-{
-  "is_novel": true/false,
-  "is_worth_learning": true/false,
-  "reasoning": "Brief explanation"
-}
+You MUST respond with EXACTLY this format (no other text):
+{"type": "text", "content": "{\"is_novel\": true/false, \"is_worth_learning\": true/false, \"reasoning\": \"Brief explanation\"}"}
+
+Or if the system requires direct JSON, return:
+{"is_novel": true/false, "is_worth_learning": true/false, "reasoning": "Brief explanation"}
 
 Be strict: Only mark as worth learning if:
 - The knowledge is actionable and useful
@@ -1355,7 +1359,9 @@ Be strict: Only mark as worth learning if:
 - The knowledge is not obvious/common knowledge
 - The knowledge adds value beyond just existing in the KB
 
-If the knowledge is obvious, common knowledge, or not actionable, mark is_worth_learning=false.`, statement, domain)
+If the knowledge is obvious, common knowledge, or not actionable, mark is_worth_learning=false.
+
+Remember: NO tools, NO tasks, NO actions - just return the JSON assessment.`, statement, domain)
 
 	// Call HDN interpret endpoint
 	interpretURL := fmt.Sprintf("%s/api/v1/interpret", re.hdnURL)
