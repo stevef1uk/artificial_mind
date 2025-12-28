@@ -662,6 +662,11 @@ func (re *ReasoningEngine) getInferenceRules(domain string) ([]InferenceRule, er
 		}
 	}
 
+	// If no rules found in Redis, return default rules
+	if len(rules) == 0 {
+		return re.getDefaultInferenceRules(domain), nil
+	}
+
 	return rules, nil
 }
 
