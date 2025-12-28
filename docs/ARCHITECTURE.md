@@ -307,6 +307,7 @@ For a deeper, HDN-specific architecture diagram and narrative, see `hdn_architec
   - **Focused Learning Strategy**: Identifies promising areas and focuses learning there (70% focused, 30% exploration)
   - **Meta-Learning System**: Learns about its own learning process to continuously improve strategies
   - **Async HTTP Queue System**: Priority-based async queue for all HTTP calls to HDN with LIFO processing, worker pools, and callback routing
+  - **Uncertainty Modeling & Confidence Calibration**: Formal uncertainty tracking with epistemic (lack of knowledge) and aleatoric (inherent randomness) uncertainty, calibrated confidence, and belief stability/volatility tracking
 - **New Actions**:
   - `reasoning.belief_query` - Query beliefs from knowledge base
   - `reasoning.inference` - Apply inference rules to generate new beliefs
