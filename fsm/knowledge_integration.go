@@ -751,7 +751,9 @@ func (ki *KnowledgeIntegration) GenerateHypotheses(facts []Fact, domain string) 
 
 				// Check for duplicates before adding
 				if !ki.isDuplicateHypothesis(hypothesis, existingHypotheses) {
-					basicHypotheses = append(basicHypotheses, hypothesis)
+					// Enrich basic hypotheses with causal reasoning too
+					enrichedHypothesis := ki.enrichHypothesisWithCausalReasoning(hypothesis, domain)
+					basicHypotheses = append(basicHypotheses, enrichedHypothesis)
 				} else {
 					log.Printf("⚠️ Skipping duplicate hypothesis: %s", hypothesis.Description)
 				}
@@ -1879,7 +1881,7 @@ func (ki *KnowledgeIntegration) evaluateFactHypothesisPotential(fact Fact, domai
 func (ki *KnowledgeIntegration) enrichHypothesisWithCausalReasoning(hypothesis Hypothesis, domain string) Hypothesis {
 	// Always log when this function is called for debugging
 	log.Printf("🔬 [CAUSAL-DEBUG] Enriching hypothesis: %s", hypothesis.Description[:min(80, len(hypothesis.Description))])
-	
+
 	// Classify the hypothesis as causal vs correlation
 	causalType := ki.classifyCausalType(hypothesis.Description, domain)
 	hypothesis.CausalType = causalType
