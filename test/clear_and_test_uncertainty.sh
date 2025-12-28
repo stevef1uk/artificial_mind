@@ -32,25 +32,48 @@ echo "   ✅ Cleared"
 echo ""
 
 echo "2. Triggering new hypothesis generation..."
+
+# Find FSM pod if in k3s
+FSM_POD=""
+if [ "$USE_KUBECTL" = true ]; then
+  FSM_POD=$(kubectl get pods -n "$NAMESPACE" -l app=fsm-server-rpi58 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+  if [ -z "$FSM_POD" ]; then
+    FSM_POD=$(kubectl get pods -n "$NAMESPACE" -o jsonpath='{.items[?(@.metadata.name=~"fsm.*")].metadata.name}' 2>/dev/null | awk '{print $1}')
+  fi
+fi
+
 FSM_URL="${FSM_URL:-http://localhost:8083}"
 
-# Send input to trigger full learning flow
-curl -s -X POST "$FSM_URL/input" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": "Artificial intelligence and machine learning systems use neural networks to process complex data patterns",
-    "session_id": "uncertainty_fresh_test_'$(date +%s)'"
-  }' > /dev/null
+# Try to send input - use kubectl exec if in k3s, otherwise curl
+if [ "$USE_KUBECTL" = true ] && [ -n "$FSM_POD" ]; then
+  echo "   Using FSM pod: $FSM_POD"
+  # Use kubectl exec to send input via the pod
+  INPUT_DATA='{"input": "Artificial intelligence and machine learning systems use neural networks to process complex data patterns", "session_id": "uncertainty_fresh_test_'$(date +%s)'"}'
+  kubectl exec -n "$NAMESPACE" "$FSM_POD" -- sh -c "echo '$INPUT_DATA' | curl -s -X POST http://localhost:8083/input -H 'Content-Type: application/json' -d @-" > /dev/null 2>&1
+  echo "   ✅ Input sent via pod"
+else
+  # Try direct curl
+  curl -s -X POST "$FSM_URL/input" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "input": "Artificial intelligence and machine learning systems use neural networks to process complex data patterns",
+      "session_id": "uncertainty_fresh_test_'$(date +%s)'"
+    }' > /dev/null 2>&1
+  echo "   ✅ Input sent"
+fi
 
-echo "   ✅ Input sent"
 echo "   ⏳ Waiting 30 seconds for processing (hypothesis generation can take time)..."
 sleep 30
 echo ""
 
 # Check FSM status
 echo "   Checking FSM status..."
-FSM_STATUS=$(curl -s "$FSM_URL/status" 2>/dev/null | grep -o '"current_state":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
-echo "   FSM current state: $FSM_STATUS"
+if [ "$USE_KUBECTL" = true ] && [ -n "$FSM_POD" ]; then
+  FSM_STATUS=$(kubectl exec -n "$NAMESPACE" "$FSM_POD" -- sh -c "curl -s http://localhost:8083/status 2>/dev/null" | grep -o '"current_state":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+else
+  FSM_STATUS=$(curl -s "$FSM_URL/status" 2>/dev/null | grep -o '"current_state":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+fi
+echo "   FSM current state: ${FSM_STATUS:-unknown}"
 echo ""
 
 echo "3. Checking NEW hypotheses for uncertainty models..."
