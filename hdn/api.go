@@ -950,6 +950,9 @@ func (s *APIServer) setupRoutes() {
 	// Health check
 	s.router.HandleFunc("/health", s.handleHealth).Methods("GET")
 
+	// Memory consolidation
+	s.router.HandleFunc("/api/v1/memory/consolidate", s.handleTriggerConsolidation).Methods("POST")
+
 	// Register MCP knowledge server routes
 	s.RegisterMCPKnowledgeServerRoutes()
 
@@ -1211,6 +1214,31 @@ func (s *APIServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// handleTriggerConsolidation manually triggers memory consolidation
+func (s *APIServer) handleTriggerConsolidation(w http.ResponseWriter, r *http.Request) {
+	if s.memoryConsolidator == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Memory consolidation not available (vectorDB or domainKnowledge not initialized)",
+		})
+		return
+	}
+
+	// Run consolidation in a goroutine to avoid blocking
+	go func() {
+		s.memoryConsolidator.RunConsolidation()
+	}()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"message":   "Memory consolidation triggered",
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
 }
 
 func (s *APIServer) handleExecuteTask(w http.ResponseWriter, r *http.Request) {
