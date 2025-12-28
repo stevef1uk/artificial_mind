@@ -131,25 +131,39 @@ print_status "Step 2: Checking intervention goals..."
 echo ""
 
 INTERVENTION_COUNT=0
-GOAL_KEYS=$($REDIS_CMD KEYS "*curiosity_goals*" 2>/dev/null | head -5)
+GOAL_KEYS=$($REDIS_CMD KEYS "*curiosity_goals*" 2>/dev/null | head -5 || echo "")
 
-for GOAL_KEY in $GOAL_KEYS; do
-    GOALS=$($REDIS_CMD LRANGE "$GOAL_KEY" 0 50 2>/dev/null)
-    for GOAL_DATA in $GOALS; do
-        if echo "$GOAL_DATA" | grep -q '"type".*"intervention_testing"'; then
-            INTERVENTION_COUNT=$((INTERVENTION_COUNT + 1))
-            if [ $INTERVENTION_COUNT -le 2 ]; then
-                if command -v jq >/dev/null 2>&1; then
-                    DESC=$(echo "$GOAL_DATA" | jq -r '.description // ""' 2>/dev/null | cut -c1-70)
-                    PRIORITY=$(echo "$GOAL_DATA" | jq -r '.priority // "N/A"' 2>/dev/null)
-                    echo "✅ Intervention goal: $DESC..."
-                    echo "   Priority: $PRIORITY"
-                    echo ""
+if [ -z "$GOAL_KEYS" ]; then
+    print_warning "No curiosity goals keys found in Redis"
+else
+    for GOAL_KEY in $GOAL_KEYS; do
+        GOALS=$($REDIS_CMD LRANGE "$GOAL_KEY" 0 50 2>/dev/null || echo "")
+        if [ -z "$GOALS" ]; then
+            continue
+        fi
+        for GOAL_DATA in $GOALS; do
+            if echo "$GOAL_DATA" | grep -q '"type".*"intervention_testing"'; then
+                INTERVENTION_COUNT=$((INTERVENTION_COUNT + 1))
+                if [ $INTERVENTION_COUNT -le 2 ]; then
+                    if command -v jq >/dev/null 2>&1; then
+                        DESC=$(echo "$GOAL_DATA" | jq -r '.description // ""' 2>/dev/null | cut -c1-70)
+                        PRIORITY=$(echo "$GOAL_DATA" | jq -r '.priority // "N/A"' 2>/dev/null)
+                        echo "✅ Intervention goal: $DESC..."
+                        echo "   Priority: $PRIORITY"
+                        echo ""
+                    else
+                        echo "✅ Intervention goal found (type=intervention_testing)"
+                    fi
                 fi
             fi
-        fi
+        done
     done
-done
+    
+    if [ "$INTERVENTION_COUNT" = "0" ]; then
+        print_warning "No intervention goals found in curiosity goals"
+        echo "   (This is OK - intervention goals may not have been created yet)"
+    fi
+fi
 
 # Check logs if available
 if [ "$USE_KUBECTL" = true ] && [ -n "$FSM_POD" ]; then
