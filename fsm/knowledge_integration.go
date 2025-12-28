@@ -548,6 +548,64 @@ func (ki *KnowledgeIntegration) isDuplicateHypothesis(newHypothesis Hypothesis, 
 	return false
 }
 
+// hasSimilarFailedHypothesis checks if a similar hypothesis has failed before
+// 🧠 INTELLIGENCE: Avoid testing hypotheses similar to ones that failed
+func (ki *KnowledgeIntegration) hasSimilarFailedHypothesis(description, domain string) bool {
+	key := fmt.Sprintf("fsm:%s:hypotheses", "agent_1") // TODO: get agent ID properly
+	hypothesesData, err := ki.redis.HGetAll(ki.ctx, key).Result()
+	if err != nil {
+		return false // No data available
+	}
+
+	descLower := strings.ToLower(description)
+	
+	// Check each stored hypothesis
+	for _, hypData := range hypothesesData {
+		var hypothesis map[string]interface{}
+		if err := json.Unmarshal([]byte(hypData), &hypothesis); err != nil {
+			continue
+		}
+		
+		// Check if this hypothesis failed or was refuted
+		status, ok := hypothesis["status"].(string)
+		if !ok || (status != "refuted" && status != "failed") {
+			continue // Only check failed/refuted hypotheses
+		}
+		
+		// Check if descriptions are similar
+		existingDesc, ok := hypothesis["description"].(string)
+		if !ok {
+			continue
+		}
+		existingDescLower := strings.ToLower(existingDesc)
+		
+		// Check for similarity (shared keywords or substring match)
+		// Extract key terms (words longer than 4 chars)
+		newTerms := ki.extractKeyTerms(descLower)
+		existingTerms := ki.extractKeyTerms(existingDescLower)
+		
+		// If they share 2+ key terms, consider them similar
+		sharedTerms := 0
+		for _, term := range newTerms {
+			for _, existingTerm := range existingTerms {
+				if term == existingTerm && len(term) > 4 {
+					sharedTerms++
+					break
+				}
+			}
+		}
+		
+		// If similar and failed, avoid testing
+		if sharedTerms >= 2 {
+			log.Printf("🧠 [INTELLIGENCE] Skipping hypothesis similar to failed one: '%s' (similar to failed: '%s')", 
+				description[:min(60, len(description))], existingDesc[:min(60, len(existingDesc))])
+			return true
+		}
+	}
+	
+	return false
+}
+
 // hasRecentlyExplored checks if a concept or pattern has been recently explored
 func (ki *KnowledgeIntegration) hasRecentlyExplored(conceptName, domain string, hours int) bool {
 	key := fmt.Sprintf("exploration:recent:%s:%s", domain, conceptName)
@@ -722,6 +780,12 @@ func (ki *KnowledgeIntegration) GenerateHypotheses(facts []Fact, domain string) 
 		// Generate hypothesis based on concept analysis
 		hypothesis := ki.generateConceptBasedHypothesis(conceptName, conceptDef, domain, i)
 		if hypothesis != nil {
+			// 🧠 INTELLIGENCE: Check if similar hypothesis failed before
+			if ki.hasSimilarFailedHypothesis(hypothesis.Description, domain) {
+				log.Printf("🧠 [INTELLIGENCE] Skipping hypothesis similar to failed one: %s", hypothesis.Description[:min(60, len(hypothesis.Description))])
+				continue
+			}
+			
 			// Check for duplicates before adding
 			if !ki.isDuplicateHypothesis(*hypothesis, existingHypotheses) {
 				hypotheses = append(hypotheses, *hypothesis)

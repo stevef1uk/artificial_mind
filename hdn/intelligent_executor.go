@@ -1783,6 +1783,16 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		}
 	}
 
+	// 🧠 INTELLIGENCE: Use learned prevention hints to avoid common errors
+	preventionHints := ie.getPreventionHintsForTask(req)
+	if len(preventionHints) > 0 {
+		enhancedDesc += "\n\n🧠 LEARNED FROM EXPERIENCE - Common errors to avoid:\n"
+		for _, hint := range preventionHints {
+			enhancedDesc += fmt.Sprintf("- %s\n", hint)
+		}
+		log.Printf("🧠 [INTELLIGENCE] Added %d prevention hints from learned experience", len(preventionHints))
+	}
+
 	codeGenReq := &CodeGenerationRequest{
 		TaskName:     req.TaskName,
 		Description:  enhancedDesc,
@@ -4993,6 +5003,62 @@ func (ie *IntelligentExecutor) generatePreventionHint(errorMsg, language string)
 	}
 
 	return "Review error message carefully and fix all issues"
+}
+
+// getPreventionHintsForTask retrieves learned prevention hints for a task
+// This is where the system demonstrates intelligence by using what it learned
+func (ie *IntelligentExecutor) getPreventionHintsForTask(req *ExecutionRequest) []string {
+	if ie.learningRedis == nil {
+		return []string{}
+	}
+
+	taskCategory := ie.deriveTaskCategory(req.TaskName, req.Description)
+	var hints []string
+
+	// Get prevention hints for common error patterns in this language
+	patternTypes := []string{"compilation", "runtime", "type_error", "validation"}
+	for _, patternType := range patternTypes {
+		// Try to get hints for common error categories
+		errorCategories := []string{"undefined", "type_mismatch", "import_error", "syntax_error"}
+		for _, errorCategory := range errorCategories {
+			preventionKey := fmt.Sprintf("prevention_hint:%s:%s:%s", patternType, errorCategory, req.Language)
+			hint, err := ie.learningRedis.Get(ie.ctx, preventionKey).Result()
+			if err == nil && hint != "" {
+				// Check if this hint is relevant to the task category
+				// Get failure pattern to check frequency
+				patternKey := fmt.Sprintf("failure_pattern:%s:%s:%s", patternType, errorCategory, req.Language)
+				patternData, err := ie.learningRedis.Get(ie.ctx, patternKey).Result()
+				if err == nil && patternData != "" {
+					var pattern FailurePattern
+					if json.Unmarshal([]byte(patternData), &pattern) == nil {
+						// Only include hints for patterns that occurred at least 2 times
+						// This shows the system learned from repeated mistakes
+						if pattern.Frequency >= 2 {
+							hints = append(hints, hint)
+							log.Printf("🧠 [INTELLIGENCE] Retrieved learned prevention hint: %s (seen %d times)", hint, pattern.Frequency)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Also check for task-category-specific strategies that worked well
+	strategyKey := fmt.Sprintf("codegen_strategy:%s:%s", taskCategory, req.Language)
+	strategyData, err := ie.learningRedis.Get(ie.ctx, strategyKey).Result()
+	if err == nil && strategyData != "" {
+		var strategy CodeGenStrategy
+		if json.Unmarshal([]byte(strategyData), &strategy) == nil {
+			// If we have a successful strategy with good quality, add a hint
+			if strategy.SuccessRate > 0.7 && strategy.AvgQuality > 0.6 && strategy.UsageCount >= 3 {
+				hints = append(hints, fmt.Sprintf("Previous successful approach: %s (success rate: %.0f%%, avg retries: %.1f)",
+					strategy.PromptStyle, strategy.SuccessRate*100, strategy.AvgRetries))
+				log.Printf("🧠 [INTELLIGENCE] Using learned successful strategy: %s (%.0f%% success)", strategy.PromptStyle, strategy.SuccessRate*100)
+			}
+		}
+	}
+
+	return hints
 }
 
 // recordSuccessfulExecution records a successful execution for learning

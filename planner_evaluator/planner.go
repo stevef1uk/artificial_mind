@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -231,7 +232,65 @@ func (p *Planner) FindMatchingCapabilities(ctx context.Context, goal Goal) ([]Ca
 			out = append(out, c)
 		}
 	}
+	
+	// 🧠 INTELLIGENCE: Sort by learned success rate to prefer capabilities that work well
+	if len(out) > 1 {
+		// Enhance each capability with learned success rate
+		type scoredCap struct {
+			cap   Capability
+			score float64
+		}
+		scored := make([]scoredCap, len(out))
+		for i, cap := range out {
+			successRate := p.getCapabilitySuccessRate(ctx, cap.ID, cap.TaskName)
+			// Combine base score with learned success rate
+			// Base score (0-1) + success rate bonus (0-2)
+			totalScore := cap.Score + (successRate * 2.0)
+			scored[i] = scoredCap{cap: cap, score: totalScore}
+		}
+		
+		// Sort by total score (descending)
+		sort.Slice(scored, func(i, j int) bool {
+			return scored[i].score > scored[j].score
+		})
+		
+		// Extract sorted capabilities
+		out = make([]Capability, len(scored))
+		for i, sc := range scored {
+			out[i] = sc.cap
+		}
+	}
+	
 	return out, nil
+}
+
+// getCapabilitySuccessRate retrieves learned success rate for a capability
+func (p *Planner) getCapabilitySuccessRate(ctx context.Context, capabilityID, taskName string) float64 {
+	if p.redis == nil {
+		return 0.0
+	}
+	
+	// Try capability-specific success rate first
+	key := fmt.Sprintf("capability_success_rate:%s", capabilityID)
+	rateStr, err := p.redis.Get(ctx, key).Result()
+	if err == nil {
+		if rate, err := strconv.ParseFloat(rateStr, 64); err == nil {
+			return rate
+		}
+	}
+	
+	// Fallback to task-name-based success rate
+	if taskName != "" {
+		taskKey := fmt.Sprintf("task_success_rate:%s", taskName)
+		rateStr, err := p.redis.Get(ctx, taskKey).Result()
+		if err == nil {
+			if rate, err := strconv.ParseFloat(rateStr, 64); err == nil {
+				return rate
+			}
+		}
+	}
+	
+	return 0.0 // No data available
 }
 
 func containsIgnoreCase(a, b string) bool {
