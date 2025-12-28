@@ -4,6 +4,7 @@ go 1.23.0
 
 require (
 	agi/hdn v0.0.0-00010101000000-000000000000
+	agi/self v0.0.0-00010101000000-000000000000
 	github.com/joho/godotenv v1.5.1
 	github.com/nats-io/nats.go v1.46.0
 	github.com/redis/go-redis/v9 v9.14.0
@@ -11,6 +12,8 @@ require (
 )
 
 replace agi/hdn => ../hdn
+
+replace agi/self => ../self
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
