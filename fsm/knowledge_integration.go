@@ -1196,7 +1196,7 @@ func (ki *KnowledgeIntegration) generateRelationshipHypotheses(concepts []map[st
 				epistemicUncertainty := EstimateEpistemicUncertainty(2, false, false) // 2 concepts
 				aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "")
 				uncertainty := NewUncertaintyModel(0.6, epistemicUncertainty, aleatoricUncertainty)
-				
+
 				hypothesis := Hypothesis{
 					ID:          fmt.Sprintf("hyp_rel_%d_%d_%d", time.Now().UnixNano(), i, j),
 					Description: fmt.Sprintf("If we combine %s and %s, we can create new %s capabilities", name1, name2, domain),
