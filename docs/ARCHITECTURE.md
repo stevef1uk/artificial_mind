@@ -207,7 +207,8 @@ graph TB
 - FSM logs `ReasoningTrace` to Redis keys: `reasoning:traces:<domain>`, `reasoning:traces:goal:<goal>`
 - News events stored in Redis: `reasoning:news_relations:recent`, `reasoning:news_alerts:recent`
 - Curiosity goals stored in Redis: `reasoning:curiosity_goals:<domain>` with status tracking
-- Hypotheses stored in Redis: `fsm:agent_1:hypotheses` with LLM screening scores
+- Hypotheses stored in Redis: `fsm:agent_1:hypotheses` with LLM screening scores and causal reasoning fields (`causal_type`, `counterfactual_actions`, `intervention_goals`)
+- Intervention goals stored in Redis: `reasoning:curiosity_goals:<domain>` with type `intervention_testing` and priority=10
 - Monitor UI fetches traces at `/api/reasoning/traces/:domain` and displays on the dashboard
 
 **Recent Improvements**:
