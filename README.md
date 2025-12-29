@@ -57,6 +57,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - **Memory Consolidation & Compression** - Periodic pipeline that compresses redundant episodes, promotes stable patterns to semantic memory, archives stale traces, and extracts skill abstractions from repeated workflows
 - **Cross-System Consistency Checking** - Global coherence monitor that detects inconsistencies across FSM, HDN, and Self-Model, generating self-reflection tasks to resolve contradictions, policy conflicts, goal drift, and behavior loops
 - **Explanation-Grounded Learning Feedback** - Post-hoc evaluation system that evaluates hypothesis accuracy, explanation quality, and reasoning alignment after each goal completion, then updates inference weighting, confidence scaling, and exploration heuristics to continuously improve reasoning quality
+- **Active Learning Loops** - Query-driven learning system that identifies high-uncertainty concepts, generates targeted data acquisition plans, and prioritizes experiments that reduce uncertainty fastest, transforming curiosity from opportunistic scanning into structured inquiry (**runs even when a domain has no Neo4j concepts yet**, by using beliefs/hypotheses/goals already in Redis)
 
 ---
 
@@ -79,6 +80,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - [**Testing Memory Consolidation**](docs/TESTING_MEMORY_CONSOLIDATION.md) - Guide for testing consolidation locally
 - [**Cross-System Consistency Checking**](docs/CROSS_SYSTEM_CONSISTENCY_CHECKING.md) - Coherence monitor for detecting and resolving inconsistencies across systems
 - [**Explanation-Grounded Learning Feedback**](docs/EXPLANATION_GROUNDED_LEARNING.md) - Post-hoc evaluation system that closes the loop between reasoning quality and execution outcomes
+- [**Active Learning Loops**](docs/ACTIVE_LEARNING_LOOPS.md) - Query-driven learning system for identifying high-uncertainty concepts and generating targeted data acquisition plans
 
 ### 💬 Interfaces & Communication
 - [**Conversational AI Summary**](docs/CONVERSATIONAL_AI_SUMMARY.md) - Natural language interface

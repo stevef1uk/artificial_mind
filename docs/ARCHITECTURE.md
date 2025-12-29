@@ -175,6 +175,13 @@ graph TB
   - Enhanced debug logging for troubleshooting inference execution
   - **Causal Hypothesis Processing**: Creates intervention goals with higher priority (priority=10) for causal hypotheses
   - **Intervention Goal Generation**: Automatically generates experimental goals from causal hypotheses' intervention goals
+  - **Active Learning Loops** (`fsm/active_learning.go`): Query-driven learning system that:
+    - Identifies high-uncertainty concepts (epistemic uncertainty ≥ threshold) from beliefs, hypotheses, and goals
+    - Generates targeted data acquisition plans with specific information needs and expected uncertainty reduction
+    - Prioritizes experiments by uncertainty reduction efficiency (reduction per unit time)
+    - Converts prioritized plans into curiosity goals of type `active_learning` for execution
+    - Transforms curiosity from opportunistic scanning into structured, inquiry-driven learning
+    - **Bootstrap-safe execution**: runs even when a domain has **no Neo4j concepts yet** (and in other early-return “skip” paths), by operating directly over Redis-backed beliefs/hypotheses/goals
 
 - **Knowledge Integration** (`fsm/knowledge_integration.go`):
   - Intelligent exploration tracking to prevent redundant exploration (6-hour cooldown)
@@ -210,6 +217,7 @@ graph TB
 - Curiosity goals stored in Redis: `reasoning:curiosity_goals:<domain>` with status tracking
 - Hypotheses stored in Redis: `fsm:agent_1:hypotheses` with LLM screening scores and causal reasoning fields (`causal_type`, `counterfactual_actions`, `intervention_goals`)
 - Intervention goals stored in Redis: `reasoning:curiosity_goals:<domain>` with type `intervention_testing` and priority=10
+- Active learning goals stored in Redis: `reasoning:curiosity_goals:<domain>` with type `active_learning` and uncertainty-based prioritization
 - Monitor UI fetches traces at `/api/reasoning/traces/:domain` and displays on the dashboard
 
 **Recent Improvements**:
@@ -218,6 +226,7 @@ graph TB
 - **Enhanced Debugging**: Detailed logging and proper conclusions in reasoning traces
 - **Comprehensive Deduplication**: Prevents duplicate hypothesis generation across all methods
 - **Smart Re-exploration**: Re-explores concepts when new facts are available
+- **Active Learning Loops**: Query-driven learning that identifies high-uncertainty concepts and generates targeted data acquisition plans to reduce uncertainty fastest
 
 ### 1. **Principles Server** (`principles/`)
 - **Purpose**: Ethical decision-making system for AI actions
@@ -1128,6 +1137,11 @@ make help
   - **Counterfactual Reasoning**: Generates counterfactual questions ("what outcome would change my belief?") to challenge beliefs
   - **Intervention Goals**: Creates experimental goals to test causal hypotheses with higher priority (priority=10)
   - **Grounded Learning**: Pushes the agent toward self-designed experiments and fewer speculative belief chains
+- **✅ Active Learning Loops**: Query-driven learning system that transforms curiosity from opportunistic scanning into structured inquiry
+  - **High-Uncertainty Concept Identification**: Scans beliefs, hypotheses, and goals to find concepts with epistemic uncertainty above threshold (default: 0.4)
+  - **Targeted Data Acquisition Plans**: Generates structured plans with specific information needs, data sources, and expected uncertainty reduction
+  - **Experiment Prioritization**: Ranks experiments by uncertainty reduction efficiency (reduction per unit time) to maximize learning speed
+  - **Structured Inquiry Goals**: Converts prioritized plans into curiosity goals of type `active_learning` for systematic execution
   - **Integration**: Causal reasoning fields included in LLM screening, stored in Redis, and used for goal prioritization
 
 ### Curiosity Goals System Improvements
