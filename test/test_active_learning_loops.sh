@@ -91,19 +91,26 @@ case "$MODE" in
         echo "----------------------------------------"
         
         # Check if we already have high-uncertainty beliefs
-        HIGH_UNCERTAINTY_FOUND=false
         TEST_BELIEF_ID="test_active_learning_$(date +%s)"
         
-        # Sample a few beliefs to check uncertainty
-        redis_cmd LRANGE "$BELIEF_KEY" 0 9 2>/dev/null | while read -r belief_json; do
-            if [ -n "$belief_json" ] && is_json "$belief_json" >/dev/null 2>&1; then
-                epistemic=$(echo "$belief_json" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('uncertainty', {}).get('epistemic_uncertainty', 0))" 2>/dev/null || echo "0")
-                if [ -n "$epistemic" ] && [ "$(echo "$epistemic >= 0.4" | bc 2>/dev/null || echo 0)" = "1" ]; then
-                    HIGH_UNCERTAINTY_FOUND=true
-                    break
-                fi
-            fi
-        done
+        # Sample a few beliefs to check uncertainty (use Python to avoid subshell issues)
+        HIGH_UNCERTAINTY_FOUND=$(redis_cmd LRANGE "$BELIEF_KEY" 0 19 2>/dev/null | python3 -c "
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        belief = json.loads(line)
+        uncertainty = belief.get('uncertainty', {})
+        epistemic = uncertainty.get('epistemic_uncertainty', 0)
+        if epistemic >= 0.4:
+            print('true')
+            sys.exit(0)
+    except:
+        pass
+print('false')
+" 2>/dev/null || echo "false")
         
         if [ "$HIGH_UNCERTAINTY_FOUND" = false ]; then
             echo "   Creating test high-uncertainty belief..."
