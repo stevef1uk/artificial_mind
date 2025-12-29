@@ -83,7 +83,7 @@ echo "------------------------------------------------------------------------"
 echo ""
 
 # Start log watcher in background
-(kubectl logs -f -n "$NAMESPACE" "$FSM_POD" 2>/dev/null | grep --line-buffered -E "EXPLANATION-LEARNING|goal.*achieved|goal.*failed" &
+kubectl logs -f -n "$NAMESPACE" "$FSM_POD" 2>/dev/null | grep --line-buffered -E "EXPLANATION-LEARNING|goal.*achieved|goal.*failed" &
 WATCHER_PID=$!
 
 # Give it a moment to start
