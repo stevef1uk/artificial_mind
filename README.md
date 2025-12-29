@@ -35,6 +35,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - **📊 Monitor UI** - Real-time visualization and control interface with Chain of Thought tab
 - **🧠 Thinking Mode** - Real-time AI introspection and transparency
 - **🔌 MCP Knowledge Server** - Exposes knowledge bases (Neo4j, Weaviate) as MCP tools for LLM access
+- **🔍 Coherence Monitor** - Cross-system consistency checking and cognitive integrity system
 
 ### Advanced Features
 
@@ -54,6 +55,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - **Daily Summary Pipeline** - Nightly autonomous analysis that produces a human-readable daily summary of system activity
 - **Multi-Modal Memory System** - Unified working, episodic (Qdrant), and semantic (Neo4j) memory used for planning, reasoning, and learning
 - **Memory Consolidation & Compression** - Periodic pipeline that compresses redundant episodes, promotes stable patterns to semantic memory, archives stale traces, and extracts skill abstractions from repeated workflows
+- **Cross-System Consistency Checking** - Global coherence monitor that detects inconsistencies across FSM, HDN, and Self-Model, generating self-reflection tasks to resolve contradictions, policy conflicts, goal drift, and behavior loops
 
 ---
 
@@ -74,6 +76,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - [**LLM-Based Knowledge Filtering**](docs/LLM_BASED_KNOWLEDGE_FILTERING.md) - Intelligent filtering of novel, valuable knowledge
 - [**Memory Consolidation**](docs/MEMORY_CONSOLIDATION.md) - Periodic memory optimization and compression system
 - [**Testing Memory Consolidation**](docs/TESTING_MEMORY_CONSOLIDATION.md) - Guide for testing consolidation locally
+- [**Cross-System Consistency Checking**](docs/CROSS_SYSTEM_CONSISTENCY_CHECKING.md) - Coherence monitor for detecting and resolving inconsistencies across systems
 
 ### 💬 Interfaces & Communication
 - [**Conversational AI Summary**](docs/CONVERSATIONAL_AI_SUMMARY.md) - Natural language interface

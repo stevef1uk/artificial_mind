@@ -158,6 +158,7 @@ graph TB
 - **Learning Focus & Meta-Learning**: Outcome-based goal learning, enhanced goal scoring, focused learning strategy, meta-learning about the learning process, and improved semantic concept discovery (see sections below).
 - **Multi-Modal Memory System**: Unified working memory (Redis), episodic memory (Qdrant), and semantic/domain knowledge (Neo4j) integrated into HDN, FSM, and Planner flows.
 - **Daily Summary Pipeline**: Nightly FSM-triggered HDN execution that generates and persists daily summaries, exposed through dedicated Monitor API endpoints and UI panel.
+- **Cross-System Consistency Checking**: Global coherence monitor that detects inconsistencies across FSM, HDN, and Self-Model systems, generating self-reflection tasks to resolve contradictions, policy conflicts, goal drift, and behavior loops (see Coherence Monitor section below).
 
 ## 🧩 Core Components
 
@@ -317,6 +318,7 @@ For a deeper, HDN-specific architecture diagram and narrative, see `hdn_architec
   - **Async HTTP Queue System**: Priority-based async queue for all HTTP calls to HDN with LIFO processing, worker pools, and callback routing
   - **Uncertainty Modeling & Confidence Calibration**: Formal uncertainty tracking with epistemic (lack of knowledge) and aleatoric (inherent randomness) uncertainty, calibrated confidence, and belief stability/volatility tracking
   - **Causal Reasoning Integration**: Distinguishes causal hypotheses and creates intervention goals with higher priority for experimental testing
+  - **Coherence Monitor**: Cross-system consistency checking and cognitive integrity system (see section below)
 - **New Actions**:
   - `reasoning.belief_query` - Query beliefs from knowledge base
   - `reasoning.inference` - Apply inference rules to generate new beliefs
@@ -324,6 +326,58 @@ For a deeper, HDN-specific architecture diagram and narrative, see `hdn_architec
   - `reasoning.explanation` - Generate human-readable explanations
   - `reasoning.trace_logger` - Log reasoning traces
   - `planner.hypothesis_generator` - Generate hypotheses from facts and domain knowledge
+
+#### Coherence Monitor (`fsm/coherence_monitor.go`)
+
+The Coherence Monitor is a **cognitive integrity system** that continuously checks for inconsistencies across the three main systems (FSM, HDN, Self-Model) and generates self-reflection tasks to resolve them.
+
+**Purpose**: Detect and resolve contradictions, conflicts, and inconsistencies that may arise as the system learns and evolves.
+
+**Key Features**:
+
+1. **Belief Contradiction Detection**:
+   - Analyzes beliefs from reasoning traces across domains
+   - Detects contradictory statements (e.g., "true" vs "false", "increase" vs "decrease")
+   - Severity based on confidence levels of conflicting beliefs
+   - Limits checks to recent traces (10 most recent) and unique domains (5 max) for performance
+
+2. **Policy Conflict Detection**:
+   - Checks active goals from Goal Manager for conflicting objectives
+   - Identifies opposite actions (e.g., "maximize" vs "minimize", "enable" vs "disable")
+   - Analyzes goal descriptions for semantic conflicts
+
+3. **Strategy Conflict Detection**:
+   - Monitors learned code generation strategies from HDN
+   - Identifies conflicting approaches for the same task category
+   - Tracks strategies stored in Redis
+
+4. **Goal Drift Detection**:
+   - Flags goals that have been active too long without progress
+   - Default threshold: 24 hours without updates
+   - Helps identify stale goals that may need attention or cancellation
+
+5. **Behavior Loop Detection**:
+   - Analyzes FSM activity logs for repetitive state transitions
+   - Flags transitions that occur 5+ times in recent history
+   - Identifies potential infinite loops or stuck behaviors
+
+**Integration**:
+- **Periodic Monitoring**: Runs automatically every 5 minutes via `coherenceMonitoringLoop()`
+- **Immediate Check**: Performs initial check 10 seconds after FSM startup for faster feedback
+- **Self-Reflection Tasks**: Generates curiosity goals with domain `system_coherence` for resolution
+- **Resolution Flow**: Coherence Monitor → Curiosity Goals → Monitor Service (converter) → Goal Manager → FSM Goals Poller → HDN → LLM execution
+
+**Data Storage**:
+- Inconsistencies stored in Redis: `coherence:inconsistencies:{agent_id}`
+- Reflection tasks stored in Redis: `coherence:reflection_tasks:{agent_id}`
+- Curiosity goals stored in Redis: `reasoning:curiosity_goals:system_coherence`
+- Tasks processed through standard Goal Manager → FSM Goals Poller → HDN execution pipeline
+
+**Benefits**:
+- **Cognitive Integrity**: Ensures the system maintains consistent beliefs and goals
+- **Self-Correction**: Automatically identifies and resolves contradictions
+- **Early Detection**: Catches inconsistencies before they cause problems
+- **Transparency**: Logs all detected inconsistencies for monitoring and debugging
 
 #### Uncertainty Modeling & Confidence Calibration
 
