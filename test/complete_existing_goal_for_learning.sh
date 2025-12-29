@@ -60,25 +60,88 @@ kubectl logs -f -n "$NAMESPACE" "$FSM_POD" 2>/dev/null | grep --line-buffered "E
 WATCHER_PID=$!
 sleep 2
 
-# Complete the goal
-echo "4️⃣ Completing goal via Goal Manager API..."
+# Check if Goal Manager is accessible, set up port-forward if needed
+echo "3.5️⃣ Checking Goal Manager accessibility..."
 echo "-------------------------------------------"
-ACHIEVE_PAYLOAD='{
-  "result": {
-    "success": true,
-    "test": true,
-    "executed_at": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
-    "manual_completion": true
-  }
-}'
+PORT_FORWARD_PID=""
 
-echo "   POST $GOAL_MGR_URL/goal/$GOAL_ID/achieve"
-RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "$GOAL_MGR_URL/goal/$GOAL_ID/achieve" \
-    -H "Content-Type: application/json" \
-    -d "$ACHIEVE_PAYLOAD")
+if ! curl -s --connect-timeout 2 "$GOAL_MGR_URL/health" > /dev/null 2>&1; then
+    echo "   ⚠️  Goal Manager not accessible at $GOAL_MGR_URL"
+    echo "   💡 Setting up port-forward..."
+    
+    # Check if port-forward already exists
+    if ! lsof -ti:8090 > /dev/null 2>&1; then
+        kubectl port-forward -n "$NAMESPACE" svc/goal-manager 8090:8090 > /dev/null 2>&1 &
+        PORT_FORWARD_PID=$!
+        sleep 3
+        
+        if curl -s --connect-timeout 2 "$GOAL_MGR_URL/health" > /dev/null 2>&1; then
+            echo "   ✅ Port-forward established"
+        else
+            echo "   ⚠️  Port-forward may have failed, trying direct Redis update..."
+            PORT_FORWARD_PID=""
+        fi
+    else
+        echo "   ℹ️  Port 8090 already in use (may be another port-forward)"
+        sleep 2
+    fi
+else
+    echo "   ✅ Goal Manager is accessible"
+fi
 
-HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
-RESPONSE_BODY=$(echo "$RESPONSE" | grep -v "HTTP_CODE:")
+if curl -s --connect-timeout 2 "$GOAL_MGR_URL/health" > /dev/null 2>&1; then
+    echo "   ✅ Goal Manager is accessible"
+    echo ""
+    echo "4️⃣ Completing goal via Goal Manager API..."
+    echo "-------------------------------------------"
+    ACHIEVE_PAYLOAD='{
+      "result": {
+        "success": true,
+        "test": true,
+        "executed_at": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
+        "manual_completion": true
+      }
+    }'
+    
+    echo "   POST $GOAL_MGR_URL/goal/$GOAL_ID/achieve"
+    RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "$GOAL_MGR_URL/goal/$GOAL_ID/achieve" \
+        -H "Content-Type: application/json" \
+        -d "$ACHIEVE_PAYLOAD")
+    
+    HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
+    RESPONSE_BODY=$(echo "$RESPONSE" | grep -v "HTTP_CODE:")
+else
+    # Fallback: Update Redis directly and use Goal Manager pod to publish event
+    echo "   ⚠️  API not accessible, updating Redis directly..."
+    GOAL_MGR_POD=$(kubectl get pods -n "$NAMESPACE" -l app=goal-manager -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    
+    if [ -n "$GOAL_MGR_POD" ]; then
+        echo "   Updating goal in Redis and publishing event via Goal Manager pod..."
+        
+        # Use Goal Manager's internal method via kubectl exec
+        ACHIEVE_PAYLOAD='{"result":{"success":true,"test":true}}'
+        RESPONSE=$(kubectl exec -n "$NAMESPACE" "$GOAL_MGR_POD" -- sh -c "curl -s -X POST http://localhost:8090/goal/$GOAL_ID/achieve -H 'Content-Type: application/json' -d '$ACHIEVE_PAYLOAD'" 2>/dev/null)
+        
+        if [ -n "$RESPONSE" ] && echo "$RESPONSE" | grep -q '"status":"achieved"'; then
+            HTTP_CODE="200"
+            RESPONSE_BODY="$RESPONSE"
+            echo "   ✅ Goal completed via Goal Manager pod"
+        else
+            HTTP_CODE="500"
+            RESPONSE_BODY=""
+            echo "   ⚠️  Direct completion failed"
+        fi
+    else
+        HTTP_CODE="000"
+        RESPONSE_BODY=""
+        echo "   ❌ Goal Manager pod not found"
+    fi
+fi
+
+# Clean up port-forward if we created it
+if [ -n "$PORT_FORWARD_PID" ]; then
+    kill $PORT_FORWARD_PID 2>/dev/null || true
+fi
 
 if [ "$HTTP_CODE" = "200" ] || echo "$RESPONSE_BODY" | grep -q '"status":"achieved"'; then
     echo "   ✅ Goal marked as achieved (HTTP $HTTP_CODE)"
