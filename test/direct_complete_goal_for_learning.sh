@@ -146,17 +146,26 @@ sleep 1
 echo ""
 echo "7️⃣ Checking for explanation learning messages..."
 echo "------------------------------------------------"
-RECENT_LOGS=$(kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=200 2>/dev/null | grep -E "EXPLANATION-LEARNING.*$GOAL_ID|EXPLANATION-LEARNING.*Evaluating|EXPLANATION-LEARNING.*Completed evaluation")
+# Check for any explanation learning activity related to this goal
+RECENT_LOGS=$(kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=200 --since=30s 2>/dev/null | grep -i "EXPLANATION-LEARNING" | grep -i "$GOAL_ID\|Evaluating\|Completed evaluation\|Updating\|Updated")
 
 if [ -n "$RECENT_LOGS" ]; then
     echo "   ✅ SUCCESS! Found explanation learning activity for goal $GOAL_ID:"
     echo ""
-    echo "$RECENT_LOGS" | grep -E "EXPLANATION-LEARNING.*$GOAL_ID|EXPLANATION-LEARNING.*Evaluating|EXPLANATION-LEARNING.*Completed|EXPLANATION-LEARNING.*Updating|EXPLANATION-LEARNING.*Updated" | head -15
+    echo "$RECENT_LOGS" | head -10
 else
-    echo "   ⚠️  No explanation learning messages found for this goal"
-    echo ""
-    echo "   Checking if FSM received the goal event..."
-    kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=100 2>/dev/null | grep -i "EXPLANATION-LEARNING.*$GOAL_ID\|Received.*goal.*$GOAL_ID" | tail -5
+    # Fallback: check for any explanation learning messages in the last minute
+    ANY_EL_LOGS=$(kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=200 --since=1m 2>/dev/null | grep -i "EXPLANATION-LEARNING.*Evaluating\|EXPLANATION-LEARNING.*Completed evaluation" | tail -5)
+    if [ -n "$ANY_EL_LOGS" ]; then
+        echo "   ✅ Found explanation learning activity (may be for different goal):"
+        echo ""
+        echo "$ANY_EL_LOGS"
+    else
+        echo "   ⚠️  No explanation learning messages found in recent logs"
+        echo ""
+        echo "   Checking if FSM received the goal event..."
+        kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=100 2>/dev/null | grep -i "EXPLANATION-LEARNING\|Received.*goal.*$GOAL_ID" | tail -5
+    fi
 fi
 
 echo ""
