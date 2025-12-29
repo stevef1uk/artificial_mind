@@ -685,16 +685,21 @@ func (cm *CoherenceMonitor) subscribeToGoalEvents() {
 	_, err := cm.nc.Subscribe("agi.goal.achieved", func(msg *nats.Msg) {
 		var goal map[string]interface{}
 		if err := json.Unmarshal(msg.Data, &goal); err != nil {
+			log.Printf("⚠️ [Coherence] Failed to unmarshal goal.achieved event: %v", err)
 			return
 		}
+		
+		goalID, _ := goal["id"].(string)
+		log.Printf("🔔 [Coherence] Received goal.achieved event for goal: %s", goalID)
 		
 		// Check if this is a coherence resolution goal
 		// Method 1: Check context if available
 		if context, ok := goal["context"].(map[string]interface{}); ok {
+			log.Printf("🔔 [Coherence] Goal %s has context: %+v", goalID, context)
 			if source, ok := context["source"].(string); ok && source == "curiosity_goal" {
 				if domain, ok := context["domain"].(string); ok && domain == "system_coherence" {
 					if curiosityID, ok := context["curiosity_id"].(string); ok {
-						goalID, _ := goal["id"].(string)
+						log.Printf("✅ [Coherence] Matched coherence goal via context: curiosity_id=%s, goal_id=%s", curiosityID, goalID)
 						cm.handleCoherenceGoalCompleted(curiosityID, goalID, "achieved")
 						return
 					}
@@ -705,8 +710,8 @@ func (cm *CoherenceMonitor) subscribeToGoalEvents() {
 		// Method 2: Check description for coherence resolution pattern
 		if desc, ok := goal["description"].(string); ok {
 			if strings.Contains(desc, "You have detected an inconsistency in the system") {
+				log.Printf("✅ [Coherence] Matched coherence goal via description pattern: goal_id=%s", goalID)
 				// This is a coherence resolution goal - find the curiosity goal ID from mapping
-				goalID, _ := goal["id"].(string)
 				// Search all mappings to find which curiosity goal this belongs to
 				cm.findAndHandleCoherenceGoal(goalID, "achieved")
 			}
@@ -720,16 +725,21 @@ func (cm *CoherenceMonitor) subscribeToGoalEvents() {
 	_, err = cm.nc.Subscribe("agi.goal.failed", func(msg *nats.Msg) {
 		var goal map[string]interface{}
 		if err := json.Unmarshal(msg.Data, &goal); err != nil {
+			log.Printf("⚠️ [Coherence] Failed to unmarshal goal.failed event: %v", err)
 			return
 		}
+		
+		goalID, _ := goal["id"].(string)
+		log.Printf("🔔 [Coherence] Received goal.failed event for goal: %s", goalID)
 		
 		// Check if this is a coherence resolution goal
 		// Method 1: Check context if available
 		if context, ok := goal["context"].(map[string]interface{}); ok {
+			log.Printf("🔔 [Coherence] Goal %s has context: %+v", goalID, context)
 			if source, ok := context["source"].(string); ok && source == "curiosity_goal" {
 				if domain, ok := context["domain"].(string); ok && domain == "system_coherence" {
 					if curiosityID, ok := context["curiosity_id"].(string); ok {
-						goalID, _ := goal["id"].(string)
+						log.Printf("✅ [Coherence] Matched coherence goal via context: curiosity_id=%s, goal_id=%s", curiosityID, goalID)
 						cm.handleCoherenceGoalCompleted(curiosityID, goalID, "failed")
 						return
 					}
@@ -740,7 +750,7 @@ func (cm *CoherenceMonitor) subscribeToGoalEvents() {
 		// Method 2: Check description for coherence resolution pattern
 		if desc, ok := goal["description"].(string); ok {
 			if strings.Contains(desc, "You have detected an inconsistency in the system") {
-				goalID, _ := goal["id"].(string)
+				log.Printf("✅ [Coherence] Matched coherence goal via description pattern: goal_id=%s", goalID)
 				cm.findAndHandleCoherenceGoal(goalID, "failed")
 			}
 		}

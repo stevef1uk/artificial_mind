@@ -22,6 +22,7 @@ type PolicyGoal struct {
 	Confidence  float64                `json:"confidence"`
 	Deadline    string                 `json:"deadline,omitempty"`
 	Metrics     map[string]interface{} `json:"metrics,omitempty"`
+	Context     map[string]interface{} `json:"context,omitempty"` // Additional context (e.g., source, domain, curiosity_id)
 	CreatedAt   time.Time              `json:"created_at"`
 	UpdatedAt   time.Time              `json:"updated_at"`
 }
