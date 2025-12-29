@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/redis/go-redis/v9"
 	
 	selfmodel "agi/self"
@@ -23,6 +24,7 @@ type CoherenceMonitor struct {
 	reasoning  *ReasoningEngine
 	agentID    string
 	httpClient *http.Client
+	nc         *nats.Conn // NATS connection for listening to goal events
 }
 
 // Inconsistency represents a detected inconsistency
@@ -49,15 +51,23 @@ type SelfReflectionTask struct {
 }
 
 // NewCoherenceMonitor creates a new coherence monitor
-func NewCoherenceMonitor(redis *redis.Client, hdnURL string, reasoning *ReasoningEngine, agentID string) *CoherenceMonitor {
-	return &CoherenceMonitor{
+func NewCoherenceMonitor(redis *redis.Client, hdnURL string, reasoning *ReasoningEngine, agentID string, nc *nats.Conn) *CoherenceMonitor {
+	cm := &CoherenceMonitor{
 		redis:      redis,
 		ctx:        context.Background(),
 		hdnURL:     hdnURL,
 		reasoning:  reasoning,
 		agentID:    agentID,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
+		nc:         nc,
 	}
+	
+	// Subscribe to goal completion events to mark inconsistencies as resolved
+	if nc != nil {
+		cm.subscribeToGoalEvents()
+	}
+	
+	return cm
 }
 
 // CheckCoherence performs a comprehensive coherence check across all systems
@@ -123,6 +133,12 @@ func (cm *CoherenceMonitor) CheckCoherence() ([]Inconsistency, error) {
 	// Store inconsistencies in Redis
 	for _, inc := range inconsistencies {
 		cm.storeInconsistency(inc)
+	}
+	
+	// Cleanup old coherence goals periodically (every 10th check, ~50 minutes)
+	// This prevents Redis from accumulating too many old goals
+	if len(inconsistencies) == 0 {
+		cm.cleanupOldCoherenceGoals()
 	}
 	
 	log.Printf("✅ [Coherence] Coherence check complete: found %d inconsistencies", len(inconsistencies))
@@ -529,6 +545,11 @@ Provide a clear resolution plan.`,
 		cm.redis.LTrim(cm.ctx, curiosityGoalsKey, 0, 199)
 	}
 	
+	// Store mapping: curiosity_goal_id -> inconsistency_id for later resolution tracking
+	// This allows us to mark the inconsistency as resolved when the goal completes
+	mappingKey := fmt.Sprintf("coherence:goal_mapping:%s", curiosityGoal.ID)
+	cm.redis.Set(cm.ctx, mappingKey, inconsistency.ID, 7*24*time.Hour) // Expire after 7 days
+	
 	// Mark inconsistency as being resolved
 	inconsistency.Resolved = false // Will be set to true when resolution is confirmed
 	cm.storeInconsistency(inconsistency)
@@ -652,5 +673,215 @@ func formatDetails(details map[string]interface{}) string {
 		parts = append(parts, fmt.Sprintf("%s: %v", k, v))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// subscribeToGoalEvents subscribes to Goal Manager events to mark inconsistencies as resolved
+func (cm *CoherenceMonitor) subscribeToGoalEvents() {
+	if cm.nc == nil {
+		return
+	}
+	
+	// Subscribe to goal achieved events
+	_, err := cm.nc.Subscribe("agi.goal.achieved", func(msg *nats.Msg) {
+		var goal map[string]interface{}
+		if err := json.Unmarshal(msg.Data, &goal); err != nil {
+			return
+		}
+		
+		// Check if this is a coherence resolution goal
+		// Method 1: Check context if available
+		if context, ok := goal["context"].(map[string]interface{}); ok {
+			if source, ok := context["source"].(string); ok && source == "curiosity_goal" {
+				if domain, ok := context["domain"].(string); ok && domain == "system_coherence" {
+					if curiosityID, ok := context["curiosity_id"].(string); ok {
+						goalID, _ := goal["id"].(string)
+						cm.handleCoherenceGoalCompleted(curiosityID, goalID, "achieved")
+						return
+					}
+				}
+			}
+		}
+		
+		// Method 2: Check description for coherence resolution pattern
+		if desc, ok := goal["description"].(string); ok {
+			if strings.Contains(desc, "You have detected an inconsistency in the system") {
+				// This is a coherence resolution goal - find the curiosity goal ID from mapping
+				goalID, _ := goal["id"].(string)
+				// Search all mappings to find which curiosity goal this belongs to
+				cm.findAndHandleCoherenceGoal(goalID, "achieved")
+			}
+		}
+	})
+	if err != nil {
+		log.Printf("⚠️ [Coherence] Failed to subscribe to goal.achieved events: %v", err)
+	}
+	
+	// Subscribe to goal failed events
+	_, err = cm.nc.Subscribe("agi.goal.failed", func(msg *nats.Msg) {
+		var goal map[string]interface{}
+		if err := json.Unmarshal(msg.Data, &goal); err != nil {
+			return
+		}
+		
+		// Check if this is a coherence resolution goal
+		// Method 1: Check context if available
+		if context, ok := goal["context"].(map[string]interface{}); ok {
+			if source, ok := context["source"].(string); ok && source == "curiosity_goal" {
+				if domain, ok := context["domain"].(string); ok && domain == "system_coherence" {
+					if curiosityID, ok := context["curiosity_id"].(string); ok {
+						goalID, _ := goal["id"].(string)
+						cm.handleCoherenceGoalCompleted(curiosityID, goalID, "failed")
+						return
+					}
+				}
+			}
+		}
+		
+		// Method 2: Check description for coherence resolution pattern
+		if desc, ok := goal["description"].(string); ok {
+			if strings.Contains(desc, "You have detected an inconsistency in the system") {
+				goalID, _ := goal["id"].(string)
+				cm.findAndHandleCoherenceGoal(goalID, "failed")
+			}
+		}
+	})
+	if err != nil {
+		log.Printf("⚠️ [Coherence] Failed to subscribe to goal.failed events: %v", err)
+	}
+}
+
+// findAndHandleCoherenceGoal searches for a coherence goal mapping by checking all curiosity goals
+func (cm *CoherenceMonitor) findAndHandleCoherenceGoal(goalManagerID, status string) {
+	// Get all coherence curiosity goals and check their mappings
+	key := "reasoning:curiosity_goals:system_coherence"
+	goals, err := cm.redis.LRange(cm.ctx, key, 0, 199).Result()
+	if err != nil {
+		return
+	}
+	
+	for _, goalData := range goals {
+		var goal CuriosityGoal
+		if err := json.Unmarshal([]byte(goalData), &goal); err == nil {
+			// Match by description pattern - coherence resolution goals have this pattern
+			if goal.Status == "pending" && strings.Contains(goal.Description, "You have detected an inconsistency") {
+				cm.handleCoherenceGoalCompleted(goal.ID, goalManagerID, status)
+				break
+			}
+		}
+	}
+}
+
+// handleCoherenceGoalCompleted marks the inconsistency and curiosity goal as resolved
+func (cm *CoherenceMonitor) handleCoherenceGoalCompleted(curiosityGoalID, goalManagerID, status string) {
+	log.Printf("✅ [Coherence] Coherence resolution goal %s completed with status: %s", curiosityGoalID, status)
+	
+	// Look up inconsistency ID from mapping
+	mappingKey := fmt.Sprintf("coherence:goal_mapping:%s", curiosityGoalID)
+	inconsistencyID, err := cm.redis.Get(cm.ctx, mappingKey).Result()
+	if err != nil {
+		// Fallback: try to extract from goal ID format
+		if strings.HasPrefix(curiosityGoalID, "coherence_resolution_") {
+			inconsistencyID = strings.TrimPrefix(curiosityGoalID, "coherence_resolution_")
+		} else {
+			log.Printf("⚠️ [Coherence] Could not find inconsistency ID for goal %s", curiosityGoalID)
+			return
+		}
+	}
+	
+	// Mark inconsistency as resolved
+	cm.markInconsistencyResolved(inconsistencyID, status)
+	
+	// Update curiosity goal status
+	cm.updateCuriosityGoalStatus(curiosityGoalID, status)
+	
+	// Clean up mapping
+	cm.redis.Del(cm.ctx, mappingKey)
+}
+
+// markInconsistencyResolved marks an inconsistency as resolved
+func (cm *CoherenceMonitor) markInconsistencyResolved(inconsistencyID, resolutionStatus string) {
+	key := fmt.Sprintf("coherence:inconsistencies:%s", cm.agentID)
+	inconsistencies, err := cm.redis.LRange(cm.ctx, key, 0, 199).Result()
+	if err != nil {
+		return
+	}
+	
+	for i, incData := range inconsistencies {
+		var inc Inconsistency
+		if err := json.Unmarshal([]byte(incData), &inc); err == nil {
+			if inc.ID == inconsistencyID {
+				inc.Resolved = true
+				inc.Resolution = fmt.Sprintf("Resolved via Goal Manager task (status: %s)", resolutionStatus)
+				
+				updatedData, err := json.Marshal(inc)
+				if err == nil {
+					cm.redis.LSet(cm.ctx, key, int64(i), updatedData)
+					log.Printf("✅ [Coherence] Marked inconsistency %s as resolved", inconsistencyID)
+				}
+				break
+			}
+		}
+	}
+}
+
+// updateCuriosityGoalStatus updates the status of a curiosity goal
+func (cm *CoherenceMonitor) updateCuriosityGoalStatus(goalID, status string) {
+	key := "reasoning:curiosity_goals:system_coherence"
+	goals, err := cm.redis.LRange(cm.ctx, key, 0, 199).Result()
+	if err != nil {
+		return
+	}
+	
+	for i, goalData := range goals {
+		var goal CuriosityGoal
+		if err := json.Unmarshal([]byte(goalData), &goal); err == nil {
+			if goal.ID == goalID {
+				goal.Status = status
+				updatedData, err := json.Marshal(goal)
+				if err == nil {
+					cm.redis.LSet(cm.ctx, key, int64(i), updatedData)
+					log.Printf("✅ [Coherence] Updated curiosity goal %s status to %s", goalID, status)
+				}
+				break
+			}
+		}
+	}
+}
+
+// cleanupOldCoherenceGoals removes old/completed coherence goals (similar to ReasoningEngine.cleanupOldGoals)
+func (cm *CoherenceMonitor) cleanupOldCoherenceGoals() {
+	key := "reasoning:curiosity_goals:system_coherence"
+	goalsData, err := cm.redis.LRange(cm.ctx, key, 0, 199).Result()
+	if err != nil {
+		return
+	}
+	
+	var activeGoals []string
+	cutoffTime := time.Now().Add(-7 * 24 * time.Hour) // Remove goals older than 7 days
+	
+	for _, goalData := range goalsData {
+		var goal CuriosityGoal
+		if err := json.Unmarshal([]byte(goalData), &goal); err == nil {
+			// Keep goals that are not completed/failed and not too old
+			shouldKeep := goal.Status != "completed" &&
+				goal.Status != "failed" &&
+				goal.Status != "resolved" &&
+				goal.CreatedAt.After(cutoffTime)
+			
+			if shouldKeep {
+				activeGoals = append(activeGoals, goalData)
+			}
+		}
+	}
+	
+	// Replace the list with only active goals
+	if len(activeGoals) < len(goalsData) {
+		cm.redis.Del(cm.ctx, key)
+		for _, goalData := range activeGoals {
+			cm.redis.LPush(cm.ctx, key, goalData)
+		}
+		log.Printf("🧹 [Coherence] Cleaned up %d old/completed coherence goals, kept %d active",
+			len(goalsData)-len(activeGoals), len(activeGoals))
+	}
 }
 

@@ -201,8 +201,8 @@ func NewFSMEngine(configPath string, agentID string, nc *nats.Conn, redis *redis
 	// Create reasoning engine using provided HDN URL
 	reasoning := NewReasoningEngine(hdnURL, redis)
 
-	// Create coherence monitor
-	coherenceMonitor := NewCoherenceMonitor(redis, hdnURL, reasoning, agentID)
+	// Create coherence monitor (pass NATS connection for goal event subscription)
+	coherenceMonitor := NewCoherenceMonitor(redis, hdnURL, reasoning, agentID, nc)
 
 	engine := &FSMEngine{
 		config:               config,
