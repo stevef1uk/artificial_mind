@@ -115,21 +115,22 @@ type UIPanelConfig struct {
 
 // FSMEngine represents the running state machine
 type FSMEngine struct {
-	config               *FSMConfig
-	agentID              string
-	currentState         string
-	context              map[string]interface{}
-	nc                   *nats.Conn
-	redis                *redis.Client
-	subs                 []*nats.Subscription
-	ctx                  context.Context
-	cancel               context.CancelFunc
-	principles           *PrinciplesIntegration
-	knowledgeGrowth      *KnowledgeGrowthEngine
-	knowledgeIntegration *KnowledgeIntegration
-	reasoning            *ReasoningEngine
-	coherenceMonitor     *CoherenceMonitor
-	stateEntryTime       time.Time // Track when current state was entered
+	config                *FSMConfig
+	agentID               string
+	currentState          string
+	context               map[string]interface{}
+	nc                    *nats.Conn
+	redis                 *redis.Client
+	subs                  []*nats.Subscription
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	principles            *PrinciplesIntegration
+	knowledgeGrowth       *KnowledgeGrowthEngine
+	knowledgeIntegration  *KnowledgeIntegration
+	reasoning             *ReasoningEngine
+	coherenceMonitor      *CoherenceMonitor
+	explanationLearning   *ExplanationLearningFeedback
+	stateEntryTime        time.Time // Track when current state was entered
 }
 
 // ActivityLogEntry represents a human-readable activity log entry
@@ -204,6 +205,9 @@ func NewFSMEngine(configPath string, agentID string, nc *nats.Conn, redis *redis
 	// Create coherence monitor (pass NATS connection for goal event subscription)
 	coherenceMonitor := NewCoherenceMonitor(redis, hdnURL, reasoning, agentID, nc)
 
+	// Create explanation learning feedback system
+	explanationLearning := NewExplanationLearningFeedback(redis, hdnURL)
+
 	engine := &FSMEngine{
 		config:               config,
 		agentID:              agentID,
@@ -218,6 +222,7 @@ func NewFSMEngine(configPath string, agentID string, nc *nats.Conn, redis *redis
 		knowledgeIntegration: knowledgeIntegration,
 		reasoning:            reasoning,
 		coherenceMonitor:     coherenceMonitor,
+		explanationLearning:  explanationLearning,
 		stateEntryTime:       time.Now(),
 	}
 
@@ -406,6 +411,24 @@ func (e *FSMEngine) subscribeToEvents() error {
 
 		e.subs = append(e.subs, sub)
 		log.Printf("✅ Successfully subscribed to %s", event.NatsSubject)
+	}
+
+	// Subscribe to goal completion events for explanation learning feedback
+	log.Printf("📡 Subscribing to goal completion events for explanation learning")
+	achievedSub, err := e.nc.Subscribe("agi.goal.achieved", e.handleGoalCompletion)
+	if err != nil {
+		log.Printf("⚠️  Failed to subscribe to agi.goal.achieved: %v", err)
+	} else {
+		e.subs = append(e.subs, achievedSub)
+		log.Printf("✅ Subscribed to agi.goal.achieved for explanation learning")
+	}
+
+	failedSub, err := e.nc.Subscribe("agi.goal.failed", e.handleGoalCompletion)
+	if err != nil {
+		log.Printf("⚠️  Failed to subscribe to agi.goal.failed: %v", err)
+	} else {
+		e.subs = append(e.subs, failedSub)
+		log.Printf("✅ Subscribed to agi.goal.failed for explanation learning")
 	}
 
 	log.Printf("🎉 NATS subscription setup complete - %d subscriptions active", len(e.subs))
@@ -4559,4 +4582,58 @@ func (e *FSMEngine) generateFollowUpHypotheses(originalHypothesis map[string]int
 	}
 
 	log.Printf("🔬 Generated %d follow-up hypotheses for %s result", len(followUpDescriptions), resultType)
+}
+
+// handleGoalCompletion handles goal completion events and triggers explanation learning feedback
+func (e *FSMEngine) handleGoalCompletion(msg *nats.Msg) {
+	log.Printf("🧠 [EXPLANATION-LEARNING] Received goal completion event: %s", string(msg.Data))
+	
+	// Parse goal data from event
+	var goalData map[string]interface{}
+	if err := json.Unmarshal(msg.Data, &goalData); err != nil {
+		log.Printf("⚠️ [EXPLANATION-LEARNING] Failed to parse goal data: %v", err)
+		return
+	}
+	
+	// Extract goal information
+	goalID, _ := goalData["id"].(string)
+	goalDescription, _ := goalData["description"].(string)
+	status, _ := goalData["status"].(string)
+	
+	// Determine domain from context or use default
+	domain := "General"
+	if context, ok := goalData["context"].(map[string]interface{}); ok {
+		if domainVal, ok := context["domain"].(string); ok && domainVal != "" {
+			domain = domainVal
+		}
+	}
+	
+	// Extract outcome metrics
+	outcomeMetrics := make(map[string]interface{})
+	if metrics, ok := goalData["metrics"].(map[string]interface{}); ok {
+		outcomeMetrics = metrics
+	}
+	// Add status as an outcome metric
+	outcomeMetrics["status"] = status
+	if confidence, ok := goalData["confidence"].(float64); ok {
+		outcomeMetrics["confidence"] = confidence
+	}
+	
+	// Trigger explanation learning feedback evaluation
+	if e.explanationLearning != nil {
+		go func() {
+			// Run in goroutine to avoid blocking NATS handler
+			if err := e.explanationLearning.EvaluateGoalCompletion(
+				goalID,
+				goalDescription,
+				status,
+				domain,
+				outcomeMetrics,
+			); err != nil {
+				log.Printf("⚠️ [EXPLANATION-LEARNING] Failed to evaluate goal completion: %v", err)
+			}
+		}()
+	} else {
+		log.Printf("⚠️ [EXPLANATION-LEARNING] Explanation learning feedback not initialized")
+	}
 }
