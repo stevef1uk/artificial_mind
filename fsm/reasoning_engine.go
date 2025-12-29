@@ -272,7 +272,16 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 
 			if allExist {
 				log.Printf("ℹ️ Skipping basic exploration goal generation - similar goals already exist for domain %s", domain)
-				return []CuriosityGoal{}, nil
+				// Still try active learning even if basic goals exist
+				log.Printf("🔬 [CALLING] About to call generateActiveLearningGoals for domain: %s", domain)
+				activeLearningGoals, err := re.generateActiveLearningGoals(domain)
+				if err != nil {
+					log.Printf("⚠️ Warning: Failed to generate active learning goals: %v", err)
+					return []CuriosityGoal{}, nil
+				} else {
+					log.Printf("✅ [CALLED] generateActiveLearningGoals returned %d goals", len(activeLearningGoals))
+					return activeLearningGoals, nil
+				}
 			}
 		}
 
@@ -291,7 +300,16 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 						if createdAt, err := time.Parse(time.RFC3339, createdAtStr); err == nil {
 							if time.Since(createdAt) < 10*time.Minute {
 								log.Printf("ℹ️ Skipping goal generation - recently generated goals for domain %s (within last 10 minutes)", domain)
-								return []CuriosityGoal{}, nil
+								// Still try active learning even if recently generated
+								log.Printf("🔬 [CALLING] About to call generateActiveLearningGoals for domain: %s", domain)
+								activeLearningGoals, err := re.generateActiveLearningGoals(domain)
+								if err != nil {
+									log.Printf("⚠️ Warning: Failed to generate active learning goals: %v", err)
+									return []CuriosityGoal{}, nil
+								} else {
+									log.Printf("✅ [CALLED] generateActiveLearningGoals returned %d goals", len(activeLearningGoals))
+									return activeLearningGoals, nil
+								}
 							}
 						}
 					}
