@@ -97,6 +97,16 @@ type ReasoningTraceEvaluation struct {
 func (elf *ExplanationLearningFeedback) EvaluateGoalCompletion(goalID string, goalDescription string, status string, domain string, outcomeMetrics map[string]interface{}) error {
 	log.Printf("🧠 [EXPLANATION-LEARNING] Evaluating goal completion: %s (status: %s)", goalID, status)
 	
+	// Validate required fields
+	if goalID == "" {
+		log.Printf("⚠️ [EXPLANATION-LEARNING] Empty goal ID, skipping evaluation")
+		return fmt.Errorf("empty goal ID")
+	}
+	if elf.redis == nil {
+		log.Printf("⚠️ [EXPLANATION-LEARNING] Redis client is nil, skipping evaluation")
+		return fmt.Errorf("redis client is nil")
+	}
+	
 	// Collect hypotheses associated with this goal
 	hypotheses := elf.collectGoalHypotheses(goalID, domain)
 	

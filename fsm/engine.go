@@ -4623,6 +4623,13 @@ func (e *FSMEngine) handleGoalCompletion(msg *nats.Msg) {
 	if e.explanationLearning != nil {
 		go func() {
 			// Run in goroutine to avoid blocking NATS handler
+			// Add panic recovery to catch any crashes
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("❌ [EXPLANATION-LEARNING] Panic in evaluation goroutine: %v", r)
+				}
+			}()
+			
 			if err := e.explanationLearning.EvaluateGoalCompletion(
 				goalID,
 				goalDescription,
