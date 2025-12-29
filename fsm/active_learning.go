@@ -109,7 +109,9 @@ func (all *ActiveLearningLoop) IdentifyHighUncertaintyConcepts(domain string, th
 
 	// 2. Check hypotheses for high uncertainty
 	hypotheses, err := all.getHypothesesWithUncertainty(domain)
-	if err == nil {
+	if err != nil {
+		log.Printf("⚠️ [ACTIVE-LEARNING] Failed to get hypotheses: %v", err)
+	} else {
 		for _, hypothesis := range hypotheses {
 			if hypothesis.Uncertainty != nil && hypothesis.Uncertainty.EpistemicUncertainty >= threshold {
 				conceptName := all.extractConceptFromDescription(hypothesis.Description)
@@ -139,7 +141,9 @@ func (all *ActiveLearningLoop) IdentifyHighUncertaintyConcepts(domain string, th
 
 	// 3. Check goals for high uncertainty
 	goals, err := all.getGoalsWithUncertainty(domain)
-	if err == nil {
+	if err != nil {
+		log.Printf("⚠️ [ACTIVE-LEARNING] Failed to get goals: %v", err)
+	} else {
 		for _, goal := range goals {
 			if goal.Uncertainty != nil && goal.Uncertainty.EpistemicUncertainty >= threshold {
 				conceptName := ""
@@ -431,11 +435,29 @@ func (all *ActiveLearningLoop) getBeliefsWithUncertainty(domain string) ([]Belie
 }
 
 func (all *ActiveLearningLoop) getHypothesesWithUncertainty(domain string) ([]Hypothesis, error) {
-	// Query Redis for hypotheses
+	// Query Redis for hypotheses (stored as HASH, not LIST)
 	key := "fsm:agent_1:hypotheses"
+	
+	// Try HGETALL first (for HASH)
+	hypothesesMap, err := all.redis.HGetAll(all.ctx, key).Result()
+	if err == nil && len(hypothesesMap) > 0 {
+		var hypotheses []Hypothesis
+		for _, data := range hypothesesMap {
+			var hypothesis Hypothesis
+			if err := json.Unmarshal([]byte(data), &hypothesis); err == nil {
+				if hypothesis.Domain == domain {
+					hypotheses = append(hypotheses, hypothesis)
+				}
+			}
+		}
+		return hypotheses, nil
+	}
+	
+	// Fallback to LRANGE (for LIST) if HGETALL fails
 	hypothesesData, err := all.redis.LRange(all.ctx, key, 0, 100).Result()
 	if err != nil {
-		return nil, err
+		// If both fail, return empty list (not an error - hypotheses may not exist)
+		return []Hypothesis{}, nil
 	}
 
 	var hypotheses []Hypothesis
