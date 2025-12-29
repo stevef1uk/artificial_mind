@@ -56,6 +56,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - **Multi-Modal Memory System** - Unified working, episodic (Qdrant), and semantic (Neo4j) memory used for planning, reasoning, and learning
 - **Memory Consolidation & Compression** - Periodic pipeline that compresses redundant episodes, promotes stable patterns to semantic memory, archives stale traces, and extracts skill abstractions from repeated workflows
 - **Cross-System Consistency Checking** - Global coherence monitor that detects inconsistencies across FSM, HDN, and Self-Model, generating self-reflection tasks to resolve contradictions, policy conflicts, goal drift, and behavior loops
+- **Explanation-Grounded Learning Feedback** - Post-hoc evaluation system that evaluates hypothesis accuracy, explanation quality, and reasoning alignment after each goal completion, then updates inference weighting, confidence scaling, and exploration heuristics to continuously improve reasoning quality
 
 ---
 
@@ -77,6 +78,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - [**Memory Consolidation**](docs/MEMORY_CONSOLIDATION.md) - Periodic memory optimization and compression system
 - [**Testing Memory Consolidation**](docs/TESTING_MEMORY_CONSOLIDATION.md) - Guide for testing consolidation locally
 - [**Cross-System Consistency Checking**](docs/CROSS_SYSTEM_CONSISTENCY_CHECKING.md) - Coherence monitor for detecting and resolving inconsistencies across systems
+- [**Explanation-Grounded Learning Feedback**](docs/EXPLANATION_GROUNDED_LEARNING.md) - Post-hoc evaluation system that closes the loop between reasoning quality and execution outcomes
 
 ### 💬 Interfaces & Communication
 - [**Conversational AI Summary**](docs/CONVERSATIONAL_AI_SUMMARY.md) - Natural language interface
