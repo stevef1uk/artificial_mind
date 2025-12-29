@@ -6469,8 +6469,8 @@ func (m *MonitorService) startCuriosityGoalConsumer() {
 		select {
 		case <-ticker.C:
 			log.Printf("🔄 Curiosity goal consumer tick - processing domains...")
-			// Process curiosity goals for each domain
-			domains := []string{"General", "Networking", "Math", "Programming"}
+			// Process curiosity goals for each domain (including system_coherence for coherence resolution)
+			domains := []string{"General", "Networking", "Math", "Programming", "system_coherence"}
 
 			for _, domain := range domains {
 				// Get up to 2 pending curiosity goals for this domain

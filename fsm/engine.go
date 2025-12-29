@@ -128,6 +128,7 @@ type FSMEngine struct {
 	knowledgeGrowth      *KnowledgeGrowthEngine
 	knowledgeIntegration *KnowledgeIntegration
 	reasoning            *ReasoningEngine
+	coherenceMonitor     *CoherenceMonitor
 	stateEntryTime       time.Time // Track when current state was entered
 }
 
@@ -200,6 +201,9 @@ func NewFSMEngine(configPath string, agentID string, nc *nats.Conn, redis *redis
 	// Create reasoning engine using provided HDN URL
 	reasoning := NewReasoningEngine(hdnURL, redis)
 
+	// Create coherence monitor
+	coherenceMonitor := NewCoherenceMonitor(redis, hdnURL, reasoning, agentID)
+
 	engine := &FSMEngine{
 		config:               config,
 		agentID:              agentID,
@@ -213,6 +217,7 @@ func NewFSMEngine(configPath string, agentID string, nc *nats.Conn, redis *redis
 		knowledgeGrowth:      knowledgeGrowth,
 		knowledgeIntegration: knowledgeIntegration,
 		reasoning:            reasoning,
+		coherenceMonitor:     coherenceMonitor,
 		stateEntryTime:       time.Now(),
 	}
 
@@ -333,6 +338,9 @@ func (e *FSMEngine) Start() error {
 	// Start timer for periodic checks
 	go e.timerLoop()
 
+	// Start coherence monitoring (runs every 5 minutes)
+	go e.coherenceMonitoringLoop()
+
 	// Start main event loop
 	go e.eventLoop()
 
@@ -419,6 +427,80 @@ func (e *FSMEngine) timerLoop() {
 		case <-ticker.C:
 			e.handleEvent("timer_tick", nil)
 		}
+	}
+}
+
+// coherenceMonitoringLoop runs periodic coherence checks
+func (e *FSMEngine) coherenceMonitoringLoop() {
+	// Run coherence check every 5 minutes
+	interval := 5 * time.Minute
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	log.Printf("🔍 [Coherence] Coherence monitoring loop started (interval: %v)", interval)
+
+	// Run an immediate check on startup (don't wait for first tick)
+	go func() {
+		// Wait a few seconds for system to be ready
+		time.Sleep(10 * time.Second)
+		
+		if e.coherenceMonitor == nil {
+			log.Printf("⚠️ [Coherence] Coherence monitor is nil, skipping initial check")
+			return
+		}
+		
+		log.Printf("🔍 [Coherence] Running initial coherence check...")
+		e.runCoherenceCheck()
+	}()
+
+	for {
+		select {
+		case <-e.ctx.Done():
+			return
+		case <-ticker.C:
+			e.runCoherenceCheck()
+		}
+	}
+}
+
+// runCoherenceCheck performs a single coherence check
+func (e *FSMEngine) runCoherenceCheck() {
+	// Check if coherence monitor is initialized
+	if e.coherenceMonitor == nil {
+		log.Printf("⚠️ [Coherence] Coherence monitor is nil, skipping check")
+		return
+	}
+	
+	// Perform coherence check
+	inconsistencies, err := e.coherenceMonitor.CheckCoherence()
+	if err != nil {
+		log.Printf("⚠️ [Coherence] Error during coherence check: %v", err)
+		return
+	}
+
+	if len(inconsistencies) > 0 {
+		log.Printf("⚠️ [Coherence] Detected %d inconsistencies", len(inconsistencies))
+		
+		// Generate self-reflection tasks for each inconsistency
+		for _, inc := range inconsistencies {
+			if !inc.Resolved {
+				// Generate reflection task
+				task, err := e.coherenceMonitor.GenerateSelfReflectionTask(inc)
+				if err != nil {
+					log.Printf("⚠️ [Coherence] Failed to generate reflection task: %v", err)
+					continue
+				}
+				
+				// Attempt to resolve the inconsistency
+				if err := e.coherenceMonitor.ResolveInconsistency(inc); err != nil {
+					log.Printf("⚠️ [Coherence] Failed to resolve inconsistency %s: %v", inc.ID, err)
+				} else {
+					log.Printf("✅ [Coherence] Generated resolution task for inconsistency: %s (task: %s)", inc.ID, task.ID)
+				}
+			}
+		}
+	} else {
+		log.Printf("✅ [Coherence] No inconsistencies detected")
 	}
 }
 
