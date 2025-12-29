@@ -12,18 +12,37 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// ActiveLearningRedis is the minimal Redis surface needed by Active Learning Loops.
+// This is intentionally small so we can unit-test without a live Redis.
+type ActiveLearningRedis interface {
+	LRange(ctx context.Context, key string, start, stop int64) ([]string, error)
+	HGetAll(ctx context.Context, key string) (map[string]string, error)
+}
+
+type goRedisActiveLearningRedis struct {
+	c *redis.Client
+}
+
+func (g goRedisActiveLearningRedis) LRange(ctx context.Context, key string, start, stop int64) ([]string, error) {
+	return g.c.LRange(ctx, key, start, stop).Result()
+}
+
+func (g goRedisActiveLearningRedis) HGetAll(ctx context.Context, key string) (map[string]string, error) {
+	return g.c.HGetAll(ctx, key).Result()
+}
+
 // ActiveLearningLoop implements query-driven learning that identifies
 // high-uncertainty concepts and generates targeted data acquisition plans
 // to reduce uncertainty fastest.
 type ActiveLearningLoop struct {
-	redis     *redis.Client
+	redis     ActiveLearningRedis
 	ctx       context.Context
 	reasoning *ReasoningEngine
 	hdnURL    string
 }
 
 // NewActiveLearningLoop creates a new active learning loop system
-func NewActiveLearningLoop(redis *redis.Client, ctx context.Context, reasoning *ReasoningEngine, hdnURL string) *ActiveLearningLoop {
+func NewActiveLearningLoop(redis ActiveLearningRedis, ctx context.Context, reasoning *ReasoningEngine, hdnURL string) *ActiveLearningLoop {
 	return &ActiveLearningLoop{
 		redis:     redis,
 		ctx:       ctx,
@@ -418,7 +437,7 @@ func (all *ActiveLearningLoop) ConvertPlansToCuriosityGoals(plans []DataAcquisit
 func (all *ActiveLearningLoop) getBeliefsWithUncertainty(domain string) ([]Belief, error) {
 	// Query Redis for beliefs in this domain
 	key := fmt.Sprintf("reasoning:beliefs:%s", domain)
-	beliefsData, err := all.redis.LRange(all.ctx, key, 0, 100).Result()
+	beliefsData, err := all.redis.LRange(all.ctx, key, 0, 100)
 	if err != nil {
 		return nil, err
 	}
@@ -439,7 +458,7 @@ func (all *ActiveLearningLoop) getHypothesesWithUncertainty(domain string) ([]Hy
 	key := "fsm:agent_1:hypotheses"
 	
 	// Try HGETALL first (for HASH)
-	hypothesesMap, err := all.redis.HGetAll(all.ctx, key).Result()
+	hypothesesMap, err := all.redis.HGetAll(all.ctx, key)
 	if err == nil && len(hypothesesMap) > 0 {
 		var hypotheses []Hypothesis
 		for _, data := range hypothesesMap {
@@ -454,7 +473,7 @@ func (all *ActiveLearningLoop) getHypothesesWithUncertainty(domain string) ([]Hy
 	}
 	
 	// Fallback to LRANGE (for LIST) if HGETALL fails
-	hypothesesData, err := all.redis.LRange(all.ctx, key, 0, 100).Result()
+	hypothesesData, err := all.redis.LRange(all.ctx, key, 0, 100)
 	if err != nil {
 		// If both fail, return empty list (not an error - hypotheses may not exist)
 		return []Hypothesis{}, nil
@@ -476,7 +495,7 @@ func (all *ActiveLearningLoop) getHypothesesWithUncertainty(domain string) ([]Hy
 func (all *ActiveLearningLoop) getGoalsWithUncertainty(domain string) ([]CuriosityGoal, error) {
 	// Query Redis for goals
 	key := fmt.Sprintf("reasoning:curiosity_goals:%s", domain)
-	goalsData, err := all.redis.LRange(all.ctx, key, 0, 100).Result()
+	goalsData, err := all.redis.LRange(all.ctx, key, 0, 100)
 	if err != nil {
 		return nil, err
 	}

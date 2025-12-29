@@ -15,7 +15,7 @@ Or check status:
 ## What the Test Does
 
 1. **Checks for high-uncertainty concepts** in beliefs, hypotheses, and goals
-2. **Triggers curiosity goal generation** (which includes active learning)
+2. **Triggers (best-effort) curiosity goal generation** and then polls Redis until active learning goals appear (or times out)
 3. **Verifies active learning goals** are created with type `active_learning`
 4. **Checks goal properties** (uncertainty models, priority, value)
 5. **Reviews FSM logs** for active learning messages
@@ -56,19 +56,13 @@ kubectl exec -n agi $REDIS_POD -- redis-cli LPUSH reasoning:beliefs:General '{
 
 ### 3. Trigger Curiosity Goal Generation
 
-The active learning goals are generated as part of the normal curiosity goal generation. You can trigger this by:
+Active learning goals are generated as part of normal curiosity goal generation. In practice, the system typically generates these via the **FSM autonomy scheduler**. Some environments may also expose a `POST /api/v1/events` endpoint, but this is **best-effort** and not guaranteed.
 
-**Option A: Wait for natural autonomy cycle** (runs automatically)
-
-**Option B: Trigger via FSM API** (if available):
 ```bash
-kubectl port-forward -n agi svc/fsm-server 8083:8083 &
-curl -X POST http://localhost:8083/api/trigger/autonomy
-```
-
-**Option C: Trigger via NATS** (if configured):
-```bash
-# Publish event to trigger autonomy cycle
+kubectl port-forward -n agi svc/fsm-server-rpi58 8083:8083 &
+curl -s -X POST http://localhost:8083/api/v1/events \
+  -H "Content-Type: application/json" \
+  -d '{"event":"generate_curiosity_goals","payload":{}}' || true
 ```
 
 ### 4. Verify Active Learning Goals Were Created

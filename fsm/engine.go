@@ -3725,7 +3725,7 @@ Examples:
 - Medium impact, testable: {"score": 0.6, "reason": "Moderate value, testable"}
 - Low impact or untestable: {"score": 0.3, "reason": "Low value or difficult to test"}
 
-Now return ONLY the JSON score (no tools, no tasks, just the score):`, domain, h.Description)
+Now return ONLY the JSON score (no tools, no tasks, just the score):`, domain, h.Description, causalTypeInfo)
 
 		// HDN /api/v1/interpret expects "input" field, not "text"
 		payload := map[string]interface{}{

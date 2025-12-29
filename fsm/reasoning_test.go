@@ -3,13 +3,14 @@ package main
 import (
 	"context"
 	"log"
+	"testing"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
 // TestReasoningEngine demonstrates the reasoning capabilities
-func TestReasoningEngine() {
+func TestReasoningEngine(t *testing.T) {
 	log.Printf("🧠 Testing Reasoning Engine")
 
 	// Create Redis client
@@ -23,8 +24,7 @@ func TestReasoningEngine() {
 	ctx := context.Background()
 	_, err := rdb.Ping(ctx).Result()
 	if err != nil {
-		log.Printf("❌ Failed to connect to Redis: %v", err)
-		return
+		t.Skipf("Redis not available for this integration-style test: %v", err)
 	}
 
 	// Create reasoning engine
@@ -121,7 +121,7 @@ func TestReasoningEngine() {
 }
 
 // TestFSMWithReasoning demonstrates FSM with reasoning capabilities
-func TestFSMWithReasoning() {
+func TestFSMWithReasoning(t *testing.T) {
 	log.Printf("🤖 Testing FSM with Reasoning Layer")
 
 	// This would be a more comprehensive test that:
@@ -139,13 +139,4 @@ func TestFSMWithReasoning() {
 	log.Printf("  - Curiosity goal generation validation")
 	log.Printf("  - Reasoning trace logging verification")
 	log.Printf("  - Explanation generation testing")
-}
-
-func main() {
-	log.Printf("🚀 Starting Reasoning Layer Tests")
-
-	TestReasoningEngine()
-	TestFSMWithReasoning()
-
-	log.Printf("✅ All tests completed!")
 }

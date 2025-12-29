@@ -4,8 +4,8 @@ import (
 	"log"
 )
 
-// ExampleFSMTest demonstrates the hardcoded principles checking
-func ExampleFSMTest() {
+// ExampleFSMEngine demonstrates the hardcoded principles checking
+func ExampleFSMEngine() {
 	log.Println("🧠 Starting FSM Example Test with Hardcoded Principles Checking")
 
 	// This would normally connect to real services
@@ -85,16 +85,4 @@ func runFSMWithMockServices() {
 	log.Println("  - All actions are validated by Principles Server")
 	log.Println("  - FSM fails if Principles Server is unavailable")
 	log.Println("  - Complete audit trail in logs and Redis")
-}
-
-func main() {
-	log.Println("🤖 AGI Artificial Mind FSM with Hardcoded Principles Checking")
-	log.Println("======================================================================")
-
-	ExampleFSMTest()
-
-	log.Println("\n======================================================================")
-	runFSMWithMockServices()
-
-	log.Println("\n✅ Example completed - FSM is ready for integration!")
 }

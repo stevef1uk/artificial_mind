@@ -1153,7 +1153,7 @@ func (re *ReasoningEngine) generateActiveLearningGoals(domain string) ([]Curiosi
 	log.Printf("🔬 [ACTIVE-LEARNING] Generating active learning goals for domain: %s", domain)
 
 	// Create active learning loop instance
-	activeLearning := NewActiveLearningLoop(re.redis, re.ctx, re, re.hdnURL)
+	activeLearning := NewActiveLearningLoop(goRedisActiveLearningRedis{c: re.redis}, re.ctx, re, re.hdnURL)
 
 	// Identify high-uncertainty concepts (threshold: 0.4 epistemic uncertainty)
 	highUncertaintyConcepts, err := activeLearning.IdentifyHighUncertaintyConcepts(domain, 0.4)

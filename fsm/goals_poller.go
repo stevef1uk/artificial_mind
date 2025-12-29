@@ -15,6 +15,17 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+func goalsDebugEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("FSM_GOALS_DEBUG")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+func goalsDebugf(format string, args ...any) {
+	if goalsDebugEnabled() {
+		log.Printf(format, args...)
+	}
+}
+
 type GoalItem struct {
 	ID          string                 `json:"id"`
 	Name        string                 `json:"name"`
@@ -67,7 +78,7 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 				// before pausing new goal triggers (leaves 1 slot free for other operations)
 				maxActiveWorkflows := 3
 				if activeWorkflowCount >= int64(maxActiveWorkflows) {
-					log.Printf("[FSM][Goals] Skipping goal trigger - %d active workflows (max: %d)", activeWorkflowCount, maxActiveWorkflows)
+					goalsDebugf("[FSM][Goals] Skipping goal trigger - %d active workflows (max: %d)", activeWorkflowCount, maxActiveWorkflows)
 					continue
 				}
 			}
@@ -196,7 +207,7 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 					_ = rdb.SAdd(ctx, triggeredKey, g.ID).Err()
 					// Set TTL so if something stalls we can retry later (reduced from 12h to 30min)
 					_ = rdb.Expire(ctx, triggeredKey, 30*time.Minute).Err()
-					log.Printf("[FSM][Goals] triggered goal %s (workflow: %s)", g.ID, workflowID)
+					goalsDebugf("[FSM][Goals] triggered goal %s (workflow: %s)", g.ID, workflowID)
 
 					// Start background watcher to clear triggered flag when workflow completes or fails
 					if workflowID != "" {
@@ -232,11 +243,11 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 					_ = rdb.Expire(ctx, triggeredKey, 30*time.Minute).Err()
 					
 					if workflowID != "" {
-						log.Printf("[FSM][Goals] goal %s already has workflow %s running - marked as triggered", g.ID, workflowID)
+						goalsDebugf("[FSM][Goals] goal %s already has workflow %s running - marked as triggered", g.ID, workflowID)
 						// Watch the existing workflow to clear triggered flag when it completes
 						go watchWorkflowAndClearTriggered(ctx, agentID, g.ID, workflowID, hdnURL, goalMgrURL, rdb, triggeredKey)
 					} else {
-						log.Printf("[FSM][Goals] goal %s duplicate (409) but no workflow_id - marked as triggered with timeout watcher", g.ID)
+						goalsDebugf("[FSM][Goals] goal %s duplicate (409) but no workflow_id - marked as triggered with timeout watcher", g.ID)
 						// Set up timeout watcher since we don't have workflow_id
 						go watchGoalStatusAndClearTriggered(ctx, agentID, g.ID, goalMgrURL, rdb, triggeredKey)
 					}
@@ -331,14 +342,14 @@ func watchWorkflowAndClearTriggered(ctx context.Context, agentID, goalID, workfl
 		if completed {
 			// Clear triggered flag so goal can be retried if needed
 			_ = rdb.SRem(ctx, triggeredKey, goalID).Err()
-			log.Printf("[FSM][Goals] workflow %s for goal %s %s - cleared triggered flag", workflowID, goalID, status)
+			goalsDebugf("[FSM][Goals] workflow %s for goal %s %s - cleared triggered flag", workflowID, goalID, status)
 			return
 		}
 
 		// Also check if goal status changed to achieved/failed
 		if goalStatus := checkGoalStatus(ctx, goalID, goalMgrURL); goalStatus == "achieved" || goalStatus == "failed" {
 			_ = rdb.SRem(ctx, triggeredKey, goalID).Err()
-			log.Printf("[FSM][Goals] goal %s status changed to %s - cleared triggered flag", goalID, goalStatus)
+			goalsDebugf("[FSM][Goals] goal %s status changed to %s - cleared triggered flag", goalID, goalStatus)
 			return
 		}
 
@@ -347,7 +358,7 @@ func watchWorkflowAndClearTriggered(ctx context.Context, agentID, goalID, workfl
 
 	// Timeout reached - clear triggered flag to allow retry
 	_ = rdb.SRem(ctx, triggeredKey, goalID).Err()
-	log.Printf("[FSM][Goals] workflow %s for goal %s timed out after 15min - cleared triggered flag for retry", workflowID, goalID)
+	goalsDebugf("[FSM][Goals] workflow %s for goal %s timed out after 15min - cleared triggered flag for retry", workflowID, goalID)
 }
 
 // watchGoalStatusAndClearTriggered monitors goal status changes and clears triggered flag
@@ -360,7 +371,7 @@ func watchGoalStatusAndClearTriggered(ctx context.Context, agentID, goalID, goal
 		status := checkGoalStatus(ctx, goalID, goalMgrURL)
 		if status == "achieved" || status == "failed" {
 			_ = rdb.SRem(ctx, triggeredKey, goalID).Err()
-			log.Printf("[FSM][Goals] goal %s status changed to %s - cleared triggered flag", goalID, status)
+			goalsDebugf("[FSM][Goals] goal %s status changed to %s - cleared triggered flag", goalID, status)
 			return
 		}
 		time.Sleep(checkInterval)
@@ -368,7 +379,7 @@ func watchGoalStatusAndClearTriggered(ctx context.Context, agentID, goalID, goal
 
 	// Timeout reached - clear triggered flag to allow retry
 	_ = rdb.SRem(ctx, triggeredKey, goalID).Err()
-	log.Printf("[FSM][Goals] goal %s watcher timed out after 10min - cleared triggered flag for retry", goalID)
+	goalsDebugf("[FSM][Goals] goal %s watcher timed out after 10min - cleared triggered flag for retry", goalID)
 }
 
 // checkGoalStatus checks the current status of a goal
@@ -421,14 +432,14 @@ func cleanupStuckTriggeredFlags(ctx context.Context, agentID, goalMgrURL string,
 			_ = rdb.SRem(ctx, triggeredKey, goalID).Err()
 			clearedCount++
 			if status != "" {
-				log.Printf("[FSM][Goals] cleanup: cleared triggered flag for %s goal %s", status, goalID)
+				goalsDebugf("[FSM][Goals] cleanup: cleared triggered flag for %s goal %s", status, goalID)
 			} else {
-				log.Printf("[FSM][Goals] cleanup: cleared triggered flag for missing goal %s", goalID)
+				goalsDebugf("[FSM][Goals] cleanup: cleared triggered flag for missing goal %s", goalID)
 			}
 		}
 	}
 
 	if clearedCount > 0 {
-		log.Printf("[FSM][Goals] cleanup: cleared %d stuck triggered flag(s)", clearedCount)
+		goalsDebugf("[FSM][Goals] cleanup: cleared %d stuck triggered flag(s)", clearedCount)
 	}
 }

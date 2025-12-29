@@ -7,6 +7,7 @@ set -e
 
 NAMESPACE="${K8S_NAMESPACE:-agi}"
 MODE="${1:-test}"
+FSM_URL="${FSM_URL:-http://localhost:8083}"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -139,43 +140,53 @@ print('false')
         fi
         echo ""
         
-        # Test 3: Trigger curiosity goal generation
-        echo "3️⃣ Triggering curiosity goal generation"
-        echo "----------------------------------------"
+        # Test 3: Trigger curiosity goal generation (best-effort)
+        echo "3️⃣ Triggering curiosity goal generation (best-effort)"
+        echo "-----------------------------------------------------"
         
-        # Check if FSM has the trigger endpoint
+        # Ensure FSM API is reachable (port-forward in k8s)
         FSM_PORT_FORWARD_PID=""
-        if ! lsof -ti:8083 > /dev/null 2>&1; then
-            kubectl port-forward -n "$NAMESPACE" svc/fsm-server 8083:8083 > /dev/null 2>&1 &
-            FSM_PORT_FORWARD_PID=$!
-            sleep 3
+        if ! curl -s --connect-timeout 2 "$FSM_URL/health" > /dev/null 2>&1; then
+            if command -v kubectl >/dev/null 2>&1; then
+                # Prefer the k3s service name used in this repo
+                if ! lsof -ti:8083 > /dev/null 2>&1; then
+                    kubectl port-forward -n "$NAMESPACE" svc/fsm-server-rpi58 8083:8083 > /dev/null 2>&1 &
+                    FSM_PORT_FORWARD_PID=$!
+                    sleep 3
+                fi
+            fi
         fi
         
-        # Trigger via NATS or FSM API
+        # Trigger via FSM event API (deterministic; no reliance on timer)
         echo "   Triggering goal generation..."
         
-        # Try to trigger via FSM state transition
+        # NOTE: FSM does not expose a stable public HTTP endpoint to force TriggerAutonomyCycle.
+        # Some environments may have /api/v1/events; we treat this as best-effort and rely on polling below.
         TRIGGER_SUCCESS=false
-        if curl -s --connect-timeout 2 http://localhost:8083/health > /dev/null 2>&1; then
-            # Try to trigger autonomy cycle which generates curiosity goals
-            RESPONSE=$(curl -s -X POST "http://localhost:8083/api/trigger/autonomy" 2>&1 || echo "")
-            if echo "$RESPONSE" | grep -q "success\|triggered\|ok" || [ -z "$RESPONSE" ]; then
-                TRIGGER_SUCCESS=true
-                echo -e "   ${GREEN}✅ Triggered via FSM API${NC}"
-            fi
+        HTTP_CODE=$(curl -s -o /tmp/fsm_event_resp.txt -w "%{http_code}" -X POST "$FSM_URL/api/v1/events" \
+            -H "Content-Type: application/json" \
+            -d '{"event":"generate_curiosity_goals","payload":{}}' 2>/dev/null || echo "000")
+        RESPONSE=$(cat /tmp/fsm_event_resp.txt 2>/dev/null || echo "")
+        rm -f /tmp/fsm_event_resp.txt 2>/dev/null || true
+
+        if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "204" ]; then
+            TRIGGER_SUCCESS=true
+            echo -e "   ${GREEN}✅ Triggered (HTTP $HTTP_CODE)${NC}"
+        else
+            echo -e "   ${YELLOW}⚠️  Trigger endpoint not available (HTTP $HTTP_CODE). Will rely on autonomy scheduler.${NC}"
         fi
         
         if [ "$TRIGGER_SUCCESS" = false ]; then
             echo -e "   ${YELLOW}⚠️  Could not trigger via API, will check existing goals...${NC}"
         fi
         
-        echo "   ⏳ Waiting 10 seconds for processing..."
-        sleep 10
+        echo "   ⏳ Waiting 5 seconds for processing..."
+        sleep 5
         echo ""
         
-        # Test 4: Check for active learning goals
-        echo "4️⃣ Checking for active learning goals"
-        echo "---------------------------------------"
+        # Test 4: Check for active learning goals (poll up to 90s)
+        echo "4️⃣ Checking for active learning goals (poll up to 90s)"
+        echo "-------------------------------------------------------"
         
         NEW_GOAL_COUNT=$(redis_cmd LLEN "$GOAL_KEY" 2>/dev/null || echo "0")
         echo "   Total curiosity goals now: $NEW_GOAL_COUNT"
@@ -186,8 +197,12 @@ print('false')
             echo -e "   ${YELLOW}⚠️  No new goals generated (checking existing goals for active_learning type)${NC}"
         fi
         
-        # Check for active learning goals specifically (use Python to count properly)
-        ACTIVE_LEARNING_DATA=$(redis_cmd LRANGE "$GOAL_KEY" 0 49 2>/dev/null | python3 -c "
+        ACTIVE_LEARNING_COUNT=0
+        ACTIVE_LEARNING_DATA='{"count": 0, "goals": []}'
+        attempts=18  # 18 * 5s = 90s
+        while [ $attempts -gt 0 ]; do
+            # Check for active learning goals specifically (scan full list window)
+            ACTIVE_LEARNING_DATA=$(redis_cmd LRANGE "$GOAL_KEY" 0 199 2>/dev/null | python3 -c "
 import sys, json
 count = 0
 goals = []
@@ -208,7 +223,14 @@ for line in sys.stdin:
 print(json.dumps({'count': count, 'goals': goals}))
 " 2>/dev/null || echo '{"count": 0, "goals": []}')
         
-        ACTIVE_LEARNING_COUNT=$(echo "$ACTIVE_LEARNING_DATA" | python3 -c "import sys, json; print(json.load(sys.stdin).get('count', 0))" 2>/dev/null || echo "0")
+            ACTIVE_LEARNING_COUNT=$(echo "$ACTIVE_LEARNING_DATA" | python3 -c "import sys, json; print(json.load(sys.stdin).get('count', 0))" 2>/dev/null || echo "0")
+            if [ "$ACTIVE_LEARNING_COUNT" -gt 0 ]; then
+                break
+            fi
+            echo "   ⏳ Not found yet; waiting 5s... (remaining polls: $attempts)"
+            sleep 5
+            attempts=$((attempts - 1))
+        done
         
         if [ "$ACTIVE_LEARNING_COUNT" -gt 0 ]; then
             echo -e "   ${GREEN}✅ Found $ACTIVE_LEARNING_COUNT active learning goal(s)!${NC}"
@@ -226,6 +248,14 @@ for goal in data.get('goals', []):
             echo "   - Goals were generated but not yet stored"
         fi
         echo ""
+
+        # Hard assertion in test mode: we should have at least 1 active_learning goal
+        if [ "$ACTIVE_LEARNING_COUNT" -eq 0 ]; then
+            echo -e "${RED}❌ FAIL: Expected at least 1 active_learning goal after triggering generation${NC}"
+            echo "   Tip: check FSM logs for [ACTIVE-LEARNING] lines:"
+            echo "   kubectl logs -n $NAMESPACE $FSM_POD --tail=300 | grep -i \"ACTIVE-LEARNING\\|CALLING\\|Warning: Failed to generate active learning\""
+            exit 1
+        fi
         
         # Test 5: Verify active learning goal properties
         echo "5️⃣ Verifying active learning goal properties"
