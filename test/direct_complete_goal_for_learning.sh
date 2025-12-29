@@ -138,25 +138,26 @@ echo "6️⃣ Waiting for explanation learning to process..."
 echo "--------------------------------------------------"
 sleep 15
 
-# Check for messages
+# Stop watcher first to capture its output
+kill $WATCHER_PID 2>/dev/null || true
+sleep 1
+
+# Check for messages in recent logs
 echo ""
 echo "7️⃣ Checking for explanation learning messages..."
 echo "------------------------------------------------"
-RECENT_LOGS=$(kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=100 2>/dev/null | grep -E "EXPLANATION-LEARNING|handleGoalCompletion|Received.*goal.*achieved")
+RECENT_LOGS=$(kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=200 2>/dev/null | grep -E "EXPLANATION-LEARNING.*$GOAL_ID|EXPLANATION-LEARNING.*Evaluating|EXPLANATION-LEARNING.*Completed evaluation")
 
 if [ -n "$RECENT_LOGS" ]; then
-    echo "   ✅ SUCCESS! Found explanation learning activity:"
+    echo "   ✅ SUCCESS! Found explanation learning activity for goal $GOAL_ID:"
     echo ""
-    echo "$RECENT_LOGS"
+    echo "$RECENT_LOGS" | grep -E "EXPLANATION-LEARNING.*$GOAL_ID|EXPLANATION-LEARNING.*Evaluating|EXPLANATION-LEARNING.*Completed|EXPLANATION-LEARNING.*Updating|EXPLANATION-LEARNING.*Updated" | head -15
 else
-    echo "   ⚠️  No explanation learning messages found"
+    echo "   ⚠️  No explanation learning messages found for this goal"
     echo ""
-    echo "   Checking if FSM received any goal events..."
-    kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=50 2>/dev/null | grep -i "goal.*$GOAL_ID\|goal.*achieved" | tail -5
+    echo "   Checking if FSM received the goal event..."
+    kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=100 2>/dev/null | grep -i "EXPLANATION-LEARNING.*$GOAL_ID\|Received.*goal.*$GOAL_ID" | tail -5
 fi
-
-# Stop watcher
-kill $WATCHER_PID 2>/dev/null || true
 
 echo ""
 echo "8️⃣ Checking Redis for learning data..."
