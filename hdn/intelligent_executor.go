@@ -844,7 +844,7 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 	// but enhance the description to guide code generation for hypothesis testing
 	if strings.HasPrefix(descLower, "test hypothesis:") || strings.HasPrefix(taskLower, "test hypothesis:") {
 		log.Printf("🧪 [INTELLIGENT] Detected hypothesis testing task - will generate code to test hypothesis")
-		
+
 		// Extract hypothesis content
 		hypothesisContent := req.Description
 		if strings.HasPrefix(descLower, "test hypothesis:") {
@@ -853,7 +853,7 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 				hypothesisContent = strings.TrimSpace(parts[1])
 			}
 		}
-		
+
 		// Enhance description to guide code generation
 		enhancedDesc := fmt.Sprintf(`Test hypothesis by gathering evidence: %s
 
@@ -865,10 +865,10 @@ Requirements:
 5. Save the report as hypothesis_test_report.md
 
 The hypothesis to test: %s`, hypothesisContent, hypothesisContent)
-		
+
 		req.Description = enhancedDesc
 		req.TaskName = fmt.Sprintf("Test hypothesis: %s", hypothesisContent)
-		
+
 		// Add context hints for artifact creation
 		if req.Context == nil {
 			req.Context = make(map[string]string)
@@ -876,7 +876,7 @@ The hypothesis to test: %s`, hypothesisContent, hypothesisContent)
 		req.Context["hypothesis_testing"] = "true"
 		req.Context["save_pdf"] = "true" // Ensure artifacts are created
 		req.Context["artifact_names"] = "hypothesis_test_report.md"
-		
+
 		// Continue to normal code generation path - don't skip
 		// The enhanced description will guide the LLM to generate appropriate testing code
 	}
