@@ -146,22 +146,25 @@ sleep 1
 echo ""
 echo "7️⃣ Checking for explanation learning messages..."
 echo "------------------------------------------------"
-# Check for any explanation learning activity related to this goal
-RECENT_LOGS=$(kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=200 --since=30s 2>/dev/null | grep -i "EXPLANATION-LEARNING" | grep -i "$GOAL_ID\|Evaluating\|Completed evaluation\|Updating\|Updated")
+# Check for any explanation learning activity related to this goal (use --tail with larger number and no --since for better compatibility)
+RECENT_LOGS=$(kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=500 2>/dev/null | grep -i "EXPLANATION-LEARNING" | grep -i "$GOAL_ID")
 
 if [ -n "$RECENT_LOGS" ]; then
     echo "   ✅ SUCCESS! Found explanation learning activity for goal $GOAL_ID:"
     echo ""
     echo "$RECENT_LOGS" | head -10
 else
-    # Fallback: check for any explanation learning messages in the last minute
-    ANY_EL_LOGS=$(kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=200 --since=1m 2>/dev/null | grep -i "EXPLANATION-LEARNING.*Evaluating\|EXPLANATION-LEARNING.*Completed evaluation" | tail -5)
+    # Fallback: check for any recent explanation learning messages
+    ANY_EL_LOGS=$(kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=500 2>/dev/null | grep -i "EXPLANATION-LEARNING.*Evaluating\|EXPLANATION-LEARNING.*Completed evaluation" | tail -3)
     if [ -n "$ANY_EL_LOGS" ]; then
-        echo "   ✅ Found explanation learning activity (may be for different goal):"
+        echo "   ✅ Found recent explanation learning activity:"
         echo ""
         echo "$ANY_EL_LOGS"
+        echo ""
+        echo "   💡 Note: Messages may have appeared in the 'Waiting...' section above"
     else
         echo "   ⚠️  No explanation learning messages found in recent logs"
+        echo "   💡 Check the 'Waiting...' section above - messages may appear there"
         echo ""
         echo "   Checking if FSM received the goal event..."
         kubectl logs -n "$NAMESPACE" "$FSM_POD" --tail=100 2>/dev/null | grep -i "EXPLANATION-LEARNING\|Received.*goal.*$GOAL_ID" | tail -5
