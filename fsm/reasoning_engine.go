@@ -377,10 +377,12 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 	}
 
 	// 5. Active learning loop goals (query-driven learning for high-uncertainty concepts)
+	log.Printf("🔬 [CALLING] About to call generateActiveLearningGoals for domain: %s", domain)
 	activeLearningGoals, err := re.generateActiveLearningGoals(domain)
 	if err != nil {
-		log.Printf("Warning: Failed to generate active learning goals: %v", err)
+		log.Printf("⚠️ Warning: Failed to generate active learning goals: %v", err)
 	} else {
+		log.Printf("✅ [CALLED] generateActiveLearningGoals returned %d goals", len(activeLearningGoals))
 		goals = append(goals, activeLearningGoals...)
 	}
 
