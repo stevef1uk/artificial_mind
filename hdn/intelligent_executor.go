@@ -840,23 +840,45 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 	taskLower := strings.ToLower(strings.TrimSpace(req.TaskName))
 	combined := descLower + " " + taskLower
 
-	// Check 1: Hypothesis testing tasks - these are conceptual and don't need code
+	// Check 1: Hypothesis testing tasks - let them go through normal code generation
+	// but enhance the description to guide code generation for hypothesis testing
 	if strings.HasPrefix(descLower, "test hypothesis:") || strings.HasPrefix(taskLower, "test hypothesis:") {
-		log.Printf("🧪 [INTELLIGENT] Detected hypothesis testing task - skipping code generation")
-		// Hypothesis testing tasks are conceptual - return a simple acknowledgment
-		result := &IntelligentExecutionResult{
-			Success:         true,
-			Result:          fmt.Sprintf("Hypothesis testing task acknowledged: %s", req.Description),
-			ExecutionTime:   time.Since(start),
-			RetryCount:      0,
-			ValidationSteps: []ValidationStep{},
-			WorkflowID:      fmt.Sprintf("intelligent_%d", time.Now().UnixNano()),
+		log.Printf("🧪 [INTELLIGENT] Detected hypothesis testing task - will generate code to test hypothesis")
+		
+		// Extract hypothesis content
+		hypothesisContent := req.Description
+		if strings.HasPrefix(descLower, "test hypothesis:") {
+			parts := strings.SplitN(req.Description, ":", 2)
+			if len(parts) > 1 {
+				hypothesisContent = strings.TrimSpace(parts[1])
+			}
 		}
-		ie.recordMonitorMetrics(result.Success, result.ExecutionTime)
-		if ie.selfModelManager != nil {
-			ie.recordExecutionEpisode(req, result, "hypothesis_test")
+		
+		// Enhance description to guide code generation
+		enhancedDesc := fmt.Sprintf(`Test hypothesis by gathering evidence: %s
+
+Requirements:
+1. Query Neo4j knowledge base (via HTTP API or tool_mcp_query_neo4j) for information related to the hypothesis
+2. Extract key terms from the hypothesis (event IDs, concept names, domains)
+3. Gather evidence that supports or contradicts the hypothesis
+4. Create a markdown report with findings, evidence, and conclusions
+5. Save the report as hypothesis_test_report.md
+
+The hypothesis to test: %s`, hypothesisContent, hypothesisContent)
+		
+		req.Description = enhancedDesc
+		req.TaskName = fmt.Sprintf("Test hypothesis: %s", hypothesisContent)
+		
+		// Add context hints for artifact creation
+		if req.Context == nil {
+			req.Context = make(map[string]string)
 		}
-		return result, nil
+		req.Context["hypothesis_testing"] = "true"
+		req.Context["save_pdf"] = "true" // Ensure artifacts are created
+		req.Context["artifact_names"] = "hypothesis_test_report.md"
+		
+		// Continue to normal code generation path - don't skip
+		// The enhanced description will guide the LLM to generate appropriate testing code
 	}
 
 	// Check 2: Explicit tool usage requests that mention specific tools
