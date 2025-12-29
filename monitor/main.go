@@ -6543,6 +6543,11 @@ func (m *MonitorService) convertCuriosityGoalToTask(goal map[string]interface{},
 		return fmt.Errorf("failed to marshal task data: %w", err)
 	}
 
+	// Debug: Log what we're sending
+	if domain == "system_coherence" {
+		log.Printf("📤 [Monitor] Sending coherence goal to Goal Manager: %s (context: %+v)", goal["id"], taskData["context"])
+	}
+
 	req, err := http.NewRequest("POST", url, bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
@@ -6559,6 +6564,11 @@ func (m *MonitorService) convertCuriosityGoalToTask(goal map[string]interface{},
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("goal manager returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Debug: Log response
+	if domain == "system_coherence" {
+		log.Printf("✅ [Monitor] Coherence goal sent successfully to Goal Manager: %s", goal["id"])
 	}
 
 	return nil

@@ -288,6 +288,12 @@ func (gm *GoalManager) CreateGoal(g PolicyGoal) (*PolicyGoal, error) {
 		g.CreatedAt = now
 	}
 	g.UpdatedAt = now
+	
+	// Debug: Log context preservation
+	if g.Context != nil && len(g.Context) > 0 {
+		fmt.Printf("🐛 DEBUG: CreateGoal preserving context: %+v\n", g.Context)
+	}
+	
 	if err := gm.saveGoal(&g); err != nil {
 		return nil, err
 	}

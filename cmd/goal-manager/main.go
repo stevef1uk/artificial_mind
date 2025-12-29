@@ -102,10 +102,21 @@ func main() {
 			http.Error(w, "bad request", 400)
 			return
 		}
+		// Debug: Log if context is present
+		if g.Context != nil && len(g.Context) > 0 {
+			log.Printf("📥 [GoalManager] Received goal with context: %+v (domain: %v, source: %v)", 
+				g.Context, g.Context["domain"], g.Context["source"])
+		} else {
+			log.Printf("📥 [GoalManager] Received goal without context (description: %.50s...)", g.Description)
+		}
 		ng, err := gm.CreateGoal(g)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
+		}
+		// Debug: Verify context was preserved
+		if ng.Context != nil && len(ng.Context) > 0 {
+			log.Printf("✅ [GoalManager] Goal created with context preserved: %+v", ng.Context)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(ng)
