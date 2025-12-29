@@ -87,16 +87,16 @@ type ReasoningStep struct {
 
 // CuriosityGoal represents an intrinsic goal for knowledge exploration
 type CuriosityGoal struct {
-	ID          string           `json:"id"`
-	Type        string           `json:"type"` // gap_filling, contradiction_resolution, concept_exploration
-	Description string           `json:"description"`
-	Domain      string           `json:"domain"`
-	Priority    int              `json:"priority"` // 1-10, higher is more important
-	Status      string           `json:"status"`   // pending, active, completed, failed
-	Targets     []string         `json:"targets"`  // Concept names or patterns to explore
-	CreatedAt   time.Time        `json:"created_at"`
+	ID          string            `json:"id"`
+	Type        string            `json:"type"` // gap_filling, contradiction_resolution, concept_exploration
+	Description string            `json:"description"`
+	Domain      string            `json:"domain"`
+	Priority    int               `json:"priority"` // 1-10, higher is more important
+	Status      string            `json:"status"`   // pending, active, completed, failed
+	Targets     []string          `json:"targets"`  // Concept names or patterns to explore
+	CreatedAt   time.Time         `json:"created_at"`
 	Uncertainty *UncertaintyModel `json:"uncertainty,omitempty"` // Formal uncertainty model for goal confidence
-	Value       float64          `json:"value,omitempty"`        // Expected value (0-1)
+	Value       float64           `json:"value,omitempty"`       // Expected value (0-1)
 }
 
 // GoalOutcome represents the outcome of a goal execution for learning
@@ -181,7 +181,7 @@ func (re *ReasoningEngine) InferNewBeliefs(domain string) ([]Belief, error) {
 			log.Printf("Warning: Failed to apply rule %s: %v", rule.Name, err)
 			continue
 		}
-		
+
 		// Collect confidences for propagation tracking
 		for _, belief := range inferred {
 			if belief.Uncertainty != nil {
@@ -190,7 +190,7 @@ func (re *ReasoningEngine) InferNewBeliefs(domain string) ([]Belief, error) {
 				allInputConfidences = append(allInputConfidences, belief.Confidence)
 			}
 		}
-		
+
 		newBeliefs = append(newBeliefs, inferred...)
 	}
 
@@ -212,7 +212,7 @@ func (re *ReasoningEngine) InferNewBeliefs(domain string) ([]Belief, error) {
 	if len(newBeliefs) > 1 && len(allInputConfidences) > 0 {
 		propagatedConf := PropagateConfidenceThroughChain(allInputConfidences, len(newBeliefs))
 		log.Printf("📊 Propagated confidence through chain of %d beliefs: %.3f", len(newBeliefs), propagatedConf)
-		
+
 		// Update beliefs with propagated confidence if significantly different
 		for i := range newBeliefs {
 			if newBeliefs[i].Uncertainty != nil {
@@ -304,7 +304,7 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 		// Create goals with uncertainty models
 		goal1Uncertainty := NewUncertaintyModel(0.7, 0.4, EstimateAleatoricUncertainty(domain, "exploration"))
 		goal2Uncertainty := NewUncertaintyModel(0.8, 0.3, EstimateAleatoricUncertainty(domain, "knowledge_building"))
-		
+
 		basicGoals := []CuriosityGoal{
 			{
 				ID:          fmt.Sprintf("explore_%s_%d", domain, time.Now().UnixNano()),
@@ -374,6 +374,14 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 		log.Printf("Warning: Failed to generate news curiosity goals: %v", err)
 	} else {
 		goals = append(goals, newsGoals...)
+	}
+
+	// 5. Active learning loop goals (query-driven learning for high-uncertainty concepts)
+	activeLearningGoals, err := re.generateActiveLearningGoals(domain)
+	if err != nil {
+		log.Printf("Warning: Failed to generate active learning goals: %v", err)
+	} else {
+		goals = append(goals, activeLearningGoals...)
 	}
 
 	// Get existing goals from Redis for deduplication
@@ -594,12 +602,12 @@ func (re *ReasoningEngine) executeCypherQuery(cypherQuery string) ([]Belief, err
 			filteredCount++
 			continue
 		}
-		
+
 		// Estimate uncertainties for the belief
 		hasDefinition := false
 		hasExamples := false
 		evidenceCount := 1
-		
+
 		// Check result for definition and examples
 		if props, ok := res["Props"].(map[string]interface{}); ok {
 			if def, ok := props["definition"].(string); ok && len(def) > 20 {
@@ -609,7 +617,7 @@ func (re *ReasoningEngine) executeCypherQuery(cypherQuery string) ([]Belief, err
 				hasExamples = true
 			}
 		}
-		
+
 		epistemicUncertainty := EstimateEpistemicUncertainty(evidenceCount, hasDefinition, hasExamples)
 		aleatoricUncertainty := EstimateAleatoricUncertainty(re.extractDomainFromResult(res), "")
 		uncertainty := NewUncertaintyModel(confidence, epistemicUncertainty, aleatoricUncertainty)
@@ -668,14 +676,14 @@ func (re *ReasoningEngine) extractStatementFromResult(result map[string]interfac
 	// Prefer definition over name - a belief should be a statement, not just a name
 	// Flat fields
 	var name, definition string
-	
+
 	if n, ok := result["name"].(string); ok && n != "" {
 		name = n
 	}
 	if d, ok := result["definition"].(string); ok && d != "" {
 		definition = d
 	}
-	
+
 	// Nested Neo4j node formats (from HDN /knowledge/query): keys like "n","c","a","b"
 	// Expect shape: map[key] -> map{"Props": map{"name":..., "definition":..., "domain":...}}
 	if name == "" || definition == "" {
@@ -696,17 +704,17 @@ func (re *ReasoningEngine) extractStatementFromResult(result map[string]interfac
 			}
 		}
 	}
-	
+
 	// Prefer definition if available (it's a proper statement)
 	if definition != "" {
 		return definition
 	}
-	
+
 	// If only name is available, format it as a statement
 	if name != "" {
 		return fmt.Sprintf("%s is a concept in the knowledge base", name)
 	}
-	
+
 	return "Unknown concept"
 }
 
@@ -847,7 +855,7 @@ func (re *ReasoningEngine) applyInferenceRule(rule InferenceRule, chainLength in
 		hasDefinition := false
 		hasExamples := false
 		evidenceCount := 1 // At least the result itself
-		
+
 		// Check result properties for evidence quality
 		// result.Properties is already map[string]interface{}, no type assertion needed
 		if result.Properties != nil {
@@ -858,22 +866,22 @@ func (re *ReasoningEngine) applyInferenceRule(rule InferenceRule, chainLength in
 				hasExamples = true
 			}
 		}
-		
+
 		// Also check if statement itself contains substantial content (acts as definition)
 		if len(result.Statement) > 50 {
 			hasDefinition = true
 		}
-		
+
 		epistemicUncertainty := EstimateEpistemicUncertainty(evidenceCount, hasDefinition, hasExamples)
 		aleatoricUncertainty := EstimateAleatoricUncertainty(rule.Domain, "")
-		
+
 		// Apply chain length penalty to epistemic uncertainty
 		chainPenalty := float64(chainLength-1) * 0.05
 		epistemicUncertainty = clamp(epistemicUncertainty+chainPenalty, 0.0, 1.0)
-		
+
 		// Create uncertainty model
 		uncertainty := NewUncertaintyModel(rule.Confidence, epistemicUncertainty, aleatoricUncertainty)
-		
+
 		// Create new belief based on the conclusion pattern
 		belief := Belief{
 			ID:          fmt.Sprintf("inferred_%s_%d_%d", rule.ID, time.Now().UnixNano(), i),
@@ -886,7 +894,7 @@ func (re *ReasoningEngine) applyInferenceRule(rule InferenceRule, chainLength in
 			LastUpdated: time.Now(),
 			Uncertainty: uncertainty,
 		}
-		log.Printf("✨ Created belief: %s (confidence: %.3f, epistemic: %.3f, aleatoric: %.3f)", 
+		log.Printf("✨ Created belief: %s (confidence: %.3f, epistemic: %.3f, aleatoric: %.3f)",
 			belief.Statement, uncertainty.CalibratedConfidence, epistemicUncertainty, aleatoricUncertainty)
 		newBeliefs = append(newBeliefs, belief)
 	}
@@ -924,7 +932,7 @@ func (re *ReasoningEngine) generateGapFillingGoals(domain string) ([]CuriosityGo
 	var goals []CuriosityGoal
 	for i, result := range results {
 		concept := result.Statement
-		
+
 		// Create uncertainty model for gap filling goal
 		// Gap filling has moderate epistemic uncertainty (we know there's a gap)
 		epistemicUncertainty := EstimateEpistemicUncertainty(1, false, false)
@@ -955,7 +963,7 @@ func (re *ReasoningEngine) generateContradictionGoals(domain string) ([]Curiosit
 	epistemicUncertainty := EstimateEpistemicUncertainty(0, false, false) // No direct evidence yet
 	aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "contradiction_resolution")
 	uncertainty := NewUncertaintyModel(0.7, epistemicUncertainty, aleatoricUncertainty)
-	
+
 	return []CuriosityGoal{
 		{
 			ID:          fmt.Sprintf("contradiction_%d", time.Now().UnixNano()),
@@ -977,7 +985,7 @@ func (re *ReasoningEngine) generateExplorationGoals(domain string) ([]CuriosityG
 	epistemicUncertainty := EstimateEpistemicUncertainty(0, false, false)
 	aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "concept_exploration")
 	uncertainty := NewUncertaintyModel(0.5, epistemicUncertainty, aleatoricUncertainty)
-	
+
 	return []CuriosityGoal{
 		{
 			ID:          fmt.Sprintf("exploration_%d", time.Now().UnixNano()),
@@ -1030,7 +1038,7 @@ func (re *ReasoningEngine) generateNewsCuriosityGoals(domain string) ([]Curiosit
 					epistemicUncertainty := EstimateEpistemicUncertainty(1, false, false)
 					aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "news_analysis")
 					uncertainty := NewUncertaintyModel(0.6, epistemicUncertainty, aleatoricUncertainty)
-					
+
 					goal := CuriosityGoal{
 						ID:          fmt.Sprintf("news_relation_%d_%d", time.Now().UnixNano(), i),
 						Type:        "news_analysis",
@@ -1106,6 +1114,42 @@ func (re *ReasoningEngine) generateNewsCuriosityGoals(domain string) ([]Curiosit
 	}
 
 	log.Printf("📰 Generated %d news-driven curiosity goals", len(goals))
+	return goals, nil
+}
+
+// generateActiveLearningGoals generates query-driven learning goals for high-uncertainty concepts
+func (re *ReasoningEngine) generateActiveLearningGoals(domain string) ([]CuriosityGoal, error) {
+	log.Printf("🔬 [ACTIVE-LEARNING] Generating active learning goals for domain: %s", domain)
+
+	// Create active learning loop instance
+	activeLearning := NewActiveLearningLoop(re.redis, re.ctx, re, re.hdnURL)
+
+	// Identify high-uncertainty concepts (threshold: 0.4 epistemic uncertainty)
+	highUncertaintyConcepts, err := activeLearning.IdentifyHighUncertaintyConcepts(domain, 0.4)
+	if err != nil {
+		return nil, fmt.Errorf("failed to identify high-uncertainty concepts: %w", err)
+	}
+
+	if len(highUncertaintyConcepts) == 0 {
+		log.Printf("ℹ️ [ACTIVE-LEARNING] No high-uncertainty concepts found in domain: %s", domain)
+		return []CuriosityGoal{}, nil
+	}
+
+	log.Printf("✅ [ACTIVE-LEARNING] Identified %d high-uncertainty concepts", len(highUncertaintyConcepts))
+
+	// Generate data acquisition plans (limit to top 5)
+	dataPlans, err := activeLearning.GenerateDataAcquisitionPlans(highUncertaintyConcepts, 5)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate data acquisition plans: %w", err)
+	}
+
+	// Prioritize experiments by uncertainty reduction speed
+	prioritizedPlans := activeLearning.PrioritizeExperiments(dataPlans)
+
+	// Convert plans to curiosity goals
+	goals := activeLearning.ConvertPlansToCuriosityGoals(prioritizedPlans)
+
+	log.Printf("✅ [ACTIVE-LEARNING] Generated %d active learning goals", len(goals))
 	return goals, nil
 }
 
@@ -1480,17 +1524,17 @@ Remember: NO tools, NO tasks, NO actions - just return the JSON assessment.`, st
 	end := strings.LastIndex(assessmentJSON, "}")
 	if start >= 0 && end > start {
 		assessmentJSON = assessmentJSON[start : end+1]
-		} else {
-			// Log the actual response for debugging
-			log.Printf("⚠️ [BELIEF-ASSESS] Response (no JSON found): %s", assessmentJSON[:minInt(200, len(assessmentJSON))])
-			// Check if this is just a status message - if so, we can't assess, so skip this belief
-			if strings.Contains(strings.ToLower(assessmentJSON), "processed input successfully") || 
-			   strings.Contains(strings.ToLower(assessmentJSON), "text response provided") {
-				log.Printf("⚠️ [BELIEF-ASSESS] HDN returned status message instead of assessment - this may indicate HDN is not processing the request correctly")
-				return false, false, fmt.Errorf("HDN returned status message instead of JSON assessment (HDN may need configuration or the LLM response wasn't captured): %s", assessmentJSON[:minInt(100, len(assessmentJSON))])
-			}
-			return false, false, fmt.Errorf("no JSON found in assessment response: %s", assessmentJSON[:minInt(100, len(assessmentJSON))])
+	} else {
+		// Log the actual response for debugging
+		log.Printf("⚠️ [BELIEF-ASSESS] Response (no JSON found): %s", assessmentJSON[:minInt(200, len(assessmentJSON))])
+		// Check if this is just a status message - if so, we can't assess, so skip this belief
+		if strings.Contains(strings.ToLower(assessmentJSON), "processed input successfully") ||
+			strings.Contains(strings.ToLower(assessmentJSON), "text response provided") {
+			log.Printf("⚠️ [BELIEF-ASSESS] HDN returned status message instead of assessment - this may indicate HDN is not processing the request correctly")
+			return false, false, fmt.Errorf("HDN returned status message instead of JSON assessment (HDN may need configuration or the LLM response wasn't captured): %s", assessmentJSON[:minInt(100, len(assessmentJSON))])
 		}
+		return false, false, fmt.Errorf("no JSON found in assessment response: %s", assessmentJSON[:minInt(100, len(assessmentJSON))])
+	}
 
 	// Parse assessment JSON (already extracted above)
 	var assessment map[string]interface{}
