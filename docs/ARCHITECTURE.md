@@ -316,9 +316,10 @@ For a deeper, HDN-specific architecture diagram and narrative, see `hdn_architec
   - **Focused Learning Strategy**: Identifies promising areas and focuses learning there (70% focused, 30% exploration)
   - **Meta-Learning System**: Learns about its own learning process to continuously improve strategies
   - **Async HTTP Queue System**: Priority-based async queue for all HTTP calls to HDN with LIFO processing, worker pools, and callback routing
-  - **Uncertainty Modeling & Confidence Calibration**: Formal uncertainty tracking with epistemic (lack of knowledge) and aleatoric (inherent randomness) uncertainty, calibrated confidence, and belief stability/volatility tracking
-  - **Causal Reasoning Integration**: Distinguishes causal hypotheses and creates intervention goals with higher priority for experimental testing
-  - **Coherence Monitor**: Cross-system consistency checking and cognitive integrity system (see section below)
+- **Uncertainty Modeling & Confidence Calibration**: Formal uncertainty tracking with epistemic (lack of knowledge) and aleatoric (inherent randomness) uncertainty, calibrated confidence, and belief stability/volatility tracking
+- **Causal Reasoning Integration**: Distinguishes causal hypotheses and creates intervention goals with higher priority for experimental testing
+- **Coherence Monitor**: Cross-system consistency checking and cognitive integrity system (see section below)
+- **Explanation-Grounded Learning Feedback**: Post-hoc evaluation system that evaluates hypothesis accuracy, explanation quality, and reasoning alignment after each goal completion, then updates inference weighting, confidence scaling, and exploration heuristics to continuously improve reasoning quality (see section below)
 - **New Actions**:
   - `reasoning.belief_query` - Query beliefs from knowledge base
   - `reasoning.inference` - Apply inference rules to generate new beliefs
@@ -411,6 +412,60 @@ The FSM engine implements a formal uncertainty modeling system that distinguishe
 - Fewer spurious curiosity loops through volatility tracking
 - Better inference chain handling with appropriate confidence degradation
 - Time-aware beliefs that decay without reinforcement
+
+#### Explanation-Grounded Learning Feedback
+
+The FSM engine implements a post-hoc evaluation system that closes the loop between reasoning quality → execution outcomes → improved reasoning. This system evaluates hypotheses, explanations, and reasoning traces after each goal completion to continuously improve the AI's reasoning capabilities.
+
+**Purpose**: Evaluate and improve reasoning quality by learning from goal completion outcomes.
+
+**Key Features:**
+
+1. **Post-Hoc Evaluation**:
+   - Evaluates hypothesis accuracy (were they correct?)
+   - Assesses explanation quality (how well-structured were they?)
+   - Measures alignment with outcomes (did reasoning match results?)
+
+2. **Learning Parameter Updates**:
+   - **Inference Weighting**: Adjusts which inference patterns to trust based on accuracy
+   - **Confidence Scaling**: Calibrates confidence predictions based on calibration errors
+   - **Exploration Heuristics**: Balances exploration vs exploitation based on quality and alignment
+
+3. **Domain-Specific Learning**:
+   - Separate learning parameters per domain (General, system_coherence, etc.)
+   - Domain-specific statistics and feedback tracking
+   - Cross-domain learning transfer (future enhancement)
+
+**Integration:**
+- Subscribes to NATS events: `agi.goal.achieved` and `agi.goal.failed`
+- Automatically triggered after each goal completion
+- Updates stored in Redis for persistence
+- Used by Reasoning Engine, Knowledge Integration, and Autonomy System
+
+**Data Storage (Redis):**
+- `explanation_learning:feedback:{goal_id}` - Individual feedback records
+- `explanation_learning:feedback:domain:{domain}` - Domain feedback lists
+- `explanation_learning:stats:{domain}` - Aggregate statistics per domain
+- `explanation_learning:confidence_scaling:{domain}` - Confidence calibration factors
+- `explanation_learning:exploration_heuristics:{domain}` - Exploration/exploitation balance
+- `explanation_learning:inference_adjustments:{domain}` - Inference weight adjustments
+
+**Evaluation Metrics:**
+- **Hypothesis Accuracy**: Binary (1.0 if correct, 0.0 if incorrect)
+- **Explanation Quality**: Based on richness (facts, uncertainty model, counterfactuals)
+- **Alignment Score**: How well hypothesis confidence matched actual outcome
+- **Confidence Error**: Difference between predicted and actual confidence
+- **Reasoning Quality**: Based on number and structure of reasoning steps
+- **Step Coherence**: How well-structured the reasoning steps are
+
+**Benefits:**
+- Continuous improvement: System learns from every goal completion
+- Better calibration: Confidence values become more accurate over time
+- Smarter exploration: Balances exploration vs exploitation based on outcomes
+- Quality tracking: Monitors whether explanations and reasoning improve
+- Closed loop: Connects reasoning quality to execution outcomes
+
+See [Explanation-Grounded Learning Documentation](docs/EXPLANATION_GROUNDED_LEARNING.md) for complete details.
 
 Motivation & Goal Manager (policy layer):
 - Role: Provides direction/constraints for FSM/HDN by curating active goals and scoring priorities.
