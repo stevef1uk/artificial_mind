@@ -91,22 +91,30 @@ echo "   ✅ Goal status updated to 'achieved'"
 echo "   ✅ Removed from active set, added to history"
 echo ""
 
-# Publish NATS event
-echo "5️⃣ Publishing NATS event..."
-echo "---------------------------"
+# Publish NATS event via Goal Manager's internal API
+echo "5️⃣ Publishing NATS event via Goal Manager API..."
+echo "------------------------------------------------"
 if [ -n "$GOAL_MGR_POD" ]; then
-    # Publish via Goal Manager pod (it has NATS connection)
-    echo "$UPDATED_DATA" | kubectl exec -i -n "$NAMESPACE" "$GOAL_MGR_POD" -- sh -c 'cat > /tmp/goal.json && nats pub agi.goal.achieved < /tmp/goal.json' 2>&1
+    # Use Goal Manager's internal API (localhost:8090 from inside the pod)
+    # This will trigger UpdateGoalStatus which publishes the NATS event
+    ACHIEVE_PAYLOAD='{"result":{"success":true,"test":true,"executed_at":"'$UPDATED_AT'"}}'
     
-    if [ $? -eq 0 ]; then
-        echo "   ✅ NATS event published via Goal Manager pod"
+    echo "   Calling Goal Manager internal API..."
+    RESPONSE=$(kubectl exec -n "$NAMESPACE" "$GOAL_MGR_POD" -- sh -c "curl -s -X POST http://localhost:8090/goal/$GOAL_ID/achieve -H 'Content-Type: application/json' -d '$ACHIEVE_PAYLOAD'" 2>/dev/null)
+    
+    if [ -n "$RESPONSE" ] && echo "$RESPONSE" | grep -q '"status":"achieved"'; then
+        echo "   ✅ Goal completed via Goal Manager API"
+        echo "   ✅ NATS event should have been published"
     else
-        echo "   ⚠️  NATS publish may have failed, trying alternative method..."
-        # Alternative: use curl to Goal Manager's internal API
-        echo "$UPDATED_DATA" | kubectl exec -i -n "$NAMESPACE" "$GOAL_MGR_POD" -- sh -c 'curl -s -X POST http://localhost:8090/goal/$(echo "$(cat)" | python3 -c "import sys,json; print(json.load(sys.stdin)[\"id\"])")/achieve -H "Content-Type: application/json" -d "{\"result\":{\"success\":true}}" > /dev/null' 2>/dev/null && echo "   ✅ Goal completed via internal API"
+        echo "   ⚠️  API call may have failed"
+        echo "   Response: ${RESPONSE:0:100}"
+        echo ""
+        echo "   💡 Goal status is updated in Redis, but event may not be published"
+        echo "   💡 Checking Goal Manager logs for event publishing..."
+        kubectl logs -n "$NAMESPACE" "$GOAL_MGR_POD" --tail=10 2>/dev/null | grep -i "publishEvent\|goal.*achieved" | tail -3
     fi
 else
-    echo "   ⚠️  Goal Manager pod not found, cannot publish NATS event"
+    echo "   ⚠️  Goal Manager pod not found"
     echo "   💡 Goal status updated in Redis, but event not published"
 fi
 
