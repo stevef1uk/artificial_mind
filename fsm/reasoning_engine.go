@@ -339,6 +339,17 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 		}
 
 		log.Printf("✅ Generated %d basic exploration goals", len(basicGoals))
+		
+		// Even when no concepts exist, try active learning (works with beliefs/hypotheses)
+		log.Printf("🔬 [CALLING] About to call generateActiveLearningGoals for domain: %s", domain)
+		activeLearningGoals, err := re.generateActiveLearningGoals(domain)
+		if err != nil {
+			log.Printf("⚠️ Warning: Failed to generate active learning goals: %v", err)
+		} else {
+			log.Printf("✅ [CALLED] generateActiveLearningGoals returned %d goals", len(activeLearningGoals))
+			basicGoals = append(basicGoals, activeLearningGoals...)
+		}
+		
 		return basicGoals, nil
 	}
 
