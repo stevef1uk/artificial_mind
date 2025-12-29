@@ -97,8 +97,10 @@ func main() {
 	}).Methods("GET")
 
 	r.HandleFunc("/goal", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("📥 [GoalManager] POST /goal request received from %s", r.RemoteAddr)
 		var g selfpkg.PolicyGoal
 		if err := json.NewDecoder(r.Body).Decode(&g); err != nil {
+			log.Printf("❌ [GoalManager] Failed to decode goal: %v", err)
 			http.Error(w, "bad request", 400)
 			return
 		}

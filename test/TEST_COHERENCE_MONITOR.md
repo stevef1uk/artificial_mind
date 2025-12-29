@@ -261,6 +261,146 @@ tail -f <fsm-log-file> | grep -i coherence
 kubectl logs -n agi -l app=fsm -f | grep -i coherence
 ```
 
+## Testing the Resolution Feedback Loop
+
+The coherence monitor now automatically marks inconsistencies and goals as resolved when Goal Manager tasks complete.
+
+### Quick Test
+
+Run the feedback loop test script:
+```bash
+./test/test_coherence_resolution_feedback.sh
+```
+
+### Manual Testing Steps
+
+#### Step 1: Create an Inconsistency
+
+Use one of the test scenarios above (e.g., create conflicting goals) and wait for the coherence monitor to detect it (5 minutes).
+
+#### Step 2: Verify Goal Creation
+
+Check that a curiosity goal was created:
+```bash
+# View coherence goals
+redis-cli LRANGE reasoning:curiosity_goals:system_coherence 0 4 | jq
+
+# Should show a goal with:
+# - status: "pending"
+# - domain: "system_coherence"
+# - description containing "You have detected an inconsistency"
+```
+
+#### Step 3: Verify Goal Manager Task
+
+Check that Monitor Service converted it to a Goal Manager task:
+```bash
+# Check Goal Manager for active goals
+curl http://localhost:8084/goals/agent_1/active | jq
+
+# Look for goals with:
+# - context.source: "curiosity_goal"
+# - context.domain: "system_coherence"
+```
+
+#### Step 4: Complete the Goal
+
+Mark the goal as achieved in Goal Manager:
+```bash
+# Get the goal ID from Step 3
+GOAL_ID="g_1234567890"
+
+# Mark as achieved
+curl -X POST http://localhost:8084/goal/$GOAL_ID/achieve \
+  -H "Content-Type: application/json" \
+  -d '{"result": {"resolution": "Test resolution"}}'
+```
+
+#### Step 5: Verify Resolution
+
+Check that the inconsistency and curiosity goal are marked as resolved:
+
+```bash
+# Check inconsistencies (should show resolved: true)
+redis-cli LRANGE coherence:inconsistencies:agent_1 0 4 | jq '.[] | select(.id == "YOUR_INCONSISTENCY_ID")'
+
+# Check curiosity goals (should show status: "achieved")
+redis-cli LRANGE reasoning:curiosity_goals:system_coherence 0 4 | jq '.[] | select(.id == "YOUR_GOAL_ID")'
+```
+
+#### Step 6: Check FSM Logs
+
+Look for resolution messages in FSM logs:
+```bash
+# Local
+grep -i "coherence.*resolv\|coherence.*completed" <fsm-logs>
+
+# K8s
+kubectl logs -n agi -l app=fsm | grep -i "coherence.*resolv\|coherence.*completed"
+```
+
+Expected log messages:
+- `✅ [Coherence] Coherence resolution goal ... completed with status: achieved`
+- `✅ [Coherence] Marked inconsistency ... as resolved`
+- `✅ [Coherence] Updated curiosity goal ... status to achieved`
+
+### Testing Cleanup
+
+Old coherence goals are automatically cleaned up after 7 days. To test cleanup:
+
+```bash
+# Create an old goal (8+ days old)
+OLD_DATE=$(date -u -d '8 days ago' +%Y-%m-%dT%H:%M:%SZ)
+redis-cli LPUSH reasoning:curiosity_goals:system_coherence "{
+  \"id\": \"old_test_goal\",
+  \"status\": \"completed\",
+  \"created_at\": \"$OLD_DATE\",
+  \"domain\": \"system_coherence\",
+  \"description\": \"Old test goal\"
+}"
+
+# Wait for next coherence check (5 minutes)
+# The cleanup runs when no new inconsistencies are found
+# Check that the old goal was removed:
+redis-cli LRANGE reasoning:curiosity_goals:system_coherence 0 199 | grep -c "old_test_goal"
+# Should return 0 (not found)
+```
+
+### End-to-End Test Flow
+
+1. **Create test scenario** → Wait 5 minutes → **Inconsistency detected**
+2. **Curiosity goal created** → Wait 30 seconds → **Goal Manager task created**
+3. **Goal Manager executes** → **Task completes** → **NATS event published**
+4. **Coherence monitor receives event** → **Marks inconsistency resolved** → **Updates goal status**
+
+### Troubleshooting Resolution Feedback
+
+**Goals not being marked as resolved:**
+
+1. **Check NATS connectivity:**
+   ```bash
+   # Verify FSM can connect to NATS
+   kubectl logs -n agi -l app=fsm | grep -i "nats\|subscribed"
+   ```
+
+2. **Check event subscription:**
+   ```bash
+   # Look for subscription messages in FSM logs
+   grep "agi.goal.achieved\|agi.goal.failed" <fsm-logs>
+   ```
+
+3. **Verify Goal Manager publishes events:**
+   ```bash
+   # Check Goal Manager logs for event publishing
+   kubectl logs -n agi -l app=goal-manager | grep "agi.goal.achieved"
+   ```
+
+4. **Check mapping exists:**
+   ```bash
+   # The mapping should exist for each coherence goal
+   redis-cli KEYS "coherence:goal_mapping:*"
+   ```
+
 ## Success Criteria
 
 ✅ Coherence monitor runs every 5 minutes  
@@ -268,4 +408,7 @@ kubectl logs -n agi -l app=fsm -f | grep -i coherence
 ✅ Self-reflection tasks are generated  
 ✅ Curiosity goals are created for the reasoning engine  
 ✅ FSM logs show [Coherence] messages  
+✅ **Goals are marked as resolved when Goal Manager tasks complete**  
+✅ **Inconsistencies are marked as resolved when goals complete**  
+✅ **Old goals are cleaned up automatically (>7 days)**
 
