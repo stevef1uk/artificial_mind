@@ -859,11 +859,12 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 		enhancedDesc := fmt.Sprintf(`Test hypothesis by gathering evidence: %s
 
 Requirements:
-1. Query Neo4j knowledge base using tool_mcp_query_neo4j via HTTP API for information related to the hypothesis
-   - Call: POST http://host.docker.internal:8081/api/v1/tools/mcp_query_neo4j/invoke
-   - Body: {"query": "CYPHER_QUERY", "natural_language": "description"}
+1. Query Neo4j knowledge base via HTTP API for information related to the hypothesis
+   - Endpoint: POST {hdn_url}/api/v1/knowledge/query
+   - Body: {"query": "CYPHER_QUERY"}
    - Response format: {"results": [...], "count": N} - handle this structure correctly
    - IMPORTANT: Check if response has "results" key before accessing it, handle errors gracefully
+   - Use the HDN_URL environment variable to get the correct base URL (e.g., os.getenv('HDN_URL', 'http://localhost:8080'))
 2. Extract key terms from the hypothesis (event IDs, concept names, domains)
 3. Gather evidence that supports or contradicts the hypothesis
 4. Create a markdown report with findings, evidence, and conclusions
