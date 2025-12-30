@@ -2073,8 +2073,8 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 						}
 						// Store the file
 						storedFile := &StoredFile{
-							Filename:  fname,
-							Content:   fileContent,
+							Filename:   fname,
+							Content:    fileContent,
 							WorkflowID: workflowID,
 							StepID:     "",
 						}
@@ -2643,6 +2643,16 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 		}
 		req.Context["allow_requests"] = "true"
 		log.Printf("🔓 [VALIDATION] Allowing HTTP requests for tool-calling task")
+	}
+	
+	// Also check for hypothesis testing tasks - they need HTTP requests for Neo4j queries
+	if strings.HasPrefix(descLower, "test hypothesis:") || strings.HasPrefix(taskLower, "test hypothesis:") ||
+		strings.Contains(descLower, "hypothesis testing") || strings.Contains(taskLower, "hypothesis testing") {
+		if req.Context == nil {
+			req.Context = make(map[string]string)
+		}
+		req.Context["allow_requests"] = "true"
+		log.Printf("🔓 [VALIDATION] Allowing HTTP requests for hypothesis testing task")
 	}
 
 	// Static safety check before any execution
@@ -5725,22 +5735,22 @@ func (ie *IntelligentExecutor) extractFileFromSSH(ctx context.Context, filename,
 	if rpiHost == "" {
 		rpiHost = "192.168.1.58" // Default
 	}
-	
+
 	// Common locations where files might be created
 	searchPaths := []string{
-		"./" + filename,                    // Current directory
-		"/home/pi/" + filename,             // Home directory
-		"/home/pi/.hdn/tmp/" + filename,    // Temp directory
-		"/tmp/" + filename,                 // System temp
+		"./" + filename,                 // Current directory
+		"/home/pi/" + filename,          // Home directory
+		"/home/pi/.hdn/tmp/" + filename, // Temp directory
+		"/tmp/" + filename,              // System temp
 	}
-	
+
 	// Also check in language-specific temp directories
 	if language == "go" {
 		searchPaths = append(searchPaths, "/home/pi/.hdn/go_tmp_*/"+filename)
 	} else if language == "java" {
 		searchPaths = append(searchPaths, "/home/pi/.hdn/java_tmp_*/"+filename)
 	}
-	
+
 	// Try to find and read the file
 	for _, path := range searchPaths {
 		// Use find command for glob patterns, cat for regular paths
@@ -5755,34 +5765,34 @@ func (ie *IntelligentExecutor) extractFileFromSSH(ctx context.Context, filename,
 			cmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
 				"pi@"+rpiHost, "cat", path)
 		}
-		
+
 		var stdout bytes.Buffer
 		var stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
-		
+
 		err := cmd.Run()
 		if err == nil && stdout.Len() > 0 {
 			log.Printf("✅ [INTELLIGENT] Extracted file %s from %s (%d bytes)", filename, path, stdout.Len())
 			return stdout.Bytes(), nil
 		}
 	}
-	
+
 	// If not found in specific paths, try a broader search
 	findCmd := fmt.Sprintf("find /home/pi -name '%s' -type f 2>/dev/null | head -1 | xargs cat 2>/dev/null", filename)
 	cmd := exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
 		"pi@"+rpiHost, "sh", "-c", findCmd)
-	
+
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	
+
 	err := cmd.Run()
 	if err == nil && stdout.Len() > 0 {
 		log.Printf("✅ [INTELLIGENT] Extracted file %s via find search (%d bytes)", filename, stdout.Len())
 		return stdout.Bytes(), nil
 	}
-	
+
 	return nil, fmt.Errorf("file %s not found on SSH host", filename)
 }
