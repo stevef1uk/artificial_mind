@@ -2022,18 +2022,19 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 				toolAPIURL = strings.Replace(toolAPIURL, "localhost:8080", k8sService, -1)
 				log.Printf("🌐 [INTELLIGENT] Using Kubernetes service DNS for SSH: %s", toolAPIURL)
 			} else {
-				// Check for NodePort - if HDN_NODEPORT is set, use it with the service DNS
-				// Otherwise default to port 8080 (for ClusterIP) or use NodePort if available
+				// Check for NodePort - if HDN_NODEPORT is set, use it
+				// For NodePort, use the service DNS (which resolves to node IP via /etc/hosts)
 				nodePort := os.Getenv("HDN_NODEPORT")
-				port := "8080"
 				if nodePort != "" {
-					port = nodePort
-					log.Printf("🌐 [INTELLIGENT] Using NodePort %s for SSH execution", port)
+					// For NodePort, use service DNS which should resolve to node IP via /etc/hosts
+					// The DNS entry maps hdn-server-rpi58.agi.svc.cluster.local to the node IP
+					toolAPIURL = fmt.Sprintf("http://hdn-server-rpi58.agi.svc.cluster.local:%s", nodePort)
+					log.Printf("🌐 [INTELLIGENT] Using NodePort %s with service DNS for SSH (resolves to node IP via /etc/hosts): %s", nodePort, toolAPIURL)
+				} else {
+					// No NodePort, use service DNS with default port 8080 (ClusterIP)
+					toolAPIURL = strings.Replace(toolAPIURL, "localhost:8080", "hdn-server-rpi58.agi.svc.cluster.local:8080", -1)
+					log.Printf("🌐 [INTELLIGENT] Using Kubernetes service DNS (ClusterIP) for SSH: %s", toolAPIURL)
 				}
-				// Default to Kubernetes service DNS pattern if in Kubernetes
-				// This assumes the SSH host can reach the Kubernetes service (via /etc/hosts entry)
-				toolAPIURL = strings.Replace(toolAPIURL, "localhost:8080", fmt.Sprintf("hdn-server-rpi58.agi.svc.cluster.local:%s", port), -1)
-				log.Printf("🌐 [INTELLIGENT] Using default Kubernetes service DNS for SSH: %s", toolAPIURL)
 			}
 		} else {
 			log.Printf("🌐 [INTELLIGENT] Using ToolAPIURL for SSH execution: %s", toolAPIURL)
@@ -2893,18 +2894,19 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 				hdnURL = strings.Replace(hdnURL, "localhost:8080", k8sService, -1)
 				log.Printf("🌐 [VALIDATION] Using Kubernetes service DNS for SSH: %s", hdnURL)
 			} else {
-				// Check for NodePort - if HDN_NODEPORT is set, use it with the service DNS
-				// Otherwise default to port 8080 (for ClusterIP) or use NodePort if available
+				// Check for NodePort - if HDN_NODEPORT is set, use it with the node IP
+				// For NodePort access from outside cluster, use node IP, not service DNS
 				nodePort := os.Getenv("HDN_NODEPORT")
-				port := "8080"
 				if nodePort != "" {
-					port = nodePort
-					log.Printf("🌐 [VALIDATION] Using NodePort %s for SSH execution", port)
+					// For NodePort, use service DNS which should resolve to node IP via /etc/hosts
+					// The DNS entry maps hdn-server-rpi58.agi.svc.cluster.local to the node IP
+					hdnURL = fmt.Sprintf("http://hdn-server-rpi58.agi.svc.cluster.local:%s", nodePort)
+					log.Printf("🌐 [VALIDATION] Using NodePort %s with service DNS for SSH (resolves to node IP via /etc/hosts): %s", nodePort, hdnURL)
+				} else {
+					// No NodePort, use service DNS with default port 8080 (ClusterIP)
+					hdnURL = strings.Replace(hdnURL, "localhost:8080", "hdn-server-rpi58.agi.svc.cluster.local:8080", -1)
+					log.Printf("🌐 [VALIDATION] Using Kubernetes service DNS (ClusterIP) for SSH: %s", hdnURL)
 				}
-				// Default to Kubernetes service DNS pattern if in Kubernetes
-				// This assumes the SSH host can reach the Kubernetes service (via /etc/hosts entry)
-				hdnURL = strings.Replace(hdnURL, "localhost:8080", fmt.Sprintf("hdn-server-rpi58.agi.svc.cluster.local:%s", port), -1)
-				log.Printf("🌐 [VALIDATION] Using default Kubernetes service DNS for SSH: %s", hdnURL)
 			}
 		} else {
 			log.Printf("🌐 [VALIDATION] Using HDN_URL for SSH execution: %s", hdnURL)
