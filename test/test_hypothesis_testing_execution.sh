@@ -466,6 +466,14 @@ if [ "$ARTIFACTS_FOUND" = false ]; then
                         if [ -n "$metadata" ]; then
                             filename=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('filename', 'N/A'))" 2>/dev/null || echo "$file_key")
                             size=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('size', 0))" 2>/dev/null || echo "0")
+                            # Extract workflow ID from metadata if not already set
+                            if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ]; then
+                                wf_from_metadata=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('workflow_id', ''))" 2>/dev/null || echo "")
+                                if [ -n "$wf_from_metadata" ] && [ "$wf_from_metadata" != "None" ] && [ "$wf_from_metadata" != "" ]; then
+                                    WORKFLOW_ID="$wf_from_metadata"
+                                    echo -e "   ${GREEN}✅ Extracted workflow ID from artifact: $WORKFLOW_ID${NC}"
+                                fi
+                            fi
                         else
                             filename=$(echo "$file_key" | cut -d: -f3 || echo "$file_key")
                             size="0"
@@ -532,8 +540,12 @@ echo ""
 echo "5️⃣ Checking HDN logs for code generation and execution"
 echo "--------------------------------------------------------"
 
-# Look for logs related to our specific test hypothesis
-RECENT_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=300 --since=10m 2>/dev/null | grep -i "test_event_${TEST_TIMESTAMP}\|test hypothesis.*test_event\|hypothesis.*test_event\|intelligent.*test_event" | tail -20 || echo "")
+# Look for logs related to our specific test hypothesis (prioritize current test)
+RECENT_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=500 --since=10m 2>/dev/null | grep -i "test_event_${TEST_TIMESTAMP}" | tail -20 || echo "")
+# If no logs for current test, show recent hypothesis testing logs
+if [ -z "$RECENT_LOGS" ]; then
+    RECENT_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=300 --since=10m 2>/dev/null | grep -i "test hypothesis.*test_event\|hypothesis.*test_event\|intelligent.*test_event" | tail -20 || echo "")
+fi
 
 if [ -n "$RECENT_LOGS" ]; then
     echo -e "   ${GREEN}✅ Found relevant log messages:${NC}"
