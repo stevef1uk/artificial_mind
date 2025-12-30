@@ -4204,6 +4204,40 @@ func (s *APIServer) handleGetWorkflowFiles(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// If we have files but no workflow record exists, create a minimal one so the UI can display it
+	if len(files) > 0 {
+		workflowKey := fmt.Sprintf("workflow:%s", targetWorkflowID)
+		exists, _ := s.redis.Exists(context.Background(), workflowKey).Result()
+		if exists == 0 {
+			log.Printf("📝 [API] Creating minimal workflow record for %s (files exist but record missing)", targetWorkflowID)
+			minimalRecord := map[string]interface{}{
+				"id":          targetWorkflowID,
+				"name":        "Intelligent Execution",
+				"task_name":   "Intelligent Execution",
+				"description": "Workflow with generated artifacts",
+				"status":      "completed",
+				"progress":    100.0,
+				"started_at":  files[0].CreatedAt.Format(time.RFC3339),
+				"updated_at":  time.Now().Format(time.RFC3339),
+				"files":       []interface{}{},
+			}
+			// Convert files to the format expected in workflow record
+			var fileList []interface{}
+			for _, f := range files {
+				fileList = append(fileList, map[string]interface{}{
+					"filename":     f.Filename,
+					"content_type": f.ContentType,
+					"size":         f.Size,
+				})
+			}
+			minimalRecord["files"] = fileList
+			if recordJSON, err := json.Marshal(minimalRecord); err == nil {
+				s.redis.Set(context.Background(), workflowKey, recordJSON, 24*time.Hour)
+				log.Printf("✅ [API] Created minimal workflow record for %s", targetWorkflowID)
+			}
+		}
+	}
+
 	// If we don't have enough files from file storage, try to get them from the workflow record
 	workflowFiles := s.getFilesFromWorkflowRecord(workflowID)
 	if len(workflowFiles) > len(files) {

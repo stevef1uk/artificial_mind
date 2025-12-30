@@ -403,11 +403,19 @@ func (ie *IntelligentExecutor) executeWithSSHTool(ctx context.Context, code, lan
 			return &DockerExecutionResponse{Success: false, Error: err.Error(), ExitCode: 1}, err
 		}
 
+		// Merge provided environment variables with defaults
+		dockerEnv := map[string]string{"QUIET": "0"}
+		if env != nil {
+			for k, v := range env {
+				dockerEnv[k] = v
+			}
+		}
+
 		req := &DockerExecutionRequest{
 			Language:     language,
 			Code:         code,
 			Timeout:      300,
-			Environment:  map[string]string{"QUIET": "0"},
+			Environment:  dockerEnv,
 			IsValidation: isValidation,
 			WorkflowID:   workflowID,
 		}
