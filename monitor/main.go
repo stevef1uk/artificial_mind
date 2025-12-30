@@ -530,6 +530,35 @@ func main() {
 	r.GET("/api/tools/:id/metrics", monitor.getToolMetricsByID)
 	r.GET("/api/tools/calls/recent", monitor.getRecentToolCalls)
 	r.POST("/api/clear-safety-data", monitor.clearSafetyData)
+	r.POST("/api/tools/:id/invoke", func(c *gin.Context) {
+		id := c.Param("id")
+		if id == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing id"})
+			return
+		}
+		// Read request body
+		body, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
+			return
+		}
+		// Forward to HDN invoke endpoint
+		hdn := strings.TrimRight(monitor.hdnURL, "/") + "/api/v1/tools/" + id + "/invoke"
+		req, err := http.NewRequest(http.MethodPost, hdn, bytes.NewReader(body))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "hdn invoke failed", "details": err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+		respBody, _ := io.ReadAll(resp.Body)
+		c.Data(resp.StatusCode, "application/json", respBody)
+	})
 	r.DELETE("/api/tools/:id", func(c *gin.Context) {
 		id := c.Param("id")
 		if id == "" {

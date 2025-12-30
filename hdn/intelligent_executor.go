@@ -1679,7 +1679,50 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		return ie.executeChainedPrograms(ctx, req, start, fileStorageWorkflowID)
 	}
 
-	// Step 2: Static request safety check BEFORE anything else
+	// Set allow_requests flag for knowledge base query tasks BEFORE static safety check
+	// This must be done BEFORE the safety check so it can see the flag
+	descLowerKB := strings.ToLower(req.Description)
+	taskLowerKB := strings.ToLower(req.TaskName)
+	combinedLower := descLowerKB + " " + taskLowerKB
+	
+	// Check for various patterns that indicate API/knowledge base queries
+	needsRequests := strings.Contains(descLowerKB, "query neo4j") || strings.Contains(taskLowerKB, "query neo4j") ||
+		strings.Contains(descLowerKB, "query knowledge base") || strings.Contains(taskLowerKB, "query knowledge base") ||
+		strings.Contains(descLowerKB, "query knowledge graph") || strings.Contains(taskLowerKB, "query knowledge graph") ||
+		strings.Contains(descLowerKB, "knowledge base") || strings.Contains(taskLowerKB, "knowledge base") ||
+		strings.Contains(descLowerKB, "knowledge graph") || strings.Contains(taskLowerKB, "knowledge graph") ||
+		strings.Contains(descLowerKB, "neo4j") || strings.Contains(taskLowerKB, "neo4j") ||
+		strings.Contains(descLowerKB, "mcp") || strings.Contains(taskLowerKB, "mcp") ||
+		strings.Contains(descLowerKB, "api") || strings.Contains(taskLowerKB, "api") ||
+		strings.Contains(descLowerKB, "http") || strings.Contains(taskLowerKB, "http") ||
+		strings.Contains(descLowerKB, "rest") || strings.Contains(taskLowerKB, "rest") ||
+		strings.Contains(descLowerKB, "web service") || strings.Contains(taskLowerKB, "web service") ||
+		strings.Contains(descLowerKB, "call service") || strings.Contains(taskLowerKB, "call service") ||
+		strings.Contains(descLowerKB, "make request") || strings.Contains(taskLowerKB, "make request") ||
+		strings.Contains(descLowerKB, "fetch data") || strings.Contains(taskLowerKB, "fetch data") ||
+		strings.Contains(descLowerKB, "retrieve data") || strings.Contains(taskLowerKB, "retrieve data")
+	
+	if needsRequests {
+		if req.Context == nil {
+			req.Context = make(map[string]string)
+		}
+		req.Context["allow_requests"] = "true"
+		preview := combinedLower
+		if len(preview) > 100 {
+			preview = preview[:100]
+		}
+		log.Printf("🔓 [INTELLIGENT] Allowing HTTP requests for API/knowledge base query task (detected: %s)", preview)
+	}
+
+	// Also check if context already has hypothesis_testing flag set
+	if req.Context != nil {
+		if v, ok := req.Context["hypothesis_testing"]; ok && (strings.EqualFold(strings.TrimSpace(v), "true") || strings.TrimSpace(v) == "1") {
+			req.Context["allow_requests"] = "true"
+			log.Printf("🔓 [INTELLIGENT] Allowing HTTP requests (context flag: hypothesis_testing=true)")
+		}
+	}
+
+	// Step 2: Static request safety check AFTER setting allow_requests flag
 	if unsafeReason := isRequestUnsafeStatic(req); unsafeReason != "" {
 		log.Printf("🚫 [INTELLIGENT] Request blocked by static safety pre-check: %s", unsafeReason)
 		result.ValidationSteps = append(result.ValidationSteps, ValidationStep{
@@ -1694,29 +1737,6 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		result.Error = "Task blocked by safety policy"
 		result.ExecutionTime = time.Since(start)
 		return result, nil
-	}
-
-	// Set allow_requests flag for knowledge base query tasks BEFORE code generation
-	descLowerKB := strings.ToLower(req.Description)
-	taskLowerKB := strings.ToLower(req.TaskName)
-	if strings.Contains(descLowerKB, "query neo4j") || strings.Contains(taskLowerKB, "query neo4j") ||
-		strings.Contains(descLowerKB, "query knowledge base") || strings.Contains(taskLowerKB, "query knowledge base") ||
-		strings.Contains(descLowerKB, "query knowledge graph") || strings.Contains(taskLowerKB, "query knowledge graph") ||
-		(strings.Contains(descLowerKB, "knowledge base") && (strings.Contains(descLowerKB, "query") || strings.Contains(descLowerKB, "search"))) ||
-		(strings.Contains(descLowerKB, "knowledge graph") && (strings.Contains(descLowerKB, "query") || strings.Contains(descLowerKB, "search"))) {
-		if req.Context == nil {
-			req.Context = make(map[string]string)
-		}
-		req.Context["allow_requests"] = "true"
-		log.Printf("🔓 [INTELLIGENT] Allowing HTTP requests for knowledge base query task")
-	}
-
-	// Also check if context already has hypothesis_testing flag set
-	if req.Context != nil {
-		if v, ok := req.Context["hypothesis_testing"]; ok && (strings.EqualFold(strings.TrimSpace(v), "true") || strings.TrimSpace(v) == "1") {
-			req.Context["allow_requests"] = "true"
-			log.Printf("🔓 [INTELLIGENT] Allowing HTTP requests (context flag: hypothesis_testing=true)")
-		}
 	}
 
 	// Step 3: Check principles BEFORE doing anything else

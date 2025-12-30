@@ -110,6 +110,80 @@
 				fetchTools();
 			});
 		});
+		
+		// Wire invoke buttons
+		tbody.querySelectorAll('button[data-tool-id]').forEach(btn => {
+			btn.addEventListener('click', async (e) => {
+				const toolId = btn.getAttribute('data-tool-id');
+				if (!toolId) return;
+				
+				// Get tool details to determine required parameters
+				const tool = toolsData.find(t => t.id === toolId);
+				if (!tool) {
+					alert(`Tool ${toolId} not found`);
+					return;
+				}
+				
+				// Prompt for parameters
+				const inputSchema = tool.input_schema || {};
+				const params = {};
+				
+				// For MCP tools, try to provide sensible defaults
+				if (toolId.startsWith('mcp_')) {
+					const toolName = toolId.replace('mcp_', '');
+					if (toolName === 'query_neo4j') {
+						params.query = prompt('Enter Cypher query:', 'MATCH (c:Concept) RETURN c LIMIT 5') || 'MATCH (c:Concept) RETURN c LIMIT 5';
+					} else if (toolName === 'get_concept') {
+						params.name = prompt('Enter concept name:', 'Biology') || 'Biology';
+						params.domain = prompt('Enter domain (optional):', 'General') || 'General';
+					} else if (toolName === 'find_related_concepts') {
+						params.concept_name = prompt('Enter concept name:', 'Biology') || 'Biology';
+						params.max_depth = parseInt(prompt('Enter max depth (optional):', '2') || '2');
+					} else {
+						// Generic parameter prompt
+						const paramStr = prompt(`Enter parameters as JSON (or leave empty for {}):`, '{}');
+						try {
+							Object.assign(params, JSON.parse(paramStr || '{}'));
+						} catch (e) {
+							alert('Invalid JSON parameters');
+							return;
+						}
+					}
+				} else {
+					// For non-MCP tools, prompt for JSON parameters
+					const paramStr = prompt(`Enter parameters as JSON for ${tool.name}:`, '{}');
+					try {
+						Object.assign(params, JSON.parse(paramStr || '{}'));
+					} catch (e) {
+						alert('Invalid JSON parameters');
+						return;
+					}
+				}
+				
+				// Invoke the tool
+				btn.disabled = true;
+				btn.textContent = 'Invoking...';
+				try {
+					const res = await fetch(`/api/tools/${encodeURIComponent(toolId)}/invoke`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify(params)
+					});
+					const result = await res.json();
+					if (res.ok) {
+						alert(`✅ Tool invoked successfully!\n\nResult:\n${JSON.stringify(result, null, 2)}`);
+						fetchMetrics(); // Refresh metrics
+					} else {
+						alert(`❌ Tool invocation failed: ${result.error || res.statusText}`);
+					}
+				} catch (error) {
+					alert(`❌ Error invoking tool: ${error.message}`);
+				} finally {
+					btn.disabled = false;
+					btn.textContent = 'Invoke';
+				}
+			});
+		});
 	}
 
 	function escapeHtml(s){
