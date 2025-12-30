@@ -446,12 +446,7 @@ if [ "$ARTIFACTS_FOUND" = false ]; then
         echo -e "   ${GREEN}✅ Found $ARTIFACT_COUNT artifact(s) in Redis storage${NC}"
         for file_key in $REDIS_FILES; do
             if [ -n "$file_key" ]; then
-                filename=$(echo "$file_key" | cut -d: -f4 || echo "$file_key")
-                if [ -z "$filename" ] || [ "$filename" = "$file_key" ]; then
-                    # Try alternative parsing
-                    filename=$(echo "$file_key" | grep -oE "[^:]+\.md" | head -1 || echo "$file_key")
-                fi
-                # Check if this is a filename index (file:by_name:filename)
+                # Check if this is a filename index (file:by_name:filename) - must check first!
                 if echo "$file_key" | grep -q "^file:by_name:"; then
                     # Get the file ID from the index
                     file_id=$(redis_cmd GET "$file_key" 2>/dev/null || echo "")
@@ -459,14 +454,22 @@ if [ "$ARTIFACTS_FOUND" = false ]; then
                         # Get metadata from file:metadata:{fileID}
                         metadata=$(redis_cmd GET "file:metadata:$file_id" 2>/dev/null || echo "")
                         if [ -n "$metadata" ]; then
+                            filename=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('filename', 'N/A'))" 2>/dev/null || echo "$file_key")
                             size=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('size', 0))" 2>/dev/null || echo "0")
                         else
+                            filename=$(echo "$file_key" | cut -d: -f3 || echo "$file_key")
                             size="0"
                         fi
                     else
+                        filename=$(echo "$file_key" | cut -d: -f3 || echo "$file_key")
                         size="0"
                     fi
                 else
+                    filename=$(echo "$file_key" | cut -d: -f4 || echo "$file_key")
+                    if [ -z "$filename" ] || [ "$filename" = "$file_key" ]; then
+                        # Try alternative parsing
+                        filename=$(echo "$file_key" | grep -oE "[^:]+\.md" | head -1 || echo "$file_key")
+                    fi
                     size=$(redis_cmd HGET "$file_key" "size" 2>/dev/null || echo "0")
                     if [ "$size" = "0" ]; then
                         # Try getting from metadata
