@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -28,6 +30,21 @@ func NewCompositeToolProvider(hdnURL string) *CompositeToolProvider {
 	if mcpEndpoint == "" {
 		// Default to HDN's MCP endpoint
 		mcpEndpoint = hdnURL + "/mcp"
+		
+		// If connecting to ourselves (Kubernetes service DNS or same host), use localhost
+		// This prevents connection issues when HDN tries to connect to itself via service DNS
+		if isSelfConnection(mcpEndpoint) {
+			// Parse URL to get port, default to 8080
+			parsedURL, err := url.Parse(mcpEndpoint)
+			if err == nil {
+				port := parsedURL.Port()
+				if port == "" {
+					port = "8080" // Default HDN port
+				}
+				mcpEndpoint = fmt.Sprintf("http://localhost:%s/mcp", port)
+				log.Printf("🔧 [MCP] Detected self-connection, using localhost: %s", mcpEndpoint)
+			}
+		}
 	}
 	mcpProvider := NewMCPToolProvider(mcpEndpoint)
 	providers = append(providers, mcpProvider)
@@ -153,4 +170,25 @@ func (c *CompositeToolProvider) ExecuteTool(ctx context.Context, toolID string, 
 	}
 
 	return nil, fmt.Errorf("no provider found for tool: %s", toolID)
+}
+
+// isSelfConnection checks if the endpoint is pointing to the same server (self-connection)
+// This detects Kubernetes service DNS patterns and localhost patterns
+func isSelfConnection(endpoint string) bool {
+	lower := strings.ToLower(endpoint)
+	
+	// Check for Kubernetes service DNS patterns (e.g., hdn-server-*.svc.cluster.local)
+	if strings.Contains(lower, ".svc.cluster.local") {
+		// Extract service name and check if it matches HDN service pattern
+		if strings.Contains(lower, "hdn") || strings.Contains(lower, "hdn-server") {
+			return true
+		}
+	}
+	
+	// Check if it's already localhost
+	if strings.Contains(lower, "localhost") || strings.Contains(lower, "127.0.0.1") {
+		return true
+	}
+	
+	return false
 }
