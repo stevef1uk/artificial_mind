@@ -1894,12 +1894,30 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		log.Printf("🧠 [INTELLIGENCE] Added %d prevention hints from learned experience", len(preventionHints))
 	}
 
-	// Convert localhost to host.docker.internal in ToolAPIURL for Docker execution
-	// This ensures generated code uses the correct URL when running in containers
+	// Determine execution method to set correct ToolAPIURL
+	// Check if we'll use SSH or Docker for execution
+	executionMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
+	forceDocker := req.Language == "rust" || req.Language == "java"
+	useSSH := !forceDocker && (executionMethod == "ssh" || (executionMethod == "" && (runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64" || os.Getenv("ENABLE_ARM64_TOOLS") == "true")))
+	
+	// Set ToolAPIURL based on execution method
+	// Only use host.docker.internal for Docker execution
 	toolAPIURL := ie.hdnBaseURL
-	if toolAPIURL != "" && strings.Contains(toolAPIURL, "localhost") {
+	if toolAPIURL == "" {
+		if url := os.Getenv("HDN_URL"); url != "" {
+			toolAPIURL = url
+		} else {
+			toolAPIURL = "http://localhost:8080"
+		}
+	}
+	
+	// Only replace localhost with host.docker.internal for Docker execution
+	// For SSH execution, keep localhost or use Kubernetes service DNS
+	if !useSSH && strings.Contains(toolAPIURL, "localhost") {
 		toolAPIURL = strings.Replace(toolAPIURL, "localhost", "host.docker.internal", -1)
 		log.Printf("🌐 [INTELLIGENT] Updated ToolAPIURL for Docker: %s", toolAPIURL)
+	} else if useSSH {
+		log.Printf("🌐 [INTELLIGENT] Using ToolAPIURL for SSH execution: %s", toolAPIURL)
 	}
 
 	codeGenReq := &CodeGenerationRequest{
@@ -2625,23 +2643,40 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 	}
 	// Use QUIET mode to suppress environment dumps from SSH shell initialization
 	env["QUIET"] = "1"
+	
+	// Choose execution method FIRST so we can set the correct HDN_URL
+	executionMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
+	
+	// Force Docker for Rust and Java (not available on RPI host)
+	// These languages require Docker containers with proper toolchains
+	forceDocker := code.Language == "rust" || code.Language == "java"
+	
+	if forceDocker {
+		log.Printf("🐳 [VALIDATION] Forcing Docker executor for %s (not available on RPI host)", code.Language)
+	}
+	
+	useSSH := !forceDocker && (executionMethod == "ssh" || (executionMethod == "" && (runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64" || os.Getenv("ENABLE_ARM64_TOOLS") == "true")))
+	
 	// Pass HDN_URL to validation environment so generated code can call tool APIs if needed
-	// IMPORTANT: When running in Docker, replace localhost with host.docker.internal
-	// so containers can reach the host HDN server
+	// IMPORTANT: Use host.docker.internal for Docker, but keep localhost/service DNS for SSH
 	var hdnURL string
 	if ie.hdnBaseURL != "" {
 		hdnURL = ie.hdnBaseURL
 	} else if url := os.Getenv("HDN_URL"); url != "" {
 		hdnURL = url
 	} else {
-		hdnURL = "http://localhost:8081"
+		hdnURL = "http://localhost:8080"
 	}
-	// Replace localhost with host.docker.internal for Docker container networking
-	// This allows containers to reach the host HDN server
-	if strings.Contains(hdnURL, "localhost") {
+	
+	// Only replace localhost with host.docker.internal for Docker execution
+	// For SSH execution, keep localhost or use Kubernetes service DNS if available
+	if !useSSH && strings.Contains(hdnURL, "localhost") {
 		hdnURL = strings.Replace(hdnURL, "localhost", "host.docker.internal", -1)
 		log.Printf("🌐 [VALIDATION] Updated HDN_URL for Docker: %s", hdnURL)
+	} else if useSSH {
+		log.Printf("🌐 [VALIDATION] Using HDN_URL for SSH execution: %s", hdnURL)
 	}
+	
 	env["HDN_URL"] = hdnURL
 	// Copy allow_requests from context to env if it was set above
 	if allowReq, ok := req.Context["allow_requests"]; ok && allowReq == "true" {
@@ -2650,19 +2685,6 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 
 	// Create Docker execution request
 	// (removed: unused dockerReq)
-
-	// Choose execution method based on EXECUTION_METHOD environment variable
-	executionMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
-
-	// Force Docker for Rust and Java (not available on RPI host)
-	// These languages require Docker containers with proper toolchains
-	forceDocker := code.Language == "rust" || code.Language == "java"
-
-	if forceDocker {
-		log.Printf("🐳 [VALIDATION] Forcing Docker executor for %s (not available on RPI host)", code.Language)
-	}
-
-	useSSH := !forceDocker && (executionMethod == "ssh" || (executionMethod == "" && (runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64" || os.Getenv("ENABLE_ARM64_TOOLS") == "true")))
 
 	var result *DockerExecutionResponse
 	var err error

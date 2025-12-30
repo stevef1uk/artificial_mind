@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -115,7 +116,7 @@ func (cg *CodeGenerator) GenerateCode(req *CodeGenerationRequest) (*CodeGenerati
 	// Minimal cleanup: only remove markdown code fences (safe operation)
 	// Do NOT post-process imports or modify code structure - let the LLM generate correct code
 	// If there are issues, the validation/fix mechanism will handle them
-	code = cg.cleanGeneratedCode(code, req.Language)
+	code = cg.cleanGeneratedCode(code, req.Language, req.ToolAPIURL)
 
 	// Create GeneratedCode object
 	generatedCode := &GeneratedCode{
@@ -150,7 +151,7 @@ func (cg *CodeGenerator) GenerateCode(req *CodeGenerationRequest) (*CodeGenerati
 }
 
 // cleanGeneratedCode removes test cases and error handling from generated code
-func (cg *CodeGenerator) cleanGeneratedCode(code, language string) string {
+func (cg *CodeGenerator) cleanGeneratedCode(code, language string, toolAPIURL string) string {
 	// Be conservative: only strip surrounding markdown code fences if present.
 	trimmed := strings.TrimSpace(code)
 	if strings.HasPrefix(trimmed, "```") {
@@ -173,9 +174,10 @@ func (cg *CodeGenerator) cleanGeneratedCode(code, language string) string {
 		cleaned = cg.ensureGoPackageDeclaration(cleaned)
 	}
 
-	// CRITICAL: Replace localhost with host.docker.internal in generated code
+	// CRITICAL: Replace localhost with host.docker.internal in generated code ONLY for Docker execution
 	// This is a safety measure in case the LLM ignores instructions or uses hardcoded localhost
-	cleaned = cg.fixLocalhostReferences(cleaned, language)
+	// For SSH execution, keep localhost as-is
+	cleaned = cg.fixLocalhostReferences(cleaned, language, toolAPIURL)
 
 	// No other post-processing - let the LLM generate correct code
 	// If there are issues, the validation/fix mechanism will handle them
@@ -183,9 +185,27 @@ func (cg *CodeGenerator) cleanGeneratedCode(code, language string) string {
 }
 
 // fixLocalhostReferences replaces localhost with host.docker.internal in generated code
-// This ensures Docker containers can reach the host HDN server
-func (cg *CodeGenerator) fixLocalhostReferences(code, language string) string {
+// ONLY if using Docker execution. For SSH execution, localhost is kept as-is.
+// This ensures Docker containers can reach the host HDN server, but SSH execution uses localhost correctly
+func (cg *CodeGenerator) fixLocalhostReferences(code, language string, toolAPIURL string) string {
 	originalCode := code
+	
+	// Determine execution method - only replace localhost for Docker execution
+	executionMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
+	useDocker := executionMethod == "docker" || (executionMethod == "" && !strings.Contains(toolAPIURL, "localhost"))
+	// If ToolAPIURL contains host.docker.internal, we're using Docker
+	if strings.Contains(toolAPIURL, "host.docker.internal") {
+		useDocker = true
+	}
+	// If ToolAPIURL contains localhost and execution method is ssh, don't replace
+	if strings.Contains(toolAPIURL, "localhost") && executionMethod == "ssh" {
+		useDocker = false
+	}
+	
+	// Skip replacement for SSH execution
+	if !useDocker {
+		return code
+	}
 
 	// Pattern 1: Python os.getenv with localhost default (single or double quotes)
 	// Matches: os.getenv('HDN_URL', 'http://localhost:8081') or os.getenv("HDN_URL", "http://localhost:8081")
@@ -404,9 +424,19 @@ Code:`
 					toolInstructions += fmt.Sprintf("- Base URL: %s\n", req.ToolAPIURL)
 					toolInstructions += fmt.Sprintf("- Use this URL directly OR get from environment: `hdn_url = os.getenv('HDN_URL', '%s')`\n", req.ToolAPIURL)
 				} else {
-					toolInstructions += "- Get HDN_URL from environment: `hdn_url = os.getenv('HDN_URL', 'http://host.docker.internal:8081')`\n"
+					// Default based on execution method - check if Docker or SSH
+					defaultURL := "http://localhost:8080"
+					if strings.Contains(os.Getenv("EXECUTION_METHOD"), "docker") || os.Getenv("EXECUTION_METHOD") == "" {
+						defaultURL = "http://host.docker.internal:8080"
+					}
+					toolInstructions += fmt.Sprintf("- Get HDN_URL from environment: `hdn_url = os.getenv('HDN_URL', '%s')`\n", defaultURL)
 				}
-				toolInstructions += "\n🚨 CRITICAL: NEVER use 'localhost' - always use 'host.docker.internal' or the HDN_URL environment variable!\n"
+				// Only warn about localhost if using Docker
+				if strings.Contains(req.ToolAPIURL, "host.docker.internal") || (req.ToolAPIURL == "" && (os.Getenv("EXECUTION_METHOD") == "" || !strings.Contains(os.Getenv("EXECUTION_METHOD"), "ssh"))) {
+					toolInstructions += "\n🚨 CRITICAL: NEVER use 'localhost' - always use 'host.docker.internal' or the HDN_URL environment variable!\n"
+				} else {
+					toolInstructions += "\n🚨 CRITICAL: Always use the HDN_URL environment variable or the provided base URL!\n"
+				}
 				toolInstructions += "- Call tool via POST request: `requests.post(f'{hdn_url}/api/v1/tools/{tool_id}/invoke', json={params})`\n"
 				toolInstructions += "- Example for tool_http_get: `requests.post(f'{hdn_url}/api/v1/tools/tool_http_get/invoke', json={'url': 'https://example.com'})`\n"
 				toolInstructions += "- Make sure to import `requests` and `os` modules, and handle the response JSON properly.\n"
