@@ -544,13 +544,19 @@ Code:`
 		importInstruction = "\n\n🚨 IMPORTANT: This is a simple task. DO NOT import external libraries unless explicitly required. Use only built-in language features."
 	}
 
+	// Add warning about internal system flags
+	internalFlagsWarning := "\n\n🚨 CRITICAL: DO NOT use internal system flags like 'force_regenerate', 'artifacts_wrapper', or 'allow_requests' in your code!\n"
+	internalFlagsWarning += "🚨 These are internal system flags and should NOT be checked or used in generated code.\n"
+	internalFlagsWarning += "🚨 If you see these in environment variables, IGNORE them - they are not part of the task requirements.\n"
+	internalFlagsWarning += "🚨 DO NOT add checks like 'if force_regenerate: return' or 'if not allow_requests: return' - these will break execution!\n"
+
 	codeBlockTag := "```" + req.Language
 	return fmt.Sprintf(`Generate %s code for this task:
 
-%s%s%s%s%s%s
+%s%s%s%s%s%s%s
 
 Return only the %s code in a markdown code block with the language tag: %s
-`, req.Language, cleanDesc, langEnforcement, contextStr, toolInstructions, knowledgeBaseInstructions, importInstruction, req.Language, codeBlockTag)
+`, req.Language, cleanDesc, langEnforcement, contextStr, toolInstructions, knowledgeBaseInstructions, importInstruction, internalFlagsWarning, req.Language, codeBlockTag)
 }
 
 // extractCodeFromResponse extracts code from the LLM response

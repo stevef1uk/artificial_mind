@@ -2873,6 +2873,8 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 		"saveCodeFilename":   true,
 		"artifacts":          true,
 		"artifactsWrapper":   true,
+		"artifacts_wrapper":  true, // System flag, should not be used in generated code
+		"force_regenerate":   true, // System flag, should not be used in generated code
 		"prefer_traditional": true,
 	}
 	for k, v := range req.Context {
