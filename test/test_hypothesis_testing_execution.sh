@@ -352,9 +352,40 @@ except Exception as e:
         ARTIFACT_COUNT=$(echo "$REDIS_FILES" | wc -l | tr -d ' ')
         echo -e "   ${GREEN}✅ Found $ARTIFACT_COUNT artifact(s) in Redis storage${NC}"
         for file_key in $REDIS_FILES; do
-            filename=$(echo "$file_key" | cut -d: -f4 || echo "$file_key")
-            size=$(redis_cmd HGET "$file_key" "size" 2>/dev/null || echo "0")
-            echo "   - $filename ($size bytes)"
+            # Check if this is a filename index (file:by_name:filename)
+            if echo "$file_key" | grep -q "^file:by_name:"; then
+                # Get the file ID from the index
+                file_id=$(redis_cmd GET "$file_key" 2>/dev/null || echo "")
+                if [ -n "$file_id" ]; then
+                    # Get metadata from file:metadata:{fileID}
+                    metadata=$(redis_cmd GET "file:metadata:$file_id" 2>/dev/null || echo "")
+                    if [ -n "$metadata" ]; then
+                        filename=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('filename', 'N/A'))" 2>/dev/null || echo "$file_key")
+                        size=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('size', 0))" 2>/dev/null || echo "0")
+                        echo "   - $filename ($size bytes)"
+                    else
+                        filename=$(echo "$file_key" | cut -d: -f3 || echo "$file_key")
+                        echo "   - $filename (metadata not found)"
+                    fi
+                else
+                    filename=$(echo "$file_key" | cut -d: -f3 || echo "$file_key")
+                    echo "   - $filename (file ID not found)"
+                fi
+            else
+                # Try HGET for hash keys, or GET for string keys
+                filename=$(echo "$file_key" | cut -d: -f4 || echo "$file_key")
+                size=$(redis_cmd HGET "$file_key" "size" 2>/dev/null || echo "0")
+                if [ "$size" = "0" ]; then
+                    # Try GET if it's a string key
+                    metadata=$(redis_cmd GET "$file_key" 2>/dev/null || echo "")
+                    if [ -n "$metadata" ] && echo "$metadata" | grep -q "{"; then
+                        # It's JSON metadata
+                        size=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('size', 0))" 2>/dev/null || echo "0")
+                        filename=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('filename', 'N/A'))" 2>/dev/null || echo "$filename")
+                    fi
+                fi
+                echo "   - $filename ($size bytes)"
+            fi
         done
     fi
 fi
@@ -420,10 +451,26 @@ if [ "$ARTIFACTS_FOUND" = false ]; then
                     # Try alternative parsing
                     filename=$(echo "$file_key" | grep -oE "[^:]+\.md" | head -1 || echo "$file_key")
                 fi
-                size=$(redis_cmd HGET "$file_key" "size" 2>/dev/null || echo "0")
-                if [ "$size" = "0" ]; then
-                    # Try getting from metadata
-                    file_id=$(echo "$file_key" | cut -d: -f3)
+                # Check if this is a filename index (file:by_name:filename)
+                if echo "$file_key" | grep -q "^file:by_name:"; then
+                    # Get the file ID from the index
+                    file_id=$(redis_cmd GET "$file_key" 2>/dev/null || echo "")
+                    if [ -n "$file_id" ]; then
+                        # Get metadata from file:metadata:{fileID}
+                        metadata=$(redis_cmd GET "file:metadata:$file_id" 2>/dev/null || echo "")
+                        if [ -n "$metadata" ]; then
+                            size=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('size', 0))" 2>/dev/null || echo "0")
+                        else
+                            size="0"
+                        fi
+                    else
+                        size="0"
+                    fi
+                else
+                    size=$(redis_cmd HGET "$file_key" "size" 2>/dev/null || echo "0")
+                    if [ "$size" = "0" ]; then
+                        # Try getting from metadata
+                        file_id=$(echo "$file_key" | cut -d: -f3)
                     if [ -n "$file_id" ]; then
                         metadata=$(redis_cmd GET "file:metadata:$file_id" 2>/dev/null || echo "")
                         if [ -n "$metadata" ]; then
