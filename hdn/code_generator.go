@@ -168,9 +168,112 @@ func (cg *CodeGenerator) cleanGeneratedCode(code, language string) string {
 	}
 	cleaned := strings.TrimSpace(trimmed)
 
-	// No post-processing - let the LLM generate correct code
+	// For Go code, ensure it starts with package declaration
+	if language == "go" {
+		cleaned = cg.ensureGoPackageDeclaration(cleaned)
+	}
+
+	// CRITICAL: Replace localhost with host.docker.internal in generated code
+	// This is a safety measure in case the LLM ignores instructions or uses hardcoded localhost
+	cleaned = cg.fixLocalhostReferences(cleaned, language)
+
+	// No other post-processing - let the LLM generate correct code
 	// If there are issues, the validation/fix mechanism will handle them
 	return cleaned
+}
+
+// fixLocalhostReferences replaces localhost with host.docker.internal in generated code
+// This ensures Docker containers can reach the host HDN server
+func (cg *CodeGenerator) fixLocalhostReferences(code, language string) string {
+	originalCode := code
+
+	// Pattern 1: Python os.getenv with localhost default (single or double quotes)
+	// Matches: os.getenv('HDN_URL', 'http://localhost:8081') or os.getenv("HDN_URL", "http://localhost:8081")
+	// Use separate patterns for single and double quotes since Go doesn't support backreferences in patterns
+	pattern1Single := regexp.MustCompile(`os\.getenv\('HDN_URL',\s*'http://localhost:(\d+)'\)`)
+	code = pattern1Single.ReplaceAllStringFunc(code, func(match string) string {
+		submatches := pattern1Single.FindStringSubmatch(match)
+		if len(submatches) >= 2 {
+			port := submatches[1]
+			return fmt.Sprintf("os.getenv('HDN_URL', 'http://host.docker.internal:%s')", port)
+		}
+		return match
+	})
+	pattern1Double := regexp.MustCompile(`os\.getenv\("HDN_URL",\s*"http://localhost:(\d+)"\)`)
+	code = pattern1Double.ReplaceAllStringFunc(code, func(match string) string {
+		submatches := pattern1Double.FindStringSubmatch(match)
+		if len(submatches) >= 2 {
+			port := submatches[1]
+			return fmt.Sprintf(`os.getenv("HDN_URL", "http://host.docker.internal:%s")`, port)
+		}
+		return match
+	})
+
+	// Pattern 2: Go os.Getenv with localhost fallback
+	// Matches: hdnURL := os.Getenv("HDN_URL"); if hdnURL == "" { hdnURL = "http://localhost:8081" }
+	pattern2 := regexp.MustCompile(`localhost:(\d+)`)
+	code = pattern2.ReplaceAllString(code, `host.docker.internal:$1`)
+
+	// Pattern 3: Direct string literals with localhost:8081 or localhost:8080
+	// Matches: "http://localhost:8081" or 'http://localhost:8080'
+	// Note: Go's regexp (RE2) doesn't support backreferences, so we use separate patterns for single and double quotes
+	pattern3Double := regexp.MustCompile(`(")(http://)localhost:(8081|8080)"`)
+	code = pattern3Double.ReplaceAllString(code, `${1}${2}host.docker.internal:$3"`)
+	pattern3Single := regexp.MustCompile(`(')(http://)localhost:(8081|8080)'`)
+	code = pattern3Single.ReplaceAllString(code, `${1}${2}host.docker.internal:$3'`)
+
+	// Pattern 4: f-string with localhost (Python)
+	// Matches: f'http://localhost:8081' or f"http://localhost:8080"
+	// Note: Go's regexp (RE2) doesn't support backreferences, so we use separate patterns for single and double quotes
+	pattern4Double := regexp.MustCompile(`f(")(http://)localhost:(8081|8080)"`)
+	code = pattern4Double.ReplaceAllString(code, `f${1}${2}host.docker.internal:$3"`)
+	pattern4Single := regexp.MustCompile(`f(')(http://)localhost:(8081|8080)'`)
+	code = pattern4Single.ReplaceAllString(code, `f${1}${2}host.docker.internal:$3'`)
+
+	// Pattern 5: Variable assignments
+	// Matches: hdn_url = "http://localhost:8081" or url = 'http://localhost:8080'
+	// Note: Go's regexp (RE2) doesn't support backreferences, so we use separate patterns for single and double quotes
+	pattern5Double := regexp.MustCompile(`(\w+)\s*=\s*(")(http://)localhost:(8081|8080)"`)
+	code = pattern5Double.ReplaceAllString(code, `${1} = ${2}${3}host.docker.internal:$4"`)
+	pattern5Single := regexp.MustCompile(`(\w+)\s*=\s*(')(http://)localhost:(8081|8080)'`)
+	code = pattern5Single.ReplaceAllString(code, `${1} = ${2}${3}host.docker.internal:$4'`)
+
+	// Log if we made any changes
+	if code != originalCode {
+		log.Printf("🔧 [CODEGEN] Fixed localhost references in generated %s code (replaced with host.docker.internal)", language)
+	}
+
+	return code
+}
+
+// ensureGoPackageDeclaration ensures Go code starts with a package declaration
+func (cg *CodeGenerator) ensureGoPackageDeclaration(code string) string {
+	trimmed := strings.TrimSpace(code)
+	if trimmed == "" {
+		return code
+	}
+
+	// Check if code already starts with package declaration
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) > 0 {
+		firstLine := strings.TrimSpace(lines[0])
+		// Check if first line is a package declaration
+		if strings.HasPrefix(firstLine, "package ") {
+			// Already has package declaration, return as-is
+			return trimmed
+		}
+	}
+
+	// Check if code contains "import" but no "package" - this is the error case
+	if strings.Contains(trimmed, "import") && !strings.Contains(trimmed, "package ") {
+		log.Printf("⚠️ [CODEGEN] Go code missing package declaration, adding 'package main'")
+		// Add package main at the beginning
+		return "package main\n\n" + trimmed
+	}
+
+	// If code doesn't have package or import, it might be incomplete
+	// But we'll let validation catch that - just ensure package is present if imports are
+	return trimmed
 }
 
 // buildCodeGenerationPrompt creates a prompt for code generation
@@ -233,9 +336,31 @@ Code:`
 	}
 
 	// Add available tools and instructions for tool usage
-	// BUT: Skip tool instructions for simple tasks to avoid unnecessary imports
+	// For Python: include tools by default (unless it's a simple task)
+	// For other languages: only include tools if user explicitly asks for them
 	toolInstructions := ""
-	if !isSimpleTask {
+
+	// Check if user explicitly mentions tools in description/task
+	taskLower := strings.ToLower(req.TaskName)
+	descLowerForTools := strings.ToLower(cleanDesc)
+	explicitlyMentionsTools := strings.Contains(descLowerForTools, "tool_") ||
+		strings.Contains(descLowerForTools, "use tool") ||
+		strings.Contains(descLowerForTools, "call tool") ||
+		strings.Contains(descLowerForTools, "invoke tool") ||
+		strings.Contains(taskLower, "tool_") ||
+		strings.Contains(taskLower, "use tool")
+
+	// Determine if we should include tools:
+	// - Python: include if not a simple task
+	// - Other languages: only if user explicitly mentions tools
+	shouldIncludeTools := false
+	if req.Language == "python" || req.Language == "py" {
+		shouldIncludeTools = !isSimpleTask
+	} else {
+		shouldIncludeTools = explicitlyMentionsTools
+	}
+
+	if shouldIncludeTools {
 		if len(req.Tools) > 0 {
 			toolInstructions = "\n\n🔧 AVAILABLE TOOLS (use these via HTTP API, do NOT import as modules):\n"
 			for _, tool := range req.Tools {
@@ -250,24 +375,67 @@ Code:`
 				}
 			}
 			toolInstructions += "\n🚨 CRITICAL: To use these tools, call them via HTTP API:\n"
-			if req.ToolAPIURL != "" {
-				toolInstructions += fmt.Sprintf("- Base URL: %s\n", req.ToolAPIURL)
-			} else {
-				toolInstructions += "- Get HDN_URL from environment: `hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')`\n"
-			}
-			toolInstructions += "- Call tool via POST request: `requests.post(f'{hdn_url}/api/v1/tools/{tool_id}/invoke', json={params})`\n"
-			toolInstructions += "- Example for tool_http_get: `requests.post(f'{hdn_url}/api/v1/tools/tool_http_get/invoke', json={'url': 'https://example.com'})`\n"
-			toolInstructions += "- Make sure to import `requests` and `os` modules, and handle the response JSON properly.\n"
-			toolInstructions += "- PREFER using available tools over writing custom code when a tool can accomplish the task!\n"
-		} else {
-			// Fallback: add instructions if task mentions tools but no tools provided
-			descLowerForTools := strings.ToLower(cleanDesc)
-			if strings.Contains(descLowerForTools, "tool_") || strings.Contains(descLowerForTools, "use tool") {
-				toolInstructions = "\n\n🚨 CRITICAL: If the task mentions using a tool (like tool_http_get, tool_html_scraper, etc.), DO NOT import it as a Python module. Instead, call the tool via HTTP API:\n"
-				toolInstructions += "- Get HDN_URL from environment: `hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')`\n"
+
+			// Language-specific tool usage instructions
+			if req.Language == "go" {
+				// Go-specific instructions
+				if req.ToolAPIURL != "" {
+					toolInstructions += fmt.Sprintf("- Base URL: %s\n", req.ToolAPIURL)
+					toolInstructions += fmt.Sprintf("- Use this URL directly OR get from environment: `hdnURL := os.Getenv(\"HDN_URL\"); if hdnURL == \"\" { hdnURL = \"%s\" }`\n", req.ToolAPIURL)
+				} else {
+					toolInstructions += "- Get HDN_URL from environment: `hdnURL := os.Getenv(\"HDN_URL\"); if hdnURL == \"\" { hdnURL = \"http://host.docker.internal:8081\" }`\n"
+				}
+				toolInstructions += "\n🚨 CRITICAL: NEVER use 'localhost' - always use 'host.docker.internal' or the HDN_URL environment variable!\n"
+				toolInstructions += "- Import required packages: `\"net/http\", \"bytes\", \"encoding/json\", \"os\"`\n"
+				toolInstructions += "- Call tool via POST request:\n"
+				toolInstructions += "  ```go\n"
+				toolInstructions += "  params := map[string]interface{}{\"url\": \"https://example.com\"}\n"
+				toolInstructions += "  jsonData, _ := json.Marshal(params)\n"
+				toolInstructions += "  req, _ := http.NewRequest(\"POST\", hdnURL+\"/api/v1/tools/tool_http_get/invoke\", bytes.NewBuffer(jsonData))\n"
+				toolInstructions += "  req.Header.Set(\"Content-Type\", \"application/json\")\n"
+				toolInstructions += "  client := &http.Client{}\n"
+				toolInstructions += "  resp, _ := client.Do(req)\n"
+				toolInstructions += "  defer resp.Body.Close()\n"
+				toolInstructions += "  ```\n"
+				toolInstructions += "- PREFER using available tools over writing custom code when a tool can accomplish the task!\n"
+			} else if req.Language == "python" || req.Language == "py" {
+				// Python-specific instructions
+				if req.ToolAPIURL != "" {
+					toolInstructions += fmt.Sprintf("- Base URL: %s\n", req.ToolAPIURL)
+					toolInstructions += fmt.Sprintf("- Use this URL directly OR get from environment: `hdn_url = os.getenv('HDN_URL', '%s')`\n", req.ToolAPIURL)
+				} else {
+					toolInstructions += "- Get HDN_URL from environment: `hdn_url = os.getenv('HDN_URL', 'http://host.docker.internal:8081')`\n"
+				}
+				toolInstructions += "\n🚨 CRITICAL: NEVER use 'localhost' - always use 'host.docker.internal' or the HDN_URL environment variable!\n"
 				toolInstructions += "- Call tool via POST request: `requests.post(f'{hdn_url}/api/v1/tools/{tool_id}/invoke', json={params})`\n"
 				toolInstructions += "- Example for tool_http_get: `requests.post(f'{hdn_url}/api/v1/tools/tool_http_get/invoke', json={'url': 'https://example.com'})`\n"
 				toolInstructions += "- Make sure to import `requests` and `os` modules, and handle the response JSON properly.\n"
+				toolInstructions += "- PREFER using available tools over writing custom code when a tool can accomplish the task!\n"
+			} else {
+				// Generic instructions (fallback)
+				if req.ToolAPIURL != "" {
+					toolInstructions += fmt.Sprintf("- Base URL: %s\n", req.ToolAPIURL)
+				} else {
+					toolInstructions += "- Get HDN_URL from environment variable HDN_URL (default: http://host.docker.internal:8081)\n"
+				}
+				toolInstructions += "- Call tool via POST request to {hdn_url}/api/v1/tools/{tool_id}/invoke with JSON body containing parameters\n"
+				toolInstructions += "- PREFER using available tools over writing custom code when a tool can accomplish the task!\n"
+			}
+		} else {
+			// Fallback: add instructions if task mentions tools but no tools provided
+			// Only show this for Python or if user explicitly mentions tools
+			if (req.Language == "python" || req.Language == "py") || explicitlyMentionsTools {
+				if req.Language == "go" {
+					toolInstructions = "\n\n🚨 CRITICAL: If the task mentions using a tool, DO NOT import it as a module. Instead, call the tool via HTTP API using Go's net/http package:\n"
+					toolInstructions += "- Get HDN_URL from environment: `hdnURL := os.Getenv(\"HDN_URL\"); if hdnURL == \"\" { hdnURL = \"http://host.docker.internal:8081\" }`\n"
+					toolInstructions += "- Use http.NewRequest with POST method and JSON body\n"
+				} else {
+					toolInstructions = "\n\n🚨 CRITICAL: If the task mentions using a tool (like tool_http_get, tool_html_scraper, etc.), DO NOT import it as a Python module. Instead, call the tool via HTTP API:\n"
+					toolInstructions += "- Get HDN_URL from environment: `hdn_url = os.getenv('HDN_URL', 'http://host.docker.internal:8081')`\n"
+					toolInstructions += "- Call tool via POST request: `requests.post(f'{hdn_url}/api/v1/tools/{tool_id}/invoke', json={params})`\n"
+					toolInstructions += "- Example for tool_http_get: `requests.post(f'{hdn_url}/api/v1/tools/tool_http_get/invoke', json={'url': 'https://example.com'})`\n"
+					toolInstructions += "- Make sure to import `requests` and `os` modules, and handle the response JSON properly.\n"
+				}
 			}
 		}
 	}
@@ -275,7 +443,17 @@ Code:`
 	// Build a strong language enforcement message
 	langEnforcement := ""
 	if req.Language != "" {
-		langEnforcement = fmt.Sprintf("\n\n🚨🚨🚨 CRITICAL LANGUAGE REQUIREMENT 🚨🚨🚨\nYou MUST generate %s code ONLY! Do NOT generate any other language!\nIf the task description mentions another language, IGNORE it - you MUST generate %s code!\n🚨🚨🚨 END OF CRITICAL REQUIREMENT 🚨🚨🚨\n", req.Language, req.Language)
+		langEnforcement = fmt.Sprintf("\n\n🚨🚨🚨 CRITICAL LANGUAGE REQUIREMENT 🚨🚨🚨\nYou MUST generate %s code ONLY! Do NOT generate any other language!\nIf the task description mentions another language, IGNORE it - you MUST generate %s code!\n", req.Language, req.Language)
+
+		// Add language-specific critical requirements
+		if req.Language == "go" {
+			langEnforcement += "\n🚨 CRITICAL GO REQUIREMENTS:\n"
+			langEnforcement += "- You MUST start with 'package main' on the first line!\n"
+			langEnforcement += "- You MUST include 'func main()' as the entry point!\n"
+			langEnforcement += "- The code structure MUST be: package main, then imports, then func main()\n"
+		}
+
+		langEnforcement += "🚨🚨🚨 END OF CRITICAL REQUIREMENT 🚨🚨🚨\n"
 		log.Printf("🔍 [CODEGEN] Added language enforcement for: %s", req.Language)
 	} else {
 		log.Printf("⚠️ [CODEGEN] WARNING: No language specified in request!")

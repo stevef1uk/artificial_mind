@@ -906,19 +906,33 @@ The hypothesis to test: %s`, hypothesisContent, hypothesisContent)
 	// Check 3: Simple informational tasks (news headlines, titles, etc.)
 	// These are typically just text without actionable code requirements
 	isSimpleInformational := false
+	// Exclude tasks that have matrix operations, mathematical operations, or explicit code requirements
+	hasMatrixOps := strings.Contains(descLower, "matrix") ||
+		(req.Context != nil && (req.Context["matrix1"] != "" || req.Context["matrix2"] != ""))
+	hasMathOps := strings.Contains(descLower, "calculate") ||
+		strings.Contains(descLower, "addition") ||
+		strings.Contains(descLower, "operation") ||
+		strings.Contains(descLower, "perform")
+	hasCodeRequirement := strings.Contains(descLower, "code") ||
+		strings.Contains(descLower, "program") ||
+		strings.Contains(descLower, "function") ||
+		strings.Contains(descLower, "script") ||
+		req.Language != "" // If language is specified, it's a code task
+
 	// News headline patterns (often just titles without verbs indicating action)
 	if len(req.Description) < 200 && !strings.Contains(descLower, "create") &&
 		!strings.Contains(descLower, "write") && !strings.Contains(descLower, "generate") &&
 		!strings.Contains(descLower, "build") && !strings.Contains(descLower, "implement") &&
-		!strings.Contains(descLower, "code") && !strings.Contains(descLower, "program") &&
-		!strings.Contains(descLower, "function") && !strings.Contains(descLower, "script") {
+		!hasCodeRequirement {
 		// Check if it looks like a news headline or simple statement
 		if strings.Count(req.Description, " ") < 15 && // Short description
 			!strings.Contains(descLower, "calculate") &&
 			!strings.Contains(descLower, "process") &&
 			!strings.Contains(descLower, "analyze") &&
 			!strings.Contains(descLower, "fetch") &&
-			!strings.Contains(descLower, "get") {
+			!strings.Contains(descLower, "get") &&
+			!hasMatrixOps && // Exclude matrix operations
+			!hasMathOps { // Exclude mathematical operations
 			isSimpleInformational = true
 			log.Printf("📰 [INTELLIGENT] Detected simple informational task - skipping code generation")
 		}
@@ -1146,6 +1160,19 @@ The hypothesis to test: %s`, hypothesisContent, hypothesisContent)
 		}
 	}
 
+	// Check for context cancellation before proceeding
+	if ctx.Err() != nil {
+		log.Printf("⏱️ [INTELLIGENT] Context canceled before execution: %v", ctx.Err())
+		return &IntelligentExecutionResult{
+			Success:         false,
+			Error:           fmt.Sprintf("Execution timed out or was canceled: %v", ctx.Err()),
+			ExecutionTime:   time.Since(start),
+			RetryCount:      0,
+			ValidationSteps: []ValidationStep{},
+			WorkflowID:      fmt.Sprintf("intelligent_%d", time.Now().UnixNano()),
+		}, nil
+	}
+
 	// Check for chained program requests BEFORE planner integration
 	if ie.isChainedProgramRequest(req) {
 		log.Printf("🔗 [INTELLIGENT] Detected chained program request, using multi-step execution")
@@ -1167,7 +1194,26 @@ The hypothesis to test: %s`, hypothesisContent, hypothesisContent)
 	// Fall back to original intelligent execution
 	log.Printf("🤖 [INTELLIGENT] Using traditional intelligent execution (no planner)")
 	workflowID := fmt.Sprintf("intelligent_%d", time.Now().UnixNano())
-	return ie.executeTraditionally(ctx, req, start, workflowID)
+	result, err := ie.executeTraditionally(ctx, req, start, workflowID)
+
+	// Check for context cancellation after execution
+	if ctx.Err() != nil && (result == nil || !result.Success) {
+		log.Printf("⏱️ [INTELLIGENT] Context canceled during execution: %v", ctx.Err())
+		if result == nil {
+			result = &IntelligentExecutionResult{
+				Success:         false,
+				Error:           fmt.Sprintf("Execution timed out or was canceled: %v", ctx.Err()),
+				ExecutionTime:   time.Since(start),
+				RetryCount:      0,
+				ValidationSteps: []ValidationStep{},
+				WorkflowID:      workflowID,
+			}
+		} else if result.Error == "" {
+			result.Error = fmt.Sprintf("Execution timed out or was canceled: %v", ctx.Err())
+		}
+	}
+
+	return result, err
 }
 
 // executeInfoGatheringWithTools invokes html scraper / http get tools based on context and aggregates results.
@@ -1283,6 +1329,12 @@ func (ie *IntelligentExecutor) isComplexTask(req *ExecutionRequest) bool {
 	// Use LLM to determine task complexity for more accurate classification
 	complexity, err := ie.classifyTaskComplexity(req)
 	if err != nil {
+		// Check if error is due to context cancellation
+		if strings.Contains(err.Error(), "cancelled") || strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "deadline") {
+			log.Printf("⏱️ [INTELLIGENT] LLM complexity classification cancelled/timed out: %v", err)
+			// Don't fallback - this indicates a timeout, which should be handled upstream
+			return false
+		}
 		// Fallback to simple classification if LLM fails (safer default)
 		log.Printf("⚠️ [INTELLIGENT] LLM complexity classification failed: %v, defaulting to simple", err)
 		return false
@@ -1607,10 +1659,28 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	// Step 3: Check principles BEFORE doing anything else
 	log.Printf("🔒 [INTELLIGENT] Checking principles before any processing")
 
+	// Check for context cancellation before LLM calls
+	if ctx.Err() != nil {
+		log.Printf("⏱️ [INTELLIGENT] Context canceled before safety check: %v", ctx.Err())
+		result.Success = false
+		result.Error = fmt.Sprintf("Execution timed out or was canceled: %v", ctx.Err())
+		result.ExecutionTime = time.Since(start)
+		return result, nil
+	}
+
 	// Use LLM to intelligently categorize the request for safety
 	context, err := ie.categorizeRequestForSafety(req)
 	if err != nil {
+		// Check if error is due to context cancellation
+		if ctx.Err() != nil || strings.Contains(err.Error(), "cancelled") || strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "deadline") {
+			log.Printf("⏱️ [INTELLIGENT] Safety categorization cancelled/timed out: %v", err)
+			result.Success = false
+			result.Error = fmt.Sprintf("Execution timed out or was canceled: %v", ctx.Err())
+			result.ExecutionTime = time.Since(start)
+			return result, nil
+		}
 		log.Printf("❌ [INTELLIGENT] Safety categorization failed: %v", err)
+		result.Success = false
 		result.Error = fmt.Sprintf("Cannot verify task safety - LLM categorization failed: %v", err)
 		result.ExecutionTime = time.Since(start)
 		return result, nil
@@ -1619,6 +1689,7 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	allowed, reasons, err := CheckActionWithPrinciples(req.TaskName, context)
 	if err != nil {
 		log.Printf("❌ [INTELLIGENT] Principles check FAILED for %s: %v", req.TaskName, err)
+		result.Success = false
 		result.Error = fmt.Sprintf("Cannot verify task safety - principles server unavailable: %v", err)
 		result.ExecutionTime = time.Since(start)
 		return result, nil
@@ -1750,7 +1821,7 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		if strings.Contains(strings.ToLower(enhancedDesc), "matrix") ||
 			(req.Context != nil && (req.Context["matrix1"] != "" || req.Context["matrix2"] != "")) {
 			if req.Language == "go" {
-				enhancedDesc += "\n\n🚨 CRITICAL FOR GO MATRIX OPERATIONS:\n- You MUST read matrices from environment variables using os.Getenv(\"matrix1\") and os.Getenv(\"matrix2\")\n- Parse the JSON string format (e.g., \"[[1,2],[3,4]]\") using encoding/json\n- DO NOT hardcode matrix values - the matrices will be different each time!\n- CRITICAL: Matrix type in Go is [][]int (slice of slices), NOT [][][]int (3D array)!\n- Example: var matrix1 [][]int; matrix1Str := os.Getenv(\"matrix1\"); json.Unmarshal([]byte(matrix1Str), &matrix1)\n- 🚨 CRITICAL: For matrix ADDITION, add corresponding elements: result[i][j] = matrix1[i][j] + matrix2[i][j]\n- Example: [[1,2],[3,4]] + [[5,6],[7,8]] = [[1+5,2+6],[3+7,4+8]] = [[6,8],[10,12]]\n- Function signature for matrix addition: func addMatrices(matrix1 [][]int, matrix2 [][]int) [][]int\n- You MUST import \"os\" for os.Getenv() and \"encoding/json\" for json.Unmarshal()\n- DO NOT import \"strconv\" unless you actually use it - unused imports cause compilation errors!\n- 🚨 CRITICAL OUTPUT FORMAT: When printing matrix results, print each ROW on a SEPARATE line using fmt.Println()\n- Example: For result [[6,8],[10,12]], you MUST print:\n  fmt.Println(result[0])  // prints [6 8]\n  fmt.Println(result[1])  // prints [10 12]\n- DO NOT print fmt.Println(result) - that prints the entire matrix as [[6 8] [10 12]] on one line!\n- DO NOT use fmt.Printf with %v for the entire matrix - print each row separately!\n- The output must be: [6 8] on first line, [10 12] on second line (two separate lines)\n- Use a loop: for i := 0; i < len(result); i++ { fmt.Println(result[i]) }"
+				enhancedDesc += "\n\n🚨 CRITICAL GO MATRIX REQUIREMENTS:\n1. Read from env: matrix1Str := os.Getenv(\"matrix1\"); json.Unmarshal([]byte(matrix1Str), &matrix1) - DO NOT hardcode!\n2. Import: \"os\", \"encoding/json\", \"fmt\"\n3. Output: Print each row separately - for i := 0; i < len(result); i++ { fmt.Println(result[i]) }\n4. WRONG: fmt.Println(result) prints [[6 8] [10 12]] on one line - this FAILS!\n5. CORRECT output format: [6 8] on line 1, [10 12] on line 2"
 			} else if req.Language == "python" {
 				enhancedDesc += "\n\n🚨 CRITICAL FOR PYTHON MATRIX OPERATIONS:\n- You MUST read matrices from environment variables using os.getenv(\"matrix1\") and os.getenv(\"matrix2\")\n- Parse the JSON string format (e.g., \"[[1,2],[3,4]]\") using json.loads()\n- DO NOT hardcode matrix values - the matrices will be different each time!\n- Example: matrix1 = json.loads(os.getenv(\"matrix1\"))"
 			}
@@ -1818,6 +1889,14 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		log.Printf("🧠 [INTELLIGENCE] Added %d prevention hints from learned experience", len(preventionHints))
 	}
 
+	// Convert localhost to host.docker.internal in ToolAPIURL for Docker execution
+	// This ensures generated code uses the correct URL when running in containers
+	toolAPIURL := ie.hdnBaseURL
+	if toolAPIURL != "" && strings.Contains(toolAPIURL, "localhost") {
+		toolAPIURL = strings.Replace(toolAPIURL, "localhost", "host.docker.internal", -1)
+		log.Printf("🌐 [INTELLIGENT] Updated ToolAPIURL for Docker: %s", toolAPIURL)
+	}
+
 	codeGenReq := &CodeGenerationRequest{
 		TaskName:     req.TaskName,
 		Description:  enhancedDesc,
@@ -1826,7 +1905,7 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		Tags:         []string{"intelligent_execution", "auto_generated"},
 		Executable:   true,
 		Tools:        relevantTools,
-		ToolAPIURL:   ie.hdnBaseURL,
+		ToolAPIURL:   toolAPIURL,
 		HighPriority: req.HighPriority, // Pass priority from execution request
 	}
 
@@ -1880,8 +1959,44 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	}
 
 	if !success {
-		result.Error = "Code validation failed after all retry attempts"
+		// Try to get detailed error from the last validation step
+		errorMsg := ""
+		if len(result.ValidationSteps) > 0 {
+			lastStep := result.ValidationSteps[len(result.ValidationSteps)-1]
+			if lastStep.Error != "" {
+				errorMsg = lastStep.Error
+			} else if lastStep.Output != "" {
+				// Use output as error if it contains error information
+				if strings.Contains(strings.ToLower(lastStep.Output), "error") ||
+					strings.Contains(strings.ToLower(lastStep.Output), "failed") ||
+					strings.Contains(strings.ToLower(lastStep.Output), "traceback") ||
+					strings.Contains(strings.ToLower(lastStep.Output), "connection refused") ||
+					strings.Contains(strings.ToLower(lastStep.Output), "compilation") {
+					errorMsg = fmt.Sprintf("Execution failed: %s", lastStep.Output)
+				} else {
+					// Truncate long output for error message
+					outputPreview := lastStep.Output
+					if len(outputPreview) > 500 {
+						outputPreview = outputPreview[:500] + "..."
+					}
+					errorMsg = fmt.Sprintf("Code validation failed after all retry attempts. Last output: %s", outputPreview)
+				}
+			} else {
+				errorMsg = "Code validation failed after all retry attempts (no error details available)"
+			}
+			result.Result = lastStep.Output
+		} else {
+			errorMsg = "Code validation failed after all retry attempts (no validation steps recorded)"
+		}
+
+		// Ensure error message is never empty
+		if errorMsg == "" {
+			errorMsg = "Code validation failed after all retry attempts"
+		}
+
+		result.Error = errorMsg
 		result.ExecutionTime = time.Since(start)
+		log.Printf("❌ [INTELLIGENT] Execution failed: %s", errorMsg)
 		return result, nil
 	}
 
@@ -2506,11 +2621,23 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 	// Use QUIET mode to suppress environment dumps from SSH shell initialization
 	env["QUIET"] = "1"
 	// Pass HDN_URL to validation environment so generated code can call tool APIs if needed
+	// IMPORTANT: When running in Docker, replace localhost with host.docker.internal
+	// so containers can reach the host HDN server
+	var hdnURL string
 	if ie.hdnBaseURL != "" {
-		env["HDN_URL"] = ie.hdnBaseURL
-	} else if hdnURL := os.Getenv("HDN_URL"); hdnURL != "" {
-		env["HDN_URL"] = hdnURL
+		hdnURL = ie.hdnBaseURL
+	} else if url := os.Getenv("HDN_URL"); url != "" {
+		hdnURL = url
+	} else {
+		hdnURL = "http://localhost:8081"
 	}
+	// Replace localhost with host.docker.internal for Docker container networking
+	// This allows containers to reach the host HDN server
+	if strings.Contains(hdnURL, "localhost") {
+		hdnURL = strings.Replace(hdnURL, "localhost", "host.docker.internal", -1)
+		log.Printf("🌐 [VALIDATION] Updated HDN_URL for Docker: %s", hdnURL)
+	}
+	env["HDN_URL"] = hdnURL
 	// Copy allow_requests from context to env if it was set above
 	if allowReq, ok := req.Context["allow_requests"]; ok && allowReq == "true" {
 		env["allow_requests"] = "true"
@@ -2815,104 +2942,47 @@ func (ie *IntelligentExecutor) buildFixPrompt(originalCode *GeneratedCode, valid
   - ✅ Code uses console.log() for output (not print())
 `
 	} else if originalCode.Language == "go" {
-		languageGuidance = `
-🚨 CRITICAL FOR GO CODE FIXES:
-- Read the compilation error message CAREFULLY - it tells you exactly what's wrong!
-- Common Go compilation errors:
-  * "undefined: X" - Missing import or typo in function/variable name
-  * "X declared but not used" - Remove unused imports/variables (Go treats these as ERRORS)
-  * "cannot use X (type Y) as type Z" - Type mismatch, fix the type
-  * "syntax error" - Check for missing braces, parentheses, or semicolons
-  * "imported and not used" - Remove the unused import
-  * "assignment mismatch: 2 variables but X returns 1 value" - Function returns only 1 value, not 2!
-- If the error says "declared but not used", REMOVE that import/variable - don't try to use it!
-- If the error says "undefined", check if you need to import a package
-- Make sure ALL imports are actually used in the code
-- The error message shows the exact line and column where the problem is - fix that specific issue!
+		// Check if this is a matrix operation task
+		isMatrixOp := false
+		if req != nil && req.Context != nil {
+			if req.Context["matrix1"] != "" || req.Context["matrix2"] != "" {
+				isMatrixOp = true
+			}
+		}
+		if !isMatrixOp && req != nil {
+			descLower := strings.ToLower(req.Description)
+			if strings.Contains(descLower, "matrix") {
+				isMatrixOp = true
+			}
+		}
 
-🚨 CRITICAL: json.Unmarshal USAGE - COMMON MISTAKE!
-- json.Unmarshal returns ONLY 1 value (error), NOT 2 values!
-- WRONG: jsonBytes, _ := json.Unmarshal([]byte(...), &data)  ❌
-- CORRECT: err := json.Unmarshal([]byte(...), &data)  ✅
-- If you need to read from stdin first:
-  - Step 1: jsonBytes, _ := io.ReadAll(os.Stdin)  (returns []byte, error)
-  - Step 2: err := json.Unmarshal(jsonBytes, &data)  (returns only error)
-- Do NOT confuse json.Unmarshal (returns 1 value) with io.ReadAll (returns 2 values)!
+		matrixGuidance := ""
+		if isMatrixOp {
+			matrixGuidance = `
 
-🚨 CRITICAL: READING FROM STDIN - DO NOT HARDCODE!
-- If the task says "read JSON from stdin" or "read from stdin", you MUST use io.ReadAll(os.Stdin)
-- WRONG: Hardcoding JSON like json.Unmarshal([]byte("{\"key\": \"value\"}"), &data)  ❌
-- CORRECT: jsonBytes, _ := io.ReadAll(os.Stdin) then json.Unmarshal(jsonBytes, &data)  ✅
-- The input will be provided via stdin at runtime - do NOT hardcode test data!
-- You MUST import "io" and "os" to use io.ReadAll(os.Stdin)
-
-🚨 RUNTIME ERRORS - JSON TYPE CASTING:
-- If you see errors like "Error: 'number' field is not an int64" or "field is not an int64":
-  - JSON numbers in Go are ALWAYS parsed as float64, NOT int64!
-  - You MUST use: data["number"].(float64) NOT data["number"].(int64)
-  - Then convert to int if needed: number := int(numVal)
-  - Example fix:
-    OLD (WRONG): number, ok := data["number"].(int64)
-    NEW (CORRECT): if numVal, ok := data["number"].(float64); ok { number := int(numVal) }
-- Always use type assertion with ok check to avoid panics: if val, ok := data["key"].(float64); ok { ... }
-
-🚨 SYSTEMATIC FIX PROCESS - DO ALL OF THESE IN ONE PASS:
-1. Read ALL errors in the error message - don't just fix one! Fix ALL errors at once!
-2. Create a checklist of ALL errors before fixing:
-   - List every "undefined: X" error
-   - List every "imported and not used" error
-   - List every "declared but not used" error
-   - List every "assignment mismatch" error
-3. For each "undefined: X" error:
-   - If X is a function (like os.Getenv, json.Unmarshal, fmt.Println), add the import for that package
-   - os.Getenv requires: import "os"
-   - json.Unmarshal requires: import "encoding/json"
-   - fmt.Println requires: import "fmt"
-   - io.ReadAll requires: import "io" AND "os" (for os.Stdin)
-   - os.Stdin requires: import "os"
-   - log.Fatal requires: import "log"
-4. For "assignment mismatch: 2 variables but X returns 1 value" errors:
-   - This means you're trying to assign 2 values from a function that returns only 1!
-   - json.Unmarshal returns ONLY error: err := json.Unmarshal(bytes, &data)
-   - io.ReadAll returns ([]byte, error): bytes, err := io.ReadAll(os.Stdin)
-   - Do NOT mix them up!
-5. For each "imported and not used" or "declared but not used" error:
-   - REMOVE that import or variable completely - do NOT try to use it!
-   - BUT: Before removing, check if you need to ADD a different import that was missing!
-   - Example: If you see "io imported and not used" AND "undefined: json", you need to:
-     * Remove "io" if it's truly unused
-     * ADD "encoding/json" for json.Unmarshal
-6. CRITICAL: When removing unused imports, make sure you're not removing imports that are needed!
-   - If code uses json.Unmarshal, you MUST have "encoding/json"
-   - If code uses io.ReadAll, you MUST have "io" and "os"
-   - If code uses fmt.Println, you MUST have "fmt"
-   - Check the code body to see what functions are actually used!
-7. For runtime errors about type casting (especially JSON numbers):
-   - JSON numbers are float64, not int64 - fix the type assertion!
-8. After fixing, verify your checklist:
-   - ✅ Every function used has its package imported
-   - ✅ No unused imports remain
-   - ✅ No unused variables remain
-   - ✅ JSON number type assertions use float64, not int64
-   - ✅ json.Unmarshal is called correctly (returns only error, not 2 values)
-   - ✅ All "undefined" errors are fixed
-   - ✅ All "imported and not used" errors are fixed
-9. Example: If errors are "io imported and not used", "log imported and not used", AND "undefined: json":
-   - Step 1: Check what functions are used in the code body
-   - Step 2: If json.Unmarshal is used, ADD import "encoding/json"
-   - Step 3: Remove "io" if io.ReadAll is not used
-   - Step 4: Remove "log" if log functions are not used
-   - Step 5: Verify: json.Unmarshal needs "encoding/json" ✓
-10. Example: If error is "assignment mismatch: 2 variables but json.Unmarshal returns 1 value":
-   - WRONG: jsonBytes, _ := json.Unmarshal([]byte(str), &data)
-   - CORRECT: err := json.Unmarshal([]byte(str), &data)
-   - If you need bytes from stdin: jsonBytes, _ := io.ReadAll(os.Stdin) THEN err := json.Unmarshal(jsonBytes, &data)
-11. If task says "read from stdin" but code hardcodes JSON:
-   - WRONG: json.Unmarshal([]byte("{\"key\": \"value\"}"), &data)  (hardcoded!)
-   - CORRECT: jsonBytes, _ := io.ReadAll(os.Stdin); err := json.Unmarshal(jsonBytes, &data)
-   - MUST import "io" and "os" for stdin reading
-12. 🚨 CRITICAL: Fix ALL errors in ONE code revision - don't fix one error at a time!
+🚨🚨🚨 CRITICAL FOR GO MATRIX OPERATIONS - READ CAREFULLY 🚨🚨🚨:
+1. **READ MATRICES FROM ENV VARS**: You MUST use os.Getenv("matrix1") and os.Getenv("matrix2"). Parse JSON string "[[1,2],[3,4]]" using encoding/json. DO NOT hardcode matrices.
+2. **REQUIRED IMPORTS**: You MUST import "encoding/json", "fmt", and "os".
+3. **OUTPUT FORMAT (CRITICAL)**: You MUST print each ROW on a SEPARATE line using fmt.Println().
+   - WRONG: fmt.Println(result) (prints [[6 8] [10 12]] on ONE line - FAILS VALIDATION!)
+   - CORRECT: Use a loop: for i := 0; i < len(result); i++ { fmt.Println(result[i]) }
+   - Expected output: [6 8] on first line, [10 12] on second line.
+4. **VALIDATION FAILURE**: If validation failed because output doesn't match expected pattern, check:
+   - Are you printing the entire matrix with one fmt.Println? (WRONG - prints on one line)
+   - Are you printing each row separately? (CORRECT - each row on its own line)
+   - Did you read matrices from environment variables? (REQUIRED - do not hardcode)
 `
+		}
+
+		languageGuidance = `
+🚨 GO FIX RULES (fix ALL errors in ONE pass):
+- "undefined: X" → Add missing import (json→encoding/json, os.Getenv→os, fmt.Println→fmt, io.ReadAll→io+os)
+- "X declared/imported and not used" → REMOVE it (Go treats unused as ERROR)
+- "assignment mismatch: 2 vars but X returns 1" → json.Unmarshal returns ONLY error, NOT (value, error)!
+- json.Unmarshal: err := json.Unmarshal(bytes, &data) (NOT jsonBytes, _ := ...)
+- io.ReadAll: bytes, err := io.ReadAll(os.Stdin) (returns 2 values)
+- JSON numbers are float64, NOT int64: data["key"].(float64) then convert to int
+- Fix ALL errors at once - don't fix one at a time!` + matrixGuidance
 	} else if originalCode.Language == "rust" {
 		languageGuidance = `
 🚨 CRITICAL FOR RUST CODE FIXES:
@@ -4773,7 +4843,7 @@ func (ie *IntelligentExecutor) executeProgramDirectly(ctx context.Context, req *
 	if strings.Contains(strings.ToLower(enhancedDesc), "matrix") ||
 		(req.Context != nil && (req.Context["matrix1"] != "" || req.Context["matrix2"] != "")) {
 		if req.Language == "go" {
-			enhancedDesc += "\n\n🚨 CRITICAL FOR GO MATRIX OPERATIONS:\n- You MUST read matrices from environment variables using os.Getenv(\"matrix1\") and os.Getenv(\"matrix2\")\n- Parse the JSON string format (e.g., \"[[1,2],[3,4]]\") using encoding/json\n- DO NOT hardcode matrix values - the matrices will be different each time!\n- Example: matrix1Str := os.Getenv(\"matrix1\"); json.Unmarshal([]byte(matrix1Str), &matrix1)"
+			enhancedDesc += "\n\n🚨 CRITICAL GO MATRIX REQUIREMENTS:\n1. Read from env: matrix1Str := os.Getenv(\"matrix1\"); json.Unmarshal([]byte(matrix1Str), &matrix1) - DO NOT hardcode!\n2. Import: \"os\", \"encoding/json\", \"fmt\"\n3. Output: Print each row separately - for i := 0; i < len(result); i++ { fmt.Println(result[i]) }\n4. WRONG: fmt.Println(result) prints [[6 8] [10 12]] on one line - this FAILS!\n5. CORRECT output format: [6 8] on line 1, [10 12] on line 2"
 		} else if req.Language == "python" {
 			enhancedDesc += "\n\n🚨 CRITICAL FOR PYTHON MATRIX OPERATIONS:\n- You MUST read matrices from environment variables using os.getenv(\"matrix1\") and os.getenv(\"matrix2\")\n- Parse the JSON string format (e.g., \"[[1,2],[3,4]]\") using json.loads()\n- DO NOT hardcode matrix values - the matrices will be different each time!\n- Example: matrix1 = json.loads(os.getenv(\"matrix1\"))"
 		}
