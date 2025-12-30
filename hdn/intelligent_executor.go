@@ -2644,15 +2644,26 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 		req.Context["allow_requests"] = "true"
 		log.Printf("🔓 [VALIDATION] Allowing HTTP requests for tool-calling task")
 	}
-	
+
 	// Also check for hypothesis testing tasks - they need HTTP requests for Neo4j queries
+	// Check both the original description/task and the enhanced description
 	if strings.HasPrefix(descLower, "test hypothesis:") || strings.HasPrefix(taskLower, "test hypothesis:") ||
-		strings.Contains(descLower, "hypothesis testing") || strings.Contains(taskLower, "hypothesis testing") {
+		strings.HasPrefix(descLower, "test hypothesis by gathering evidence:") ||
+		strings.Contains(descLower, "hypothesis testing") || strings.Contains(taskLower, "hypothesis testing") ||
+		strings.Contains(descLower, "test hypothesis by gathering evidence") {
 		if req.Context == nil {
 			req.Context = make(map[string]string)
 		}
 		req.Context["allow_requests"] = "true"
 		log.Printf("🔓 [VALIDATION] Allowing HTTP requests for hypothesis testing task")
+	}
+	
+	// Also check if context already has hypothesis_testing flag set
+	if req.Context != nil {
+		if v, ok := req.Context["hypothesis_testing"]; ok && (strings.EqualFold(strings.TrimSpace(v), "true") || strings.TrimSpace(v) == "1") {
+			req.Context["allow_requests"] = "true"
+			log.Printf("🔓 [VALIDATION] Allowing HTTP requests (context flag: hypothesis_testing=true)")
+		}
 	}
 
 	// Static safety check before any execution
