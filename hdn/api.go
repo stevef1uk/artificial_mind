@@ -3053,9 +3053,8 @@ func (s *APIServer) createIntelligentWorkflowRecord(req IntelligentExecutionRequ
 	// After storing the workflow record, try to update it with files if they exist
 	// This handles the case where files are stored after the workflow record is created
 	// Also try to find files with similar workflow IDs (in case of ID mismatch)
-	go func() {
-		time.Sleep(2 * time.Second) // Wait a bit for files to be stored
-
+	// Run immediately and also retry after a delay to catch files stored later
+	updateWorkflowFiles := func() {
 		// First try with the exact storeID
 		storedFiles, err := fileStorage.GetFilesByWorkflow(storeID)
 		if err != nil || len(storedFiles) == 0 {
@@ -3063,13 +3062,6 @@ func (s *APIServer) createIntelligentWorkflowRecord(req IntelligentExecutionRequ
 			if workflowID != storeID {
 				storedFiles, err = fileStorage.GetFilesByWorkflow(workflowID)
 			}
-		}
-
-		// If still no files, try searching by task name in recent files
-		if (err != nil || len(storedFiles) == 0) && req.TaskName != "" {
-			// Search for files created around the same time with similar task names
-			// This is a fallback for when workflow IDs don't match
-			log.Printf("🔍 [API] No files found for workflow %s, searching by task name: %s", storeID, req.TaskName)
 		}
 
 		if err == nil && len(storedFiles) > 0 {
@@ -3091,14 +3083,36 @@ func (s *APIServer) createIntelligentWorkflowRecord(req IntelligentExecutionRequ
 				if existing != "" {
 					var old map[string]interface{}
 					if err := json.Unmarshal([]byte(existing), &old); err == nil {
+						// Ensure files is always a list
+						if old["files"] == nil {
+							old["files"] = []interface{}{}
+						}
 						old["files"] = fileList
 						workflowJSON, _ := json.Marshal(old)
 						s.redis.Set(context.Background(), workflowKey, workflowJSON, 24*time.Hour)
 						log.Printf("📁 [API] Updated workflow record %s with %d files", storeID, len(fileList))
 					}
+				} else {
+					// Workflow record doesn't exist yet, update the one we just created
+					workflowRecord["files"] = fileList
+					workflowJSON, _ := json.Marshal(workflowRecord)
+					s.redis.Set(context.Background(), workflowKey, workflowJSON, 24*time.Hour)
+					log.Printf("📁 [API] Updated new workflow record %s with %d files", storeID, len(fileList))
 				}
 			}
 		}
+	}
+
+	// Try immediately (files might already be stored)
+	updateWorkflowFiles()
+
+	// Also retry after a delay to catch files stored later
+	go func() {
+		time.Sleep(2 * time.Second)
+		updateWorkflowFiles()
+		// One more retry after 5 seconds
+		time.Sleep(3 * time.Second)
+		updateWorkflowFiles()
 	}()
 
 	// Since this record is for a completed intelligent execution, ensure it's not marked as active
