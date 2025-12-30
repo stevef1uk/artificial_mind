@@ -1612,6 +1612,19 @@ GOFLAGS= go build -o app ./main.go || exit 1
 		if len(pkgs) > 0 {
 			pkgLine = fmt.Sprintf("pip install %s && ", strings.Join(pkgs, " "))
 		}
+		// Build environment variable exports for Python execution
+		envExports := ""
+		if env != nil && len(env) > 0 {
+			for k, v := range env {
+				// Escape for shell: escape $, `, ", and \
+				escapedValue := strings.ReplaceAll(v, "\\", "\\\\")
+				escapedValue = strings.ReplaceAll(escapedValue, "$", "\\$")
+				escapedValue = strings.ReplaceAll(escapedValue, "`", "\\`")
+				escapedValue = strings.ReplaceAll(escapedValue, "\"", "\\\"")
+				// Use double quotes to allow special characters
+				envExports += fmt.Sprintf("export %s=\"%s\"\n", k, escapedValue)
+			}
+		}
 		var hostCmd string
 		if quietMode {
 			hostCmd = fmt.Sprintf(`set -eu
@@ -1619,14 +1632,14 @@ VENV="/home/pi/.hdn/venv"
 python3 -m venv "$VENV" >/dev/null 2>&1 || true
 . "$VENV"/bin/activate
 python -m pip install --upgrade pip >/dev/null 2>&1 || true
-%spython %s`, pkgLine, tempFile)
+%spython %s`, envExports, pkgLine, tempFile)
 		} else {
 			hostCmd = fmt.Sprintf(`set -euo pipefail
 VENV="/home/pi/.hdn/venv"
 python3 -m venv "$VENV" >/dev/null 2>&1 || true
 . "$VENV"/bin/activate
 python -m pip install --upgrade pip >/dev/null 2>&1 || true
-%spython %s`, pkgLine, tempFile)
+%spython %s`, envExports, pkgLine, tempFile)
 		}
 		// Use a clean environment with sh to avoid user shell hooks and env dumps
 		execCmd = exec.CommandContext(
