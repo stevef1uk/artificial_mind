@@ -855,22 +855,10 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 			}
 		}
 
-		// Enhance description to guide code generation
-		enhancedDesc := fmt.Sprintf(`Test hypothesis by gathering evidence: %s
+		// Enhance description to guide code generation (concise to avoid context limit)
+		enhancedDesc := fmt.Sprintf(`Test hypothesis: %s
 
-Requirements:
-1. Query Neo4j knowledge base via HTTP API for information related to the hypothesis
-   - Endpoint: POST {hdn_url}/api/v1/knowledge/query
-   - Body: {"query": "CYPHER_QUERY"}
-   - Response format: {"results": [...], "count": N} - handle this structure correctly
-   - IMPORTANT: Check if response has "results" key before accessing it, handle errors gracefully
-   - Use the HDN_URL environment variable to get the correct base URL (e.g., os.getenv('HDN_URL', 'http://localhost:8080'))
-2. Extract key terms from the hypothesis (event IDs, concept names, domains)
-3. Gather evidence that supports or contradicts the hypothesis
-4. Create a markdown report with findings, evidence, and conclusions
-5. Save the report as hypothesis_test_report.md using tool_file_write or write to file directly
-
-The hypothesis to test: %s`, hypothesisContent, hypothesisContent)
+Query Neo4j via POST {hdn_url}/api/v1/knowledge/query with {"query": "CYPHER_QUERY"}. Response: {"results": [...], "count": N}. Check "results" key exists. Use os.getenv('HDN_URL', 'http://localhost:8080'). Extract terms, gather evidence, create markdown report, save as hypothesis_test_report.md.`, hypothesisContent)
 
 		req.Description = enhancedDesc
 		req.TaskName = fmt.Sprintf("Test hypothesis: %s", hypothesisContent)
