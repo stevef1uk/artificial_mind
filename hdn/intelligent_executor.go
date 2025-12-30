@@ -2688,6 +2688,17 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 		log.Printf("🔓 [VALIDATION] Allowing HTTP requests for hypothesis testing task")
 	}
 
+	// Check for knowledge base query tasks - they need HTTP requests for Neo4j queries
+	if strings.Contains(descLower, "query neo4j") || strings.Contains(taskLower, "query neo4j") ||
+		strings.Contains(descLower, "query knowledge base") || strings.Contains(taskLower, "query knowledge base") ||
+		strings.Contains(descLower, "knowledge base") && (strings.Contains(descLower, "query") || strings.Contains(descLower, "search")) {
+		if req.Context == nil {
+			req.Context = make(map[string]string)
+		}
+		req.Context["allow_requests"] = "true"
+		log.Printf("🔓 [VALIDATION] Allowing HTTP requests for knowledge base query task")
+	}
+
 	// Also check if context already has hypothesis_testing flag set
 	if req.Context != nil {
 		if v, ok := req.Context["hypothesis_testing"]; ok && (strings.EqualFold(strings.TrimSpace(v), "true") || strings.TrimSpace(v) == "1") {
