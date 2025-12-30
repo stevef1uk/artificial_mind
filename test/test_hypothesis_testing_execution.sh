@@ -405,8 +405,17 @@ if [ "$ARTIFACTS_FOUND" = false ]; then
     echo "   Checking for artifacts by goal ID, test event, or recent workflows..."
     
     # Method 1: Check file:by_workflow keys for recent hypothesis_test_report.md files
+    # Only look for files created after the test started (using TEST_TIMESTAMP)
     REDIS_FILES=""
+    # Calculate test start time (TEST_TIMESTAMP is set at script start)
+    TEST_START_UNIX=$TEST_TIMESTAMP
+    # Convert to ISO format for comparison (subtract 5 minutes to account for test setup time)
+    TEST_START_ISO=$(date -u -d "@$((TEST_START_UNIX - 300))" +"%Y-%m-%dT%H:%M:%S" 2>/dev/null || date -u -r $((TEST_START_UNIX - 300)) +"%Y-%m-%dT%H:%M:%S" 2>/dev/null || echo "")
+    
     WORKFLOW_FILE_KEYS=$(redis_cmd KEYS "file:by_workflow:*" 2>/dev/null | tail -20 || echo "")
+    LATEST_FILE_TIME=""
+    LATEST_WORKFLOW_ID=""
+    
     for wf_key in $WORKFLOW_FILE_KEYS; do
         file_ids=$(redis_cmd SMEMBERS "$wf_key" 2>/dev/null || echo "")
         for file_id in $file_ids; do
@@ -415,20 +424,43 @@ if [ "$ARTIFACTS_FOUND" = false ]; then
                 if [ -n "$metadata" ]; then
                     filename=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('filename', ''))" 2>/dev/null || echo "")
                     created_at=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('created_at', ''))" 2>/dev/null || echo "")
-                    # Check if it's a hypothesis test report created recently (within last 10 minutes)
-                    if echo "$filename" | grep -qi "hypothesis_test_report" && echo "$created_at" | grep -q "$(date +%Y-%m-%d)"; then
-                        REDIS_FILES="$REDIS_FILES file:metadata:$file_id"
-                        # Extract workflow ID from the key
-                        wf_id=$(echo "$wf_key" | sed 's/file:by_workflow://' || echo "")
-                        if [ -n "$wf_id" ] && ([ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ]); then
-                            WORKFLOW_ID="$wf_id"
-                            echo -e "   ${GREEN}✅ Found workflow ID from file storage: $WORKFLOW_ID${NC}"
+                    # Check if it's a hypothesis test report
+                    if echo "$filename" | grep -qi "hypothesis_test_report"; then
+                        # Check if file was created after test started
+                        is_recent=false
+                        if [ -n "$created_at" ] && [ -n "$TEST_START_ISO" ]; then
+                            # Parse ISO timestamp and compare
+                            file_time_clean=$(echo "$created_at" | cut -d'T' -f1,2 | cut -d'.' -f1 | cut -d'Z' -f1 | cut -d'+' -f1)
+                            if [ -n "$file_time_clean" ] && [ "$file_time_clean" \> "$TEST_START_ISO" ] 2>/dev/null; then
+                                is_recent=true
+                                # Track the latest file
+                                if [ -z "$LATEST_FILE_TIME" ] || [ "$file_time_clean" \> "$LATEST_FILE_TIME" ] 2>/dev/null; then
+                                    LATEST_FILE_TIME="$file_time_clean"
+                                    LATEST_WORKFLOW_ID=$(echo "$wf_key" | sed 's/file:by_workflow://' || echo "")
+                                    REDIS_FILES="file:metadata:$file_id"
+                                fi
+                            fi
+                        elif echo "$created_at" | grep -q "$(date +%Y-%m-%d)"; then
+                            # Fallback: if timestamp parsing fails, check it's from today
+                            # and track the latest one
+                            file_time_clean=$(echo "$created_at" | cut -d'T' -f1,2 | cut -d'.' -f1 | cut -d'Z' -f1 | cut -d'+' -f1)
+                            if [ -z "$LATEST_FILE_TIME" ] || [ -z "$file_time_clean" ] || [ "$file_time_clean" \> "$LATEST_FILE_TIME" ] 2>/dev/null; then
+                                LATEST_FILE_TIME="$file_time_clean"
+                                LATEST_WORKFLOW_ID=$(echo "$wf_key" | sed 's/file:by_workflow://' || echo "")
+                                REDIS_FILES="file:metadata:$file_id"
+                            fi
                         fi
                     fi
                 fi
             fi
         done
     done
+    
+    # Set workflow ID from the latest file found
+    if [ -n "$LATEST_WORKFLOW_ID" ] && ([ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ]); then
+        WORKFLOW_ID="$LATEST_WORKFLOW_ID"
+        echo -e "   ${GREEN}✅ Found workflow ID from file storage: $WORKFLOW_ID${NC}"
+    fi
     
     # Method 2: Check for hypothesis_test_report.md files by name
     if [ -z "$REDIS_FILES" ]; then
