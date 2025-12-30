@@ -371,16 +371,28 @@ func (ie *IntelligentExecutor) filterRelevantTools(tools []Tool, req *ExecutionR
 }
 
 // executeWithSSHTool executes code using the SSH executor tool
-func (ie *IntelligentExecutor) executeWithSSHTool(ctx context.Context, code, language string, env map[string]string) (*DockerExecutionResponse, error) {
+// isValidation indicates if this is a validation attempt (true) or final execution (false)
+// workflowID is the workflow ID to use for file storage
+func (ie *IntelligentExecutor) executeWithSSHTool(ctx context.Context, code, language string, env map[string]string, isValidation bool, workflowID string) (*DockerExecutionResponse, error) {
 	// Determine if the SSH executor is enabled on this platform
 	execMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
 	isARM64 := runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64"
 
-	// On ARM64, if EXECUTION_METHOD=docker is explicitly set, disable SSH to force Docker execution
-	// This allows Mac users to force Docker execution
-	sshEnabled := execMethod == "ssh" ||
-		strings.TrimSpace(os.Getenv("ENABLE_ARM64_TOOLS")) == "true" ||
-		(isARM64 && execMethod != "docker")
+	// Default to Docker on Linux (non-ARM64) systems
+	// SSH is only enabled if:
+	// 1. EXECUTION_METHOD=ssh is explicitly set, OR
+	// 2. On ARM64 systems with ENABLE_ARM64_TOOLS=true, OR
+	// 3. On ARM64 systems unless EXECUTION_METHOD=docker is explicitly set
+	sshEnabled := false
+	if execMethod == "ssh" {
+		// Explicitly requested SSH
+		sshEnabled = true
+	} else if isARM64 {
+		// On ARM64, enable SSH if ENABLE_ARM64_TOOLS is true, or if docker is not explicitly set
+		enableARM64Tools := strings.TrimSpace(os.Getenv("ENABLE_ARM64_TOOLS")) == "true"
+		sshEnabled = enableARM64Tools || execMethod != "docker"
+	}
+	// On non-ARM64 Linux systems, default to Docker (sshEnabled remains false)
 
 	if !sshEnabled {
 		log.Printf("🔁 [INTELLIGENT] SSH executor disabled (EXECUTION_METHOD=%s, ENABLE_ARM64_TOOLS=%s, GOARCH=%s) — falling back to local Docker executor",
@@ -396,7 +408,8 @@ func (ie *IntelligentExecutor) executeWithSSHTool(ctx context.Context, code, lan
 			Code:         code,
 			Timeout:      300,
 			Environment:  map[string]string{"QUIET": "0"},
-			IsValidation: true,
+			IsValidation: isValidation,
+			WorkflowID:   workflowID,
 		}
 
 		startTime := time.Now()
@@ -1622,16 +1635,40 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		req.Timeout = 120 // Reduced from 600 to prevent long-running requests and GPU overload
 	}
 
+	// Normalize workflow ID to ensure it's intelligent_* format for file storage
+	// If a hierarchical workflow ID is passed, check for existing mapping first
+	fileStorageWorkflowID := workflowID
+	if workflowID != "" && !strings.HasPrefix(workflowID, "intelligent_") {
+		// Check if there's already a workflow mapping for this hierarchical ID
+		if ie.learningRedis != nil {
+			mappingKey := fmt.Sprintf("workflow_mapping:%s", workflowID)
+			if mappedID, err := ie.learningRedis.Get(ctx, mappingKey).Result(); err == nil && mappedID != "" {
+				fileStorageWorkflowID = mappedID
+				log.Printf("🔗 [INTELLIGENT] Using mapped intelligent workflow ID: %s -> %s (for file storage)", workflowID, fileStorageWorkflowID)
+			} else {
+				// No mapping found, create a new intelligent workflow ID
+				fileStorageWorkflowID = fmt.Sprintf("intelligent_%d", time.Now().UnixNano())
+				log.Printf("🔄 [INTELLIGENT] Normalized workflow ID: %s -> %s (for file storage, no mapping found)", workflowID, fileStorageWorkflowID)
+			}
+		} else {
+			// No Redis client, create a new intelligent workflow ID
+			fileStorageWorkflowID = fmt.Sprintf("intelligent_%d", time.Now().UnixNano())
+			log.Printf("🔄 [INTELLIGENT] Normalized workflow ID: %s -> %s (for file storage, no Redis client)", workflowID, fileStorageWorkflowID)
+		}
+	} else if workflowID == "" {
+		fileStorageWorkflowID = fmt.Sprintf("intelligent_%d", time.Now().UnixNano())
+	}
+
 	result := &IntelligentExecutionResult{
 		Success:         false,
 		ValidationSteps: []ValidationStep{},
-		WorkflowID:      workflowID,
+		WorkflowID:      fileStorageWorkflowID, // Use normalized ID so workflow record can find files
 	}
 
 	// Step 1: Check if this is a multi-program request that needs chained execution
 	if ie.isChainedProgramRequest(req) {
 		log.Printf("🔗 [INTELLIGENT] Detected chained program request, using multi-step execution")
-		return ie.executeChainedPrograms(ctx, req, start, workflowID)
+		return ie.executeChainedPrograms(ctx, req, start, fileStorageWorkflowID)
 	}
 
 	// Step 2: Static request safety check BEFORE anything else
@@ -1649,6 +1686,29 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		result.Error = "Task blocked by safety policy"
 		result.ExecutionTime = time.Since(start)
 		return result, nil
+	}
+
+	// Set allow_requests flag for knowledge base query tasks BEFORE code generation
+	descLowerKB := strings.ToLower(req.Description)
+	taskLowerKB := strings.ToLower(req.TaskName)
+	if strings.Contains(descLowerKB, "query neo4j") || strings.Contains(taskLowerKB, "query neo4j") ||
+		strings.Contains(descLowerKB, "query knowledge base") || strings.Contains(taskLowerKB, "query knowledge base") ||
+		strings.Contains(descLowerKB, "query knowledge graph") || strings.Contains(taskLowerKB, "query knowledge graph") ||
+		(strings.Contains(descLowerKB, "knowledge base") && (strings.Contains(descLowerKB, "query") || strings.Contains(descLowerKB, "search"))) ||
+		(strings.Contains(descLowerKB, "knowledge graph") && (strings.Contains(descLowerKB, "query") || strings.Contains(descLowerKB, "search"))) {
+		if req.Context == nil {
+			req.Context = make(map[string]string)
+		}
+		req.Context["allow_requests"] = "true"
+		log.Printf("🔓 [INTELLIGENT] Allowing HTTP requests for knowledge base query task")
+	}
+
+	// Also check if context already has hypothesis_testing flag set
+	if req.Context != nil {
+		if v, ok := req.Context["hypothesis_testing"]; ok && (strings.EqualFold(strings.TrimSpace(v), "true") || strings.TrimSpace(v) == "1") {
+			req.Context["allow_requests"] = "true"
+			log.Printf("🔓 [INTELLIGENT] Allowing HTTP requests (context flag: hypothesis_testing=true)")
+		}
 	}
 
 	// Step 3: Check principles BEFORE doing anything else
@@ -1716,7 +1776,7 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 			result.UsedCachedCode = true
 
 			// Test the cached code with current parameters
-			validationResult := ie.validateCode(ctx, cachedCode, req, workflowID)
+			validationResult := ie.validateCode(ctx, cachedCode, req, fileStorageWorkflowID)
 			result.ValidationSteps = append(result.ValidationSteps, validationResult)
 
 			if validationResult.Success {
@@ -1728,10 +1788,56 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 				} else {
 					// Use direct Docker executor for file storage (cached code)
 					log.Printf("🎯 [INTELLIGENT] Final execution using direct Docker executor for file storage (cached code)")
-					if finalResult, derr := ie.executeWithSSHTool(ctx, cachedCode.Code, req.Language, nil); derr != nil {
+					if finalResult, derr := ie.executeWithSSHTool(ctx, cachedCode.Code, req.Language, req.Context, false, fileStorageWorkflowID); derr != nil {
 						log.Printf("⚠️ [INTELLIGENT] Final execution failed: %v", derr)
 					} else if finalResult.Success {
 						log.Printf("✅ [INTELLIGENT] Final execution successful, files stored")
+						// Extract and store files if artifact_names is set (same as non-cached path)
+						if names, ok := req.Context["artifact_names"]; ok && names != "" && ie.fileStorage != nil {
+							parts := strings.Split(names, ",")
+							for _, fname := range parts {
+								fname = strings.TrimSpace(fname)
+								if fname != "" {
+									log.Printf("📁 [INTELLIGENT] Attempting to extract artifact: %s", fname)
+									// Extract file from SSH execution directory
+									if fileContent, err := ie.extractFileFromSSH(ctx, fname, req.Language); err == nil && len(fileContent) > 0 {
+										// Use the workflowID parameter passed to this function
+										artifactWorkflowID := fileStorageWorkflowID
+										if artifactWorkflowID == "" {
+											artifactWorkflowID = fmt.Sprintf("intelligent_%d", time.Now().UnixNano())
+										} else if !strings.HasPrefix(artifactWorkflowID, "intelligent_") {
+											artifactWorkflowID = fmt.Sprintf("intelligent_%s", artifactWorkflowID)
+										}
+										// Store the file
+										contentType := "application/octet-stream"
+										if strings.HasSuffix(fname, ".md") {
+											contentType = "text/markdown"
+										} else if strings.HasSuffix(fname, ".pdf") {
+											contentType = "application/pdf"
+										} else if strings.HasSuffix(fname, ".txt") {
+											contentType = "text/plain"
+										} else if strings.HasSuffix(fname, ".json") {
+											contentType = "application/json"
+										}
+										storedFile := &StoredFile{
+											Filename:    fname,
+											Content:     fileContent,
+											ContentType: contentType,
+											Size:        int64(len(fileContent)),
+											WorkflowID:  artifactWorkflowID,
+											StepID:      "",
+										}
+										if err := ie.fileStorage.StoreFile(storedFile); err != nil {
+											log.Printf("⚠️ [INTELLIGENT] Failed to store artifact %s: %v", fname, err)
+										} else {
+											log.Printf("✅ [INTELLIGENT] Stored artifact: %s (%d bytes)", fname, len(fileContent))
+										}
+									} else {
+										log.Printf("⚠️ [INTELLIGENT] Could not extract artifact %s: %v", fname, err)
+									}
+								}
+							}
+						}
 					} else {
 						log.Printf("⚠️ [INTELLIGENT] Final execution failed: %s", finalResult.Error)
 					}
@@ -1967,7 +2073,7 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	for attempt := 0; attempt < req.MaxRetries; attempt++ {
 		log.Printf("🔄 [INTELLIGENT] Validation attempt %d/%d", attempt+1, req.MaxRetries)
 
-		validationResult := ie.validateCode(ctx, generatedCode, req, workflowID)
+		validationResult := ie.validateCode(ctx, generatedCode, req, fileStorageWorkflowID)
 		result.ValidationSteps = append(result.ValidationSteps, validationResult)
 		result.RetryCount = attempt + 1
 
@@ -2063,7 +2169,7 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 
 	// Final execution: Use SSH executor and extract files if artifacts are needed
 	log.Printf("🎯 [INTELLIGENT] Final execution using SSH executor")
-	if finalResult, derr := ie.executeWithSSHTool(ctx, generatedCode.Code, req.Language, req.Context); derr != nil {
+	if finalResult, derr := ie.executeWithSSHTool(ctx, generatedCode.Code, req.Language, req.Context, false, fileStorageWorkflowID); derr != nil {
 		log.Printf("⚠️ [INTELLIGENT] Final execution failed: %v", derr)
 	} else if finalResult.Success {
 		log.Printf("✅ [INTELLIGENT] Final execution successful")
@@ -2074,16 +2180,15 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 				fname = strings.TrimSpace(fname)
 				if fname != "" {
 					log.Printf("📁 [INTELLIGENT] Attempting to extract artifact: %s", fname)
-					// Extract file from SSH execution directory
-					if fileContent, err := ie.extractFileFromSSH(ctx, fname, req.Language); err == nil && len(fileContent) > 0 {
-						// Get workflow ID from result or generate one
-						workflowID := ""
-						if finalResult != nil && finalResult.ContainerID != "" {
-							workflowID = finalResult.ContainerID // Reuse container ID as workflow ID
-						}
-						if workflowID == "" {
-							workflowID = fmt.Sprintf("intelligent_%d", time.Now().UnixNano())
-						}
+									// Extract file from SSH execution directory
+									if fileContent, err := ie.extractFileFromSSH(ctx, fname, req.Language); err == nil && len(fileContent) > 0 {
+										// Use the fileStorageWorkflowID (already normalized to intelligent_*)
+										artifactWorkflowID := fileStorageWorkflowID
+										if artifactWorkflowID == "" {
+											artifactWorkflowID = fmt.Sprintf("intelligent_%d", time.Now().UnixNano())
+										} else if !strings.HasPrefix(artifactWorkflowID, "intelligent_") {
+											artifactWorkflowID = fmt.Sprintf("intelligent_%s", artifactWorkflowID)
+										}
 						// Store the file
 						// Determine content type
 						contentType := "application/octet-stream"
@@ -2101,7 +2206,7 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 							Content:     fileContent,
 							ContentType: contentType,
 							Size:        int64(len(fileContent)),
-							WorkflowID:  workflowID,
+							WorkflowID:  artifactWorkflowID,
 							StepID:      "",
 						}
 						if err := ie.fileStorage.StoreFile(storedFile); err != nil {
@@ -2307,6 +2412,13 @@ func (ie *IntelligentExecutor) findCompatibleCachedCode(req *ExecutionRequest) (
 	// Check each exact match for parameter compatibility
 	for _, result := range exactMatches {
 		if !result.Code.Executable {
+			continue
+		}
+
+		// Reject cached code that uses deprecated/non-existent endpoints
+		codeLower := strings.ToLower(result.Code.Code)
+		if strings.Contains(codeLower, "/api/v1/tools/tool_mcp_query_neo4j/invoke") {
+			log.Printf("🚫 [INTELLIGENT] Rejecting cached code (ID: %s) - uses deprecated tool endpoint", result.Code.ID)
 			continue
 		}
 
@@ -2813,7 +2925,7 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 
 	if useSSH {
 		log.Printf("🧪 [VALIDATION] Using SSH executor for validation")
-		result, err = ie.executeWithSSHTool(ctx, code.Code, code.Language, env)
+		result, err = ie.executeWithSSHTool(ctx, code.Code, code.Language, env, true, workflowID)
 	} else {
 		log.Printf("🧪 [VALIDATION] Using Docker executor for validation")
 		// Use direct Docker execution

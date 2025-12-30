@@ -285,9 +285,13 @@ func (sde *SimpleDockerExecutor) ExecuteCode(ctx context.Context, req *DockerExe
 		}
 	}
 
-	// Store files in Redis only if execution was successful and not a validation attempt
-	if sde.fileStorage != nil && success && !req.IsValidation {
-		log.Printf("🔍 [DOCKER] Execution successful, storing %d files", len(files))
+	// Store files in Redis if not a validation attempt (store even on failure to capture errors)
+	if sde.fileStorage != nil && !req.IsValidation {
+		if success {
+			log.Printf("🔍 [DOCKER] Execution successful, storing %d files", len(files))
+		} else {
+			log.Printf("⚠️ [DOCKER] Execution failed, but storing %d files for debugging", len(files))
+		}
 		// Also persist stdout as a file artifact so the UI can display results
 		if trimmed := strings.TrimSpace(outputStr); trimmed != "" {
 			if _, exists := files["output.txt"]; !exists {
@@ -296,14 +300,13 @@ func (sde *SimpleDockerExecutor) ExecuteCode(ctx context.Context, req *DockerExe
 			}
 		}
 		if strings.TrimSpace(errStr) != "" {
-			// Store stderr separately for debugging if needed
+			// Store stderr separately for debugging (especially important on failure)
 			files["stderr.txt"] = []byte(errStr)
+			log.Printf("📄 [DOCKER] Captured stderr as stderr.txt (%d bytes)", len(errStr))
 		}
 		sde.storeFilesInRedis(files, req.WorkflowID, req.StepID)
 	} else if sde.fileStorage != nil && req.IsValidation {
 		log.Printf("🔍 [DOCKER] Validation attempt, skipping file storage")
-	} else if sde.fileStorage != nil {
-		log.Printf("⚠️ [DOCKER] Execution failed, skipping file storage")
 	}
 
 	return &DockerExecutionResponse{
@@ -561,7 +564,7 @@ func (sde *SimpleDockerExecutor) buildDockerCommand(image, cmd, codeFile, contai
 			# Build with -e flag to continue on unused variable/import warnings (they're non-fatal)
 			go build -o /app/tmp/app code.%s 2>&1 || exit 1 && 
 			/app/tmp/app &&
-			cp *.go *.mod *.sum *.pdf *.png *.jpg *.jpeg *.csv *.txt *.json /app/output/ 2>/dev/null || true
+			cp *.go *.mod *.sum *.pdf *.png *.jpg *.jpeg *.csv *.txt *.json *.md /app/output/ 2>/dev/null || true
 		`, sde.getFileExtensionFromFile(codeFile)))
 		}
 	} else if sde.getFileExtensionFromFile(codeFile) == "py" {
@@ -826,7 +829,7 @@ else:
               -path './.venv' -prune -o \
               -path './node_modules' -prune -o \
               -type f \
-              \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.py' -o -name '*.go' -o -name '*.js' -o -name '*.java' -o -name '*.cpp' -o -name '*.rs' \) \
+              \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.py' -o -name '*.go' -o -name '*.js' -o -name '*.java' -o -name '*.cpp' -o -name '*.rs' -o -name '*.md' \) \
               -exec cp {} /app/output/ \; 2>/dev/null || \
             # Fallback copy using xargs (in case -exec failures due to spaces)
             find . \
@@ -836,7 +839,7 @@ else:
               -path './.venv' -prune -o \
               -path './node_modules' -prune -o \
               -type f \
-              \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.py' -o -name '*.go' -o -name '*.js' -o -name '*.java' -o -name '*.cpp' -o -name '*.rs' \) \
+              \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.py' -o -name '*.go' -o -name '*.js' -o -name '*.java' -o -name '*.cpp' -o -name '*.rs' -o -name '*.md' \) \
               -print0 | xargs -0 -I {} cp {} /app/output/ 2>/dev/null || \
             find . \
               -path './output' -prune -o \
@@ -845,7 +848,7 @@ else:
               -path './.venv' -prune -o \
               -path './node_modules' -prune -o \
               -type f \
-              \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.py' -o -name '*.go' -o -name '*.js' -o -name '*.java' -o -name '*.cpp' -o -name '*.rs' \) \
+              \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.py' -o -name '*.go' -o -name '*.js' -o -name '*.java' -o -name '*.cpp' -o -name '*.rs' -o -name '*.md' \) \
               -exec cp {} /app/output/ \; 2>/dev/null || true
             if [ -d /app/data ]; then \
               echo "Scanning /app/data for PDFs..." 1>&2; \
@@ -890,7 +893,7 @@ else:
 			  -path './.git' -prune -o \
 			  -path './tmp' -prune -o \
 			  -type f \
-			  \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.rs' \) \
+			  \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.rs' -o -name '*.md' \) \
 			  -exec cp {} /app/output/ \; 2>/dev/null || true
 		`, sde.getFileExtensionFromFile(codeFile)))
 		}
@@ -939,7 +942,7 @@ else:
 			  -path './.git' -prune -o \
 			  -path './tmp' -prune -o \
 			  -type f \
-			  \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.java' -o -name '*.class' \) \
+			  \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.java' -o -name '*.class' -o -name '*.md' \) \
 			  -exec cp {} /app/output/ \; 2>/dev/null || true
 		`, sde.getFileExtensionFromFile(codeFile), className, className, className))
 		}

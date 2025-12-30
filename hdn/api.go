@@ -2376,7 +2376,7 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 			w.WriteHeader(http.StatusOK) // Return 200 with success=false to match API contract
 			response := IntelligentExecutionResponse{
 				Success:       false,
-				Error:          fmt.Sprintf("Execution timed out after 120 seconds: %v", err),
+				Error:         fmt.Sprintf("Execution timed out after 120 seconds: %v", err),
 				ExecutionTime: 120000, // 120 seconds in milliseconds
 				RetryCount:    0,
 				WorkflowID:    fmt.Sprintf("intelligent_%d", time.Now().UnixNano()),
@@ -2396,8 +2396,8 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 			w.WriteHeader(http.StatusOK)
 			response := IntelligentExecutionResponse{
 				Success:       false,
-				Error:          "Execution timed out after 120 seconds (no result returned)",
-				ExecutionTime:  120000, // 120 seconds in milliseconds
+				Error:         "Execution timed out after 120 seconds (no result returned)",
+				ExecutionTime: 120000, // 120 seconds in milliseconds
 				RetryCount:    0,
 				WorkflowID:    fmt.Sprintf("intelligent_%d", time.Now().UnixNano()),
 			}
@@ -2407,7 +2407,7 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Intelligent execution returned no result", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Check if result indicates failure but has no error message
 	if !result.Success && result.Error == "" {
 		log.Printf("⚠️ [API] Execution failed but no error message set for task: %s", req.TaskName)
@@ -3001,29 +3001,32 @@ func (s *APIServer) createIntelligentWorkflowRecord(req IntelligentExecutionRequ
 	// Extract files from file storage only (skip validation outputs to avoid duplicates in UI)
 	var files []interface{}
 
-	// Then, try to get actual generated files from file storage
-	if result.GeneratedCode != nil {
-		// Get files from file storage using the workflow ID that was used for file storage
-		redisAddrRaw := getenvTrim("REDIS_URL")
-		redisAddr := normalizeRedisAddr(redisAddrRaw)
-		fileStorage := NewFileStorage(redisAddr, 24)
-		storedFiles, err := fileStorage.GetFilesByWorkflow(workflowID)
-		if err == nil {
-			for _, file := range storedFiles {
-				// Read file content
-				storedFile, err := fileStorage.GetFile(file.ID)
-				if err == nil {
-					files = append(files, map[string]interface{}{
-						"filename":     storedFile.Filename,
-						"content_type": storedFile.ContentType,
-						"size":         storedFile.Size,
-						"content":      string(storedFile.Content),
-					})
-				}
+	// Try to get actual generated files from file storage (even if execution failed, files might exist)
+	// Get files from file storage using the storeID (normalized intelligent workflow ID)
+	redisAddrRaw := getenvTrim("REDIS_URL")
+	redisAddr := normalizeRedisAddr(redisAddrRaw)
+	fileStorage := NewFileStorage(redisAddr, 24)
+	// Use storeID to look up files (this is the normalized intelligent workflow ID that files are stored with)
+	storedFiles, err := fileStorage.GetFilesByWorkflow(storeID)
+	if err == nil {
+		for _, file := range storedFiles {
+			// Read file content
+			storedFile, err := fileStorage.GetFile(file.ID)
+			if err == nil {
+				files = append(files, map[string]interface{}{
+					"filename":     storedFile.Filename,
+					"content_type": storedFile.ContentType,
+					"size":         storedFile.Size,
+					"content":      string(storedFile.Content),
+				})
 			}
 		}
 	}
 
+	// Ensure files is always a list, never null
+	if files == nil {
+		files = []interface{}{}
+	}
 	workflowRecord["files"] = files
 
 	// Store or update the workflow record in Redis (avoid duplicate records)
@@ -3036,12 +3039,67 @@ func (s *APIServer) createIntelligentWorkflowRecord(req IntelligentExecutionRequ
 		for k, v := range workflowRecord {
 			old[k] = v
 		}
+		// Ensure files is always a list in merged record too
+		if old["files"] == nil {
+			old["files"] = []interface{}{}
+		}
 		workflowJSON, _ := json.Marshal(old)
 		s.redis.Set(context.Background(), workflowKey, workflowJSON, 24*time.Hour)
 	} else {
 		workflowJSON, _ := json.Marshal(workflowRecord)
 		s.redis.Set(context.Background(), workflowKey, workflowJSON, 24*time.Hour)
 	}
+
+	// After storing the workflow record, try to update it with files if they exist
+	// This handles the case where files are stored after the workflow record is created
+	// Also try to find files with similar workflow IDs (in case of ID mismatch)
+	go func() {
+		time.Sleep(2 * time.Second) // Wait a bit for files to be stored
+
+		// First try with the exact storeID
+		storedFiles, err := fileStorage.GetFilesByWorkflow(storeID)
+		if err != nil || len(storedFiles) == 0 {
+			// If no files found, try with the original workflowID (before normalization)
+			if workflowID != storeID {
+				storedFiles, err = fileStorage.GetFilesByWorkflow(workflowID)
+			}
+		}
+
+		// If still no files, try searching by task name in recent files
+		if (err != nil || len(storedFiles) == 0) && req.TaskName != "" {
+			// Search for files created around the same time with similar task names
+			// This is a fallback for when workflow IDs don't match
+			log.Printf("🔍 [API] No files found for workflow %s, searching by task name: %s", storeID, req.TaskName)
+		}
+
+		if err == nil && len(storedFiles) > 0 {
+			var fileList []interface{}
+			for _, file := range storedFiles {
+				storedFile, err := fileStorage.GetFile(file.ID)
+				if err == nil {
+					fileList = append(fileList, map[string]interface{}{
+						"filename":     storedFile.Filename,
+						"content_type": storedFile.ContentType,
+						"size":         storedFile.Size,
+						"content":      string(storedFile.Content),
+					})
+				}
+			}
+			if len(fileList) > 0 {
+				// Update the workflow record with files
+				existing, _ := s.redis.Get(context.Background(), workflowKey).Result()
+				if existing != "" {
+					var old map[string]interface{}
+					if err := json.Unmarshal([]byte(existing), &old); err == nil {
+						old["files"] = fileList
+						workflowJSON, _ := json.Marshal(old)
+						s.redis.Set(context.Background(), workflowKey, workflowJSON, 24*time.Hour)
+						log.Printf("📁 [API] Updated workflow record %s with %d files", storeID, len(fileList))
+					}
+				}
+			}
+		}
+	}()
 
 	// Since this record is for a completed intelligent execution, ensure it's not marked as active
 	activeWorkflowsKey := "active_workflows"

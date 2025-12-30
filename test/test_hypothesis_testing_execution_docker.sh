@@ -36,12 +36,19 @@ fi
 find_container() {
     local pattern="$1"
     if [ "$DOCKER_AVAILABLE" = true ]; then
+        # Get all container names
+        local containers=$(docker ps --format "{{.Names}}" 2>/dev/null)
+        if [ -z "$containers" ]; then
+            echo ""
+            return
+        fi
         # Try exact match first
-        docker ps --format "{{.Names}}" 2>/dev/null | grep -E "^${pattern}$" | head -1 || \
-        # Try partial match
-        docker ps --format "{{.Names}}" 2>/dev/null | grep -i "${pattern}" | head -1 || \
-        # Try with common prefixes
-        docker ps --format "{{.Names}}" 2>/dev/null | grep -iE "(agi-)?${pattern}(-x86)?(-arm)?$" | head -1 || \
+        echo "$containers" | grep -E "^${pattern}$" | head -1 && return
+        # Try with agi- prefix (most common)
+        echo "$containers" | grep -iE "^agi-${pattern}(-x86)?(-arm)?$" | head -1 && return
+        # Try partial match (contains pattern)
+        echo "$containers" | grep -i "${pattern}" | head -1 && return
+        # No match found
         echo ""
     else
         echo ""
@@ -49,6 +56,13 @@ find_container() {
 }
 
 REDIS_CONTAINER="${REDIS_CONTAINER:-$(find_container "redis")}"
+# Fallback: explicitly check for agi-redis if not found
+if [ -z "$REDIS_CONTAINER" ] && [ "$DOCKER_AVAILABLE" = true ]; then
+    if docker ps --format "{{.Names}}" 2>/dev/null | grep -q "^agi-redis$"; then
+        REDIS_CONTAINER="agi-redis"
+    fi
+fi
+
 FSM_CONTAINER="${FSM_CONTAINER:-$(find_container "fsm")}"
 HDN_CONTAINER="${HDN_CONTAINER:-$(find_container "hdn")}"
 GOAL_MGR_CONTAINER="${GOAL_MGR_CONTAINER:-$(find_container "goal")}"
@@ -134,6 +148,12 @@ echo ""
 if [ "$SERVICES_OK" = false ]; then
     echo -e "${RED}❌ Required services not available${NC}"
     echo ""
+    echo "Detected containers:"
+    echo "   Redis: ${REDIS_CONTAINER:-NOT FOUND}"
+    echo "   FSM: ${FSM_CONTAINER:-NOT FOUND}"
+    echo "   HDN: ${HDN_CONTAINER:-NOT FOUND}"
+    echo "   Goal Manager: ${GOAL_MGR_CONTAINER:-NOT FOUND}"
+    echo ""
     echo "Available Docker containers:"
     if [ "$DOCKER_AVAILABLE" = true ]; then
         docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null | head -20 || echo "   (Could not list containers)"
@@ -142,7 +162,7 @@ if [ "$SERVICES_OK" = false ]; then
     fi
     echo ""
     echo "You can set container names via environment variables:"
-    echo "   REDIS_CONTAINER=my-redis"
+    echo "   REDIS_CONTAINER=agi-redis"
     echo "   FSM_CONTAINER=my-fsm"
     echo "   HDN_CONTAINER=my-hdn"
     echo "   GOAL_MGR_CONTAINER=my-goal-manager"
@@ -295,19 +315,31 @@ for i in {1..36}; do
     # Try to find workflow ID by checking Redis workflow records for goal ID
     if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ]; then
         if [ -n "$GOAL_ID" ]; then
-            # Check recent workflow records in Redis for goal_id
-            RECENT_WFS=$(redis_cmd KEYS "workflow:intelligent_*" 2>/dev/null | head -20 || echo "")
-            for wf_key in $RECENT_WFS; do
-                WF_DATA=$(redis_cmd GET "$wf_key" 2>/dev/null || echo "")
-                if [ -n "$WF_DATA" ] && echo "$WF_DATA" | grep -qi "$GOAL_ID"; then
-                    WF_ID=$(echo "$wf_key" | sed 's/^workflow://' || echo "")
-                    if [ -n "$WF_ID" ]; then
-                        WORKFLOW_ID="$WF_ID"
-                        echo -e "   ${GREEN}✅ Found workflow ID from Redis by goal ID: $WORKFLOW_ID${NC}"
-                        break
-                    fi
+            # First, try to get workflow ID directly from goal record
+            GOAL_DATA=$(redis_cmd GET "goal:${GOAL_ID}" 2>/dev/null || echo "")
+            if [ -n "$GOAL_DATA" ]; then
+                WF_FROM_GOAL=$(echo "$GOAL_DATA" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('workflow_id', ''))" 2>/dev/null || echo "")
+                if [ -n "$WF_FROM_GOAL" ] && [ "$WF_FROM_GOAL" != "None" ] && [ "$WF_FROM_GOAL" != "" ]; then
+                    WORKFLOW_ID="$WF_FROM_GOAL"
+                    echo -e "   ${GREEN}✅ Found workflow ID from goal record: $WORKFLOW_ID${NC}"
                 fi
-            done
+            fi
+            
+            # If still not found, check recent workflow records in Redis for goal_id
+            if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ]; then
+                RECENT_WFS=$(redis_cmd KEYS "workflow:intelligent_*" 2>/dev/null | head -20 || echo "")
+                for wf_key in $RECENT_WFS; do
+                    WF_DATA=$(redis_cmd GET "$wf_key" 2>/dev/null || echo "")
+                    if [ -n "$WF_DATA" ] && echo "$WF_DATA" | grep -qi "$GOAL_ID"; then
+                        WF_ID=$(echo "$wf_key" | sed 's/^workflow://' || echo "")
+                        if [ -n "$WF_ID" ]; then
+                            WORKFLOW_ID="$WF_ID"
+                            echo -e "   ${GREEN}✅ Found workflow ID from Redis by goal ID: $WORKFLOW_ID${NC}"
+                            break
+                        fi
+                    fi
+                done
+            fi
         fi
     fi
     
@@ -377,15 +409,83 @@ except Exception as e:
     fi
     
     # Also check Redis file storage directly
-    REDIS_FILES=$(redis_cmd KEYS "file:*:$WORKFLOW_ID:*" 2>/dev/null | head -10 || echo "")
+    # First try to find files by workflow ID in metadata
+    # Also check for hierarchical workflow ID via mapping
+    HIERARCHICAL_WF_ID=""
+    if [ -n "$WORKFLOW_ID" ] && echo "$WORKFLOW_ID" | grep -qE "^intelligent_"; then
+        # Try to find reverse mapping (intelligent -> hierarchical)
+        REVERSE_MAP=$(redis_cmd GET "workflow_mapping_reverse:${WORKFLOW_ID}" 2>/dev/null || echo "")
+        if [ -n "$REVERSE_MAP" ]; then
+            HIERARCHICAL_WF_ID="$REVERSE_MAP"
+            echo -e "   ${GREEN}✅ Found hierarchical workflow ID via reverse mapping: $HIERARCHICAL_WF_ID${NC}"
+        fi
+    fi
+    
+    REDIS_FILES=""
+    # Get all metadata keys and check for matching workflow_id
+    ALL_METADATA_KEYS=$(redis_cmd KEYS "file:metadata:*" 2>/dev/null | head -100 || echo "")
+    for meta_key in $ALL_METADATA_KEYS; do
+        metadata=$(redis_cmd GET "$meta_key" 2>/dev/null || echo "")
+        if [ -n "$metadata" ]; then
+            wf_id=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('workflow_id', ''))" 2>/dev/null || echo "")
+            # Check if it matches the intelligent workflow ID or the hierarchical one
+            if [ "$wf_id" = "$WORKFLOW_ID" ] || ([ -n "$HIERARCHICAL_WF_ID" ] && [ "$wf_id" = "$HIERARCHICAL_WF_ID" ]); then
+                REDIS_FILES="$REDIS_FILES $meta_key"
+            fi
+        fi
+    done
+    
+    # Also check filename indexes
+    ALL_NAME_KEYS=$(redis_cmd KEYS "file:by_name:*" 2>/dev/null | head -50 || echo "")
+    for name_key in $ALL_NAME_KEYS; do
+        file_id=$(redis_cmd GET "$name_key" 2>/dev/null || echo "")
+        if [ -n "$file_id" ]; then
+            metadata=$(redis_cmd GET "file:metadata:$file_id" 2>/dev/null || echo "")
+            if [ -n "$metadata" ]; then
+                wf_id=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('workflow_id', ''))" 2>/dev/null || echo "")
+                # Check if it matches the intelligent workflow ID or the hierarchical one
+                if [ "$wf_id" = "$WORKFLOW_ID" ] || ([ -n "$HIERARCHICAL_WF_ID" ] && [ "$wf_id" = "$HIERARCHICAL_WF_ID" ]); then
+                    REDIS_FILES="$REDIS_FILES $name_key"
+                fi
+            fi
+        fi
+    done
+    
     if [ -n "$REDIS_FILES" ]; then
         ARTIFACTS_FOUND=true
-        ARTIFACT_COUNT=$(echo "$REDIS_FILES" | wc -l | tr -d ' ')
+        ARTIFACT_COUNT=$(echo "$REDIS_FILES" | tr ' ' '\n' | grep -v '^$' | wc -l | tr -d ' ')
         echo -e "   ${GREEN}✅ Found $ARTIFACT_COUNT artifact(s) in Redis storage${NC}"
         for file_key in $REDIS_FILES; do
-            filename=$(echo "$file_key" | cut -d: -f4 || echo "$file_key")
-            size=$(redis_cmd HGET "$file_key" "size" 2>/dev/null || echo "0")
-            echo "   - $filename ($size bytes)"
+            if [ -n "$file_key" ]; then
+                filename="unknown"
+                size="0"
+                
+                # Check if this is a filename index (file:by_name:filename)
+                if echo "$file_key" | grep -q "^file:by_name:"; then
+                    # Get the file ID from the index
+                    file_id=$(redis_cmd GET "$file_key" 2>/dev/null || echo "")
+                    if [ -n "$file_id" ]; then
+                        # Get metadata from file:metadata:{fileID}
+                        metadata=$(redis_cmd GET "file:metadata:$file_id" 2>/dev/null || echo "")
+                        if [ -n "$metadata" ]; then
+                            filename=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('filename', 'N/A'))" 2>/dev/null || echo "N/A")
+                            size=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('size', 0))" 2>/dev/null || echo "0")
+                        else
+                            filename=$(echo "$file_key" | cut -d: -f3 || echo "$file_key")
+                        fi
+                    else
+                        filename=$(echo "$file_key" | cut -d: -f3 || echo "$file_key")
+                    fi
+                # Check if this is a metadata key (file:metadata:fileID)
+                elif echo "$file_key" | grep -q "^file:metadata:"; then
+                    metadata=$(redis_cmd GET "$file_key" 2>/dev/null || echo "")
+                    if [ -n "$metadata" ]; then
+                        filename=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('filename', 'N/A'))" 2>/dev/null || echo "N/A")
+                        size=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('size', 0))" 2>/dev/null || echo "0")
+                    fi
+                fi
+                echo "   - $filename ($size bytes)"
+            fi
         done
     fi
 fi
@@ -443,26 +543,324 @@ if [ "$ARTIFACTS_FOUND" = false ]; then
         echo -e "   ${GREEN}✅ Found $ARTIFACT_COUNT artifact(s) in Redis storage${NC}"
         for file_key in $REDIS_FILES; do
             if [ -n "$file_key" ]; then
-                filename=$(echo "$file_key" | cut -d: -f4 || echo "$file_key")
-                if [ -z "$filename" ] || [ "$filename" = "$file_key" ]; then
-                    # Try alternative parsing
-                    filename=$(echo "$file_key" | grep -oE "[^:]+\.md" | head -1 || echo "$file_key")
-                fi
-                size=$(redis_cmd HGET "$file_key" "size" 2>/dev/null || echo "0")
-                if [ "$size" = "0" ]; then
-                    # Try getting from metadata
-                    file_id=$(echo "$file_key" | cut -d: -f3)
+                filename="unknown"
+                size="0"
+                file_id=""
+                
+                # Check if this is a filename index (file:by_name:filename)
+                if echo "$file_key" | grep -q "^file:by_name:"; then
+                    # Get the file ID from the index
+                    file_id=$(redis_cmd GET "$file_key" 2>/dev/null || echo "")
                     if [ -n "$file_id" ]; then
+                        # Get metadata from file:metadata:{fileID}
                         metadata=$(redis_cmd GET "file:metadata:$file_id" 2>/dev/null || echo "")
                         if [ -n "$metadata" ]; then
+                            filename=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('filename', 'N/A'))" 2>/dev/null || echo "N/A")
                             size=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('size', 0))" 2>/dev/null || echo "0")
-                            filename=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('filename', 'unknown'))" 2>/dev/null || echo "$filename")
+                            # Extract workflow ID from metadata if not already set
+                            if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ]; then
+                                wf_from_metadata=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('workflow_id', ''))" 2>/dev/null || echo "")
+                                if [ -n "$wf_from_metadata" ] && [ "$wf_from_metadata" != "None" ] && [ "$wf_from_metadata" != "" ]; then
+                                    # Validate workflow ID - should be intelligent_* not code-executor-*
+                                    if echo "$wf_from_metadata" | grep -qE "^intelligent_"; then
+                                        WORKFLOW_ID="$wf_from_metadata"
+                                        echo -e "   ${GREEN}✅ Extracted workflow ID from artifact: $WORKFLOW_ID${NC}"
+                                    elif echo "$wf_from_metadata" | grep -qE "^code-executor-"; then
+                                        # This is a container ID, not a workflow ID - try to find the correct one
+                                        echo -e "   ${YELLOW}⚠️  Artifact has container ID instead of workflow ID, searching for correct workflow ID...${NC}"
+                                        # Try to find intelligent_* workflow ID from goal or recent workflows
+                                        if [ -n "$GOAL_ID" ]; then
+                                            GOAL_DATA=$(redis_cmd GET "goal:${GOAL_ID}" 2>/dev/null || echo "")
+                                            if [ -n "$GOAL_DATA" ]; then
+                                                CORRECT_WF=$(echo "$GOAL_DATA" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('workflow_id', ''))" 2>/dev/null || echo "")
+                                                if [ -n "$CORRECT_WF" ] && [ "$CORRECT_WF" != "None" ] && echo "$CORRECT_WF" | grep -qE "^intelligent_"; then
+                                                    WORKFLOW_ID="$CORRECT_WF"
+                                                    echo -e "   ${GREEN}✅ Found correct workflow ID from goal record: $WORKFLOW_ID${NC}"
+                                                fi
+                                            fi
+                                        fi
+                                        # If still not found, look for recent intelligent_* workflows
+                                        if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ] || echo "$WORKFLOW_ID" | grep -qE "^code-executor-"; then
+                                            # Try multiple strategies to find the workflow ID
+                                            # Strategy 1: Look for workflows matching the goal ID
+                                            RECENT_INTELLIGENT=$(redis_cmd KEYS "workflow:intelligent_*" 2>/dev/null | head -10 || echo "")
+                                            for wf_key in $RECENT_INTELLIGENT; do
+                                                WF_ID=$(echo "$wf_key" | sed 's/^workflow://' || echo "")
+                                                if [ -n "$WF_ID" ] && [ -n "$GOAL_ID" ]; then
+                                                    WF_DATA=$(redis_cmd GET "$wf_key" 2>/dev/null || echo "")
+                                                    if [ -n "$WF_DATA" ]; then
+                                                        # Check if workflow contains goal ID
+                                                        if echo "$WF_DATA" | grep -qi "$GOAL_ID"; then
+                                                            WORKFLOW_ID="$WF_ID"
+                                                            echo -e "   ${GREEN}✅ Found correct workflow ID from workflow records (by goal ID): $WORKFLOW_ID${NC}"
+                                                            break
+                                                        fi
+                                                        # Check if workflow matches test hypothesis description
+                                                        if echo "$WF_DATA" | grep -qi "test_event_${TEST_TIMESTAMP}"; then
+                                                            WORKFLOW_ID="$WF_ID"
+                                                            echo -e "   ${GREEN}✅ Found correct workflow ID from workflow records (by test event): $WORKFLOW_ID${NC}"
+                                                            break
+                                                        fi
+                                                    fi
+                                                fi
+                                            done
+                                            
+                                            # Strategy 2: If still not found, get the most recent intelligent_* workflow
+                                            if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ] || echo "$WORKFLOW_ID" | grep -qE "^code-executor-"; then
+                                                # Get workflows sorted by timestamp (most recent first)
+                                                ALL_WFS=$(redis_cmd KEYS "workflow:intelligent_*" 2>/dev/null || echo "")
+                                                if [ -n "$ALL_WFS" ]; then
+                                                    # Sort by extracting timestamp from ID and get most recent
+                                                    MOST_RECENT=$(echo "$ALL_WFS" | sed 's/^workflow://' | sort -r | head -1 || echo "")
+                                                    if [ -n "$MOST_RECENT" ]; then
+                                                        # Verify this workflow was created recently (within last 5 minutes)
+                                                        WF_TIMESTAMP=$(echo "$MOST_RECENT" | grep -oE "[0-9]+" | head -1 || echo "")
+                                                        if [ -n "$WF_TIMESTAMP" ]; then
+                                                            CURRENT_TIME=$(date +%s)
+                                                            # Convert nanoseconds to seconds if needed (intelligent_* IDs use nanoseconds)
+                                                            if [ ${#WF_TIMESTAMP} -gt 10 ]; then
+                                                                WF_TIMESTAMP_SEC=$((WF_TIMESTAMP / 1000000000))
+                                                            else
+                                                                WF_TIMESTAMP_SEC=$WF_TIMESTAMP
+                                                            fi
+                                                            TIME_DIFF=$((CURRENT_TIME - WF_TIMESTAMP_SEC))
+                                                            if [ $TIME_DIFF -ge 0 ] && [ $TIME_DIFF -lt 300 ]; then
+                                                                WORKFLOW_ID="$MOST_RECENT"
+                                                                echo -e "   ${GREEN}✅ Found most recent workflow ID: $WORKFLOW_ID${NC}"
+                                                            fi
+                                                        fi
+                                                    fi
+                                                fi
+                                            fi
+                                            
+                                            # Strategy 3: Look in HDN logs for workflow ID
+                                            if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ] || echo "$WORKFLOW_ID" | grep -qE "^code-executor-"; then
+                                                if [ -n "$HDN_CONTAINER" ]; then
+                                                    WF_FROM_LOGS=$(get_logs "$HDN_CONTAINER" 500 | grep -i "test_event_${TEST_TIMESTAMP}\|goal_id.*${GOAL_ID}" | grep -oE "intelligent_[0-9]+" | head -1 || echo "")
+                                                elif [ -f "/tmp/hdn_server.log" ]; then
+                                                    WF_FROM_LOGS=$(tail -1000 /tmp/hdn_server.log 2>/dev/null | grep -i "test_event_${TEST_TIMESTAMP}\|goal_id.*${GOAL_ID}" | grep -oE "intelligent_[0-9]+" | head -1 || echo "")
+                                                fi
+                                                if [ -n "$WF_FROM_LOGS" ]; then
+                                                    WORKFLOW_ID="$WF_FROM_LOGS"
+                                                    echo -e "   ${GREEN}✅ Found workflow ID from HDN logs: $WORKFLOW_ID${NC}"
+                                                fi
+                                            fi
+                                        fi
+                                    else
+                                        WORKFLOW_ID="$wf_from_metadata"
+                                        echo -e "   ${GREEN}✅ Extracted workflow ID from artifact: $WORKFLOW_ID${NC}"
+                                    fi
+                                fi
+                            fi
+                        else
+                            filename=$(echo "$file_key" | cut -d: -f3 || echo "$file_key")
+                        fi
+                    else
+                        filename=$(echo "$file_key" | cut -d: -f3 || echo "$file_key")
+                    fi
+                # Check if this is a metadata key (file:metadata:fileID)
+                elif echo "$file_key" | grep -q "^file:metadata:"; then
+                    file_id=$(echo "$file_key" | cut -d: -f3 || echo "")
+                    metadata=$(redis_cmd GET "$file_key" 2>/dev/null || echo "")
+                    if [ -n "$metadata" ]; then
+                        filename=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('filename', 'N/A'))" 2>/dev/null || echo "N/A")
+                        size=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('size', 0))" 2>/dev/null || echo "0")
+                        # Extract workflow ID from metadata if not already set
+                        if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ]; then
+                            wf_from_metadata=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('workflow_id', ''))" 2>/dev/null || echo "")
+                            if [ -n "$wf_from_metadata" ] && [ "$wf_from_metadata" != "None" ] && [ "$wf_from_metadata" != "" ]; then
+                                # Validate workflow ID - should be intelligent_* not code-executor-*
+                                if echo "$wf_from_metadata" | grep -qE "^intelligent_"; then
+                                    WORKFLOW_ID="$wf_from_metadata"
+                                    echo -e "   ${GREEN}✅ Extracted workflow ID from artifact: $WORKFLOW_ID${NC}"
+                                elif echo "$wf_from_metadata" | grep -qE "^code-executor-"; then
+                                    # This is a container ID, not a workflow ID - try to find the correct one
+                                    echo -e "   ${YELLOW}⚠️  Artifact has container ID instead of workflow ID, searching for correct workflow ID...${NC}"
+                                    # Try to find intelligent_* workflow ID from goal or recent workflows
+                                    if [ -n "$GOAL_ID" ]; then
+                                        GOAL_DATA=$(redis_cmd GET "goal:${GOAL_ID}" 2>/dev/null || echo "")
+                                        if [ -n "$GOAL_DATA" ]; then
+                                            CORRECT_WF=$(echo "$GOAL_DATA" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('workflow_id', ''))" 2>/dev/null || echo "")
+                                            if [ -n "$CORRECT_WF" ] && [ "$CORRECT_WF" != "None" ] && echo "$CORRECT_WF" | grep -qE "^intelligent_"; then
+                                                WORKFLOW_ID="$CORRECT_WF"
+                                                echo -e "   ${GREEN}✅ Found correct workflow ID from goal record: $WORKFLOW_ID${NC}"
+                                            fi
+                                        fi
+                                    fi
+                                    # If still not found, look for recent intelligent_* workflows
+                                    if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ] || echo "$WORKFLOW_ID" | grep -qE "^code-executor-"; then
+                                        # Try multiple strategies to find the workflow ID
+                                        # Strategy 1: Look for workflows matching the goal ID
+                                        RECENT_INTELLIGENT=$(redis_cmd KEYS "workflow:intelligent_*" 2>/dev/null | head -10 || echo "")
+                                        for wf_key in $RECENT_INTELLIGENT; do
+                                            WF_ID=$(echo "$wf_key" | sed 's/^workflow://' || echo "")
+                                            if [ -n "$WF_ID" ] && [ -n "$GOAL_ID" ]; then
+                                                WF_DATA=$(redis_cmd GET "$wf_key" 2>/dev/null || echo "")
+                                                if [ -n "$WF_DATA" ]; then
+                                                    # Check if workflow contains goal ID
+                                                    if echo "$WF_DATA" | grep -qi "$GOAL_ID"; then
+                                                        WORKFLOW_ID="$WF_ID"
+                                                        echo -e "   ${GREEN}✅ Found correct workflow ID from workflow records (by goal ID): $WORKFLOW_ID${NC}"
+                                                        break
+                                                    fi
+                                                    # Check if workflow matches test hypothesis description
+                                                    if echo "$WF_DATA" | grep -qi "test_event_${TEST_TIMESTAMP}"; then
+                                                        WORKFLOW_ID="$WF_ID"
+                                                        echo -e "   ${GREEN}✅ Found correct workflow ID from workflow records (by test event): $WORKFLOW_ID${NC}"
+                                                        break
+                                                    fi
+                                                fi
+                                            fi
+                                        done
+                                        
+                                        # Strategy 2: If still not found, get the most recent intelligent_* workflow
+                                        if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ] || echo "$WORKFLOW_ID" | grep -qE "^code-executor-"; then
+                                            # Get workflows sorted by timestamp (most recent first)
+                                            ALL_WFS=$(redis_cmd KEYS "workflow:intelligent_*" 2>/dev/null || echo "")
+                                            if [ -n "$ALL_WFS" ]; then
+                                                # Sort by extracting timestamp from ID and get most recent
+                                                MOST_RECENT=$(echo "$ALL_WFS" | sed 's/^workflow://' | sort -r | head -1 || echo "")
+                                                if [ -n "$MOST_RECENT" ]; then
+                                                    # Verify this workflow was created recently (within last 5 minutes)
+                                                    WF_TIMESTAMP=$(echo "$MOST_RECENT" | grep -oE "[0-9]+" | head -1 || echo "")
+                                                    if [ -n "$WF_TIMESTAMP" ]; then
+                                                        CURRENT_TIME=$(date +%s)
+                                                        # Convert nanoseconds to seconds if needed (intelligent_* IDs use nanoseconds)
+                                                        if [ ${#WF_TIMESTAMP} -gt 10 ]; then
+                                                            WF_TIMESTAMP_SEC=$((WF_TIMESTAMP / 1000000000))
+                                                        else
+                                                            WF_TIMESTAMP_SEC=$WF_TIMESTAMP
+                                                        fi
+                                                        TIME_DIFF=$((CURRENT_TIME - WF_TIMESTAMP_SEC))
+                                                        if [ $TIME_DIFF -ge 0 ] && [ $TIME_DIFF -lt 300 ]; then
+                                                            WORKFLOW_ID="$MOST_RECENT"
+                                                            echo -e "   ${GREEN}✅ Found most recent workflow ID: $WORKFLOW_ID${NC}"
+                                                        fi
+                                                    fi
+                                                fi
+                                            fi
+                                        fi
+                                        
+                                        # Strategy 3: Look in HDN logs for workflow ID
+                                        if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ] || echo "$WORKFLOW_ID" | grep -qE "^code-executor-"; then
+                                            if [ -n "$HDN_CONTAINER" ]; then
+                                                WF_FROM_LOGS=$(get_logs "$HDN_CONTAINER" 500 | grep -i "test_event_${TEST_TIMESTAMP}\|goal_id.*${GOAL_ID}" | grep -oE "intelligent_[0-9]+" | head -1 || echo "")
+                                            elif [ -f "/tmp/hdn_server.log" ]; then
+                                                WF_FROM_LOGS=$(tail -1000 /tmp/hdn_server.log 2>/dev/null | grep -i "test_event_${TEST_TIMESTAMP}\|goal_id.*${GOAL_ID}" | grep -oE "intelligent_[0-9]+" | head -1 || echo "")
+                                            fi
+                                            if [ -n "$WF_FROM_LOGS" ]; then
+                                                WORKFLOW_ID="$WF_FROM_LOGS"
+                                                echo -e "   ${GREEN}✅ Found workflow ID from HDN logs: $WORKFLOW_ID${NC}"
+                                            fi
+                                        fi
+                                    fi
+                                else
+                                    WORKFLOW_ID="$wf_from_metadata"
+                                    echo -e "   ${GREEN}✅ Extracted workflow ID from artifact: $WORKFLOW_ID${NC}"
+                                fi
+                            fi
+                        fi
+                    fi
+                else
+                    # Try to extract filename from key pattern
+                    filename=$(echo "$file_key" | cut -d: -f4 || echo "$file_key")
+                    if [ -z "$filename" ] || [ "$filename" = "$file_key" ]; then
+                        # Try alternative parsing
+                        filename=$(echo "$file_key" | grep -oE "[^:]+\.md" | head -1 || echo "$file_key")
+                    fi
+                    # Try to get metadata by extracting file ID from key
+                    file_id=$(echo "$file_key" | cut -d: -f3 || echo "")
+                    if [ -n "$file_id" ] && [ "$file_id" != "$filename" ]; then
+                        metadata=$(redis_cmd GET "file:metadata:$file_id" 2>/dev/null || echo "")
+                        if [ -n "$metadata" ]; then
+                            filename=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('filename', 'N/A'))" 2>/dev/null || echo "$filename")
+                            size=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('size', 0))" 2>/dev/null || echo "0")
                         fi
                     fi
                 fi
                 echo "   - $filename ($size bytes)"
             fi
         done
+    fi
+fi
+
+# Final validation: Ensure we have a valid intelligent_* workflow ID (not a container ID)
+if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ] || echo "$WORKFLOW_ID" | grep -qE "^code-executor-"; then
+    echo -e "   ${YELLOW}⚠️  Workflow ID not found or is a container ID, attempting to find correct intelligent_* workflow ID...${NC}"
+    # Strategy 1: Try to find from goal record
+    if [ -n "$GOAL_ID" ]; then
+        GOAL_DATA=$(redis_cmd GET "goal:${GOAL_ID}" 2>/dev/null || echo "")
+        if [ -n "$GOAL_DATA" ]; then
+            CORRECT_WF=$(echo "$GOAL_DATA" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('workflow_id', ''))" 2>/dev/null || echo "")
+            if [ -n "$CORRECT_WF" ] && [ "$CORRECT_WF" != "None" ] && echo "$CORRECT_WF" | grep -qE "^intelligent_"; then
+                WORKFLOW_ID="$CORRECT_WF"
+                echo -e "   ${GREEN}✅ Corrected workflow ID from goal record: $WORKFLOW_ID${NC}"
+            fi
+        fi
+    fi
+    
+    # Strategy 2: Look for workflows matching goal ID or test event
+    if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ] || echo "$WORKFLOW_ID" | grep -qE "^code-executor-"; then
+        RECENT_INTELLIGENT=$(redis_cmd KEYS "workflow:intelligent_*" 2>/dev/null | head -10 || echo "")
+        for wf_key in $RECENT_INTELLIGENT; do
+            WF_ID=$(echo "$wf_key" | sed 's/^workflow://' || echo "")
+            if [ -n "$WF_ID" ]; then
+                WF_DATA=$(redis_cmd GET "$wf_key" 2>/dev/null || echo "")
+                if [ -n "$WF_DATA" ]; then
+                    # Check if workflow contains goal ID
+                    if [ -n "$GOAL_ID" ] && echo "$WF_DATA" | grep -qi "$GOAL_ID"; then
+                        WORKFLOW_ID="$WF_ID"
+                        echo -e "   ${GREEN}✅ Found correct workflow ID from workflow records (by goal ID): $WORKFLOW_ID${NC}"
+                        break
+                    fi
+                    # Check if workflow matches test hypothesis description
+                    if echo "$WF_DATA" | grep -qi "test_event_${TEST_TIMESTAMP}"; then
+                        WORKFLOW_ID="$WF_ID"
+                        echo -e "   ${GREEN}✅ Found correct workflow ID from workflow records (by test event): $WORKFLOW_ID${NC}"
+                        break
+                    fi
+                fi
+            fi
+        done
+    fi
+    
+    # Strategy 3: Get most recent intelligent_* workflow (within last 5 minutes)
+    if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ] || echo "$WORKFLOW_ID" | grep -qE "^code-executor-"; then
+        ALL_WFS=$(redis_cmd KEYS "workflow:intelligent_*" 2>/dev/null || echo "")
+        if [ -n "$ALL_WFS" ]; then
+            MOST_RECENT=$(echo "$ALL_WFS" | sed 's/^workflow://' | sort -r | head -1 || echo "")
+            if [ -n "$MOST_RECENT" ]; then
+                # Verify this workflow was created recently (within last 5 minutes)
+                WF_TIMESTAMP=$(echo "$MOST_RECENT" | grep -oE "[0-9]+" | head -1 || echo "")
+                if [ -n "$WF_TIMESTAMP" ]; then
+                    CURRENT_TIME=$(date +%s)
+                    # Convert nanoseconds to seconds if needed
+                    if [ ${#WF_TIMESTAMP} -gt 10 ]; then
+                        WF_TIMESTAMP_SEC=$((WF_TIMESTAMP / 1000000000))
+                    else
+                        WF_TIMESTAMP_SEC=$WF_TIMESTAMP
+                    fi
+                    TIME_DIFF=$((CURRENT_TIME - WF_TIMESTAMP_SEC))
+                    if [ $TIME_DIFF -ge 0 ] && [ $TIME_DIFF -lt 300 ]; then
+                        WORKFLOW_ID="$MOST_RECENT"
+                        echo -e "   ${GREEN}✅ Found most recent workflow ID: $WORKFLOW_ID${NC}"
+                    fi
+                fi
+            fi
+        fi
+    fi
+    
+    # Strategy 4: Look in HDN logs
+    if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ] || echo "$WORKFLOW_ID" | grep -qE "^code-executor-"; then
+        if [ -n "$HDN_CONTAINER" ]; then
+            WF_FROM_LOGS=$(get_logs "$HDN_CONTAINER" 500 | grep -i "test_event_${TEST_TIMESTAMP}\|goal_id.*${GOAL_ID}" | grep -oE "intelligent_[0-9]+" | head -1 || echo "")
+        elif [ -f "/tmp/hdn_server.log" ]; then
+            WF_FROM_LOGS=$(tail -1000 /tmp/hdn_server.log 2>/dev/null | grep -i "test_event_${TEST_TIMESTAMP}\|goal_id.*${GOAL_ID}" | grep -oE "intelligent_[0-9]+" | head -1 || echo "")
+        fi
+        if [ -n "$WF_FROM_LOGS" ]; then
+            WORKFLOW_ID="$WF_FROM_LOGS"
+            echo -e "   ${GREEN}✅ Found workflow ID from HDN logs: $WORKFLOW_ID${NC}"
+        fi
     fi
 fi
 
