@@ -879,47 +879,119 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 		// Enhance description to guide code generation with explicit instructions for report creation
 		enhancedDesc := fmt.Sprintf(`Test hypothesis: %s
 
-CRITICAL REQUIREMENTS:
-1. Extract key terms from the hypothesis text (e.g., event names, domain names, concept names)
-2. Query Neo4j knowledge base using POST to {hdn_url}/api/v1/knowledge/query with JSON body {"query": "CYPHER_QUERY"}
-3. Get HDN_URL from environment: hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')
-4. Use EXPLICIT property returns in Cypher queries: RETURN c.name AS name, c.description AS description
-   - DO NOT use RETURN c (returns node object) - use explicit properties for easier access
-5. Gather evidence from query results - access via result['name'], result['description'] (not result['c']['name'])
-6. ALWAYS create the report file, even if no results are found (document that no evidence was found)
-7. Create a COMPLETE markdown report with the following EXACT structure:
-   - Title: "# Hypothesis Test Report"
-   - Section: "## Hypothesis" (copy the hypothesis text exactly)
-   - Section: "## Evidence" (list all evidence found, one item per line with details from query results)
-   - Section: "## Conclusion" (brief summary of findings, or "No evidence found" if queries returned no results)
-8. Write the COMPLETE report content to a file named "hypothesis_test_report.md"
-9. The file must contain actual evidence, not just headers - populate the Evidence section with findings from the queries
+🚨🚨🚨 CRITICAL REQUIREMENTS - READ CAREFULLY 🚨🚨🚨
 
-Example Cypher query format:
-MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('EXTRACTED_TERM') RETURN c.name AS name, c.description AS description LIMIT 10
+STEP 1 - TERM EXTRACTION:
+- Extract MEANINGFUL terms from the hypothesis text, NOT individual words
+- Look for: event names (e.g., "test_event_1767122089_unique"), domain names (e.g., "General domain"), concept names
+- DO NOT split the hypothesis into individual words - extract complete phrases and meaningful terms
+- Example: From "If we explore test_event_XYZ further, we can discover new insights about General domain"
+  - Extract: "test_event_XYZ", "General domain", "insights", "explore"
+  - DO NOT extract: "If", "we", "can", "discover", "new", "about" (these are stop words)
 
-Example report structure:
-# Hypothesis Test Report
+STEP 2 - CYPHER QUERIES:
+- Query Neo4j using: POST {hdn_url}/api/v1/knowledge/query with JSON body {"query": "CYPHER_QUERY"}
+- Get HDN_URL: hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')
+- 🚨 CRITICAL: Use EXPLICIT property returns: RETURN c.name AS name, c.description AS description
+- 🚨 DO NOT use RETURN c (this returns a node object that's hard to access)
+- For each extracted term, create a query like:
+  MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('EXTRACTED_TERM') RETURN c.name AS name, c.description AS description LIMIT 10
 
-## Hypothesis
-[Copy the hypothesis text here exactly]
+STEP 3 - RESULT ACCESS:
+- After response.json(), access results via: result['name'] and result['description']
+- 🚨 DO NOT use result['c']['name'] or result['c'] - these will fail!
+- Example code:
+  data = response.json()
+  results = data.get('results', [])
+  for result in results:
+      name = result.get('name', 'Unknown')
+      desc = result.get('description', 'No description')
+      # Use name and desc, NOT result['c']
 
-## Evidence
-- [Evidence item 1 with details from query results - include name, description, etc.]
-- [Evidence item 2 with details from query results]
-- [Continue listing all evidence found]
+STEP 4 - REPORT GENERATION:
+- Create a COMPLETE markdown report with EXACT structure:
+  # Hypothesis Test Report
+  
+  ## Hypothesis
+  %s
+  
+  ## Evidence
+  - [For each result: **name**: description or "No description available"]
+  - [Continue listing ALL evidence found]
+  
+  ## Conclusion
+  [Summary: "Found X concepts related to [terms]" OR "No evidence found for any terms"]
+- Write to file: "hypothesis_test_report.md"
+- 🚨 The Evidence section MUST contain actual findings, not just "None" values!
 
-## Conclusion
-[Summary of findings or "No evidence found" if queries returned no results]
+STEP 5 - COMPLETE EXAMPLE CODE STRUCTURE:
+Python code example (follow this structure exactly):
+import requests
+import os
+import re
 
-IMPORTANT: 
-- The file must be COMPLETE with actual content, not just empty sections!
-- Extract terms from the hypothesis text - do NOT use placeholder values like 'CONCEPT_NAME'
-- Use explicit property returns in Cypher (RETURN c.name AS name) for easier result access
-- Always create the report file, even if no results are found`, hypothesisContent)
+hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')
+hypothesis = "%s"
+
+# Extract meaningful terms (not individual words)
+# Look for phrases, event names, domain names
+terms = []
+# Extract "test_event_XYZ" pattern
+event_matches = re.findall(r'test_event_\w+', hypothesis)
+terms.extend(event_matches)
+# Extract domain names
+if 'domain' in hypothesis.lower():
+    domain_match = re.search(r'(\w+)\s+domain', hypothesis, re.IGNORECASE)
+    if domain_match:
+        terms.append(domain_match.group(1) + ' domain')
+# Add other meaningful terms...
+
+# Query for each term
+all_evidence = []
+for term in terms:
+    query = f"MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('{term}') RETURN c.name AS name, c.description AS description LIMIT 10"
+    response = requests.post(f'{hdn_url}/api/v1/knowledge/query', json={'query': query})
+    response.raise_for_status()
+    data = response.json()
+    results = data.get('results', [])
+    for result in results:
+        name = result.get('name', 'Unknown')
+        desc = result.get('description', 'No description available')
+        all_evidence.append(f"**{name}**: {desc}")
+
+# Generate report
+report = f"# Hypothesis Test Report\n\n## Hypothesis\n{hypothesis}\n\n## Evidence\n"
+if all_evidence:
+    for evidence in all_evidence:
+        report += f"- {evidence}\n"
+else:
+    report += "- No evidence found for any extracted terms.\n"
+
+report += f"\n## Conclusion\n"
+if all_evidence:
+    report += f"Found {len(all_evidence)} pieces of evidence related to the hypothesis."
+else:
+    report += "No evidence found for any terms extracted from the hypothesis."
+
+with open('hypothesis_test_report.md', 'w') as f:
+    f.write(report)
+
+🚨 FINAL REMINDERS:
+- Extract MEANINGFUL terms, NOT individual words
+- Use RETURN c.name AS name, c.description AS description (NOT RETURN c)
+- Access results via result['name'] and result['description'] (NOT result['c'])
+- Populate Evidence section with actual findings, not "None"`, hypothesisContent, hypothesisContent, hypothesisContent)
 
 		req.Description = enhancedDesc
 		req.TaskName = fmt.Sprintf("Test hypothesis: %s", hypothesisContent)
+		
+		// Log the enhanced description to verify it's being set
+		log.Printf("🧪 [INTELLIGENT] Enhanced description length: %d chars", len(enhancedDesc))
+		if len(enhancedDesc) > 500 {
+			log.Printf("🧪 [INTELLIGENT] Enhanced description preview (first 500 chars): %s...", enhancedDesc[:500])
+		} else {
+			log.Printf("🧪 [INTELLIGENT] Enhanced description: %s", enhancedDesc)
+		}
 
 		// Add context hints for artifact creation
 		if req.Context == nil {
