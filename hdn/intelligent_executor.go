@@ -880,6 +880,7 @@ The hypothesis to test: %s`, hypothesisContent, hypothesisContent)
 		req.Context["hypothesis_testing"] = "true"
 		req.Context["save_pdf"] = "true" // Ensure artifacts are created
 		req.Context["artifact_names"] = "hypothesis_test_report.md"
+		req.Context["allow_requests"] = "true" // Allow HTTP requests for API calls (Neo4j queries)
 
 		// Continue to normal code generation path - don't skip
 		// The enhanced description will guide the LLM to generate appropriate testing code
