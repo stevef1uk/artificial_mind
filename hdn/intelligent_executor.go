@@ -880,33 +880,43 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 		enhancedDesc := fmt.Sprintf(`Test hypothesis: %s
 
 CRITICAL REQUIREMENTS:
-1. Query Neo4j knowledge base using POST to {hdn_url}/api/v1/knowledge/query with JSON body {"query": "CYPHER_QUERY"}
-2. Get HDN_URL from environment: hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')
-3. Extract key terms from the hypothesis and create appropriate Cypher queries
-4. Gather evidence from query results - each result should be documented
-5. Create a COMPLETE markdown report with the following structure:
+1. Extract key terms from the hypothesis text (e.g., event names, domain names, concept names)
+2. Query Neo4j knowledge base using POST to {hdn_url}/api/v1/knowledge/query with JSON body {"query": "CYPHER_QUERY"}
+3. Get HDN_URL from environment: hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')
+4. Use EXPLICIT property returns in Cypher queries: RETURN c.name AS name, c.description AS description
+   - DO NOT use RETURN c (returns node object) - use explicit properties for easier access
+5. Gather evidence from query results - access via result['name'], result['description'] (not result['c']['name'])
+6. ALWAYS create the report file, even if no results are found (document that no evidence was found)
+7. Create a COMPLETE markdown report with the following EXACT structure:
    - Title: "# Hypothesis Test Report"
-   - Section: "## Hypothesis" (state the hypothesis being tested)
-   - Section: "## Evidence" (list all evidence found, one item per line with details)
-   - Section: "## Conclusion" (brief summary of findings)
-6. Write the COMPLETE report content to a file named "hypothesis_test_report.md"
-7. The file must contain actual evidence, not just headers - populate the Evidence section with findings from the queries
+   - Section: "## Hypothesis" (copy the hypothesis text exactly)
+   - Section: "## Evidence" (list all evidence found, one item per line with details from query results)
+   - Section: "## Conclusion" (brief summary of findings, or "No evidence found" if queries returned no results)
+8. Write the COMPLETE report content to a file named "hypothesis_test_report.md"
+9. The file must contain actual evidence, not just headers - populate the Evidence section with findings from the queries
+
+Example Cypher query format:
+MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('EXTRACTED_TERM') RETURN c.name AS name, c.description AS description LIMIT 10
 
 Example report structure:
 # Hypothesis Test Report
 
 ## Hypothesis
-[State the hypothesis here]
+[Copy the hypothesis text here exactly]
 
 ## Evidence
-- [Evidence item 1 with details from query results]
+- [Evidence item 1 with details from query results - include name, description, etc.]
 - [Evidence item 2 with details from query results]
 - [Continue listing all evidence found]
 
 ## Conclusion
-[Summary of findings]
+[Summary of findings or "No evidence found" if queries returned no results]
 
-IMPORTANT: The file must be COMPLETE with actual content, not just empty sections!`, hypothesisContent)
+IMPORTANT: 
+- The file must be COMPLETE with actual content, not just empty sections!
+- Extract terms from the hypothesis text - do NOT use placeholder values like 'CONCEPT_NAME'
+- Use explicit property returns in Cypher (RETURN c.name AS name) for easier result access
+- Always create the report file, even if no results are found`, hypothesisContent)
 
 		req.Description = enhancedDesc
 		req.TaskName = fmt.Sprintf("Test hypothesis: %s", hypothesisContent)
