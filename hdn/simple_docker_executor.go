@@ -972,7 +972,7 @@ else:
 			  -path './.venv' -prune -o \
 			  -path './node_modules' -prune -o \
 			  -type f \
-			  \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.py' -o -name '*.go' -o -name '*.js' -o -name '*.java' -o -name '*.cpp' -o -name '*.rs' \) \
+			  \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.py' -o -name '*.go' -o -name '*.js' -o -name '*.java' -o -name '*.cpp' -o -name '*.rs' -o -name '*.md' \) \
 			  -exec cp {} /app/output/ \; 2>/dev/null || \
 			# Fallback copy using xargs (in case -exec failures due to spaces)
 			find . \
@@ -982,7 +982,7 @@ else:
 			  -path './.venv' -prune -o \
 			  -path './node_modules' -prune -o \
 			  -type f \
-			  \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.py' -o -name '*.go' -o -name '*.js' -o -name '*.java' -o -name '*.cpp' -o -name '*.rs' \) \
+			  \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.py' -o -name '*.go' -o -name '*.js' -o -name '*.java' -o -name '*.cpp' -o -name '*.rs' -o -name '*.md' \) \
 			  -print0 | xargs -0 -I {} cp {} /app/output/ 2>/dev/null || \
 			find . \
 			  -path './output' -prune -o \
@@ -991,7 +991,7 @@ else:
 			  -path './.venv' -prune -o \
 			  -path './node_modules' -prune -o \
 			  -type f \
-			  \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.py' -o -name '*.go' -o -name '*.js' -o -name '*.java' -o -name '*.cpp' -o -name '*.rs' \) \
+			  \( -name '*.pdf' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.csv' -o -name '*.txt' -o -name '*.json' -o -name '*.py' -o -name '*.go' -o -name '*.js' -o -name '*.java' -o -name '*.cpp' -o -name '*.rs' -o -name '*.md' \) \
 			  -exec cp {} /app/output/ \; 2>/dev/null || true
 			if [ -d /app/data ]; then \
 			  echo "Scanning /app/data for PDFs..." 1>&2; \
@@ -1079,6 +1079,8 @@ func (sde *SimpleDockerExecutor) storeFilesInRedis(files map[string][]byte, work
 			contentType = "text/plain"
 		} else if strings.HasSuffix(filename, ".json") {
 			contentType = "application/json"
+		} else if strings.HasSuffix(filename, ".md") {
+			contentType = "text/markdown"
 		}
 
 		// Create stored file

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 )
 
@@ -233,7 +234,7 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		best  Tool
 	}
 	groups := make(map[string]*toolGroup)
-	
+
 	for _, tool := range relevant {
 		// For auto-created utility tools, group by description similarity
 		if strings.HasPrefix(tool.ID, "tool_python_util_") || strings.HasPrefix(tool.ID, "tool_go_util_") {
@@ -248,7 +249,7 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 			} else if len(words) > 0 {
 				descKey = strings.Join(words, " ")
 			}
-			
+
 			if group, exists := groups[descKey]; exists {
 				group.tools = append(group.tools, tool)
 				// Keep the first one (they're similar anyway)
@@ -260,12 +261,12 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 			}
 		}
 	}
-	
+
 	// Replace similar tools with just one from each group
 	if len(groups) > 0 {
 		newRelevant := make([]Tool, 0, len(relevant))
 		seenInGroups := make(map[string]bool)
-		
+
 		for _, tool := range relevant {
 			if strings.HasPrefix(tool.ID, "tool_python_util_") || strings.HasPrefix(tool.ID, "tool_go_util_") {
 				descKey := strings.ToLower(tool.Description)
@@ -276,7 +277,7 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 				} else if len(words) > 0 {
 					descKey = strings.Join(words, " ")
 				}
-				
+
 				if group, exists := groups[descKey]; exists {
 					if !seenInGroups[descKey] {
 						// Add only the first tool from this group
@@ -444,24 +445,32 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 
 // parseFlexibleResponse parses the LLM response into a flexible response structure
 func (f *FlexibleLLMAdapter) parseFlexibleResponse(response string, availableToolsCount int) (*FlexibleLLMResponse, error) {
+	// First, strip markdown code blocks if present
+	cleaned := f.stripMarkdownCodeBlocks(response)
+	
+	// Fix common JSON issues BEFORE extraction (to help with unescaped quotes in code strings)
+	// This helps extractFirstJSONObject correctly identify string boundaries
+	cleaned = f.fixCommonJSONIssues(cleaned)
+	
 	// Try to parse as JSON first
 	var flexibleResp FlexibleLLMResponse
-	if err := json.Unmarshal([]byte(response), &flexibleResp); err == nil {
+	if err := json.Unmarshal([]byte(cleaned), &flexibleResp); err == nil {
 		log.Printf("✅ [FLEXIBLE-LLM] Parsed flexible response: %s", flexibleResp.Type)
 		if flexibleResp.Type == "" {
-			log.Printf("⚠️ [FLEXIBLE-LLM] WARNING: Parsed JSON but Type is empty! Response preview: %s", truncateString(response, 200))
+			log.Printf("⚠️ [FLEXIBLE-LLM] WARNING: Parsed JSON but Type is empty! Response preview: %s", truncateString(cleaned, 200))
 		} else if flexibleResp.Type == ResponseTypeText && availableToolsCount > 0 {
-			log.Printf("⚠️ [FLEXIBLE-LLM] WARNING: LLM returned 'text' type but %d tools are available! Response preview: %s", availableToolsCount, truncateString(response, 300))
+			log.Printf("⚠️ [FLEXIBLE-LLM] WARNING: LLM returned 'text' type but %d tools are available! Response preview: %s", availableToolsCount, truncateString(cleaned, 300))
 		}
 		return &flexibleResp, nil
 	}
 
-	// If JSON parsing fails, try to extract JSON from the response
-	jsonStart := strings.Index(response, "{")
-	jsonEnd := strings.LastIndex(response, "}")
-	if jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart {
-		jsonStr := response[jsonStart : jsonEnd+1]
-		if err := json.Unmarshal([]byte(jsonStr), &flexibleResp); err == nil {
+	// If JSON parsing fails, try to extract JSON from the cleaned response using brace matching
+	jsonStr := f.extractFirstJSONObject(cleaned)
+	if jsonStr != "" {
+		// Try to fix common JSON issues again (in case extraction introduced issues)
+		fixedJSON := f.fixCommonJSONIssues(jsonStr)
+		
+		if err := json.Unmarshal([]byte(fixedJSON), &flexibleResp); err == nil {
 			log.Printf("✅ [FLEXIBLE-LLM] Extracted and parsed JSON: %s", flexibleResp.Type)
 			if flexibleResp.Type == "" {
 				log.Printf("⚠️ [FLEXIBLE-LLM] WARNING: Extracted JSON but Type is empty! Extracted JSON: %s", truncateString(jsonStr, 200))
@@ -473,6 +482,11 @@ func (f *FlexibleLLMAdapter) parseFlexibleResponse(response string, availableToo
 			return &flexibleResp, nil
 		} else {
 			log.Printf("⚠️ [FLEXIBLE-LLM] Failed to parse extracted JSON: %v, JSON: %s", err, truncateString(jsonStr, 200))
+			// Try one more time with the original (maybe the fix made it worse)
+			if err2 := json.Unmarshal([]byte(jsonStr), &flexibleResp); err2 == nil {
+				log.Printf("✅ [FLEXIBLE-LLM] Parsed original extracted JSON after fix attempt failed")
+				return &flexibleResp, nil
+			}
 		}
 	}
 
@@ -484,6 +498,150 @@ func (f *FlexibleLLMAdapter) parseFlexibleResponse(response string, availableToo
 		Type:    ResponseTypeText,
 		Content: response,
 	}, nil
+}
+
+// fixCommonJSONIssues attempts to fix common JSON issues from LLM responses
+func (f *FlexibleLLMAdapter) fixCommonJSONIssues(jsonStr string) string {
+	// The LLM sometimes generates JSON with unescaped quotes in code strings
+	// Pattern: "code": "package main\n\nimport (\n\t"encoding/json"\n\t...
+	// The quotes inside the code string need to be escaped: \"encoding/json\"
+	
+	// Use a regex to find "code": "..." and escape unescaped quotes inside the value
+	// This is a best-effort fix - the proper solution is to ensure the LLM generates valid JSON
+	
+	// Find the code field and fix quotes inside it
+	// We'll use a simple approach: find "code": " and then escape quotes until we find the matching closing quote
+	// Use regex to find the pattern (handles whitespace variations)
+	codePattern := regexp.MustCompile(`"code"\s*:\s*"`)
+	codeMatch := codePattern.FindStringIndex(jsonStr)
+	if codeMatch == nil {
+		return jsonStr // No code field, return as-is
+	}
+	
+	// Find the start of the code string value (after the opening quote)
+	valueStart := codeMatch[1]
+	if valueStart >= len(jsonStr) {
+		return jsonStr
+	}
+	
+	// Find the closing quote for the code string value
+	// We need to be careful - the string might contain escaped quotes or newlines
+	var result strings.Builder
+	result.WriteString(jsonStr[:valueStart])
+	
+	inString := true
+	escapeNext := false
+	for i := valueStart; i < len(jsonStr); i++ {
+		char := jsonStr[i]
+		
+		if escapeNext {
+			result.WriteByte(char)
+			escapeNext = false
+			continue
+		}
+		
+		if char == '\\' {
+			result.WriteByte(char)
+			escapeNext = true
+			continue
+		}
+		
+		if char == '"' && inString {
+			// Check if this is the closing quote for the code field
+			// Look ahead to see if we're at the end of the JSON object or if there's a comma/brace
+			// This is a heuristic - if we see } or , after whitespace, it's likely the closing quote
+			remaining := jsonStr[i+1:]
+			remaining = strings.TrimSpace(remaining)
+			if len(remaining) > 0 && (remaining[0] == '}' || remaining[0] == ',') {
+				// This is the closing quote
+				result.WriteByte(char)
+				result.WriteString(jsonStr[i+1:])
+				return result.String()
+			}
+			// Otherwise, it's an unescaped quote inside the code string - escape it
+			result.WriteString("\\\"")
+		} else {
+			result.WriteByte(char)
+		}
+	}
+	
+	// If we didn't find a closing quote, return original (might be incomplete JSON)
+	return jsonStr
+}
+
+// stripMarkdownCodeBlocks removes markdown code block fences from the response
+func (f *FlexibleLLMAdapter) stripMarkdownCodeBlocks(response string) string {
+	cleaned := strings.TrimSpace(response)
+
+	// Remove markdown code block fences (```json, ```, etc.)
+	// Handle both ```json and ``` at start/end of response
+	cleaned = strings.TrimPrefix(cleaned, "```json")
+	cleaned = strings.TrimPrefix(cleaned, "```")
+	cleaned = strings.TrimSuffix(cleaned, "```")
+	cleaned = strings.TrimSpace(cleaned)
+
+	// Also remove any remaining backticks that might be in the middle
+	// But be careful - we only want to remove markdown fences, not backticks in code strings
+	// So we only remove backticks at the very start/end after trimming
+	if strings.HasPrefix(cleaned, "`") {
+		cleaned = strings.TrimPrefix(cleaned, "`")
+	}
+	if strings.HasSuffix(cleaned, "`") {
+		cleaned = strings.TrimSuffix(cleaned, "`")
+	}
+	cleaned = strings.TrimSpace(cleaned)
+
+	return cleaned
+}
+
+// extractFirstJSONObject extracts the first complete {...} JSON object from text using proper brace matching
+func (f *FlexibleLLMAdapter) extractFirstJSONObject(text string) string {
+	// Find first '{' and track braces
+	start := strings.Index(text, "{")
+	if start == -1 {
+		return ""
+	}
+	
+	depth := 0
+	inString := false
+	escapeNext := false
+	
+	for i := start; i < len(text); i++ {
+		char := text[i]
+		
+		// Handle escape sequences
+		if escapeNext {
+			escapeNext = false
+			continue
+		}
+		
+		if char == '\\' && inString {
+			escapeNext = true
+			continue
+		}
+		
+		// Track string boundaries (only if not escaped)
+		if char == '"' && !escapeNext {
+			inString = !inString
+			continue
+		}
+		
+		// Only process braces when not inside a string
+		if !inString {
+			switch char {
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					return strings.TrimSpace(text[start : i+1])
+				}
+			}
+		}
+	}
+	
+	// If we didn't find a complete object, return what we have
+	return strings.TrimSpace(text[start:])
 }
 
 // truncateString truncates a string to max length

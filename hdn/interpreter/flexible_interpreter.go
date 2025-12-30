@@ -277,7 +277,12 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 			result.Message = "Tool executed successfully"
 		}
 	} else {
-		log.Printf("⚠️ [FLEXIBLE-INTERPRETER] Response type is %s but ToolCall is nil", result.ResponseType)
+		// For scoring requests, text response without tool call is expected and correct
+		if isScoringRequest(req.Input) {
+			log.Printf("✅ [FLEXIBLE-INTERPRETER] Text response for scoring request (no tool call expected)")
+		} else {
+			log.Printf("⚠️ [FLEXIBLE-INTERPRETER] Response type is %s but ToolCall is nil", result.ResponseType)
+		}
 	}
 
 	return result, nil
