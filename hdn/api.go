@@ -2773,7 +2773,7 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 				}
 				low := strings.ToLower(fname)
 				if _, exists := existingNames[low]; exists {
-					// Avoid overwriting real artifacts saved by execution
+					// Avoid overwriting real artifacts saved by execution (e.g., extracted from SSH)
 					continue
 				}
 				if (strings.HasSuffix(low, ".py") || strings.HasSuffix(low, ".go") || strings.HasSuffix(low, ".js") || strings.HasSuffix(low, ".java")) && result.GeneratedCode != nil {
@@ -2798,7 +2798,10 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 						StepID:      "final_execution",
 					})
 				} else if strings.HasSuffix(low, ".md") {
-					// Save textual result as Markdown if available
+					// .md files in artifact_names are execution outputs, not code
+					// They should have been extracted by intelligent_executor.go after execution
+					// Only save result.Result as fallback if file wasn't extracted
+					// (existingNames check above should prevent overwriting extracted files)
 					if result.Result != nil {
 						var content []byte
 						switch v := result.Result.(type) {
@@ -4115,7 +4118,7 @@ func (s *APIServer) handleListActiveWorkflows(w http.ResponseWriter, r *http.Req
 			exists, _ := s.redis.Exists(ctx, workflowKey).Result()
 			if exists == 0 {
 				// No workflow record, but files exist - create a minimal workflow status
-				// Get files to determine creation time
+				// Get files to determine creation time and extract task info
 				files, err := s.fileStorage.GetFilesByWorkflow(workflowID)
 				if err == nil && len(files) > 0 {
 					// Use the most recent file's creation time
@@ -4126,17 +4129,47 @@ func (s *APIServer) handleListActiveWorkflows(w http.ResponseWriter, r *http.Req
 						}
 					}
 
-					// Create a minimal workflow status
+					// Try to extract task name from workflow record if it exists (double-check)
+					taskName := "Intelligent Execution"
+					description := "Workflow with generated artifacts"
+					
+					// Check if there's a workflow record with task info (even though exists check said 0)
+					workflowJSON, err := s.redis.Get(ctx, workflowKey).Result()
+					if err == nil && workflowJSON != "" {
+						var workflowData map[string]interface{}
+						if err := json.Unmarshal([]byte(workflowJSON), &workflowData); err == nil {
+							if tn, ok := workflowData["task_name"].(string); ok && tn != "" {
+								taskName = tn
+							}
+							if desc, ok := workflowData["description"].(string); ok && desc != "" {
+								description = desc
+							}
+						}
+					}
+
+					// Create a minimal workflow status with task info
+					// Note: planner.WorkflowStatus doesn't have TaskName/Description fields,
+					// but we can encode them in CurrentStep for the monitor to extract
+					currentStep := "intelligent_execution"
+					if taskName != "Intelligent Execution" {
+						// Encode task name in CurrentStep so monitor can extract it
+						// Truncate if too long to avoid issues
+						if len(taskName) > 100 {
+							taskName = taskName[:100] + "..."
+						}
+						currentStep = fmt.Sprintf("intelligent_execution:%s", taskName)
+					}
+					
 					wfStatus := &planner.WorkflowStatus{
 						ID:          workflowID,
 						Status:      "completed",
-						CurrentStep: "intelligent_execution",
+						CurrentStep: currentStep,
 						Progress: planner.WorkflowProgress{
 							Percentage:     100.0,
 							TotalSteps:     1,
 							CompletedSteps: 1,
 							FailedSteps:    0,
-							CurrentStep:    "intelligent_execution",
+							CurrentStep:    currentStep,
 						},
 						StartedAt:    latestFileTime,
 						LastActivity: latestFileTime,
@@ -4145,7 +4178,7 @@ func (s *APIServer) handleListActiveWorkflows(w http.ResponseWriter, r *http.Req
 					}
 					workflows = append(workflows, wfStatus)
 					workflowIDSet[workflowID] = true
-					log.Printf("📁 [API] Added workflow %s to list (has files but no record)", workflowID)
+					log.Printf("📁 [API] Added workflow %s to list (has files but no record) - Task: %s", workflowID, taskName)
 				}
 			}
 		}

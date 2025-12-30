@@ -2283,24 +2283,29 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 
 	// Step 5: Final execution to store files (not validation)
 	log.Printf("🎯 [INTELLIGENT] Final execution to store generated files via tool")
-	// If artifact_names includes file entries and GeneratedCode is present, save those as files immediately
+	// If artifact_names includes code file entries and GeneratedCode is present, save those as files
+	// NOTE: Only save code files (.py, .go, .js, .java), NOT execution output files (.md, .txt, .pdf)
+	// Execution output files should be extracted after execution, not saved as code
 	if names, ok := req.Context["artifact_names"]; ok && names != "" && generatedCode != nil {
 		parts := strings.Split(names, ",")
 		for i := range parts {
 			parts[i] = strings.TrimSpace(parts[i])
 		}
-		// Support multiple file types: .py, .go, .js, .java, .md, .txt
-		supportedExts := []string{".py", ".go", ".js", ".java", ".md", ".txt"}
+		// Only code file extensions should be saved as code artifacts
+		codeExts := []string{".py", ".go", ".js", ".java"}
 		for _, fname := range parts {
-			for _, ext := range supportedExts {
-				if strings.HasSuffix(strings.ToLower(fname), ext) {
-					// Store code as file artifact before running docker
-					log.Printf("📄 [INTELLIGENT] Storing code as artifact: %s", fname)
+			low := strings.ToLower(fname)
+			for _, ext := range codeExts {
+				if strings.HasSuffix(low, ext) {
+					// Store code as file artifact - this is a code file, not an execution output
+					log.Printf("📄 [INTELLIGENT] Will save code as artifact: %s", fname)
 					// We don't have direct file storage here; pass via environment for docker executor which writes files
 					req.Context["save_code_filename"] = fname
 					break
 				}
 			}
+			// For .md, .txt, .pdf files, these are execution outputs and should NOT be saved as code
+			// They will be extracted after execution in the artifact extraction step below
 		}
 	}
 	// (removed: normalization for final execution)
