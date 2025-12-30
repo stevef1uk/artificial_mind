@@ -1913,12 +1913,28 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	}
 
 	// Only replace localhost with host.docker.internal for Docker execution
-	// For SSH execution, keep localhost or use Kubernetes service DNS
+	// For SSH execution, use Kubernetes service DNS if localhost is detected
 	if !useSSH && strings.Contains(toolAPIURL, "localhost") {
 		toolAPIURL = strings.Replace(toolAPIURL, "localhost", "host.docker.internal", -1)
 		log.Printf("🌐 [INTELLIGENT] Updated ToolAPIURL for Docker: %s", toolAPIURL)
 	} else if useSSH {
-		log.Printf("🌐 [INTELLIGENT] Using ToolAPIURL for SSH execution: %s", toolAPIURL)
+		// For SSH execution, if using localhost, try to use Kubernetes service DNS
+		// The SSH host needs to be able to reach the Kubernetes service
+		if strings.Contains(toolAPIURL, "localhost") {
+			// Try to detect Kubernetes service DNS from environment
+			// Common patterns: hdn-server-rpi58.agi.svc.cluster.local:8080
+			if k8sService := os.Getenv("HDN_K8S_SERVICE"); k8sService != "" {
+				toolAPIURL = strings.Replace(toolAPIURL, "localhost:8080", k8sService, -1)
+				log.Printf("🌐 [INTELLIGENT] Using Kubernetes service DNS for SSH: %s", toolAPIURL)
+			} else {
+				// Default to Kubernetes service DNS pattern if in Kubernetes
+				// This assumes the SSH host can reach the Kubernetes service
+				toolAPIURL = strings.Replace(toolAPIURL, "localhost:8080", "hdn-server-rpi58.agi.svc.cluster.local:8080", -1)
+				log.Printf("🌐 [INTELLIGENT] Using default Kubernetes service DNS for SSH: %s", toolAPIURL)
+			}
+		} else {
+			log.Printf("🌐 [INTELLIGENT] Using ToolAPIURL for SSH execution: %s", toolAPIURL)
+		}
 	}
 
 	codeGenReq := &CodeGenerationRequest{
