@@ -464,6 +464,8 @@ Code:`
 					toolInstructions += "- Call tool via POST request: `requests.post(f'{hdn_url}/api/v1/tools/{tool_id}/invoke', json={params})`\n"
 					toolInstructions += "- Example for tool_http_get: `requests.post(f'{hdn_url}/api/v1/tools/tool_http_get/invoke', json={'url': 'https://example.com'})`\n"
 					toolInstructions += "- Make sure to import `requests` and `os` modules, and handle the response JSON properly.\n"
+					toolInstructions += "🚨 IMPORTANT: tool_http_get is ONLY for external HTTP requests (like fetching web pages). DO NOT use it for Neo4j/knowledge base queries!\n"
+					toolInstructions += "🚨 For Neo4j/knowledge base queries, use /api/v1/knowledge/query endpoint instead!\n"
 				}
 			}
 		}
@@ -491,10 +493,21 @@ Code:`
 	// Add specific instructions for knowledge base query tasks
 	knowledgeBaseInstructions := ""
 	// Use existing taskLower and descLowerForTools variables (already defined above)
+	// Expand pattern matching to catch more variations
 	isKnowledgeBaseQuery := strings.Contains(taskLower, "query_knowledge_base") ||
 		strings.Contains(descLowerForTools, "query knowledge base") ||
 		strings.Contains(descLowerForTools, "query neo4j") ||
-		strings.Contains(taskLower, "query_knowledge_base")
+		strings.Contains(taskLower, "query_knowledge_base") ||
+		strings.Contains(descLowerForTools, "neo4j") ||
+		strings.Contains(descLowerForTools, "knowledge base") ||
+		strings.Contains(descLowerForTools, "knowledge graph") ||
+		strings.Contains(descLowerForTools, "bio concept") ||
+		strings.Contains(descLowerForTools, "concept") ||
+		strings.Contains(descLowerForTools, "cypher") ||
+		strings.Contains(descLowerForTools, "graph database") ||
+		strings.Contains(descLowerForTools, "retrieve from") ||
+		strings.Contains(descLowerForTools, "fetch from") ||
+		strings.Contains(descLowerForTools, "get data from")
 
 	if isKnowledgeBaseQuery {
 		if req.Language == "python" || req.Language == "py" {
@@ -511,9 +524,11 @@ Code:`
 			knowledgeBaseInstructions += "count = data.get('count', 0)\n"
 			knowledgeBaseInstructions += "```\n"
 			knowledgeBaseInstructions += "🚨 IMPORTANT: ALWAYS call response.json() to get 'data' BEFORE checking 'results' in data!\n"
-			knowledgeBaseInstructions += "🚨 DO NOT use /api/v1/tools/tool_mcp_query_neo4j/invoke - that endpoint does NOT exist (returns 501)!\n"
-			knowledgeBaseInstructions += "🚨 DO NOT use /api/v1/nodes/{id}/properties - that endpoint does NOT exist!\n"
-			knowledgeBaseInstructions += "🚨 DO NOT try to access node properties via REST API - use Cypher queries via /api/v1/knowledge/query instead!\n"
+			knowledgeBaseInstructions += "🚨 CRITICAL: DO NOT use /api/v1/tools/tool_http_get/invoke for knowledge base queries - that will return 403!\n"
+			knowledgeBaseInstructions += "🚨 CRITICAL: DO NOT use /api/v1/tools/tool_mcp_query_neo4j/invoke - that endpoint does NOT exist (returns 501)!\n"
+			knowledgeBaseInstructions += "🚨 CRITICAL: DO NOT use /api/v1/nodes/{id}/properties - that endpoint does NOT exist!\n"
+			knowledgeBaseInstructions += "🚨 CRITICAL: DO NOT try to access node properties via REST API - use Cypher queries via /api/v1/knowledge/query instead!\n"
+			knowledgeBaseInstructions += "🚨 CRITICAL: The ONLY correct endpoint for Neo4j queries is: POST /api/v1/knowledge/query with JSON body {\"query\": \"CYPHER_QUERY\"}\n"
 		} else if req.Language == "go" {
 			knowledgeBaseInstructions = "\n\n🚨 CRITICAL: This is a knowledge base query task. You MUST use the knowledge query endpoint:\n"
 			knowledgeBaseInstructions += "Query Neo4j directly via POST to /api/v1/knowledge/query with Cypher query in JSON body: {\"query\": \"CYPHER_QUERY\"}\n"
