@@ -586,18 +586,26 @@ func runExampleScenario(engine *FSMEngine, knowledgeIntegration *KnowledgeIntegr
 // startMonitoringServer starts the HTTP monitoring server
 func startMonitoringServer(monitor *FSMMonitor, agentID string) {
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		status, err := monitor.GetFSMStatus()
-		if err != nil {
-			http.Error(w, "Failed to get FSM status", http.StatusInternalServerError)
+		// Lightweight health check - just verify service is running and Redis is accessible
+		// Use a short timeout context to prevent health check from hanging
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		// Quick Redis ping to verify connectivity
+		if err := monitor.redis.Ping(ctx).Err(); err != nil {
+			http.Error(w, fmt.Sprintf("Redis health check failed: %v", err), http.StatusServiceUnavailable)
 			return
 		}
 
+		// Get basic info without expensive queries
+		currentState := monitor.fsmEngine.GetCurrentState()
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":    status.HealthStatus,
-			"agent_id":  status.AgentID,
-			"uptime":    status.Uptime.String(),
-			"timestamp": time.Now().Unix(),
+			"status":        "healthy",
+			"agent_id":      agentID,
+			"current_state": currentState,
+			"timestamp":     time.Now().Unix(),
 		})
 	})
 
