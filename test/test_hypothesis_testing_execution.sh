@@ -484,8 +484,27 @@ if [ "$ARTIFACTS_FOUND" = false ]; then
         echo -e "   ${GREEN}✅ Found $ARTIFACT_COUNT artifact(s) in Redis storage${NC}"
         for file_key in $REDIS_FILES; do
             if [ -n "$file_key" ]; then
-                # Check if this is a filename index (file:by_name:filename) - must check first!
-                if echo "$file_key" | grep -q "^file:by_name:"; then
+                filename=""
+                size="0"
+                
+                # Check if this is already a file:metadata: key (from Method 1)
+                if echo "$file_key" | grep -q "^file:metadata:"; then
+                    # Direct metadata key - get the metadata directly
+                    metadata=$(redis_cmd GET "$file_key" 2>/dev/null || echo "")
+                    if [ -n "$metadata" ]; then
+                        filename=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('filename', 'N/A'))" 2>/dev/null || echo "unknown")
+                        size=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('size', 0))" 2>/dev/null || echo "0")
+                        # Extract workflow ID from metadata if not already set
+                        if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ]; then
+                            wf_from_metadata=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('workflow_id', ''))" 2>/dev/null || echo "")
+                            if [ -n "$wf_from_metadata" ] && [ "$wf_from_metadata" != "None" ] && [ "$wf_from_metadata" != "" ]; then
+                                WORKFLOW_ID="$wf_from_metadata"
+                                echo -e "   ${GREEN}✅ Extracted workflow ID from artifact: $WORKFLOW_ID${NC}"
+                            fi
+                        fi
+                    fi
+                # Check if this is a filename index (file:by_name:filename)
+                elif echo "$file_key" | grep -q "^file:by_name:"; then
                     # Get the file ID from the index
                     file_id=$(redis_cmd GET "$file_key" 2>/dev/null || echo "")
                     if [ -n "$file_id" ]; then
@@ -511,25 +530,32 @@ if [ "$ARTIFACTS_FOUND" = false ]; then
                         size="0"
                     fi
                 else
-                    filename=$(echo "$file_key" | cut -d: -f4 || echo "$file_key")
-                    if [ -z "$filename" ] || [ "$filename" = "$file_key" ]; then
-                        # Try alternative parsing
-                        filename=$(echo "$file_key" | grep -oE "[^:]+\.md" | head -1 || echo "$file_key")
-                    fi
-                    size=$(redis_cmd HGET "$file_key" "size" 2>/dev/null || echo "0")
-                    if [ "$size" = "0" ]; then
-                        # Try getting from metadata
-                        file_id=$(echo "$file_key" | cut -d: -f3)
-                        if [ -n "$file_id" ]; then
-                            metadata=$(redis_cmd GET "file:metadata:$file_id" 2>/dev/null || echo "")
-                            if [ -n "$metadata" ]; then
-                                size=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('size', 0))" 2>/dev/null || echo "0")
-                                filename=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('filename', 'unknown'))" 2>/dev/null || echo "$filename")
+                    # Try to extract file_id from other key formats
+                    file_id=$(echo "$file_key" | cut -d: -f3)
+                    if [ -n "$file_id" ]; then
+                        # Try getting from metadata first (safest)
+                        metadata=$(redis_cmd GET "file:metadata:$file_id" 2>/dev/null || echo "")
+                        if [ -n "$metadata" ]; then
+                            filename=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('filename', 'unknown'))" 2>/dev/null || echo "unknown")
+                            size=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('size', 0))" 2>/dev/null || echo "0")
+                        else
+                            # Fallback: try to parse filename from key
+                            filename=$(echo "$file_key" | cut -d: -f4 || echo "$file_key")
+                            if [ -z "$filename" ] || [ "$filename" = "$file_key" ]; then
+                                # Try alternative parsing
+                                filename=$(echo "$file_key" | grep -oE "[^:]+\.md" | head -1 || echo "$file_key")
                             fi
+                            size="0"
                         fi
+                    else
+                        filename=$(echo "$file_key" | grep -oE "[^:]+\.md" | head -1 || echo "$file_key")
+                        size="0"
                     fi
                 fi
-                echo "   - $filename ($size bytes)"
+                
+                if [ -n "$filename" ] && [ "$filename" != "unknown" ]; then
+                    echo "   - $filename ($size bytes)"
+                fi
             fi
         done
     fi
