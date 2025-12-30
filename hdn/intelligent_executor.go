@@ -1926,20 +1926,20 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 			if k8sService := os.Getenv("HDN_K8S_SERVICE"); k8sService != "" {
 				toolAPIURL = strings.Replace(toolAPIURL, "localhost:8080", k8sService, -1)
 				log.Printf("🌐 [INTELLIGENT] Using Kubernetes service DNS for SSH: %s", toolAPIURL)
-		} else {
-			// Check for NodePort - if HDN_NODEPORT is set, use it with the service DNS
-			// Otherwise default to port 8080 (for ClusterIP) or use NodePort if available
-			nodePort := os.Getenv("HDN_NODEPORT")
-			port := "8080"
-			if nodePort != "" {
-				port = nodePort
-				log.Printf("🌐 [INTELLIGENT] Using NodePort %s for SSH execution", port)
+			} else {
+				// Check for NodePort - if HDN_NODEPORT is set, use it with the service DNS
+				// Otherwise default to port 8080 (for ClusterIP) or use NodePort if available
+				nodePort := os.Getenv("HDN_NODEPORT")
+				port := "8080"
+				if nodePort != "" {
+					port = nodePort
+					log.Printf("🌐 [INTELLIGENT] Using NodePort %s for SSH execution", port)
+				}
+				// Default to Kubernetes service DNS pattern if in Kubernetes
+				// This assumes the SSH host can reach the Kubernetes service (via /etc/hosts entry)
+				toolAPIURL = strings.Replace(toolAPIURL, "localhost:8080", fmt.Sprintf("hdn-server-rpi58.agi.svc.cluster.local:%s", port), -1)
+				log.Printf("🌐 [INTELLIGENT] Using default Kubernetes service DNS for SSH: %s", toolAPIURL)
 			}
-			// Default to Kubernetes service DNS pattern if in Kubernetes
-			// This assumes the SSH host can reach the Kubernetes service (via /etc/hosts entry)
-			toolAPIURL = strings.Replace(toolAPIURL, "localhost:8080", fmt.Sprintf("hdn-server-rpi58.agi.svc.cluster.local:%s", port), -1)
-			log.Printf("🌐 [INTELLIGENT] Using default Kubernetes service DNS for SSH: %s", toolAPIURL)
-		}
 		} else {
 			log.Printf("🌐 [INTELLIGENT] Using ToolAPIURL for SSH execution: %s", toolAPIURL)
 		}
@@ -2654,6 +2654,11 @@ func (ie *IntelligentExecutor) checkStructuralCompatibility(cachedCode *Generate
 func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *GeneratedCode, req *ExecutionRequest, workflowID string) ValidationStep {
 	start := time.Now()
 	log.Printf("🧪 [VALIDATION] Testing code for task: %s", code.TaskName)
+	descPreview := req.Description
+	if len(descPreview) > 100 {
+		descPreview = descPreview[:100] + "..."
+	}
+	log.Printf("🔍 [VALIDATION] Request task: %s, description: %s", req.TaskName, descPreview)
 
 	// Check if task explicitly mentions using a tool - if so, allow HTTP requests
 	// This needs to be done before the safety check so it can see allow_requests in context
