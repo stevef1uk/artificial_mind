@@ -220,9 +220,24 @@ for i in {1..36}; do
             
             # Try to extract workflow ID from HDN logs (improved pattern matching)
             if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ]; then
+                # Calculate expected workflow ID prefix based on test timestamp (workflow IDs use nanoseconds)
+                # Test timestamp is in seconds, workflow IDs use nanoseconds, so multiply by 1e9
+                TEST_TIMESTAMP_NS=$((TEST_TIMESTAMP * 1000000000))
+                TEST_TIMESTAMP_PREFIX="${TEST_TIMESTAMP_NS:0:13}"  # First 13 digits (should match workflow ID prefix)
+                
                 # Try multiple patterns to find workflow ID
                 # Look for workflow IDs near the test event or goal ID in logs
-                WF_FROM_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=3000 --since=10m 2>/dev/null | grep -i "test_event_${TEST_TIMESTAMP}\|goal_id.*${GOAL_ID}\|g_${GOAL_ID##*_}" | grep -oE "intelligent_[0-9]+" | tail -1 || echo "")
+                WF_FROM_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=5000 --since=10m 2>/dev/null | grep -i "test_event_${TEST_TIMESTAMP}\|goal_id.*${GOAL_ID}\|g_${GOAL_ID##*_}" | grep -oE "intelligent_[0-9]+" | tail -1 || echo "")
+                
+                # If found, verify it's recent (starts with test timestamp prefix)
+                if [ -n "$WF_FROM_LOGS" ]; then
+                    WF_TIMESTAMP=$(echo "$WF_FROM_LOGS" | sed 's/intelligent_//' | cut -c1-13)
+                    if [ "$WF_TIMESTAMP" != "$TEST_TIMESTAMP_PREFIX" ]; then
+                        # Not matching current test, try to find a better one
+                        WF_FROM_LOGS=""
+                    fi
+                fi
+                
                 if [ -z "$WF_FROM_LOGS" ]; then
                     # Try finding by goal ID in workflow records
                     if [ -n "$GOAL_ID" ] && [ -n "$REDIS_POD" ]; then
@@ -232,10 +247,18 @@ for i in {1..36}; do
                         fi
                     fi
                 fi
+                
                 if [ -z "$WF_FROM_LOGS" ]; then
                     # Try to find workflow ID from execution logs - look for "Normalized workflow ID" or "Created intelligent workflow"
-                    WF_FROM_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=5000 --since=10m 2>/dev/null | grep -i "test_event_${TEST_TIMESTAMP}" | grep -E "Normalized workflow ID|Created.*workflow|workflow.*intelligent_" | grep -oE "intelligent_[0-9]+" | tail -1 || echo "")
+                    # Filter by test event to ensure we get the right one
+                    WF_FROM_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=5000 --since=10m 2>/dev/null | grep -i "test_event_${TEST_TIMESTAMP}" | grep -E "Normalized workflow ID|Created.*workflow|workflow.*intelligent_|WorkflowID" | grep -oE "intelligent_[0-9]+" | tail -1 || echo "")
                 fi
+                
+                if [ -z "$WF_FROM_LOGS" ]; then
+                    # Last resort: find most recent workflow ID from logs that contains test event
+                    WF_FROM_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=10000 --since=10m 2>/dev/null | grep -B 5 -A 5 "test_event_${TEST_TIMESTAMP}" | grep -oE "intelligent_[0-9]+" | tail -1 || echo "")
+                fi
+                
                 if [ -n "$WF_FROM_LOGS" ]; then
                     WORKFLOW_ID="$WF_FROM_LOGS"
                     echo -e "   ${GREEN}✅ Extracted workflow ID from logs: $WORKFLOW_ID${NC}"
@@ -437,12 +460,33 @@ if [ "$ARTIFACTS_FOUND" = false ]; then
         # Convert to ISO format for comparison (subtract 2 minutes to account for test setup time)
         TEST_START_ISO=$(date -u -d "@$((TEST_START_UNIX - 120))" +"%Y-%m-%dT%H:%M:%S" 2>/dev/null || date -u -r $((TEST_START_UNIX - 120)) +"%Y-%m-%dT%H:%M:%S" 2>/dev/null || echo "")
         
+        # Calculate expected workflow ID prefix to filter out old workflows
+        TEST_TIMESTAMP_NS=$((TEST_TIMESTAMP * 1000000000))
+        TEST_TIMESTAMP_PREFIX="${TEST_TIMESTAMP_NS:0:13}"  # First 13 digits
+        
         WORKFLOW_FILE_KEYS=$(redis_cmd KEYS "file:by_workflow:*" 2>/dev/null | tail -30 || echo "")
         LATEST_FILE_TIME=""
         LATEST_WORKFLOW_ID=""
         LATEST_FILE_ID=""
+        RECENT_FILE_FOUND=false
         
         for wf_key in $WORKFLOW_FILE_KEYS; do
+            wf_id=$(echo "$wf_key" | sed 's/file:by_workflow://' || echo "")
+            # Skip old workflows that don't match current test timestamp
+            if [ -n "$wf_id" ] && echo "$wf_id" | grep -q "intelligent_"; then
+                wf_timestamp=$(echo "$wf_id" | sed 's/intelligent_//' | cut -c1-13)
+                # Only consider workflows created around the test time (within 5 minutes)
+                if [ -n "$wf_timestamp" ] && [ -n "$TEST_TIMESTAMP_PREFIX" ]; then
+                    # Workflow is older than test - skip unless it's very close
+                    if [ "$wf_timestamp" \< "$TEST_TIMESTAMP_PREFIX" ]; then
+                        timestamp_diff=$((TEST_TIMESTAMP_NS - ${wf_timestamp}0000000))
+                        if [ $timestamp_diff -gt 300000000000 ]; then  # More than 5 minutes old
+                            continue
+                        fi
+                    fi
+                fi
+            fi
+            
             file_ids=$(redis_cmd SMEMBERS "$wf_key" 2>/dev/null || echo "")
             for file_id in $file_ids; do
                 if [ -n "$file_id" ]; then
@@ -459,17 +503,18 @@ if [ "$ARTIFACTS_FOUND" = false ]; then
                                 file_time_clean=$(echo "$created_at" | cut -d'T' -f1,2 | cut -d'.' -f1 | cut -d'Z' -f1 | cut -d'+' -f1)
                                 if [ -n "$file_time_clean" ] && [ "$file_time_clean" \> "$TEST_START_ISO" ] 2>/dev/null; then
                                     is_recent=true
+                                    RECENT_FILE_FOUND=true
                                 fi
                             fi
                             
-                            # Track the latest file (even if timestamp check fails, prefer most recent)
+                            # Track the latest file (prefer recent ones)
                             if [ "$is_recent" = "true" ] || [ -z "$LATEST_FILE_TIME" ]; then
                                 file_time_clean=$(echo "$created_at" | cut -d'T' -f1,2 | cut -d'.' -f1 | cut -d'Z' -f1 | cut -d'+' -f1)
-                                if [ -z "$LATEST_FILE_TIME" ] || [ -z "$file_time_clean" ] || [ "$file_time_clean" \> "$LATEST_FILE_TIME" ] 2>/dev/null; then
+                                if [ "$is_recent" = "true" ] || [ -z "$LATEST_FILE_TIME" ] || [ -z "$file_time_clean" ] || [ "$file_time_clean" \> "$LATEST_FILE_TIME" ] 2>/dev/null; then
                                     LATEST_FILE_TIME="$file_time_clean"
-                                    LATEST_WORKFLOW_ID=$(echo "$wf_key" | sed 's/file:by_workflow://' || echo "")
+                                    LATEST_WORKFLOW_ID="$wf_id"
                                     LATEST_FILE_ID="$file_id"
-                                    # Only use if it's recent or if we have no other option
+                                    # Use recent files immediately
                                     if [ "$is_recent" = "true" ]; then
                                         REDIS_FILES="file:metadata:$file_id"
                                     fi
@@ -481,8 +526,11 @@ if [ "$ARTIFACTS_FOUND" = false ]; then
             done
         done
         
-        # If we found a recent file, use it; otherwise use the latest found
+        # If we found a recent file, use it; otherwise use the latest found (but warn)
         if [ -z "$REDIS_FILES" ] && [ -n "$LATEST_FILE_ID" ]; then
+            if [ "$RECENT_FILE_FOUND" = "false" ]; then
+                echo -e "   ${YELLOW}⚠️  No recent artifacts found, using latest available${NC}"
+            fi
             REDIS_FILES="file:metadata:$LATEST_FILE_ID"
             if [ -n "$LATEST_WORKFLOW_ID" ] && ([ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ]); then
                 WORKFLOW_ID="$LATEST_WORKFLOW_ID"

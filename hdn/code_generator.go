@@ -190,7 +190,7 @@ func (cg *CodeGenerator) cleanGeneratedCode(code, language string, toolAPIURL st
 // This ensures Docker containers can reach the host HDN server, but SSH execution uses localhost correctly
 func (cg *CodeGenerator) fixLocalhostReferences(code, language string, toolAPIURL string) string {
 	originalCode := code
-	
+
 	// Determine execution method - only replace localhost for Docker execution
 	executionMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
 	useDocker := executionMethod == "docker" || (executionMethod == "" && !strings.Contains(toolAPIURL, "localhost"))
@@ -202,7 +202,7 @@ func (cg *CodeGenerator) fixLocalhostReferences(code, language string, toolAPIUR
 	if strings.Contains(toolAPIURL, "localhost") && executionMethod == "ssh" {
 		useDocker = false
 	}
-	
+
 	// Skip replacement for SSH execution
 	if !useDocker {
 		return code
@@ -495,7 +495,7 @@ Code:`
 		strings.Contains(descLowerForTools, "query knowledge base") ||
 		strings.Contains(descLowerForTools, "query neo4j") ||
 		strings.Contains(taskLower, "query_knowledge_base")
-	
+
 	if isKnowledgeBaseQuery {
 		if req.Language == "python" || req.Language == "py" {
 			knowledgeBaseInstructions = "\n\n🚨 CRITICAL: This is a knowledge base query task. You MUST use the knowledge query endpoint:\n"
@@ -505,10 +505,12 @@ Code:`
 			knowledgeBaseInstructions += "hdn_url = os.getenv('HDN_URL', 'http://host.docker.internal:8081')\n"
 			knowledgeBaseInstructions += "response = requests.post(f'{hdn_url}/api/v1/knowledge/query',\n"
 			knowledgeBaseInstructions += "    json={'query': 'MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower(\\'CONCEPT_NAME\\') RETURN c LIMIT 10'})\n"
-			knowledgeBaseInstructions += "data = response.json()\n"
-			knowledgeBaseInstructions += "results = data.get('results', [])\n"
+			knowledgeBaseInstructions += "response.raise_for_status()  # Check for HTTP errors\n"
+			knowledgeBaseInstructions += "data = response.json()  # MUST parse JSON before using 'data'\n"
+			knowledgeBaseInstructions += "results = data.get('results', [])  # Now safe to use 'data'\n"
 			knowledgeBaseInstructions += "count = data.get('count', 0)\n"
 			knowledgeBaseInstructions += "```\n"
+			knowledgeBaseInstructions += "🚨 IMPORTANT: ALWAYS call response.json() to get 'data' BEFORE checking 'results' in data!\n"
 			knowledgeBaseInstructions += "🚨 DO NOT use /api/v1/tools/tool_mcp_query_neo4j/invoke - that endpoint does NOT exist (returns 501)!\n"
 			knowledgeBaseInstructions += "🚨 DO NOT use /api/v1/nodes/{id}/properties - that endpoint does NOT exist!\n"
 			knowledgeBaseInstructions += "🚨 DO NOT try to access node properties via REST API - use Cypher queries via /api/v1/knowledge/query instead!\n"
