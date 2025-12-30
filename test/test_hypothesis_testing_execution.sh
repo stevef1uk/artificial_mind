@@ -474,11 +474,12 @@ if [ "$ARTIFACTS_FOUND" = false ]; then
                     if [ "$size" = "0" ]; then
                         # Try getting from metadata
                         file_id=$(echo "$file_key" | cut -d: -f3)
-                    if [ -n "$file_id" ]; then
-                        metadata=$(redis_cmd GET "file:metadata:$file_id" 2>/dev/null || echo "")
-                        if [ -n "$metadata" ]; then
-                            size=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('size', 0))" 2>/dev/null || echo "0")
-                            filename=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('filename', 'unknown'))" 2>/dev/null || echo "$filename")
+                        if [ -n "$file_id" ]; then
+                            metadata=$(redis_cmd GET "file:metadata:$file_id" 2>/dev/null || echo "")
+                            if [ -n "$metadata" ]; then
+                                size=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('size', 0))" 2>/dev/null || echo "0")
+                                filename=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('filename', 'unknown'))" 2>/dev/null || echo "$filename")
+                            fi
                         fi
                     fi
                 fi
