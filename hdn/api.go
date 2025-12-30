@@ -4131,8 +4131,7 @@ func (s *APIServer) handleListActiveWorkflows(w http.ResponseWriter, r *http.Req
 
 					// Try to extract task name from workflow record if it exists (double-check)
 					taskName := "Intelligent Execution"
-					description := "Workflow with generated artifacts"
-					
+
 					// Check if there's a workflow record with task info (even though exists check said 0)
 					workflowJSON, err := s.redis.Get(ctx, workflowKey).Result()
 					if err == nil && workflowJSON != "" {
@@ -4140,9 +4139,6 @@ func (s *APIServer) handleListActiveWorkflows(w http.ResponseWriter, r *http.Req
 						if err := json.Unmarshal([]byte(workflowJSON), &workflowData); err == nil {
 							if tn, ok := workflowData["task_name"].(string); ok && tn != "" {
 								taskName = tn
-							}
-							if desc, ok := workflowData["description"].(string); ok && desc != "" {
-								description = desc
 							}
 						}
 					}
@@ -4159,7 +4155,7 @@ func (s *APIServer) handleListActiveWorkflows(w http.ResponseWriter, r *http.Req
 						}
 						currentStep = fmt.Sprintf("intelligent_execution:%s", taskName)
 					}
-					
+
 					wfStatus := &planner.WorkflowStatus{
 						ID:          workflowID,
 						Status:      "completed",
