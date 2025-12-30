@@ -2097,11 +2097,24 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 							workflowID = fmt.Sprintf("intelligent_%d", time.Now().UnixNano())
 						}
 						// Store the file
+						// Determine content type
+						contentType := "application/octet-stream"
+						if strings.HasSuffix(fname, ".md") {
+							contentType = "text/markdown"
+						} else if strings.HasSuffix(fname, ".pdf") {
+							contentType = "application/pdf"
+						} else if strings.HasSuffix(fname, ".txt") {
+							contentType = "text/plain"
+						} else if strings.HasSuffix(fname, ".json") {
+							contentType = "application/json"
+						}
 						storedFile := &StoredFile{
-							Filename:   fname,
-							Content:    fileContent,
-							WorkflowID: workflowID,
-							StepID:     "",
+							Filename:    fname,
+							Content:     fileContent,
+							ContentType: contentType,
+							Size:        int64(len(fileContent)),
+							WorkflowID:  workflowID,
+							StepID:      "",
 						}
 						if err := ie.fileStorage.StoreFile(storedFile); err != nil {
 							log.Printf("⚠️ [INTELLIGENT] Failed to store artifact %s: %v", fname, err)
