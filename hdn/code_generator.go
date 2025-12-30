@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -422,21 +423,19 @@ Code:`
 				// Python-specific instructions
 				if req.ToolAPIURL != "" {
 					toolInstructions += fmt.Sprintf("- Base URL: %s\n", req.ToolAPIURL)
-					toolInstructions += fmt.Sprintf("- Use this URL directly OR get from environment: `hdn_url = os.getenv('HDN_URL', '%s')`\n", req.ToolAPIURL)
+					toolInstructions += fmt.Sprintf("- ALWAYS use this URL: `hdn_url = os.getenv('HDN_URL', '%s')`\n", req.ToolAPIURL)
+					toolInstructions += fmt.Sprintf("- CRITICAL: Use the exact URL '%s' - do NOT use 'host.docker.internal' or 'localhost' unless this URL contains them!\n", req.ToolAPIURL)
 				} else {
 					// Default based on execution method - check if Docker or SSH
 					defaultURL := "http://localhost:8080"
-					if strings.Contains(os.Getenv("EXECUTION_METHOD"), "docker") || os.Getenv("EXECUTION_METHOD") == "" {
+					execMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
+					if execMethod == "docker" || (execMethod == "" && runtime.GOARCH != "arm64" && runtime.GOARCH != "aarch64") {
 						defaultURL = "http://host.docker.internal:8080"
 					}
 					toolInstructions += fmt.Sprintf("- Get HDN_URL from environment: `hdn_url = os.getenv('HDN_URL', '%s')`\n", defaultURL)
+					toolInstructions += fmt.Sprintf("- CRITICAL: Use the exact default '%s' - do NOT change it!\n", defaultURL)
 				}
-				// Only warn about localhost if using Docker
-				if strings.Contains(req.ToolAPIURL, "host.docker.internal") || (req.ToolAPIURL == "" && (os.Getenv("EXECUTION_METHOD") == "" || !strings.Contains(os.Getenv("EXECUTION_METHOD"), "ssh"))) {
-					toolInstructions += "\n🚨 CRITICAL: NEVER use 'localhost' - always use 'host.docker.internal' or the HDN_URL environment variable!\n"
-				} else {
-					toolInstructions += "\n🚨 CRITICAL: Always use the HDN_URL environment variable or the provided base URL!\n"
-				}
+				toolInstructions += "\n🚨 CRITICAL: Always use the HDN_URL environment variable with the provided default URL!\n"
 				toolInstructions += "- Call tool via POST request: `requests.post(f'{hdn_url}/api/v1/tools/{tool_id}/invoke', json={params})`\n"
 				toolInstructions += "- Example for tool_http_get: `requests.post(f'{hdn_url}/api/v1/tools/tool_http_get/invoke', json={'url': 'https://example.com'})`\n"
 				toolInstructions += "- Make sure to import `requests` and `os` modules, and handle the response JSON properly.\n"
