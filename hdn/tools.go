@@ -1632,14 +1632,14 @@ VENV="/home/pi/.hdn/venv"
 python3 -m venv "$VENV" >/dev/null 2>&1 || true
 . "$VENV"/bin/activate
 python -m pip install --upgrade pip >/dev/null 2>&1 || true
-%spython %s`, envExports, pkgLine, tempFile)
+%s%spython %s`, envExports, pkgLine, tempFile)
 		} else {
 			hostCmd = fmt.Sprintf(`set -euo pipefail
 VENV="/home/pi/.hdn/venv"
 python3 -m venv "$VENV" >/dev/null 2>&1 || true
 . "$VENV"/bin/activate
 python -m pip install --upgrade pip >/dev/null 2>&1 || true
-%spython %s`, envExports, pkgLine, tempFile)
+%s%spython %s`, envExports, pkgLine, tempFile)
 		}
 		// Use a clean environment with sh to avoid user shell hooks and env dumps
 		execCmd = exec.CommandContext(
