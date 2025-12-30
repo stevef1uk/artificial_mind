@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -251,9 +252,24 @@ func (s *MCPKnowledgeServer) queryNeo4j(ctx context.Context, args map[string]int
 
 // queryViaHDN queries Neo4j via HDN's knowledge query endpoint
 func (s *MCPKnowledgeServer) queryViaHDN(ctx context.Context, cypherQuery string) (interface{}, error) {
-	url := s.hdnURL + "/api/v1/knowledge/query"
+	queryURL := s.hdnURL + "/api/v1/knowledge/query"
 	if s.hdnURL == "" {
-		url = "http://localhost:8081/api/v1/knowledge/query"
+		queryURL = "http://localhost:8080/api/v1/knowledge/query"
+	} else {
+		// If connecting to ourselves (Kubernetes service DNS or same host), use localhost
+		// This prevents connection issues when MCP server tries to call HDN via service DNS
+		if isSelfConnectionHDN(queryURL) {
+			// Parse URL to get port, default to 8080
+			parsedURL, err := url.Parse(queryURL)
+			if err == nil {
+				port := parsedURL.Port()
+				if port == "" {
+					port = "8080" // Default HDN port
+				}
+				queryURL = fmt.Sprintf("http://localhost:%s/api/v1/knowledge/query", port)
+				log.Printf("🔧 [MCP-KNOWLEDGE] Detected self-connection for HDN query, using localhost: %s", queryURL)
+			}
+		}
 	}
 
 	reqBody := map[string]string{"query": cypherQuery}
@@ -262,7 +278,7 @@ func (s *MCPKnowledgeServer) queryViaHDN(ctx context.Context, cypherQuery string
 		return nil, err
 	}
 
-	resp, err := http.Post(url, "application/json", strings.NewReader(string(jsonData)))
+	resp, err := http.Post(queryURL, "application/json", strings.NewReader(string(jsonData)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query HDN: %w", err)
 	}
@@ -807,4 +823,25 @@ func (s *APIServer) RegisterMCPKnowledgeServerRoutes() {
 	s.router.HandleFunc("/api/v1/mcp", s.mcpKnowledgeServer.HandleRequest).Methods("POST")
 
 	log.Printf("✅ [MCP-KNOWLEDGE] MCP knowledge server registered at /mcp and /api/v1/mcp")
+}
+
+// isSelfConnectionHDN checks if the endpoint is pointing to the same server (self-connection)
+// This detects Kubernetes service DNS patterns and localhost patterns
+func isSelfConnectionHDN(endpoint string) bool {
+	lower := strings.ToLower(endpoint)
+	
+	// Check for Kubernetes service DNS patterns (e.g., hdn-server-*.svc.cluster.local)
+	if strings.Contains(lower, ".svc.cluster.local") {
+		// Extract service name and check if it matches HDN service pattern
+		if strings.Contains(lower, "hdn") || strings.Contains(lower, "hdn-server") {
+			return true
+		}
+	}
+	
+	// Check if it's already localhost
+	if strings.Contains(lower, "localhost") || strings.Contains(lower, "127.0.0.1") {
+		return true
+	}
+	
+	return false
 }
