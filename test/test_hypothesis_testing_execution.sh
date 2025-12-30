@@ -404,10 +404,38 @@ fi
 if [ "$ARTIFACTS_FOUND" = false ]; then
     echo "   Checking for artifacts by goal ID, test event, or recent workflows..."
     
-    # Method 1: Check for hypothesis_test_report.md files
-    REDIS_FILES=$(redis_cmd KEYS "file:*hypothesis_test_report*" 2>/dev/null | head -10 || echo "")
+    # Method 1: Check file:by_workflow keys for recent hypothesis_test_report.md files
+    REDIS_FILES=""
+    WORKFLOW_FILE_KEYS=$(redis_cmd KEYS "file:by_workflow:*" 2>/dev/null | tail -20 || echo "")
+    for wf_key in $WORKFLOW_FILE_KEYS; do
+        file_ids=$(redis_cmd SMEMBERS "$wf_key" 2>/dev/null || echo "")
+        for file_id in $file_ids; do
+            if [ -n "$file_id" ]; then
+                metadata=$(redis_cmd GET "file:metadata:$file_id" 2>/dev/null || echo "")
+                if [ -n "$metadata" ]; then
+                    filename=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('filename', ''))" 2>/dev/null || echo "")
+                    created_at=$(echo "$metadata" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('created_at', ''))" 2>/dev/null || echo "")
+                    # Check if it's a hypothesis test report created recently (within last 10 minutes)
+                    if echo "$filename" | grep -qi "hypothesis_test_report" && echo "$created_at" | grep -q "$(date +%Y-%m-%d)"; then
+                        REDIS_FILES="$REDIS_FILES file:metadata:$file_id"
+                        # Extract workflow ID from the key
+                        wf_id=$(echo "$wf_key" | sed 's/file:by_workflow://' || echo "")
+                        if [ -n "$wf_id" ] && ([ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ]); then
+                            WORKFLOW_ID="$wf_id"
+                            echo -e "   ${GREEN}✅ Found workflow ID from file storage: $WORKFLOW_ID${NC}"
+                        fi
+                    fi
+                fi
+            fi
+        done
+    done
     
-    # Method 2: Check by test event ID
+    # Method 2: Check for hypothesis_test_report.md files by name
+    if [ -z "$REDIS_FILES" ]; then
+        REDIS_FILES=$(redis_cmd KEYS "file:by_name:hypothesis_test_report.md" 2>/dev/null | head -10 || echo "")
+    fi
+    
+    # Method 3: Check by test event ID
     if [ -z "$REDIS_FILES" ]; then
         REDIS_FILES=$(redis_cmd KEYS "file:*test_event_${TEST_TIMESTAMP}*" 2>/dev/null | head -10 || echo "")
     fi

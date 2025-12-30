@@ -4086,6 +4086,71 @@ func (s *APIServer) handleListActiveWorkflows(w http.ResponseWriter, r *http.Req
 		workflows = []*planner.WorkflowStatus{}
 	}
 
+	// Also include workflows that have files but no records (so UI can see them)
+	// Check for workflows with files in the last 24 hours
+	fileWorkflowKeys, err := s.redis.Keys(ctx, "file:by_workflow:*").Result()
+	if err == nil {
+		workflowIDSet := make(map[string]bool)
+		// Build set of existing workflow IDs from planner
+		for _, wf := range workflows {
+			if wf != nil && wf.ID != "" {
+				workflowIDSet[wf.ID] = true
+			}
+		}
+
+		// Check each workflow that has files
+		for _, key := range fileWorkflowKeys {
+			workflowID := strings.TrimPrefix(key, "file:by_workflow:")
+			if workflowID == "" {
+				continue
+			}
+
+			// Skip if already in the list
+			if workflowIDSet[workflowID] {
+				continue
+			}
+
+			// Check if workflow record exists
+			workflowKey := fmt.Sprintf("workflow:%s", workflowID)
+			exists, _ := s.redis.Exists(ctx, workflowKey).Result()
+			if exists == 0 {
+				// No workflow record, but files exist - create a minimal workflow status
+				// Get files to determine creation time
+				files, err := s.fileStorage.GetFilesByWorkflow(workflowID)
+				if err == nil && len(files) > 0 {
+					// Use the most recent file's creation time
+					var latestFileTime time.Time
+					for _, f := range files {
+						if f.CreatedAt.After(latestFileTime) {
+							latestFileTime = f.CreatedAt
+						}
+					}
+
+					// Create a minimal workflow status
+					wfStatus := &planner.WorkflowStatus{
+						ID:          workflowID,
+						Status:      "completed",
+						CurrentStep: "intelligent_execution",
+						Progress: planner.WorkflowProgress{
+							Percentage:     100.0,
+							TotalSteps:     1,
+							CompletedSteps: 1,
+							FailedSteps:    0,
+							CurrentStep:    "intelligent_execution",
+						},
+						StartedAt:    latestFileTime,
+						LastActivity: latestFileTime,
+						CanResume:    false,
+						CanCancel:    false,
+					}
+					workflows = append(workflows, wfStatus)
+					workflowIDSet[workflowID] = true
+					log.Printf("📁 [API] Added workflow %s to list (has files but no record)", workflowID)
+				}
+			}
+		}
+	}
+
 	response := ActiveWorkflowsResponse{
 		Success:   true,
 		Workflows: workflows,
