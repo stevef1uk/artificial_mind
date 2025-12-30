@@ -550,13 +550,27 @@ Code:`
 	internalFlagsWarning += "🚨 If you see these in environment variables, IGNORE them - they are not part of the task requirements.\n"
 	internalFlagsWarning += "🚨 DO NOT add checks like 'if force_regenerate: return' or 'if not allow_requests: return' - these will break execution!\n"
 
+	// Add warning about interactive input
+	inputWarning := "\n\n🚨 CRITICAL: DO NOT use interactive input functions like input(), raw_input(), or sys.stdin.read()!\n"
+	inputWarning += "🚨 The code runs in a non-interactive environment (Docker container or SSH) - there is NO user input available!\n"
+	if req.Language == "python" || req.Language == "py" {
+		inputWarning += "🚨 Instead, read parameters from environment variables using: os.getenv('PARAMETER_NAME', 'default_value')\n"
+		inputWarning += "🚨 Example: concept_name = os.getenv('concept_name', 'Biology')  # NOT: concept_name = input('Enter concept: ')\n"
+	} else if req.Language == "go" {
+		inputWarning += "🚨 Instead, read parameters from environment variables using: os.Getenv('PARAMETER_NAME')\n"
+		inputWarning += "🚨 Example: conceptName := os.Getenv('concept_name'); if conceptName == \"\" { conceptName = \"Biology\" }\n"
+	} else {
+		inputWarning += "🚨 Instead, read parameters from environment variables or command-line arguments.\n"
+	}
+	inputWarning += "🚨 If the task requires a parameter, use a sensible default value or read from environment variables.\n"
+
 	codeBlockTag := "```" + req.Language
 	return fmt.Sprintf(`Generate %s code for this task:
 
-%s%s%s%s%s%s%s
+%s%s%s%s%s%s%s%s
 
 Return only the %s code in a markdown code block with the language tag: %s
-`, req.Language, cleanDesc, langEnforcement, contextStr, toolInstructions, knowledgeBaseInstructions, importInstruction, internalFlagsWarning, req.Language, codeBlockTag)
+`, req.Language, cleanDesc, langEnforcement, contextStr, toolInstructions, knowledgeBaseInstructions, importInstruction, internalFlagsWarning, inputWarning, req.Language, codeBlockTag)
 }
 
 // extractCodeFromResponse extracts code from the LLM response
