@@ -265,7 +265,7 @@ func (sde *SimpleDockerExecutor) ExecuteCode(ctx context.Context, req *DockerExe
 	if strings.TrimSpace(errStr) != "" {
 		combinedOutput = outputStr + "\n" + errStr
 	}
-	
+
 	if strings.Contains(combinedOutput, "Traceback") ||
 		strings.Contains(combinedOutput, "Error:") ||
 		strings.Contains(combinedOutput, "Exception:") ||
@@ -572,7 +572,7 @@ func (sde *SimpleDockerExecutor) buildDockerCommand(image, cmd, codeFile, contai
 		codeStr := string(codeContent)
 		needsPackages := strings.Contains(codeStr, "import requests") || strings.Contains(codeStr, "from requests") ||
 			strings.Contains(codeStr, "requests.post") || strings.Contains(codeStr, "requests.get")
-		
+
 		if quiet && !needsPackages {
 			// Quiet mode and no packages needed - simple execution
 			args = append(args, "sh", "-c", fmt.Sprintf(`
@@ -648,6 +648,9 @@ for imp in imports:
     if package and not package.startswith('_'):
         # For dotted imports like 'reportlab.pdfgen', use only the first part
         base_package = package.split('.')[0]
+        # Skip tool_* patterns (these are internal tool identifiers, not real packages)
+        if base_package.startswith('tool_'):
+            continue
         # Only add if it's not a built-in module
         if base_package not in builtin_modules:
             packages.add(base_package)
@@ -756,6 +759,9 @@ for imp in imports:
     if package and not package.startswith('_'):
         # For dotted imports like 'reportlab.pdfgen', use only the first part
         base_package = package.split('.')[0]
+        # Skip tool_* patterns (these are internal tool identifiers, not real packages)
+        if base_package.startswith('tool_'):
+            continue
         # Only add if it's not a built-in module
         if base_package not in builtin_modules:
             packages.add(base_package)

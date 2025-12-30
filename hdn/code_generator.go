@@ -488,6 +488,45 @@ Code:`
 		log.Printf("⚠️ [CODEGEN] WARNING: No language specified in request!")
 	}
 
+	// Add specific instructions for knowledge base query tasks
+	knowledgeBaseInstructions := ""
+	// Use existing taskLower and descLowerForTools variables (already defined above)
+	isKnowledgeBaseQuery := strings.Contains(taskLower, "query_knowledge_base") ||
+		strings.Contains(descLowerForTools, "query knowledge base") ||
+		strings.Contains(descLowerForTools, "query neo4j") ||
+		strings.Contains(taskLower, "query_knowledge_base")
+	
+	if isKnowledgeBaseQuery {
+		if req.Language == "python" || req.Language == "py" {
+			knowledgeBaseInstructions = "\n\n🚨 CRITICAL: This is a knowledge base query task. You MUST use one of these methods:\n"
+			knowledgeBaseInstructions += "1. PREFERRED: Use the tool API to call tool_mcp_query_neo4j via HTTP POST:\n"
+			knowledgeBaseInstructions += "   ```python\n"
+			knowledgeBaseInstructions += "   import requests\n"
+			knowledgeBaseInstructions += "   import os\n"
+			knowledgeBaseInstructions += "   hdn_url = os.getenv('HDN_URL', 'http://host.docker.internal:8080')\n"
+			knowledgeBaseInstructions += "   response = requests.post(f'{hdn_url}/api/v1/tools/tool_mcp_query_neo4j/invoke',\n"
+			knowledgeBaseInstructions += "       json={'query': 'MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower(\\'CONCEPT_NAME\\') RETURN c LIMIT 10'})\n"
+			knowledgeBaseInstructions += "   ```\n"
+			knowledgeBaseInstructions += "2. ALTERNATIVE: Query Neo4j directly via Cypher query endpoint:\n"
+			knowledgeBaseInstructions += "   ```python\n"
+			knowledgeBaseInstructions += "   import requests\n"
+			knowledgeBaseInstructions += "   import os\n"
+			knowledgeBaseInstructions += "   hdn_url = os.getenv('HDN_URL', 'http://host.docker.internal:8080')\n"
+			knowledgeBaseInstructions += "   response = requests.post(f'{hdn_url}/api/v1/knowledge/query',\n"
+			knowledgeBaseInstructions += "       json={'query': 'MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower(\\'CONCEPT_NAME\\') RETURN c LIMIT 10'})\n"
+			knowledgeBaseInstructions += "   data = response.json()\n"
+			knowledgeBaseInstructions += "   results = data.get('results', [])\n"
+			knowledgeBaseInstructions += "   ```\n"
+			knowledgeBaseInstructions += "🚨 DO NOT use /api/v1/nodes/{id}/properties - that endpoint does NOT exist!\n"
+			knowledgeBaseInstructions += "🚨 DO NOT try to access node properties via REST API - use Cypher queries instead!\n"
+		} else if req.Language == "go" {
+			knowledgeBaseInstructions = "\n\n🚨 CRITICAL: This is a knowledge base query task. You MUST use one of these methods:\n"
+			knowledgeBaseInstructions += "1. PREFERRED: Use the tool API to call tool_mcp_query_neo4j via HTTP POST\n"
+			knowledgeBaseInstructions += "2. ALTERNATIVE: Query Neo4j directly via POST to /api/v1/knowledge/query with Cypher query\n"
+			knowledgeBaseInstructions += "🚨 DO NOT use /api/v1/nodes/{id}/properties - that endpoint does NOT exist!\n"
+		}
+	}
+
 	// Add general instruction about avoiding unnecessary imports
 	importInstruction := ""
 	if isSimpleTask {
@@ -497,10 +536,10 @@ Code:`
 	codeBlockTag := "```" + req.Language
 	return fmt.Sprintf(`Generate %s code for this task:
 
-%s%s%s%s%s
+%s%s%s%s%s%s
 
 Return only the %s code in a markdown code block with the language tag: %s
-`, req.Language, cleanDesc, langEnforcement, contextStr, toolInstructions, importInstruction, req.Language, codeBlockTag)
+`, req.Language, cleanDesc, langEnforcement, contextStr, toolInstructions, knowledgeBaseInstructions, importInstruction, req.Language, codeBlockTag)
 }
 
 // extractCodeFromResponse extracts code from the LLM response
