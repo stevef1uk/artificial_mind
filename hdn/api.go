@@ -2368,13 +2368,55 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 	})
 
 	if err != nil {
+		// Check if error is due to context cancellation/timeout
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Printf("⏱️ [API] Execution timed out after 120 seconds for task: %s", req.TaskName)
+			// Return a proper JSON response with timeout error instead of http.Error
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK) // Return 200 with success=false to match API contract
+			response := IntelligentExecutionResponse{
+				Success:       false,
+				Error:          fmt.Sprintf("Execution timed out after 120 seconds: %v", err),
+				ExecutionTime: 120000, // 120 seconds in milliseconds
+				RetryCount:    0,
+				WorkflowID:    fmt.Sprintf("intelligent_%d", time.Now().UnixNano()),
+			}
+			json.NewEncoder(w).Encode(response)
+			return
+		}
 		http.Error(w, fmt.Sprintf("Intelligent execution failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	if result == nil {
+		// Check if context was canceled
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Printf("⏱️ [API] Execution timed out (result is nil) for task: %s", req.TaskName)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			response := IntelligentExecutionResponse{
+				Success:       false,
+				Error:          "Execution timed out after 120 seconds (no result returned)",
+				ExecutionTime:  120000, // 120 seconds in milliseconds
+				RetryCount:    0,
+				WorkflowID:    fmt.Sprintf("intelligent_%d", time.Now().UnixNano()),
+			}
+			json.NewEncoder(w).Encode(response)
+			return
+		}
 		http.Error(w, "Intelligent execution returned no result", http.StatusInternalServerError)
 		return
+	}
+	
+	// Check if result indicates failure but has no error message
+	if !result.Success && result.Error == "" {
+		log.Printf("⚠️ [API] Execution failed but no error message set for task: %s", req.TaskName)
+		// Set a default error message if missing
+		if ctx.Err() == context.DeadlineExceeded {
+			result.Error = "Execution timed out after 120 seconds"
+		} else {
+			result.Error = "Execution failed (no error details available)"
+		}
 	}
 
 	// Record metrics for monitor UI (guard nil)
@@ -3225,7 +3267,6 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 
 					// If workflow is running or pending, reject duplicate
 					if status == "running" || status == "pending" {
-						log.Printf("🚫 [API] Rejecting duplicate workflow - '%s' already has active workflow: %s", req.TaskName, existingWorkflowID)
 						response := HierarchicalTaskResponse{
 							Success:    false,
 							Error:      fmt.Sprintf("A workflow for '%s' is already running. Please wait for it to complete.", req.TaskName),
@@ -3242,7 +3283,6 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 					if startedAtStr != "" {
 						if startedAt, err := time.Parse(time.RFC3339, startedAtStr); err == nil {
 							if time.Since(startedAt) < 1*time.Hour {
-								log.Printf("🚫 [API] Rejecting duplicate workflow - '%s' was processed recently (completed %v ago)", req.TaskName, time.Since(startedAt))
 								response := HierarchicalTaskResponse{
 									Success:    false,
 									Error:      fmt.Sprintf("This task was processed recently. Please wait before requesting again."),

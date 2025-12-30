@@ -86,7 +86,8 @@ GO_REQ_PAYLOAD='{
     "artifact_names": "uuid_test.go",
     "save_code_filename": "uuid_test.go"
   },
-  "language": "go"
+  "language": "go",
+  "priority": "high"
 }'
 
 GO_RESP_JSON="$TMP_DIR/int_exec_uuid.json"
@@ -156,7 +157,8 @@ CHAIN_PY_REQ='{
     "artifact_names": "chained_writer.py,chained_input.json",
     "save_code_filename": "chained_writer.py"
   },
-  "language": "python"
+  "language": "python",
+  "priority": "high"
 }'
 
 CHAIN_PY_JSON="$TMP_DIR/int_exec_chain_writer.json"
@@ -209,7 +211,8 @@ CHAIN_GO_REQ='{
     "artifact_names": "chained_consumer.go",
     "save_code_filename": "chained_consumer.go"
   },
-  "language": "go"
+  "language": "go",
+  "priority": "high"
 }'
 
 CHAIN_GO_JSON="$TMP_DIR/int_exec_chain_consumer.json"

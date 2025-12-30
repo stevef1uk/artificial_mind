@@ -87,8 +87,12 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 
 	log.Printf("🤖 [FLEXIBLE-LLM] Available tools: %d", len(availableTools))
 
-	// Build tool-aware prompt
-	prompt := f.buildToolAwarePrompt(input, availableTools)
+	// Filter tools based on task relevance to reduce prompt size
+	filteredTools := f.filterRelevantTools(input, availableTools)
+	log.Printf("🔍 [FLEXIBLE-LLM] Filtered to %d relevant tools (from %d total)", len(filteredTools), len(availableTools))
+
+	// Build tool-aware prompt with filtered tools
+	prompt := f.buildToolAwarePrompt(input, filteredTools)
 
 	// Call the LLM - check if the client supports priority
 	if priorityClient, ok := f.llmClient.(interface {
@@ -100,7 +104,7 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 			return nil, fmt.Errorf("failed to call LLM: %v", err)
 		}
 		log.Printf("✅ [FLEXIBLE-LLM] Generated response length: %d", len(response))
-		return f.parseFlexibleResponse(response, len(availableTools))
+		return f.parseFlexibleResponse(response, len(filteredTools))
 	}
 
 	// Fallback to standard method (low priority)
@@ -112,7 +116,231 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 	log.Printf("✅ [FLEXIBLE-LLM] Generated response length: %d", len(response))
 
 	// Parse the flexible response
-	return f.parseFlexibleResponse(response, len(availableTools))
+	return f.parseFlexibleResponse(response, len(filteredTools))
+}
+
+// filterRelevantTools filters tools based on task relevance to reduce prompt size
+func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []Tool {
+	if len(tools) <= 15 {
+		// If we have 15 or fewer tools, include all of them
+		return tools
+	}
+
+	inputLower := strings.ToLower(input)
+	var relevant []Tool
+	seen := make(map[string]bool)
+	commonKeywords := []string{"query", "neo4j", "http", "file", "read", "write", "exec", "docker", "code", "generate", "search", "scrape"}
+
+	// Keywords that suggest specific tool usage
+	toolKeywords := map[string][]string{
+		"mcp_query_neo4j":           {"neo4j", "query", "cypher", "knowledge", "graph", "database", "knowledge base"},
+		"mcp_get_concept":           {"concept", "get concept", "retrieve concept", "knowledge"},
+		"mcp_find_related_concepts": {"related", "related concepts", "find related", "connections"},
+		"mcp_search_weaviate":       {"weaviate", "search", "vector", "semantic", "similar", "episodes", "memories"},
+		"tool_http_get":             {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
+		"tool_html_scraper":         {"scrape", "html", "web", "website", "article", "news", "page", "parse html"},
+		"tool_file_read":            {"read", "file", "load", "open", "readfile", "read file", "content", "text"},
+		"tool_file_write":           {"write", "file", "save", "store", "output", "write file", "save file", "create file"},
+		"tool_ls":                   {"list", "directory", "dir", "files", "ls", "list files", "directory listing"},
+		"tool_exec":                 {"exec", "execute", "command", "shell", "run", "cmd", "system", "bash", "sh"},
+		"tool_codegen":              {"generate", "code", "create", "write code", "generate code", "program", "script"},
+		"tool_json_parse":           {"json", "parse", "parse json", "decode", "unmarshal"},
+		"tool_text_search":          {"search", "find", "text", "pattern", "match", "grep", "filter"},
+		"tool_docker_list":          {"docker", "container", "image", "list docker", "docker list"},
+		"tool_docker_build":         {"docker build", "build image", "dockerfile", "container build"},
+		"tool_docker_exec":          {"docker exec", "run docker", "execute docker", "container exec"},
+	}
+
+	// First pass: include tools that match keywords
+	for _, tool := range tools {
+		if seen[tool.ID] {
+			continue
+		}
+
+		matched := false
+		for toolID, keywords := range toolKeywords {
+			if tool.ID == toolID {
+				for _, keyword := range keywords {
+					if strings.Contains(inputLower, keyword) {
+						relevant = append(relevant, tool)
+						seen[tool.ID] = true
+						matched = true
+						break
+					}
+				}
+				if matched {
+					break
+				}
+			}
+		}
+
+		if matched {
+			continue
+		}
+
+		// Check if tool ID is explicitly mentioned
+		if strings.Contains(inputLower, strings.ToLower(tool.ID)) {
+			relevant = append(relevant, tool)
+			seen[tool.ID] = true
+			continue
+		}
+
+		// Check tool description/name for keyword matches
+		toolDesc := strings.ToLower(tool.Description + " " + tool.Name)
+		for _, keyword := range commonKeywords {
+			if strings.Contains(inputLower, keyword) && strings.Contains(toolDesc, keyword) {
+				relevant = append(relevant, tool)
+				seen[tool.ID] = true
+				break
+			}
+		}
+	}
+
+	// Second pass: Always include commonly useful tools
+	alwaysInclude := []string{
+		"mcp_query_neo4j", // Very commonly used for knowledge queries
+		"mcp_get_concept", // Common for concept retrieval
+		"tool_http_get",   // Very commonly used
+		"tool_file_read",  // Common for file operations
+		"tool_file_write", // Common for saving results
+		"tool_exec",       // Common for system operations
+	}
+
+	for _, toolID := range alwaysInclude {
+		if !seen[toolID] {
+			for _, tool := range tools {
+				if tool.ID == toolID {
+					relevant = append(relevant, tool)
+					seen[tool.ID] = true
+					break
+				}
+			}
+		}
+	}
+
+	// Third pass: Include MCP tools (they're usually relevant for knowledge tasks)
+	for _, tool := range tools {
+		if !seen[tool.ID] && strings.HasPrefix(tool.ID, "mcp_") {
+			relevant = append(relevant, tool)
+			seen[tool.ID] = true
+		}
+	}
+
+	// Fourth pass: Deduplicate similar auto-created tools (keep only one per similar description)
+	// This reduces prompt size by removing redundant tool_python_util_* tools with similar purposes
+	type toolGroup struct {
+		tools []Tool
+		best  Tool
+	}
+	groups := make(map[string]*toolGroup)
+	
+	for _, tool := range relevant {
+		// For auto-created utility tools, group by description similarity
+		if strings.HasPrefix(tool.ID, "tool_python_util_") || strings.HasPrefix(tool.ID, "tool_go_util_") {
+			// Create a normalized key from description (first meaningful words)
+			descKey := strings.ToLower(tool.Description)
+			// Remove specific IDs/numbers to group similar tools
+			descKey = strings.ReplaceAll(descKey, "test_event_", "")
+			// Extract first 5 words as key
+			words := strings.Fields(descKey)
+			if len(words) > 5 {
+				descKey = strings.Join(words[:5], " ")
+			} else if len(words) > 0 {
+				descKey = strings.Join(words, " ")
+			}
+			
+			if group, exists := groups[descKey]; exists {
+				group.tools = append(group.tools, tool)
+				// Keep the first one (they're similar anyway)
+			} else {
+				groups[descKey] = &toolGroup{
+					tools: []Tool{tool},
+					best:  tool,
+				}
+			}
+		}
+	}
+	
+	// Replace similar tools with just one from each group
+	if len(groups) > 0 {
+		newRelevant := make([]Tool, 0, len(relevant))
+		seenInGroups := make(map[string]bool)
+		
+		for _, tool := range relevant {
+			if strings.HasPrefix(tool.ID, "tool_python_util_") || strings.HasPrefix(tool.ID, "tool_go_util_") {
+				descKey := strings.ToLower(tool.Description)
+				descKey = strings.ReplaceAll(descKey, "test_event_", "")
+				words := strings.Fields(descKey)
+				if len(words) > 5 {
+					descKey = strings.Join(words[:5], " ")
+				} else if len(words) > 0 {
+					descKey = strings.Join(words, " ")
+				}
+				
+				if group, exists := groups[descKey]; exists {
+					if !seenInGroups[descKey] {
+						// Add only the first tool from this group
+						newRelevant = append(newRelevant, group.best)
+						seenInGroups[descKey] = true
+					}
+					// Skip other tools in the same group
+					continue
+				}
+			}
+			// Keep non-grouped tools
+			newRelevant = append(newRelevant, tool)
+		}
+		relevant = newRelevant
+	}
+
+	// If we still have too many tools, limit to top 20 most relevant
+	if len(relevant) > 20 {
+		// Score tools by relevance
+		type scoredTool struct {
+			tool  Tool
+			score int
+		}
+		scored := make([]scoredTool, len(relevant))
+		for i, tool := range relevant {
+			score := 0
+			toolDesc := strings.ToLower(tool.Description + " " + tool.Name + " " + tool.ID)
+
+			// Higher score for exact matches
+			if strings.Contains(inputLower, strings.ToLower(tool.ID)) {
+				score += 10
+			}
+
+			// Score based on keyword matches in description
+			for _, keyword := range commonKeywords {
+				if strings.Contains(inputLower, keyword) && strings.Contains(toolDesc, keyword) {
+					score += 5
+				}
+			}
+
+			// Prefer MCP tools for knowledge-related tasks
+			if strings.HasPrefix(tool.ID, "mcp_") && (strings.Contains(inputLower, "query") || strings.Contains(inputLower, "knowledge") || strings.Contains(inputLower, "neo4j")) {
+				score += 3
+			}
+
+			scored[i] = scoredTool{tool: tool, score: score}
+		}
+
+		// Sort by score (descending) and take top 20
+		for i := 0; i < len(scored)-1; i++ {
+			for j := i + 1; j < len(scored); j++ {
+				if scored[i].score < scored[j].score {
+					scored[i], scored[j] = scored[j], scored[i]
+				}
+			}
+		}
+
+		relevant = make([]Tool, 20)
+		for i := 0; i < 20 && i < len(scored); i++ {
+			relevant[i] = scored[i].tool
+		}
+	}
+
+	return relevant
 }
 
 // buildToolAwarePrompt creates a prompt that includes available tools
@@ -159,7 +387,7 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 				prompt.WriteString(fmt.Sprintf("    - %s (%s): required\n", paramName, paramType))
 			}
 		}
-		
+
 		// For code-based tools, include a code snippet so LLM knows what it does
 		if tool.Exec != nil && tool.Exec.Type == "code" && tool.Exec.Code != "" {
 			codePreview := tool.Exec.Code
@@ -167,13 +395,13 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 			if language == "" {
 				language = "python" // default
 			}
-			// Limit code preview to first 500 chars to avoid overwhelming the prompt
-			if len(codePreview) > 500 {
-				codePreview = codePreview[:500] + "..."
+			// Limit code preview to first 200 chars to avoid overwhelming the prompt
+			if len(codePreview) > 200 {
+				codePreview = codePreview[:200] + "..."
 			}
 			prompt.WriteString(fmt.Sprintf("  Code (%s):\n    %s\n", language, strings.ReplaceAll(codePreview, "\n", "\n    ")))
 		}
-		
+
 		prompt.WriteString("\n")
 	}
 
@@ -271,8 +499,8 @@ type ToolExecSpec struct {
 	Type     string   `json:"type"`               // "cmd", "image", or "code"
 	Cmd      string   `json:"cmd"`                // for Type=="cmd": absolute path inside container
 	Args     []string `json:"args"`               // for Type=="cmd": command arguments
-	Image    string   `json:"image,omitempty"`   // for Type=="image": docker image reference
-	Code     string   `json:"code,omitempty"`    // for Type=="code": code to execute
+	Image    string   `json:"image,omitempty"`    // for Type=="image": docker image reference
+	Code     string   `json:"code,omitempty"`     // for Type=="code": code to execute
 	Language string   `json:"language,omitempty"` // for Type=="code": programming language
 }
 

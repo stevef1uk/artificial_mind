@@ -20,7 +20,8 @@ REQUEST='{
     "artifacts_wrapper": "true",
     "artifact_names": "prog1.py,prog2.go"
   },
-  "language": "python"
+  "language": "python",
+  "priority": "high"
 }'
 
 echo "Sending request..."
