@@ -2657,7 +2657,7 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 		req.Context["allow_requests"] = "true"
 		log.Printf("🔓 [VALIDATION] Allowing HTTP requests for hypothesis testing task")
 	}
-	
+
 	// Also check if context already has hypothesis_testing flag set
 	if req.Context != nil {
 		if v, ok := req.Context["hypothesis_testing"]; ok && (strings.EqualFold(strings.TrimSpace(v), "true") || strings.TrimSpace(v) == "1") {
@@ -2714,7 +2714,7 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 	useSSH := !forceDocker && (executionMethod == "ssh" || (executionMethod == "" && (runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64" || os.Getenv("ENABLE_ARM64_TOOLS") == "true")))
 
 	// Pass HDN_URL to validation environment so generated code can call tool APIs if needed
-	// IMPORTANT: Use host.docker.internal for Docker, but keep localhost/service DNS for SSH
+	// IMPORTANT: Use host.docker.internal for Docker, but use Kubernetes service DNS for SSH
 	var hdnURL string
 	if ie.hdnBaseURL != "" {
 		hdnURL = ie.hdnBaseURL
@@ -2725,12 +2725,28 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 	}
 
 	// Only replace localhost with host.docker.internal for Docker execution
-	// For SSH execution, keep localhost or use Kubernetes service DNS if available
+	// For SSH execution, use Kubernetes service DNS if localhost is detected
 	if !useSSH && strings.Contains(hdnURL, "localhost") {
 		hdnURL = strings.Replace(hdnURL, "localhost", "host.docker.internal", -1)
 		log.Printf("🌐 [VALIDATION] Updated HDN_URL for Docker: %s", hdnURL)
 	} else if useSSH {
-		log.Printf("🌐 [VALIDATION] Using HDN_URL for SSH execution: %s", hdnURL)
+		// For SSH execution, if using localhost, try to use Kubernetes service DNS
+		// The SSH host needs to be able to reach the Kubernetes service
+		if strings.Contains(hdnURL, "localhost") {
+			// Try to detect Kubernetes service DNS from environment
+			// Common patterns: hdn-server-rpi58.agi.svc.cluster.local:8080
+			if k8sService := os.Getenv("HDN_K8S_SERVICE"); k8sService != "" {
+				hdnURL = strings.Replace(hdnURL, "localhost:8080", k8sService, -1)
+				log.Printf("🌐 [VALIDATION] Using Kubernetes service DNS for SSH: %s", hdnURL)
+			} else {
+				// Default to Kubernetes service DNS pattern if in Kubernetes
+				// This assumes the SSH host can reach the Kubernetes service
+				hdnURL = strings.Replace(hdnURL, "localhost:8080", "hdn-server-rpi58.agi.svc.cluster.local:8080", -1)
+				log.Printf("🌐 [VALIDATION] Using default Kubernetes service DNS for SSH: %s", hdnURL)
+			}
+		} else {
+			log.Printf("🌐 [VALIDATION] Using HDN_URL for SSH execution: %s", hdnURL)
+		}
 	}
 
 	env["HDN_URL"] = hdnURL
