@@ -197,7 +197,7 @@ metadata:
   name: hdn-server-rpi58
   namespace: agi
 spec:
-  type: ClusterIP
+  type: NodePort
   selector:
     app: hdn-server-rpi58
   ports:
