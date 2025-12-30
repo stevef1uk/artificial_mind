@@ -876,10 +876,37 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 			}
 		}
 
-		// Enhance description to guide code generation (concise to avoid context limit)
+		// Enhance description to guide code generation with explicit instructions for report creation
 		enhancedDesc := fmt.Sprintf(`Test hypothesis: %s
 
-Query Neo4j via POST {hdn_url}/api/v1/knowledge/query with {"query": "CYPHER_QUERY"}. Response: {"results": [...], "count": N}. Check "results" key exists. Use os.getenv('HDN_URL', 'http://localhost:8080'). Extract terms, gather evidence, create markdown report, save as hypothesis_test_report.md.`, hypothesisContent)
+CRITICAL REQUIREMENTS:
+1. Query Neo4j knowledge base using POST to {hdn_url}/api/v1/knowledge/query with JSON body {"query": "CYPHER_QUERY"}
+2. Get HDN_URL from environment: hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')
+3. Extract key terms from the hypothesis and create appropriate Cypher queries
+4. Gather evidence from query results - each result should be documented
+5. Create a COMPLETE markdown report with the following structure:
+   - Title: "# Hypothesis Test Report"
+   - Section: "## Hypothesis" (state the hypothesis being tested)
+   - Section: "## Evidence" (list all evidence found, one item per line with details)
+   - Section: "## Conclusion" (brief summary of findings)
+6. Write the COMPLETE report content to a file named "hypothesis_test_report.md"
+7. The file must contain actual evidence, not just headers - populate the Evidence section with findings from the queries
+
+Example report structure:
+# Hypothesis Test Report
+
+## Hypothesis
+[State the hypothesis here]
+
+## Evidence
+- [Evidence item 1 with details from query results]
+- [Evidence item 2 with details from query results]
+- [Continue listing all evidence found]
+
+## Conclusion
+[Summary of findings]
+
+IMPORTANT: The file must be COMPLETE with actual content, not just empty sections!`, hypothesisContent)
 
 		req.Description = enhancedDesc
 		req.TaskName = fmt.Sprintf("Test hypothesis: %s", hypothesisContent)
