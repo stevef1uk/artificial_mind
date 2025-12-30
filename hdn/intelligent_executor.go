@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -2047,13 +2048,47 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	}
 	// (removed: normalization for final execution)
 
-	// Skip tool registration and use direct Docker executor for file storage
-	// This avoids the 404 tool errors and uses the working Docker execution system
-	log.Printf("🎯 [INTELLIGENT] Final execution using direct Docker executor for file storage")
-	if finalResult, derr := ie.executeWithSSHTool(ctx, generatedCode.Code, req.Language, nil); derr != nil {
+	// Final execution: Use SSH executor and extract files if artifacts are needed
+	log.Printf("🎯 [INTELLIGENT] Final execution using SSH executor")
+	if finalResult, derr := ie.executeWithSSHTool(ctx, generatedCode.Code, req.Language, req.Context); derr != nil {
 		log.Printf("⚠️ [INTELLIGENT] Final execution failed: %v", derr)
 	} else if finalResult.Success {
-		log.Printf("✅ [INTELLIGENT] Final execution successful, files stored")
+		log.Printf("✅ [INTELLIGENT] Final execution successful")
+		// Extract and store files if artifact_names is set
+		if names, ok := req.Context["artifact_names"]; ok && names != "" && ie.fileStorage != nil {
+			parts := strings.Split(names, ",")
+			for _, fname := range parts {
+				fname = strings.TrimSpace(fname)
+				if fname != "" {
+					log.Printf("📁 [INTELLIGENT] Attempting to extract artifact: %s", fname)
+					// Extract file from SSH execution directory
+					if fileContent, err := ie.extractFileFromSSH(ctx, fname, req.Language); err == nil && len(fileContent) > 0 {
+						// Get workflow ID from result or generate one
+						workflowID := ""
+						if finalResult != nil && finalResult.ContainerID != "" {
+							workflowID = finalResult.ContainerID // Reuse container ID as workflow ID
+						}
+						if workflowID == "" {
+							workflowID = fmt.Sprintf("intelligent_%d", time.Now().UnixNano())
+						}
+						// Store the file
+						storedFile := &StoredFile{
+							Filename:  fname,
+							Content:   fileContent,
+							WorkflowID: workflowID,
+							StepID:     "",
+						}
+						if err := ie.fileStorage.StoreFile(storedFile); err != nil {
+							log.Printf("⚠️ [INTELLIGENT] Failed to store artifact %s: %v", fname, err)
+						} else {
+							log.Printf("✅ [INTELLIGENT] Stored artifact: %s (%d bytes)", fname, len(fileContent))
+						}
+					} else {
+						log.Printf("⚠️ [INTELLIGENT] Could not extract artifact %s: %v", fname, err)
+					}
+				}
+			}
+		}
 	} else {
 		log.Printf("⚠️ [INTELLIGENT] Final execution failed: %s", finalResult.Error)
 	}
@@ -5680,4 +5715,74 @@ func (ie *IntelligentExecutor) assessCodeQuality(code *GeneratedCode, retryCount
 	}
 
 	return quality
+}
+
+// extractFileFromSSH extracts a file from the SSH execution host
+// Files are typically created in temp directories or the current working directory
+func (ie *IntelligentExecutor) extractFileFromSSH(ctx context.Context, filename, language string) ([]byte, error) {
+	// Get RPI host from environment
+	rpiHost := os.Getenv("RPI_HOST")
+	if rpiHost == "" {
+		rpiHost = "192.168.1.58" // Default
+	}
+	
+	// Common locations where files might be created
+	searchPaths := []string{
+		"./" + filename,                    // Current directory
+		"/home/pi/" + filename,             // Home directory
+		"/home/pi/.hdn/tmp/" + filename,    // Temp directory
+		"/tmp/" + filename,                 // System temp
+	}
+	
+	// Also check in language-specific temp directories
+	if language == "go" {
+		searchPaths = append(searchPaths, "/home/pi/.hdn/go_tmp_*/"+filename)
+	} else if language == "java" {
+		searchPaths = append(searchPaths, "/home/pi/.hdn/java_tmp_*/"+filename)
+	}
+	
+	// Try to find and read the file
+	for _, path := range searchPaths {
+		// Use find command for glob patterns, cat for regular paths
+		var cmd *exec.Cmd
+		if strings.Contains(path, "*") {
+			// Use find to locate file matching pattern
+			findCmd := fmt.Sprintf("find /home/pi/.hdn -name '%s' -type f 2>/dev/null | head -1 | xargs cat 2>/dev/null", filename)
+			cmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+				"pi@"+rpiHost, "sh", "-c", findCmd)
+		} else {
+			// Direct file read
+			cmd = exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+				"pi@"+rpiHost, "cat", path)
+		}
+		
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		
+		err := cmd.Run()
+		if err == nil && stdout.Len() > 0 {
+			log.Printf("✅ [INTELLIGENT] Extracted file %s from %s (%d bytes)", filename, path, stdout.Len())
+			return stdout.Bytes(), nil
+		}
+	}
+	
+	// If not found in specific paths, try a broader search
+	findCmd := fmt.Sprintf("find /home/pi -name '%s' -type f 2>/dev/null | head -1 | xargs cat 2>/dev/null", filename)
+	cmd := exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+		"pi@"+rpiHost, "sh", "-c", findCmd)
+	
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	
+	err := cmd.Run()
+	if err == nil && stdout.Len() > 0 {
+		log.Printf("✅ [INTELLIGENT] Extracted file %s via find search (%d bytes)", filename, stdout.Len())
+		return stdout.Bytes(), nil
+	}
+	
+	return nil, fmt.Errorf("file %s not found on SSH host", filename)
 }
