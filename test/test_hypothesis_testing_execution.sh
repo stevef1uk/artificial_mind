@@ -220,7 +220,17 @@ for i in {1..36}; do
             
             # Try to extract workflow ID from HDN logs (improved pattern matching)
             if [ -z "$WORKFLOW_ID" ] || [ "$WORKFLOW_ID" = "N/A" ]; then
-                WF_FROM_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=1000 --since=10m 2>/dev/null | grep -i "test_event_${TEST_TIMESTAMP}\|goal_id.*${GOAL_ID}" | grep -oE "intelligent_[0-9]+" | head -1 || echo "")
+                # Try multiple patterns to find workflow ID
+                WF_FROM_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=2000 --since=10m 2>/dev/null | grep -i "test_event_${TEST_TIMESTAMP}\|goal_id.*${GOAL_ID}\|PLANNER-INTEGRATION.*workflow ID\|Planning task.*test_event_${TEST_TIMESTAMP}" | grep -oE "intelligent_[0-9]+" | head -1 || echo "")
+                if [ -z "$WF_FROM_LOGS" ]; then
+                    # Try finding by goal ID in workflow records
+                    if [ -n "$GOAL_ID" ] && [ -n "$REDIS_POD" ]; then
+                        WF_FROM_REDIS=$(kubectl exec -n "$NAMESPACE" "$REDIS_POD" -- redis-cli GET "goal:${GOAL_ID}" 2>/dev/null | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('workflow_id', ''))" 2>/dev/null || echo "")
+                        if [ -n "$WF_FROM_REDIS" ] && [ "$WF_FROM_REDIS" != "None" ]; then
+                            WF_FROM_LOGS="$WF_FROM_REDIS"
+                        fi
+                    fi
+                fi
                 if [ -n "$WF_FROM_LOGS" ]; then
                     WORKFLOW_ID="$WF_FROM_LOGS"
                     echo -e "   ${GREEN}✅ Extracted workflow ID from logs: $WORKFLOW_ID${NC}"
