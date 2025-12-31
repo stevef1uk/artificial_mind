@@ -904,45 +904,115 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 		enhancedDesc := fmt.Sprintf(`Test hypothesis: %s
 
 REQUIREMENTS:
-1. TERM EXTRACTION: Extract meaningful terms (event names like "test_event_XYZ", domain names like "General domain", key concepts like "insights", "explore"). Skip stop words.
+1. TERM EXTRACTION: Extract COMPLETE phrases, not individual words:
+   - Event names: re.findall(r'test_event_\\w+_\\w+', hypothesis)  # Gets "test_event_XYZ_unique"
+   - Domain names: re.findall(r'(\\w+)\\s+domain', hypothesis, re.IGNORECASE)  # Gets "General" from "General domain"
+   - DO NOT extract individual words like "explore", "insights" - these are too generic
 
 2. NEO4J QUERIES: POST to {hdn_url}/api/v1/knowledge/query with {"query": "CYPHER_QUERY"}
    - hdn_url = os.getenv('HDN_URL', 'http://hdn-server-rpi58.agi.svc.cluster.local:30257')
    - CRITICAL: Use RETURN c.name AS name, c.description AS description (NOT RETURN c)
-   - Access results via result['name'] and result['description'] (NOT result['c'])
+   - Access: result.get('name', 'Unknown'), result.get('description', 'No description available')
 
-3. MULTI-STRATEGY SEARCH: For each term, try:
-   a) MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('{term}') RETURN c.name AS name, c.description AS description LIMIT 10
-   b) If no results, try: MATCH (c:Concept) WHERE toLower(c.description) CONTAINS toLower('{term}') ...
-   c) If still no results and term contains "domain", search for domain name alone
+3. MULTI-STRATEGY SEARCH: For EACH term independently:
+   a) Try name match first
+   b) If no results for THIS term, try description match for THIS term
+   c) If term contains "domain", extract domain name (e.g., "General" from "General domain") and search for that
 
 4. REPORT: Write to "hypothesis_test_report.md" with structure:
    # Hypothesis Test Report
    ## Hypothesis
    %s
    ## Evidence
-   - **name**: description (for each result found)
+   - **name**: description or "No description available" (for each unique result)
    ## Conclusion
-   Summary of findings or "No evidence found for terms: [list terms]"
+   Summary or "No evidence found for terms: [list]"
 
-EXAMPLE STRUCTURE:
+CRITICAL CODE STRUCTURE:
 import requests, os, re
 hdn_url = os.getenv('HDN_URL', 'http://hdn-server-rpi58.agi.svc.cluster.local:30257')
 hypothesis = "%s"
 
-# Extract: event patterns (test_event_\\w+), domain names (\\w+ domain), key concepts (insights, explore, etc.)
-terms = list(set([...extracted terms...]))  # Remove duplicates
+# Extract terms properly
+terms = []
+# Extract event names (complete pattern)
+terms.extend(re.findall(r'test_event_\\w+_\\w+', hypothesis))
+# Extract domain names (get just the domain word, not "domain")
+domain_matches = re.findall(r'(\\w+)\\s+domain', hypothesis, re.IGNORECASE)
+terms.extend([m[0] + ' domain' if isinstance(m, tuple) else m + ' domain' for m in domain_matches])
+terms = list(set(terms))  # Remove duplicates
 
 all_evidence = []
+seen = set()  # For deduplication
+
 for term in terms:
     escaped = term.replace("'", "\\\\'")
-    # Try name match, then description match, then broader domain search if needed
-    # Access: result['name'], result['description']
-    # Deduplicate evidence
+    term_evidence = []  # Evidence for THIS term only
+    
+    # Strategy 1: Name match
+    query1 = f"MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('{escaped}') RETURN c.name AS name, c.description AS description LIMIT 10"
+    try:
+        r = requests.post(f'{hdn_url}/api/v1/knowledge/query', json={'query': query1}, timeout=10)
+        r.raise_for_status()
+        for result in r.json().get('results', []):
+            name = result.get('name', 'Unknown')
+            desc = result.get('description') or 'No description available'
+            key = f"{name}:{desc[:50]}"
+            if key not in seen:
+                seen.add(key)
+                term_evidence.append((name, desc))
+    except: pass
+    
+    # Strategy 2: Description match (only if no results for THIS term)
+    if not term_evidence:
+        query2 = f"MATCH (c:Concept) WHERE toLower(c.description) CONTAINS toLower('{escaped}') RETURN c.name AS name, c.description AS description LIMIT 10"
+        try:
+            r = requests.post(f'{hdn_url}/api/v1/knowledge/query', json={'query': query2}, timeout=10)
+            r.raise_for_status()
+            for result in r.json().get('results', []):
+                name = result.get('name', 'Unknown')
+                desc = result.get('description') or 'No description available'
+                key = f"{name}:{desc[:50]}"
+                if key not in seen:
+                    seen.add(key)
+                    term_evidence.append((name, desc))
+        except: pass
+    
+    # Strategy 3: Domain-only search (if term contains "domain" and still no results)
+    if not term_evidence and 'domain' in term.lower():
+        domain_name = term.replace(' domain', '').replace('Domain', '').strip()
+        if domain_name:
+            escaped_domain = domain_name.replace("'", "\\\\'")
+            query3 = f"MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('{escaped_domain}') OR toLower(c.description) CONTAINS toLower('{escaped_domain}') RETURN c.name AS name, c.description AS description LIMIT 20"
+            try:
+                r = requests.post(f'{hdn_url}/api/v1/knowledge/query', json={'query': query3}, timeout=10)
+                r.raise_for_status()
+                for result in r.json().get('results', []):
+                    name = result.get('name', 'Unknown')
+                    desc = result.get('description') or 'No description available'
+                    key = f"{name}:{desc[:50]}"
+                    if key not in seen:
+                        seen.add(key)
+                        term_evidence.append((name, desc))
+            except: pass
+    
+    all_evidence.extend(term_evidence)
 
+# Generate report
 report = f"# Hypothesis Test Report\\n\\n## Hypothesis\\n{hypothesis}\\n\\n## Evidence\\n"
-# Add evidence or "No evidence found for terms: {terms}"
-report += f"\\n## Conclusion\\n[Summary]"
+if all_evidence:
+    for name, desc in all_evidence:
+        report += f"- **{name}**: {desc}\\n"
+else:
+    report += f"- No evidence found for any extracted terms.\\n"
+    report += f"- Extracted terms: {', '.join(terms) if terms else 'none'}\\n"
+
+report += f"\\n## Conclusion\\n"
+if all_evidence:
+    report += f"Found {len(all_evidence)} concept(s) related to the hypothesis."
+else:
+    report += f"No evidence found for terms: {', '.join(terms) if terms else 'none'}"
+
 with open('hypothesis_test_report.md', 'w') as f:
     f.write(report)`, hypothesisContent, hypothesisContent, hypothesisContent)
 
