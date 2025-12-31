@@ -903,108 +903,48 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 		// Enhance description to guide code generation with explicit instructions for report creation
 		enhancedDesc := fmt.Sprintf(`Test hypothesis: %s
 
-🚨🚨🚨 CRITICAL REQUIREMENTS - READ CAREFULLY 🚨🚨🚨
+REQUIREMENTS:
+1. TERM EXTRACTION: Extract meaningful terms (event names like "test_event_XYZ", domain names like "General domain", key concepts like "insights", "explore"). Skip stop words.
 
-STEP 1 - TERM EXTRACTION:
-- Extract MEANINGFUL terms from the hypothesis text, NOT individual words
-- Look for: event names (e.g., "test_event_1767122089_unique"), domain names (e.g., "General domain"), concept names
-- DO NOT split the hypothesis into individual words - extract complete phrases and meaningful terms
-- Example: From "If we explore test_event_XYZ further, we can discover new insights about General domain"
-  - Extract: "test_event_XYZ", "General domain", "insights", "explore"
-  - DO NOT extract: "If", "we", "can", "discover", "new", "about" (these are stop words)
+2. NEO4J QUERIES: POST to {hdn_url}/api/v1/knowledge/query with {"query": "CYPHER_QUERY"}
+   - hdn_url = os.getenv('HDN_URL', 'http://hdn-server-rpi58.agi.svc.cluster.local:30257')
+   - CRITICAL: Use RETURN c.name AS name, c.description AS description (NOT RETURN c)
+   - Access results via result['name'] and result['description'] (NOT result['c'])
 
-STEP 2 - CYPHER QUERIES:
-- Query Neo4j using: POST {hdn_url}/api/v1/knowledge/query with JSON body {"query": "CYPHER_QUERY"}
-- Get HDN_URL: hdn_url = os.getenv('HDN_URL', 'http://hdn-server-rpi58.agi.svc.cluster.local:30257')
-- 🚨 CRITICAL: Use EXPLICIT property returns: RETURN c.name AS name, c.description AS description
-- 🚨 DO NOT use RETURN c (this returns a node object that's hard to access)
-- For each extracted term, create a query like:
-  MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('EXTRACTED_TERM') RETURN c.name AS name, c.description AS description LIMIT 10
+3. MULTI-STRATEGY SEARCH: For each term, try:
+   a) MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('{term}') RETURN c.name AS name, c.description AS description LIMIT 10
+   b) If no results, try: MATCH (c:Concept) WHERE toLower(c.description) CONTAINS toLower('{term}') ...
+   c) If still no results and term contains "domain", search for domain name alone
 
-STEP 3 - RESULT ACCESS:
-- After response.json(), access results via: result['name'] and result['description']
-- 🚨 DO NOT use result['c']['name'] or result['c'] - these will fail!
-- Example code:
-  data = response.json()
-  results = data.get('results', [])
-  for result in results:
-      name = result.get('name', 'Unknown')
-      desc = result.get('description', 'No description')
-      # Use name and desc, NOT result['c']
+4. REPORT: Write to "hypothesis_test_report.md" with structure:
+   # Hypothesis Test Report
+   ## Hypothesis
+   %s
+   ## Evidence
+   - **name**: description (for each result found)
+   ## Conclusion
+   Summary of findings or "No evidence found for terms: [list terms]"
 
-STEP 4 - REPORT GENERATION:
-- Create a COMPLETE markdown report with EXACT structure:
-  # Hypothesis Test Report
-  
-  ## Hypothesis
-  %s
-  
-  ## Evidence
-  - [For each result: **name**: description or "No description available"]
-  - [Continue listing ALL evidence found]
-  
-  ## Conclusion
-  [Summary: "Found X concepts related to [terms]" OR "No evidence found for any terms"]
-- Write to file: "hypothesis_test_report.md"
-- 🚨 The Evidence section MUST contain actual findings, not just "None" values!
-
-STEP 5 - COMPLETE EXAMPLE CODE STRUCTURE:
-Python code example (follow this structure exactly):
-import requests
-import os
-import re
-
+EXAMPLE STRUCTURE:
+import requests, os, re
 hdn_url = os.getenv('HDN_URL', 'http://hdn-server-rpi58.agi.svc.cluster.local:30257')
 hypothesis = "%s"
 
-# Extract meaningful terms (not individual words)
-# Look for phrases, event names, domain names
-terms = []
-# Extract "test_event_XYZ" pattern
-event_matches = re.findall(r'test_event_\w+', hypothesis)
-terms.extend(event_matches)
-# Extract domain names
-if 'domain' in hypothesis.lower():
-    domain_match = re.search(r'(\w+)\s+domain', hypothesis, re.IGNORECASE)
-    if domain_match:
-        terms.append(domain_match.group(1) + ' domain')
-# Add other meaningful terms...
+# Extract: event patterns (test_event_\\w+), domain names (\\w+ domain), key concepts (insights, explore, etc.)
+terms = list(set([...extracted terms...]))  # Remove duplicates
 
-# Query for each term
 all_evidence = []
 for term in terms:
-    query = f"MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('{term}') RETURN c.name AS name, c.description AS description LIMIT 10"
-    response = requests.post(f'{hdn_url}/api/v1/knowledge/query', json={'query': query})
-    response.raise_for_status()
-    data = response.json()
-    results = data.get('results', [])
-    for result in results:
-        name = result.get('name', 'Unknown')
-        desc = result.get('description', 'No description available')
-        all_evidence.append(f"**{name}**: {desc}")
+    escaped = term.replace("'", "\\\\'")
+    # Try name match, then description match, then broader domain search if needed
+    # Access: result['name'], result['description']
+    # Deduplicate evidence
 
-# Generate report
-report = f"# Hypothesis Test Report\n\n## Hypothesis\n{hypothesis}\n\n## Evidence\n"
-if all_evidence:
-    for evidence in all_evidence:
-        report += f"- {evidence}\n"
-else:
-    report += "- No evidence found for any extracted terms.\n"
-
-report += f"\n## Conclusion\n"
-if all_evidence:
-    report += f"Found {len(all_evidence)} pieces of evidence related to the hypothesis."
-else:
-    report += "No evidence found for any terms extracted from the hypothesis."
-
+report = f"# Hypothesis Test Report\\n\\n## Hypothesis\\n{hypothesis}\\n\\n## Evidence\\n"
+# Add evidence or "No evidence found for terms: {terms}"
+report += f"\\n## Conclusion\\n[Summary]"
 with open('hypothesis_test_report.md', 'w') as f:
-    f.write(report)
-
-🚨 FINAL REMINDERS:
-- Extract MEANINGFUL terms, NOT individual words
-- Use RETURN c.name AS name, c.description AS description (NOT RETURN c)
-- Access results via result['name'] and result['description'] (NOT result['c'])
-- Populate Evidence section with actual findings, not "None"`, hypothesisContent, hypothesisContent, hypothesisContent)
+    f.write(report)`, hypothesisContent, hypothesisContent, hypothesisContent)
 
 		req.Description = enhancedDesc
 		req.TaskName = fmt.Sprintf("Test hypothesis: %s", hypothesisContent)
@@ -2605,7 +2545,7 @@ func (ie *IntelligentExecutor) findCompatibleCachedCode(req *ExecutionRequest) (
 		isCurrentTaskHypothesis := strings.HasPrefix(reqTaskLower, "test hypothesis:") ||
 			strings.HasPrefix(reqDescLower, "test hypothesis:") ||
 			(req.Context != nil && req.Context["hypothesis_testing"] == "true")
-		
+
 		cachedTaskNameLower := strings.ToLower(result.Code.TaskName)
 		cachedDescLower := ""
 		if result.Code.Description != "" {
@@ -2613,14 +2553,14 @@ func (ie *IntelligentExecutor) findCompatibleCachedCode(req *ExecutionRequest) (
 		}
 		cachedIsHypothesis := strings.HasPrefix(cachedTaskNameLower, "test hypothesis:") ||
 			strings.HasPrefix(cachedDescLower, "test hypothesis:")
-		
+
 		hasHypothesisPatterns := strings.Contains(codeLower, "hypothesis_test_report") ||
 			strings.Contains(codeLower, "hypothesis = \"") ||
 			(strings.Contains(codeLower, "test hypothesis:") && strings.Contains(codeLower, "extract meaningful terms")) ||
 			strings.Contains(codeLower, "hypothesis test report") ||
 			strings.Contains(codeLower, "hypothesis = \"if we apply insights") ||
 			strings.Contains(codeLower, "system state: learn")
-		
+
 		// If cached code is for hypothesis testing but current task is not, reject it
 		if !isCurrentTaskHypothesis && (cachedIsHypothesis || hasHypothesisPatterns) {
 			log.Printf("🚫 [INTELLIGENT] Rejecting cached code (ID: %s, Task: %s) - cached code is for hypothesis testing but current task is not", result.Code.ID, result.Code.TaskName)
