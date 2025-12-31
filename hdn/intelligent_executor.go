@@ -984,7 +984,7 @@ with open('hypothesis_test_report.md', 'w') as f:
 
 		req.Description = enhancedDesc
 		req.TaskName = fmt.Sprintf("Test hypothesis: %s", hypothesisContent)
-		
+
 		// Log the enhanced description to verify it's being set
 		log.Printf("🧪 [INTELLIGENT] Enhanced description length: %d chars", len(enhancedDesc))
 		if len(enhancedDesc) > 500 {
@@ -1793,7 +1793,7 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	descLowerKB := strings.ToLower(req.Description)
 	taskLowerKB := strings.ToLower(req.TaskName)
 	combinedLower := descLowerKB + " " + taskLowerKB
-	
+
 	// Check for various patterns that indicate API/knowledge base queries
 	needsRequests := strings.Contains(descLowerKB, "query neo4j") || strings.Contains(taskLowerKB, "query neo4j") ||
 		strings.Contains(descLowerKB, "query knowledge base") || strings.Contains(taskLowerKB, "query knowledge base") ||
@@ -1810,7 +1810,7 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		strings.Contains(descLowerKB, "make request") || strings.Contains(taskLowerKB, "make request") ||
 		strings.Contains(descLowerKB, "fetch data") || strings.Contains(taskLowerKB, "fetch data") ||
 		strings.Contains(descLowerKB, "retrieve data") || strings.Contains(taskLowerKB, "retrieve data")
-	
+
 	if needsRequests {
 		if req.Context == nil {
 			req.Context = make(map[string]string)
@@ -2145,33 +2145,38 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	}
 
 	// Only replace localhost with host.docker.internal for Docker execution
-	// For SSH execution, use Kubernetes service DNS if localhost is detected
+	// For SSH execution, use Kubernetes service DNS and NodePort if available
 	if !useSSH && strings.Contains(toolAPIURL, "localhost") {
 		toolAPIURL = strings.Replace(toolAPIURL, "localhost", "host.docker.internal", -1)
 		log.Printf("🌐 [INTELLIGENT] Updated ToolAPIURL for Docker: %s", toolAPIURL)
 	} else if useSSH {
-		// For SSH execution, if using localhost, try to use Kubernetes service DNS
-		// The SSH host needs to be able to reach the Kubernetes service
-		if strings.Contains(toolAPIURL, "localhost") {
+		// For SSH execution, always check for NodePort if set
+		// The SSH host needs to be able to reach the Kubernetes service via NodePort
+		nodePort := os.Getenv("HDN_NODEPORT")
+		if nodePort != "" {
+			// If NodePort is set, always use it for SSH execution (even if URL already has service DNS)
+			// Replace any port in the URL with the NodePort
+			if strings.Contains(toolAPIURL, "hdn-server-rpi58.agi.svc.cluster.local") {
+				// Already using service DNS, just update the port
+				toolAPIURL = fmt.Sprintf("http://hdn-server-rpi58.agi.svc.cluster.local:%s", nodePort)
+			} else if strings.Contains(toolAPIURL, "localhost") {
+				// Using localhost, replace with service DNS and NodePort
+				toolAPIURL = fmt.Sprintf("http://hdn-server-rpi58.agi.svc.cluster.local:%s", nodePort)
+			} else {
+				// Some other URL, try to replace port 8080 with NodePort
+				toolAPIURL = strings.Replace(toolAPIURL, ":8080", fmt.Sprintf(":%s", nodePort), -1)
+			}
+			log.Printf("🌐 [INTELLIGENT] Using NodePort %s with service DNS for SSH (resolves to node IP via /etc/hosts): %s", nodePort, toolAPIURL)
+		} else if strings.Contains(toolAPIURL, "localhost") {
+			// No NodePort, but using localhost - try to use Kubernetes service DNS
 			// Try to detect Kubernetes service DNS from environment
-			// Common patterns: hdn-server-rpi58.agi.svc.cluster.local:8080
 			if k8sService := os.Getenv("HDN_K8S_SERVICE"); k8sService != "" {
 				toolAPIURL = strings.Replace(toolAPIURL, "localhost:8080", k8sService, -1)
 				log.Printf("🌐 [INTELLIGENT] Using Kubernetes service DNS for SSH: %s", toolAPIURL)
 			} else {
-				// Check for NodePort - if HDN_NODEPORT is set, use it
-				// For NodePort, use the service DNS (which resolves to node IP via /etc/hosts)
-				nodePort := os.Getenv("HDN_NODEPORT")
-				if nodePort != "" {
-					// For NodePort, use service DNS which should resolve to node IP via /etc/hosts
-					// The DNS entry maps hdn-server-rpi58.agi.svc.cluster.local to the node IP
-					toolAPIURL = fmt.Sprintf("http://hdn-server-rpi58.agi.svc.cluster.local:%s", nodePort)
-					log.Printf("🌐 [INTELLIGENT] Using NodePort %s with service DNS for SSH (resolves to node IP via /etc/hosts): %s", nodePort, toolAPIURL)
-				} else {
-					// No NodePort, use service DNS with default port 8080 (ClusterIP)
-					toolAPIURL = strings.Replace(toolAPIURL, "localhost:8080", "hdn-server-rpi58.agi.svc.cluster.local:8080", -1)
-					log.Printf("🌐 [INTELLIGENT] Using Kubernetes service DNS (ClusterIP) for SSH: %s", toolAPIURL)
-				}
+				// No NodePort, use service DNS with default port 8080 (ClusterIP)
+				toolAPIURL = strings.Replace(toolAPIURL, "localhost:8080", "hdn-server-rpi58.agi.svc.cluster.local:8080", -1)
+				log.Printf("🌐 [INTELLIGENT] Using Kubernetes service DNS (ClusterIP) for SSH: %s", toolAPIURL)
 			}
 		} else {
 			log.Printf("🌐 [INTELLIGENT] Using ToolAPIURL for SSH execution: %s", toolAPIURL)
@@ -2323,15 +2328,15 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 				fname = strings.TrimSpace(fname)
 				if fname != "" {
 					log.Printf("📁 [INTELLIGENT] Attempting to extract artifact: %s", fname)
-									// Extract file from SSH execution directory
-									if fileContent, err := ie.extractFileFromSSH(ctx, fname, req.Language); err == nil && len(fileContent) > 0 {
-										// Use the fileStorageWorkflowID (already normalized to intelligent_*)
-										artifactWorkflowID := fileStorageWorkflowID
-										if artifactWorkflowID == "" {
-											artifactWorkflowID = fmt.Sprintf("intelligent_%d", time.Now().UnixNano())
-										} else if !strings.HasPrefix(artifactWorkflowID, "intelligent_") {
-											artifactWorkflowID = fmt.Sprintf("intelligent_%s", artifactWorkflowID)
-										}
+					// Extract file from SSH execution directory
+					if fileContent, err := ie.extractFileFromSSH(ctx, fname, req.Language); err == nil && len(fileContent) > 0 {
+						// Use the fileStorageWorkflowID (already normalized to intelligent_*)
+						artifactWorkflowID := fileStorageWorkflowID
+						if artifactWorkflowID == "" {
+							artifactWorkflowID = fmt.Sprintf("intelligent_%d", time.Now().UnixNano())
+						} else if !strings.HasPrefix(artifactWorkflowID, "intelligent_") {
+							artifactWorkflowID = fmt.Sprintf("intelligent_%s", artifactWorkflowID)
+						}
 						// Store the file
 						// Determine content type
 						contentType := "application/octet-stream"
@@ -3029,28 +3034,33 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 		hdnURL = strings.Replace(hdnURL, "localhost", "host.docker.internal", -1)
 		log.Printf("🌐 [VALIDATION] Updated HDN_URL for Docker: %s", hdnURL)
 	} else if useSSH {
-		// For SSH execution, if using localhost, try to use Kubernetes service DNS
-		// The SSH host needs to be able to reach the Kubernetes service
-		if strings.Contains(hdnURL, "localhost") {
+		// For SSH execution, check if we need to use NodePort
+		// The SSH host needs to be able to reach the Kubernetes service via NodePort
+		nodePort := os.Getenv("HDN_NODEPORT")
+		if nodePort != "" {
+			// If NodePort is set, always use it for SSH execution (even if URL already has service DNS)
+			// Replace any port in the URL with the NodePort
+			if strings.Contains(hdnURL, "hdn-server-rpi58.agi.svc.cluster.local") {
+				// Already using service DNS, just update the port
+				hdnURL = fmt.Sprintf("http://hdn-server-rpi58.agi.svc.cluster.local:%s", nodePort)
+			} else if strings.Contains(hdnURL, "localhost") {
+				// Using localhost, replace with service DNS and NodePort
+				hdnURL = fmt.Sprintf("http://hdn-server-rpi58.agi.svc.cluster.local:%s", nodePort)
+			} else {
+				// Some other URL, try to replace port 8080 with NodePort
+				hdnURL = strings.Replace(hdnURL, ":8080", fmt.Sprintf(":%s", nodePort), -1)
+			}
+			log.Printf("🌐 [VALIDATION] Using NodePort %s with service DNS for SSH (resolves to node IP via /etc/hosts): %s", nodePort, hdnURL)
+		} else if strings.Contains(hdnURL, "localhost") {
+			// No NodePort, but using localhost - try to use Kubernetes service DNS
 			// Try to detect Kubernetes service DNS from environment
-			// Common patterns: hdn-server-rpi58.agi.svc.cluster.local:8080
 			if k8sService := os.Getenv("HDN_K8S_SERVICE"); k8sService != "" {
 				hdnURL = strings.Replace(hdnURL, "localhost:8080", k8sService, -1)
 				log.Printf("🌐 [VALIDATION] Using Kubernetes service DNS for SSH: %s", hdnURL)
 			} else {
-				// Check for NodePort - if HDN_NODEPORT is set, use it with the node IP
-				// For NodePort access from outside cluster, use node IP, not service DNS
-				nodePort := os.Getenv("HDN_NODEPORT")
-				if nodePort != "" {
-					// For NodePort, use service DNS which should resolve to node IP via /etc/hosts
-					// The DNS entry maps hdn-server-rpi58.agi.svc.cluster.local to the node IP
-					hdnURL = fmt.Sprintf("http://hdn-server-rpi58.agi.svc.cluster.local:%s", nodePort)
-					log.Printf("🌐 [VALIDATION] Using NodePort %s with service DNS for SSH (resolves to node IP via /etc/hosts): %s", nodePort, hdnURL)
-				} else {
-					// No NodePort, use service DNS with default port 8080 (ClusterIP)
-					hdnURL = strings.Replace(hdnURL, "localhost:8080", "hdn-server-rpi58.agi.svc.cluster.local:8080", -1)
-					log.Printf("🌐 [VALIDATION] Using Kubernetes service DNS (ClusterIP) for SSH: %s", hdnURL)
-				}
+				// No NodePort, use service DNS with default port 8080 (ClusterIP)
+				hdnURL = strings.Replace(hdnURL, "localhost:8080", "hdn-server-rpi58.agi.svc.cluster.local:8080", -1)
+				log.Printf("🌐 [VALIDATION] Using Kubernetes service DNS (ClusterIP) for SSH: %s", hdnURL)
 			}
 		} else {
 			log.Printf("🌐 [VALIDATION] Using HDN_URL for SSH execution: %s", hdnURL)
