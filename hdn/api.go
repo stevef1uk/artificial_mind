@@ -4093,6 +4093,7 @@ func (s *APIServer) handleListActiveWorkflows(w http.ResponseWriter, r *http.Req
 	// Check for workflows with files in the last 24 hours
 	fileWorkflowKeys, err := s.redis.Keys(ctx, "file:by_workflow:*").Result()
 	if err == nil {
+		log.Printf("📁 [API] Found %d workflow file index keys", len(fileWorkflowKeys))
 		workflowIDSet := make(map[string]bool)
 		// Build set of existing workflow IDs from planner
 		for _, wf := range workflows {
@@ -4121,6 +4122,7 @@ func (s *APIServer) handleListActiveWorkflows(w http.ResponseWriter, r *http.Req
 				// Get files to determine creation time and extract task info
 				files, err := s.fileStorage.GetFilesByWorkflow(workflowID)
 				if err == nil && len(files) > 0 {
+					log.Printf("📁 [API] Found %d files for workflow %s (no record exists)", len(files), workflowID)
 					// Use the most recent file's creation time
 					var latestFileTime time.Time
 					for _, f := range files {
