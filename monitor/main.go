@@ -1660,8 +1660,27 @@ func (m *MonitorService) getActiveWorkflows(c *gin.Context) {
 				taskName := "Hierarchical Workflow"
 				description := wf.CurrentStep
 
+				// For intelligent workflows, try to extract task name from CurrentStep if encoded
+				if strings.HasPrefix(wf.ID, "intelligent_") {
+					if strings.HasPrefix(wf.CurrentStep, "intelligent_execution:") {
+						// Task name was encoded in CurrentStep
+						parts := strings.SplitN(wf.CurrentStep, ":", 2)
+						if len(parts) > 1 {
+							taskName = parts[1]
+							description = "Intelligent execution workflow"
+						} else {
+							taskName = "Intelligent Execution"
+							description = "Workflow with generated artifacts"
+						}
+					} else if wf.CurrentStep == "intelligent_execution" {
+						// Default for intelligent workflows
+						taskName = "Intelligent Execution"
+						description = "Workflow with generated artifacts"
+					}
+				}
+
 				// Try to get more meaningful information from the workflow
-				if wf.CurrentStep != "" {
+				if wf.CurrentStep != "" && taskName == "Hierarchical Workflow" {
 					// Check if this is a data analysis workflow
 					if strings.Contains(wf.CurrentStep, "data_analysis") || strings.Contains(wf.CurrentStep, "step_goal") {
 						taskName = "Data Analysis Pipeline"
@@ -1675,8 +1694,8 @@ func (m *MonitorService) getActiveWorkflows(c *gin.Context) {
 					} else if strings.Contains(wf.CurrentStep, "api_integration") {
 						taskName = "API Integration"
 						description = "Processing API integration workflow steps"
-					} else {
-						// For generic step names, provide a more user-friendly description
+					} else if !strings.HasPrefix(wf.ID, "intelligent_") {
+						// For generic step names (non-intelligent), provide a more user-friendly description
 						description = "Executing workflow step"
 					}
 				}
