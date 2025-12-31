@@ -50,6 +50,16 @@ func (cg *CodeGenerator) GenerateCode(req *CodeGenerationRequest) (*CodeGenerati
 	// Build a code generation prompt
 	prompt := cg.buildCodeGenerationPrompt(req)
 
+	// Truncate prompt if it's too large to prevent context size errors
+	// Most LLMs have context limits (e.g., 128K tokens ≈ 500K chars)
+	// Use a conservative limit of 300K chars to leave room for response
+	const maxPromptSize = 300 * 1024 // 300KB
+	if len(prompt) > maxPromptSize {
+		log.Printf("⚠️ [CODEGEN] Prompt size (%d chars) exceeds limit (%d chars), truncating...", len(prompt), maxPromptSize)
+		prompt = cg.truncatePrompt(prompt, maxPromptSize)
+		log.Printf("📝 [CODEGEN] Prompt truncated to %d chars", len(prompt))
+	}
+
 	// Debug: log the exact LLM prompt used for code generation (truncated to avoid log flooding)
 	if p := strings.TrimSpace(prompt); p != "" {
 		max := 4000
@@ -72,6 +82,18 @@ func (cg *CodeGenerator) GenerateCode(req *CodeGenerationRequest) (*CodeGenerati
 	}
 	response, err := cg.llmClient.callLLMWithContextAndPriority(ctx, prompt, priority)
 	if err != nil {
+		// Check if error is due to context size
+		errStr := err.Error()
+		if strings.Contains(errStr, "Context size has been exceeded") || 
+		   strings.Contains(errStr, "context size") || 
+		   strings.Contains(errStr, "context_length_exceeded") ||
+		   strings.Contains(errStr, "maximum context length") {
+			log.Printf("❌ [CODEGEN] Context size error detected - prompt may still be too large")
+			return &CodeGenerationResponse{
+				Success: false,
+				Error:   fmt.Sprintf("Context size exceeded. The task description or context is too large. Please simplify the request or break it into smaller tasks. Original error: %v", err),
+			}, nil
+		}
 		return &CodeGenerationResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to generate code: %v", err),
@@ -297,6 +319,226 @@ func (cg *CodeGenerator) ensureGoPackageDeclaration(code string) string {
 	return trimmed
 }
 
+// truncatePrompt intelligently truncates a prompt to fit within size limits
+// It preserves the most important parts (task description, language requirements) and truncates less critical sections
+func (cg *CodeGenerator) truncatePrompt(prompt string, maxSize int) string {
+	if len(prompt) <= maxSize {
+		return prompt
+	}
+
+	// Strategy: Keep the beginning (task description, language requirements) and truncate from the middle/end
+	// Most important parts are usually at the beginning
+	// Reserve space for the ending (code block tag)
+	const headerReserve = 2000  // Reserve for header (task description, language enforcement)
+	const footerReserve = 500    // Reserve for footer (code block tag)
+	availableSize := maxSize - headerReserve - footerReserve
+
+	if availableSize <= 0 {
+		// If we can't fit even the essentials, just truncate directly
+		return prompt[:maxSize] + "\n\n[Prompt truncated due to size limits]"
+	}
+
+	// Extract header (first headerReserve chars)
+	header := prompt
+	if len(header) > headerReserve {
+		header = prompt[:headerReserve]
+	}
+
+	// Extract footer (last footerReserve chars)
+	footer := ""
+	if len(prompt) > footerReserve {
+		footer = prompt[len(prompt)-footerReserve:]
+	}
+
+	// If header + footer already exceed maxSize, just truncate
+	if len(header)+len(footer) >= maxSize {
+		return prompt[:maxSize] + "\n\n[Prompt truncated due to size limits]"
+	}
+
+	// Try to extract a middle section that fits
+	middleSize := maxSize - len(header) - len(footer) - 100 // 100 chars for truncation message
+	if middleSize > 0 && len(prompt) > len(header)+len(footer) {
+		// Extract a portion from the middle
+		middleStart := len(header)
+		middleEnd := len(prompt) - len(footer)
+		if middleEnd > middleStart {
+			middle := prompt[middleStart:middleEnd]
+			if len(middle) > middleSize {
+				// Truncate middle section
+				middle = middle[:middleSize] + "\n\n[... context truncated due to size limits ...]"
+			}
+			return header + middle + footer
+		}
+	}
+
+	// Fallback: just truncate
+	return prompt[:maxSize] + "\n\n[Prompt truncated due to size limits]"
+}
+
+// filterRelevantToolsForTask filters tools based on task relevance to reduce prompt size
+// For knowledge base queries, only include knowledge-related tools
+// For other tasks, include tools that match keywords in the task description
+func (cg *CodeGenerator) filterRelevantToolsForTask(tools []Tool, taskName, description string) []Tool {
+	if len(tools) <= 5 {
+		// If we have 5 or fewer tools, include all of them
+		return tools
+	}
+
+	taskLower := strings.ToLower(taskName)
+	descLower := strings.ToLower(description)
+	combined := taskLower + " " + descLower
+
+	// Check if this is a knowledge base query task
+	isKnowledgeBaseQuery := strings.Contains(combined, "neo4j") ||
+		strings.Contains(combined, "knowledge base") ||
+		strings.Contains(combined, "knowledge graph") ||
+		strings.Contains(combined, "query knowledge") ||
+		strings.Contains(combined, "cypher") ||
+		strings.Contains(combined, "graph database") ||
+		strings.Contains(combined, "concept") ||
+		strings.Contains(combined, "retrieve from") ||
+		strings.Contains(combined, "fetch from") ||
+		strings.Contains(combined, "get data from")
+
+	// Keywords that suggest specific tool usage
+	toolKeywords := map[string][]string{
+		"mcp_query_neo4j":           {"neo4j", "query", "cypher", "knowledge", "graph", "database", "knowledge base", "concept"},
+		"mcp_get_concept":           {"concept", "get concept", "retrieve concept", "knowledge", "biology"},
+		"mcp_find_related_concepts": {"related", "related concepts", "find related", "connections"},
+		"mcp_search_weaviate":       {"weaviate", "search", "vector", "semantic", "similar", "episodes", "memories"},
+		"tool_http_get":             {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
+		"tool_html_scraper":         {"scrape", "html", "web", "website", "article", "news", "page", "parse html"},
+		"tool_file_read":            {"read", "file", "load", "open", "readfile", "read file", "content", "text"},
+		"tool_file_write":           {"write", "file", "save", "store", "output", "write file", "save file", "create file"},
+		"tool_ls":                   {"list", "directory", "dir", "files", "ls", "list files", "directory listing"},
+		"tool_exec":                 {"exec", "execute", "command", "shell", "run", "cmd", "system", "bash", "sh"},
+		"tool_codegen":              {"generate", "code", "create", "write code", "generate code", "program", "script"},
+		"tool_json_parse":           {"json", "parse", "parse json", "decode", "unmarshal"},
+		"tool_text_search":          {"search", "find", "text", "pattern", "match", "grep", "filter"},
+	}
+
+	var relevant []Tool
+	seen := make(map[string]bool)
+
+	// For knowledge base queries, prioritize knowledge-related tools
+	if isKnowledgeBaseQuery {
+		// First, include knowledge-related tools
+		knowledgeToolIDs := []string{"mcp_query_neo4j", "mcp_get_concept", "mcp_find_related_concepts", "mcp_search_weaviate"}
+		for _, toolID := range knowledgeToolIDs {
+			for _, tool := range tools {
+				if tool.ID == toolID && !seen[tool.ID] {
+					relevant = append(relevant, tool)
+					seen[tool.ID] = true
+					break
+				}
+			}
+		}
+		// Also include file tools (for saving results) and http_get (for API calls)
+		utilityToolIDs := []string{"tool_file_write", "tool_http_get"}
+		for _, toolID := range utilityToolIDs {
+			for _, tool := range tools {
+				if tool.ID == toolID && !seen[tool.ID] {
+					relevant = append(relevant, tool)
+					seen[tool.ID] = true
+					break
+				}
+			}
+		}
+		log.Printf("📝 [CODEGEN] Knowledge base query detected - filtered to %d relevant tools", len(relevant))
+		return relevant
+	}
+
+	// For other tasks, match tools based on keywords
+	for _, tool := range tools {
+		if seen[tool.ID] {
+			continue
+		}
+
+		matched := false
+		if keywords, ok := toolKeywords[tool.ID]; ok {
+			for _, keyword := range keywords {
+				if strings.Contains(combined, keyword) {
+					relevant = append(relevant, tool)
+					seen[tool.ID] = true
+					matched = true
+					break
+				}
+			}
+		}
+
+		if matched {
+			continue
+		}
+
+		// Check if tool ID is explicitly mentioned
+		if strings.Contains(combined, strings.ToLower(tool.ID)) {
+			relevant = append(relevant, tool)
+			seen[tool.ID] = true
+			continue
+		}
+
+		// Check tool description for keyword matches
+		toolDesc := strings.ToLower(tool.Description)
+		if tool.Name != "" {
+			toolDesc += " " + strings.ToLower(tool.Name)
+		}
+		// Check if any keywords from the task match the tool description
+		commonKeywords := []string{"query", "neo4j", "http", "file", "read", "write", "exec", "docker", "code", "generate", "search", "scrape"}
+		for _, keyword := range commonKeywords {
+			if strings.Contains(combined, keyword) && strings.Contains(toolDesc, keyword) {
+				relevant = append(relevant, tool)
+				seen[tool.ID] = true
+				break
+			}
+		}
+	}
+
+	// If we still have too many tools, limit to most relevant
+	if len(relevant) > 15 {
+		// Score tools by relevance
+		type scoredTool struct {
+			tool  Tool
+			score int
+		}
+		scored := make([]scoredTool, len(relevant))
+		for i, tool := range relevant {
+			score := 0
+			toolDesc := strings.ToLower(tool.Description + " " + tool.Name + " " + tool.ID)
+
+			// Higher score for exact matches
+			if strings.Contains(combined, strings.ToLower(tool.ID)) {
+				score += 10
+			}
+
+			// Score based on keyword matches
+			commonKeywords := []string{"query", "neo4j", "http", "file", "read", "write", "exec", "code", "generate", "search"}
+			for _, keyword := range commonKeywords {
+				if strings.Contains(combined, keyword) && strings.Contains(toolDesc, keyword) {
+					score += 5
+				}
+			}
+
+			scored[i] = scoredTool{tool: tool, score: score}
+		}
+
+		// Sort by score (descending) and take top 15
+		for i := 0; i < len(scored)-1; i++ {
+			for j := i + 1; j < len(scored); j++ {
+				if scored[i].score < scored[j].score {
+					scored[i], scored[j] = scored[j], scored[i]
+				}
+			}
+		}
+
+		relevant = make([]Tool, 0, 15)
+		for i := 0; i < 15 && i < len(scored); i++ {
+			relevant = append(relevant, scored[i].tool)
+		}
+	}
+
+	return relevant
+}
+
 // buildCodeGenerationPrompt creates a prompt for code generation
 func (cg *CodeGenerator) buildCodeGenerationPrompt(req *CodeGenerationRequest) string {
 	log.Printf("📝 [CODEGEN] Building prompt for task: %s, language: %s, description length: %d", req.TaskName, req.Language, len(req.Description))
@@ -347,12 +589,26 @@ Code:`
 			cleanDesc = matches[1]
 		}
 	}
+	
+	// Truncate description if it's too large to prevent context size issues
+	const maxDescriptionSize = 10000 // 10KB for description
+	if len(cleanDesc) > maxDescriptionSize {
+		log.Printf("⚠️ [CODEGEN] Truncating description from %d to %d chars", len(cleanDesc), maxDescriptionSize)
+		cleanDesc = cleanDesc[:maxDescriptionSize] + "\n\n[... description truncated due to size limits ...]"
+	}
 
 	contextStr := ""
 	if len(req.Context) > 0 {
 		contextStr = "\n\nContext:\n"
+		// Limit context value size to prevent prompt from getting too large
+		const maxContextValueSize = 5000 // 5KB per context value
 		for k, v := range req.Context {
-			contextStr += fmt.Sprintf("- %s: %s\n", k, v)
+			contextValue := v
+			if len(contextValue) > maxContextValueSize {
+				contextValue = contextValue[:maxContextValueSize] + "\n[... truncated ...]"
+				log.Printf("⚠️ [CODEGEN] Truncated context value for key '%s' from %d to %d chars", k, len(v), maxContextValueSize)
+			}
+			contextStr += fmt.Sprintf("- %s: %s\n", k, contextValue)
 		}
 	}
 
@@ -383,16 +639,49 @@ Code:`
 
 	if shouldIncludeTools {
 		if len(req.Tools) > 0 {
-			toolInstructions = "\n\n🔧 AVAILABLE TOOLS (use these via HTTP API, do NOT import as modules):\n"
-			for _, tool := range req.Tools {
-				toolInstructions += fmt.Sprintf("- %s: %s\n", tool.ID, tool.Description)
+			// Filter tools based on task relevance to reduce prompt size
+			filteredTools := cg.filterRelevantToolsForTask(req.Tools, req.TaskName, cleanDesc)
+			log.Printf("📝 [CODEGEN] Filtered tools: %d relevant tools out of %d total", len(filteredTools), len(req.Tools))
+			
+			if len(filteredTools) == 0 {
+				// If no relevant tools found, don't include tool instructions
+				log.Printf("⚠️ [CODEGEN] No relevant tools found for task, skipping tool instructions")
+			} else {
+				toolInstructions = "\n\n🔧 AVAILABLE TOOLS (use these via HTTP API, do NOT import as modules):\n"
+				// Limit number of tools to prevent prompt from getting too large
+				const maxTools = 20
+				toolsToInclude := filteredTools
+				if len(toolsToInclude) > maxTools {
+					log.Printf("⚠️ [CODEGEN] Limiting filtered tools from %d to %d to prevent prompt size issues", len(toolsToInclude), maxTools)
+					toolsToInclude = toolsToInclude[:maxTools]
+					toolInstructions += fmt.Sprintf("(Showing %d of %d relevant tools)\n", maxTools, len(filteredTools))
+				}
+			for _, tool := range toolsToInclude {
+				// Truncate tool description if too long
+				desc := tool.Description
+				const maxToolDescSize = 500
+				if len(desc) > maxToolDescSize {
+					desc = desc[:maxToolDescSize] + "..."
+				}
+				toolInstructions += fmt.Sprintf("- %s: %s\n", tool.ID, desc)
 				if len(tool.InputSchema) > 0 {
 					toolInstructions += "  Parameters: "
 					params := []string{}
+					// Limit number of parameters shown
+					const maxParams = 10
+					paramCount := 0
 					for paramName, paramType := range tool.InputSchema {
+						if paramCount >= maxParams {
+							break
+						}
 						params = append(params, fmt.Sprintf("%s (%s)", paramName, paramType))
+						paramCount++
 					}
-					toolInstructions += strings.Join(params, ", ") + "\n"
+					toolInstructions += strings.Join(params, ", ")
+					if len(tool.InputSchema) > maxParams {
+						toolInstructions += fmt.Sprintf(" (and %d more)", len(tool.InputSchema)-maxParams)
+					}
+					toolInstructions += "\n"
 				}
 			}
 			toolInstructions += "\n🚨 CRITICAL: To use these tools, call them via HTTP API:\n"
@@ -449,6 +738,7 @@ Code:`
 				}
 				toolInstructions += "- Call tool via POST request to {hdn_url}/api/v1/tools/{tool_id}/invoke with JSON body containing parameters\n"
 				toolInstructions += "- PREFER using available tools over writing custom code when a tool can accomplish the task!\n"
+			}
 			}
 		} else {
 			// Fallback: add instructions if task mentions tools but no tools provided

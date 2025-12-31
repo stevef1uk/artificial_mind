@@ -627,8 +627,16 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 
 	// Check for HTTP errors
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("❌ [ASYNC-LLM] API error (status %d): %s", resp.StatusCode, string(body))
-		return "", fmt.Errorf("LLM API error: %s", string(body))
+		bodyStr := string(body)
+		log.Printf("❌ [ASYNC-LLM] API error (status %d): %s", resp.StatusCode, bodyStr)
+		// Check if this is a context size error
+		if strings.Contains(strings.ToLower(bodyStr), "context size") ||
+			strings.Contains(strings.ToLower(bodyStr), "context_length_exceeded") ||
+			strings.Contains(strings.ToLower(bodyStr), "maximum context length") ||
+			strings.Contains(strings.ToLower(bodyStr), "context has been exceeded") {
+			log.Printf("⚠️ [ASYNC-LLM] Context size exceeded detected in HTTP error response")
+		}
+		return "", fmt.Errorf("LLM API error: %s", bodyStr)
 	}
 
 	// Parse response based on provider
@@ -1546,8 +1554,16 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 
 	// Check for HTTP errors
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("❌ [LLM] API error (status %d): %s", resp.StatusCode, string(body))
-		return "", fmt.Errorf("LLM API error: %s", string(body))
+		bodyStr := string(body)
+		log.Printf("❌ [LLM] API error (status %d): %s", resp.StatusCode, bodyStr)
+		// Check if this is a context size error
+		if strings.Contains(strings.ToLower(bodyStr), "context size") ||
+			strings.Contains(strings.ToLower(bodyStr), "context_length_exceeded") ||
+			strings.Contains(strings.ToLower(bodyStr), "maximum context length") ||
+			strings.Contains(strings.ToLower(bodyStr), "context has been exceeded") {
+			log.Printf("⚠️ [LLM] Context size exceeded detected in HTTP error response")
+		}
+		return "", fmt.Errorf("LLM API error: %s", bodyStr)
 	}
 
 	// Parse response based on provider
@@ -1595,8 +1611,16 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 
 		// Check for API errors
 		if llmResp.Error != nil {
-			log.Printf("❌ [LLM] API error: %s", llmResp.Error.Message)
-			return "", fmt.Errorf("LLM API error: %s", llmResp.Error.Message)
+			errMsg := llmResp.Error.Message
+			log.Printf("❌ [LLM] API error: %s (type: %s)", errMsg, llmResp.Error.Type)
+			// Check if this is a context size error
+			if strings.Contains(strings.ToLower(errMsg), "context size") ||
+				strings.Contains(strings.ToLower(errMsg), "context_length_exceeded") ||
+				strings.Contains(strings.ToLower(errMsg), "maximum context length") ||
+				strings.Contains(strings.ToLower(errMsg), "context has been exceeded") {
+				log.Printf("⚠️ [LLM] Context size exceeded - prompt may be too large")
+			}
+			return "", fmt.Errorf("LLM API error: %s", errMsg)
 		}
 
 		// Extract content
