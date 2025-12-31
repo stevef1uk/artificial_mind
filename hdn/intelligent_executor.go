@@ -903,6 +903,11 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 		// Enhance description to guide code generation with explicit instructions for report creation
 		enhancedDesc := fmt.Sprintf(`Test hypothesis: %s
 
+🚨🚨🚨 CRITICAL: DO NOT USE TOOLS - GENERATE CODE DIRECTLY 🚨🚨🚨
+You MUST write Python code that directly implements the hypothesis testing logic.
+DO NOT call tools via HTTP API. DO NOT use tool_python_util or any other tools.
+Write the complete code that queries Neo4j, processes results, and generates the report.
+
 REQUIREMENTS:
 1. TERM EXTRACTION: Extract COMPLETE phrases, not individual words:
    - Event names: re.findall(r'test_event_\\w+_\\w+', hypothesis)  # Gets "test_event_XYZ_unique"

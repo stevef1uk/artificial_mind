@@ -630,8 +630,16 @@ Code:`
 	// Determine if we should include tools:
 	// - Python: include if not a simple task
 	// - Other languages: only if user explicitly mentions tools
+	// - NEVER include tools for hypothesis testing tasks (they need direct code generation)
+	isHypothesisTask := strings.HasPrefix(strings.ToLower(req.TaskName), "test hypothesis:") ||
+		strings.HasPrefix(strings.ToLower(cleanDesc), "test hypothesis:") ||
+		strings.Contains(strings.ToLower(cleanDesc), "🚨🚨🚨 critical: do not use tools")
+	
 	shouldIncludeTools := false
-	if req.Language == "python" || req.Language == "py" {
+	if isHypothesisTask {
+		shouldIncludeTools = false // Never include tools for hypothesis testing
+		log.Printf("📝 [CODEGEN] Hypothesis testing task detected - skipping tool instructions")
+	} else if req.Language == "python" || req.Language == "py" {
 		shouldIncludeTools = !isSimpleTask
 	} else {
 		shouldIncludeTools = explicitlyMentionsTools
