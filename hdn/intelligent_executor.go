@@ -933,93 +933,14 @@ REQUIREMENTS:
    ## Conclusion
    Summary or "No evidence found for terms: [list]"
 
-CRITICAL CODE STRUCTURE:
-import requests, os, re
-hdn_url = os.getenv('HDN_URL', 'http://hdn-server-rpi58.agi.svc.cluster.local:30257')
-hypothesis = "%s"
-
-# Extract terms properly
-terms = []
-# Extract event names (complete pattern)
-terms.extend(re.findall(r'test_event_\\w+_\\w+', hypothesis))
-# Extract domain names (get just the domain word, not "domain")
-domain_matches = re.findall(r'(\\w+)\\s+domain', hypothesis, re.IGNORECASE)
-terms.extend([m[0] + ' domain' if isinstance(m, tuple) else m + ' domain' for m in domain_matches])
-terms = list(set(terms))  # Remove duplicates
-
-all_evidence = []
-seen = set()  # For deduplication
-
-for term in terms:
-    escaped = term.replace("'", "\\\\'")
-    term_evidence = []  # Evidence for THIS term only
-    
-    # Strategy 1: Name match
-    query1 = f"MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('{escaped}') RETURN c.name AS name, c.description AS description LIMIT 10"
-    try:
-        r = requests.post(f'{hdn_url}/api/v1/knowledge/query', json={'query': query1}, timeout=10)
-        r.raise_for_status()
-        for result in r.json().get('results', []):
-            name = result.get('name', 'Unknown')
-            desc = result.get('description') or 'No description available'
-            key = f"{name}:{desc[:50]}"
-            if key not in seen:
-                seen.add(key)
-                term_evidence.append((name, desc))
-    except: pass
-    
-    # Strategy 2: Description match (only if no results for THIS term)
-    if not term_evidence:
-        query2 = f"MATCH (c:Concept) WHERE toLower(c.description) CONTAINS toLower('{escaped}') RETURN c.name AS name, c.description AS description LIMIT 10"
-        try:
-            r = requests.post(f'{hdn_url}/api/v1/knowledge/query', json={'query': query2}, timeout=10)
-            r.raise_for_status()
-            for result in r.json().get('results', []):
-                name = result.get('name', 'Unknown')
-                desc = result.get('description') or 'No description available'
-                key = f"{name}:{desc[:50]}"
-                if key not in seen:
-                    seen.add(key)
-                    term_evidence.append((name, desc))
-        except: pass
-    
-    # Strategy 3: Domain-only search (if term contains "domain" and still no results)
-    if not term_evidence and 'domain' in term.lower():
-        domain_name = term.replace(' domain', '').replace('Domain', '').strip()
-        if domain_name:
-            escaped_domain = domain_name.replace("'", "\\\\'")
-            query3 = f"MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('{escaped_domain}') OR toLower(c.description) CONTAINS toLower('{escaped_domain}') RETURN c.name AS name, c.description AS description LIMIT 20"
-            try:
-                r = requests.post(f'{hdn_url}/api/v1/knowledge/query', json={'query': query3}, timeout=10)
-                r.raise_for_status()
-                for result in r.json().get('results', []):
-                    name = result.get('name', 'Unknown')
-                    desc = result.get('description') or 'No description available'
-                    key = f"{name}:{desc[:50]}"
-                    if key not in seen:
-                        seen.add(key)
-                        term_evidence.append((name, desc))
-            except: pass
-    
-    all_evidence.extend(term_evidence)
-
-# Generate report
-report = f"# Hypothesis Test Report\\n\\n## Hypothesis\\n{hypothesis}\\n\\n## Evidence\\n"
-if all_evidence:
-    for name, desc in all_evidence:
-        report += f"- **{name}**: {desc}\\n"
-else:
-    report += f"- No evidence found for any extracted terms.\\n"
-    report += f"- Extracted terms: {', '.join(terms) if terms else 'none'}\\n"
-
-report += f"\\n## Conclusion\\n"
-if all_evidence:
-    report += f"Found {len(all_evidence)} concept(s) related to the hypothesis."
-else:
-    report += f"No evidence found for terms: {', '.join(terms) if terms else 'none'}"
-
-with open('hypothesis_test_report.md', 'w') as f:
-    f.write(report)`, hypothesisContent, hypothesisContent, hypothesisContent)
+IMPLEMENTATION NOTES:
+- Use re.findall(r'test_event_\w+_\w+', hypothesis) for event names
+- Use re.findall(r'(\w+)\s+domain', hypothesis, re.IGNORECASE) for domain names, then append ' domain' to each match
+- For each term, try name match first, then description match if no results
+- If term contains "domain" and still no results, extract just the domain word and search for that
+- Deduplicate evidence using a set with keys like f"{name}:{desc[:50]}"
+- Use result.get('description') or 'No description available' to handle None values
+- Escape single quotes in terms: term.replace("'", "\\'")`, hypothesisContent, hypothesisContent)
 
 		req.Description = enhancedDesc
 		req.TaskName = fmt.Sprintf("Test hypothesis: %s", hypothesisContent)
