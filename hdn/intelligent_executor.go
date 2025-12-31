@@ -891,7 +891,7 @@ STEP 1 - TERM EXTRACTION:
 
 STEP 2 - CYPHER QUERIES:
 - Query Neo4j using: POST {hdn_url}/api/v1/knowledge/query with JSON body {"query": "CYPHER_QUERY"}
-- Get HDN_URL: hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')
+- Get HDN_URL: hdn_url = os.getenv('HDN_URL', 'http://hdn-server-rpi58.agi.svc.cluster.local:30257')
 - 🚨 CRITICAL: Use EXPLICIT property returns: RETURN c.name AS name, c.description AS description
 - 🚨 DO NOT use RETURN c (this returns a node object that's hard to access)
 - For each extracted term, create a query like:
@@ -930,7 +930,7 @@ import requests
 import os
 import re
 
-hdn_url = os.getenv('HDN_URL', 'http://localhost:8080')
+hdn_url = os.getenv('HDN_URL', 'http://hdn-server-rpi58.agi.svc.cluster.local:30257')
 hypothesis = "%s"
 
 # Extract meaningful terms (not individual words)

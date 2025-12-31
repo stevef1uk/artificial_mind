@@ -48,6 +48,8 @@ spec:
               value: "nats://nats.agi.svc.cluster.local:4222"
             - name: PRINCIPLES_URL
               value: "http://principles-server.agi.svc.cluster.local:8080"
+            - name: HDN_NODEPORT
+              value: "30257"
             # LLM configuration from secret (can be updated without changing deployment)
             - name: LLM_PROVIDER
               valueFrom:
