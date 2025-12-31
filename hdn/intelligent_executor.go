@@ -923,14 +923,23 @@ STEP 2 - QUERY NEO4J:
 - hdn_url = os.getenv('HDN_URL', 'http://hdn-server-rpi58.agi.svc.cluster.local:30257')
 - POST to f'{hdn_url}/api/v1/knowledge/query' with json={'query': 'CYPHER_QUERY'}
 - Use: RETURN c.name AS name, c.description AS description (NOT RETURN c)
-- Access: result.get('name', 'Unknown'), result.get('description') or 'No description available'
+- Access: name = result.get('name', 'Unknown'), desc = result.get('description') or 'No description available'
+- CRITICAL: Always use 'or' operator: result.get('description') or 'No description available' (NOT get with default)
+- CRITICAL: Before slicing desc[:50], ensure desc is not None: desc = result.get('description') or 'No description available'
 
 STEP 3 - MULTI-STRATEGY SEARCH (for EACH term separately):
+- For EACH term, try strategies in order (only try next if previous found nothing):
 - Strategy 1: Query name field: WHERE toLower(c.name) CONTAINS toLower('{term}')
-- Strategy 2: If no results, query description: WHERE toLower(c.description) CONTAINS toLower('{term}')
-- Strategy 3: If term has "domain" and still no results, extract domain word and search for that alone
-- Track evidence per term using term_evidence list, then add to all_evidence
-- Deduplicate using: seen = set(), key = f"{name}:{desc[:50]}"
+  - If results found, add them and move to next term
+  - If no results, try Strategy 2
+- Strategy 2: Query description: WHERE toLower(c.description) CONTAINS toLower('{term}')
+  - If results found, add them and move to next term
+  - If no results and term has "domain", try Strategy 3
+- Strategy 3: Extract domain word (remove " domain"), search for that alone
+- Track evidence per term: term_evidence = [] (reset for each term)
+- Only try next strategy if len(term_evidence) == 0
+- Deduplicate using: seen = set(), key = f"{name}:{(desc or '')[:50]}"
+- CRITICAL: desc = result.get('description') or 'No description available' (handle None)
 
 STEP 4 - GENERATE REPORT:
 - Write to file: 'hypothesis_test_report.md'
