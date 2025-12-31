@@ -681,6 +681,31 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"content": string(b)})
 		return
+	case "tool_file_write":
+		path, _ := getString(params, "path")
+		content, _ := getString(params, "content")
+		if strings.TrimSpace(path) == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "path required"})
+			return
+		}
+		// Create directory if it doesn't exist
+		dir := filepath.Dir(path)
+		if dir != "" && dir != "." {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": fmt.Sprintf("failed to create directory: %v", err)})
+				return
+			}
+		}
+		err := os.WriteFile(path, []byte(content), 0644)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"written": len(content)})
+		return
 	case "tool_ls":
 		dir, _ := getString(params, "path")
 		entries, err := os.ReadDir(dir)
