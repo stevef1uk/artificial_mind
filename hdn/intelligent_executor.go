@@ -866,20 +866,30 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 	// but enhance the description to guide code generation for hypothesis testing
 	// ONLY apply this if the task explicitly starts with "test hypothesis:" - don't apply to general Neo4j queries
 	// Also check context flag to ensure we only apply to actual hypothesis testing tasks
-	isHypothesisTask := (strings.HasPrefix(descLower, "test hypothesis:") || strings.HasPrefix(taskLower, "test hypothesis:")) &&
-		!(strings.Contains(descLower, "create a python program") || strings.Contains(taskLower, "create a python program") ||
+	isHypothesisTask := false
+
+	// Only apply if explicitly starts with "test hypothesis:"
+	if strings.HasPrefix(descLower, "test hypothesis:") || strings.HasPrefix(taskLower, "test hypothesis:") {
+		// But exclude general program creation tasks
+		if !(strings.Contains(descLower, "create a python program") || strings.Contains(taskLower, "create a python program") ||
 			strings.Contains(descLower, "create python program") || strings.Contains(taskLower, "create python program") ||
-			strings.Contains(descLower, "write a program") || strings.Contains(taskLower, "write a program"))
+			strings.Contains(descLower, "write a program") || strings.Contains(taskLower, "write a program") ||
+			strings.Contains(descLower, "create a program") || strings.Contains(taskLower, "create a program")) {
+			isHypothesisTask = true
+		}
+	}
 
 	// Also check if context explicitly marks this as hypothesis testing
 	if req.Context != nil {
 		if v, ok := req.Context["hypothesis_testing"]; ok && v == "true" {
 			isHypothesisTask = true
+			log.Printf("🧪 [INTELLIGENT] Hypothesis testing flag set in context")
 		}
 	}
 
 	if isHypothesisTask {
 		log.Printf("🧪 [INTELLIGENT] Detected hypothesis testing task - will generate code to test hypothesis")
+		log.Printf("🧪 [INTELLIGENT] Task: %s, Description: %s", req.TaskName, req.Description[:min(100, len(req.Description))])
 
 		// Extract hypothesis content
 		hypothesisContent := req.Description
@@ -2585,6 +2595,36 @@ func (ie *IntelligentExecutor) findCompatibleCachedCode(req *ExecutionRequest) (
 		codeLower := strings.ToLower(result.Code.Code)
 		if strings.Contains(codeLower, "/api/v1/tools/tool_mcp_query_neo4j/invoke") {
 			log.Printf("🚫 [INTELLIGENT] Rejecting cached code (ID: %s) - uses deprecated tool endpoint", result.Code.ID)
+			continue
+		}
+
+		// Reject cached code that contains hypothesis testing patterns if current task is NOT a hypothesis test
+		// This prevents reusing hypothesis testing code for general Neo4j queries
+		reqDescLower := strings.ToLower(req.Description)
+		reqTaskLower := strings.ToLower(req.TaskName)
+		isCurrentTaskHypothesis := strings.HasPrefix(reqTaskLower, "test hypothesis:") ||
+			strings.HasPrefix(reqDescLower, "test hypothesis:") ||
+			(req.Context != nil && req.Context["hypothesis_testing"] == "true")
+		
+		cachedTaskNameLower := strings.ToLower(result.Code.TaskName)
+		cachedDescLower := ""
+		if result.Code.Description != "" {
+			cachedDescLower = strings.ToLower(result.Code.Description)
+		}
+		cachedIsHypothesis := strings.HasPrefix(cachedTaskNameLower, "test hypothesis:") ||
+			strings.HasPrefix(cachedDescLower, "test hypothesis:")
+		
+		hasHypothesisPatterns := strings.Contains(codeLower, "hypothesis_test_report") ||
+			strings.Contains(codeLower, "hypothesis = \"") ||
+			(strings.Contains(codeLower, "test hypothesis:") && strings.Contains(codeLower, "extract meaningful terms")) ||
+			strings.Contains(codeLower, "hypothesis test report") ||
+			strings.Contains(codeLower, "hypothesis = \"if we apply insights") ||
+			strings.Contains(codeLower, "system state: learn")
+		
+		// If cached code is for hypothesis testing but current task is not, reject it
+		if !isCurrentTaskHypothesis && (cachedIsHypothesis || hasHypothesisPatterns) {
+			log.Printf("🚫 [INTELLIGENT] Rejecting cached code (ID: %s, Task: %s) - cached code is for hypothesis testing but current task is not", result.Code.ID, result.Code.TaskName)
+			log.Printf("🚫 [INTELLIGENT] Current task: %s, Description: %s", req.TaskName, req.Description[:min(100, len(req.Description))])
 			continue
 		}
 
