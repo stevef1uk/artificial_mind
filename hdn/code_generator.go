@@ -792,7 +792,14 @@ Code:`
 	knowledgeBaseInstructions := ""
 	// Use existing taskLower and descLowerForTools variables (already defined above)
 	// Expand pattern matching to catch more variations
-	isKnowledgeBaseQuery := strings.Contains(taskLower, "query_knowledge_base") ||
+	// BUT skip for hypothesis testing tasks (they have their own detailed instructions)
+	// Check if this is a hypothesis task (reuse the same check from above)
+	isHypothesisTaskForKB := strings.HasPrefix(taskLower, "test hypothesis:") ||
+		strings.HasPrefix(descLowerForTools, "test hypothesis:") ||
+		strings.Contains(descLowerForTools, "🚨🚨🚨 critical: do not use tools")
+	
+	isKnowledgeBaseQuery := !isHypothesisTaskForKB && (
+		strings.Contains(taskLower, "query_knowledge_base") ||
 		strings.Contains(descLowerForTools, "query knowledge base") ||
 		strings.Contains(descLowerForTools, "query neo4j") ||
 		strings.Contains(taskLower, "query_knowledge_base") ||
@@ -805,7 +812,7 @@ Code:`
 		strings.Contains(descLowerForTools, "graph database") ||
 		strings.Contains(descLowerForTools, "retrieve from") ||
 		strings.Contains(descLowerForTools, "fetch from") ||
-		strings.Contains(descLowerForTools, "get data from")
+		strings.Contains(descLowerForTools, "get data from"))
 
 	if isKnowledgeBaseQuery {
 		if req.Language == "python" || req.Language == "py" {

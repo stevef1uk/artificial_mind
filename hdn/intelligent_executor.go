@@ -903,44 +903,54 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 		// Enhance description to guide code generation with explicit instructions for report creation
 		enhancedDesc := fmt.Sprintf(`Test hypothesis: %s
 
-🚨🚨🚨 CRITICAL: DO NOT USE TOOLS - GENERATE CODE DIRECTLY 🚨🚨🚨
-You MUST write Python code that directly implements the hypothesis testing logic.
-DO NOT call tools via HTTP API. DO NOT use tool_python_util or any other tools.
-Write the complete code that queries Neo4j, processes results, and generates the report.
+🚨🚨🚨 CRITICAL: DO NOT USE TOOLS - GENERATE COMPLETE PYTHON CODE 🚨🚨🚨
+You MUST write complete Python code that:
+1. Extracts meaningful terms from the hypothesis
+2. Queries Neo4j for each term using multiple strategies
+3. Collects all evidence
+4. Generates a markdown report file
 
-REQUIREMENTS:
-1. TERM EXTRACTION: Extract COMPLETE phrases, not individual words:
-   - Event names: re.findall(r'test_event_\\w+_\\w+', hypothesis)  # Gets "test_event_XYZ_unique"
-   - Domain names: re.findall(r'(\\w+)\\s+domain', hypothesis, re.IGNORECASE)  # Gets "General" from "General domain"
-   - DO NOT extract individual words like "explore", "insights" - these are too generic
+DO NOT call tools. DO NOT use tool_python_util. Write the complete implementation.
 
-2. NEO4J QUERIES: POST to {hdn_url}/api/v1/knowledge/query with {"query": "CYPHER_QUERY"}
-   - hdn_url = os.getenv('HDN_URL', 'http://hdn-server-rpi58.agi.svc.cluster.local:30257')
-   - CRITICAL: Use RETURN c.name AS name, c.description AS description (NOT RETURN c)
-   - Access: result.get('name', 'Unknown'), result.get('description', 'No description available')
+STEP-BY-STEP REQUIREMENTS:
 
-3. MULTI-STRATEGY SEARCH: For EACH term independently:
-   a) Try name match first
-   b) If no results for THIS term, try description match for THIS term
-   c) If term contains "domain", extract domain name (e.g., "General" from "General domain") and search for that
+STEP 1 - EXTRACT TERMS:
+- Extract event names using: re.findall(r'test_event_\w+_\w+', hypothesis)
+- Extract domain names using: re.findall(r'(\w+)\s+domain', hypothesis, re.IGNORECASE), then append ' domain' to each
+- DO NOT extract individual words like "explore", "insights", "use", "we", "can" - these are stop words
 
-4. REPORT: Write to "hypothesis_test_report.md" with structure:
-   # Hypothesis Test Report
-   ## Hypothesis
-   %s
-   ## Evidence
-   - **name**: description or "No description available" (for each unique result)
-   ## Conclusion
-   Summary or "No evidence found for terms: [list]"
+STEP 2 - QUERY NEO4J:
+- hdn_url = os.getenv('HDN_URL', 'http://hdn-server-rpi58.agi.svc.cluster.local:30257')
+- POST to f'{hdn_url}/api/v1/knowledge/query' with json={'query': 'CYPHER_QUERY'}
+- Use: RETURN c.name AS name, c.description AS description (NOT RETURN c)
+- Access: result.get('name', 'Unknown'), result.get('description') or 'No description available'
 
-IMPLEMENTATION NOTES:
-- Use re.findall(r'test_event_\w+_\w+', hypothesis) for event names
-- Use re.findall(r'(\w+)\s+domain', hypothesis, re.IGNORECASE) for domain names, then append ' domain' to each match
-- For each term, try name match first, then description match if no results
-- If term contains "domain" and still no results, extract just the domain word and search for that
-- Deduplicate evidence using a set with keys like f"{name}:{desc[:50]}"
-- Use result.get('description') or 'No description available' to handle None values
-- Escape single quotes in terms: term.replace("'", "\\'")`, hypothesisContent, hypothesisContent)
+STEP 3 - MULTI-STRATEGY SEARCH (for EACH term separately):
+- Strategy 1: Query name field: WHERE toLower(c.name) CONTAINS toLower('{term}')
+- Strategy 2: If no results, query description: WHERE toLower(c.description) CONTAINS toLower('{term}')
+- Strategy 3: If term has "domain" and still no results, extract domain word and search for that alone
+- Track evidence per term using term_evidence list, then add to all_evidence
+- Deduplicate using: seen = set(), key = f"{name}:{desc[:50]}"
+
+STEP 4 - GENERATE REPORT:
+- Write to file: 'hypothesis_test_report.md'
+- Format:
+  # Hypothesis Test Report
+  ## Hypothesis
+  %s
+  ## Evidence
+  - **name**: description (one per line, or "No description available")
+  ## Conclusion
+  Summary with count or "No evidence found for terms: [list]"
+
+CRITICAL: You MUST implement ALL 4 steps above. The code must:
+- Import: requests, os, re
+- Extract terms using the patterns shown
+- Loop through each term and try all 3 search strategies
+- Collect all evidence in a list
+- Write the complete report to file
+
+DO NOT just query for individual words from the hypothesis. Extract meaningful terms only.`, hypothesisContent, hypothesisContent)
 
 		req.Description = enhancedDesc
 		req.TaskName = fmt.Sprintf("Test hypothesis: %s", hypothesisContent)
