@@ -864,7 +864,21 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 
 	// Check 1: Hypothesis testing tasks - let them go through normal code generation
 	// but enhance the description to guide code generation for hypothesis testing
-	if strings.HasPrefix(descLower, "test hypothesis:") || strings.HasPrefix(taskLower, "test hypothesis:") {
+	// ONLY apply this if the task explicitly starts with "test hypothesis:" - don't apply to general Neo4j queries
+	// Also check context flag to ensure we only apply to actual hypothesis testing tasks
+	isHypothesisTask := (strings.HasPrefix(descLower, "test hypothesis:") || strings.HasPrefix(taskLower, "test hypothesis:")) &&
+		!(strings.Contains(descLower, "create a python program") || strings.Contains(taskLower, "create a python program") ||
+			strings.Contains(descLower, "create python program") || strings.Contains(taskLower, "create python program") ||
+			strings.Contains(descLower, "write a program") || strings.Contains(taskLower, "write a program"))
+
+	// Also check if context explicitly marks this as hypothesis testing
+	if req.Context != nil {
+		if v, ok := req.Context["hypothesis_testing"]; ok && v == "true" {
+			isHypothesisTask = true
+		}
+	}
+
+	if isHypothesisTask {
 		log.Printf("🧪 [INTELLIGENT] Detected hypothesis testing task - will generate code to test hypothesis")
 
 		// Extract hypothesis content
@@ -2292,6 +2306,7 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	// NOTE: Only save code files (.py, .go, .js, .java), NOT execution output files (.md, .txt, .pdf)
 	// Execution output files should be extracted after execution, not saved as code
 	if names, ok := req.Context["artifact_names"]; ok && names != "" && generatedCode != nil {
+		log.Printf("📋 [INTELLIGENT] Artifact names requested: %s", names)
 		parts := strings.Split(names, ",")
 		for i := range parts {
 			parts[i] = strings.TrimSpace(parts[i])
@@ -2312,17 +2327,20 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 			// For .md, .txt, .pdf files, these are execution outputs and should NOT be saved as code
 			// They will be extracted after execution in the artifact extraction step below
 		}
+	} else {
+		log.Printf("📋 [INTELLIGENT] No artifact_names in context or no generated code")
 	}
 	// (removed: normalization for final execution)
 
 	// Final execution: Use SSH executor and extract files if artifacts are needed
-	log.Printf("🎯 [INTELLIGENT] Final execution using SSH executor")
+	log.Printf("🎯 [INTELLIGENT] Final execution using SSH executor (workflow: %s)", fileStorageWorkflowID)
 	if finalResult, derr := ie.executeWithSSHTool(ctx, generatedCode.Code, req.Language, req.Context, false, fileStorageWorkflowID); derr != nil {
 		log.Printf("⚠️ [INTELLIGENT] Final execution failed: %v", derr)
 	} else if finalResult.Success {
 		log.Printf("✅ [INTELLIGENT] Final execution successful")
 		// Extract and store files if artifact_names is set
 		if names, ok := req.Context["artifact_names"]; ok && names != "" && ie.fileStorage != nil {
+			log.Printf("📁 [INTELLIGENT] Extracting artifacts: %s", names)
 			parts := strings.Split(names, ",")
 			for _, fname := range parts {
 				fname = strings.TrimSpace(fname)
