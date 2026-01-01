@@ -263,7 +263,7 @@ for i in {1..36}; do
     fi
     
     # Check HDN logs for hypothesis testing execution
-    HDN_LOGS=""
+    HDN_LOGS=""   
     if [ -n "$HDN_CONTAINER" ]; then
         HDN_LOGS=$(get_logs "$HDN_CONTAINER" 200 | grep -i "test hypothesis.*test_event_${TEST_TIMESTAMP}\|hypothesis.*test_event_${TEST_TIMESTAMP}\|detected hypothesis.*test_event\|intelligent.*test_event\|🧪.*Detected hypothesis\|Generated code successfully\|Final execution successful" | tail -15 || echo "")
     elif [ -f "/tmp/hdn_server.log" ]; then

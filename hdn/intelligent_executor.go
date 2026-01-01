@@ -1342,9 +1342,6 @@ func (ie *IntelligentExecutor) executeWebGathering(ctx context.Context, req *Exe
 }
 
 func (ie *IntelligentExecutor) enhanceHypothesisRequest(req *ExecutionRequest, descLower string) *ExecutionRequest {
-	log.Printf("🧪 [INTELLIGENT] Detected hypothesis testing task - will generate code to test hypothesis")
-
-	// Extract hypothesis content
 	hypothesisContent := req.Description
 	if strings.HasPrefix(descLower, "test hypothesis:") {
 		parts := strings.SplitN(req.Description, ":", 2)
@@ -1353,62 +1350,134 @@ func (ie *IntelligentExecutor) enhanceHypothesisRequest(req *ExecutionRequest, d
 		}
 	}
 
-	log.Printf("🧪 [INTELLIGENT] Task: %s, Description: %s", req.TaskName, req.Description[:min(100, len(req.Description))])
+	extractedTerms := ie.extractHypothesisTerms(hypothesisContent)
+	termsJSON, _ := json.Marshal(extractedTerms)
 
-	// Create simplified, goal-oriented prompt (replacing the 250+ line prescriptive version)
-	enhancedDesc := fmt.Sprintf(`Test the following hypothesis by querying the knowledge base:
+	// Use urllib.request (Built-in) to avoid 'requests' installation errors
+	rawTemplate := `import urllib.request
+import json
+import os
 
-%s
+hypothesis = %q
+input_terms = %s
+hdn_url = os.getenv('HDN_URL', 'http://localhost:8081')
 
-Write Python code that:
-1. Extracts key terms and concepts from the hypothesis
-   - Use regex to find event names: re.findall(r'test_event_\w+_\w+', hypothesis)
-   - Use regex to find domain names: re.findall(r'(\w+)\s+domain', hypothesis, re.IGNORECASE)
-   - Avoid extracting stop words like "explore", "insights", "use", "we", "can"
+evidence = []
+blacklist = ['use', 'using', 'test', 'apply', 'insights', 'further', 'discover']
 
-2. Queries the Neo4j knowledge base for each term
-   - Use HDN_URL environment variable: os.getenv('HDN_URL', 'http://hdn-server-rpi58.agi.svc.cluster.local:30257')
-   - POST to /api/v1/knowledge/query endpoint with Cypher queries
-   - Try multiple search strategies: name match, description search, domain extraction
-   - Return format: RETURN c.name AS name, c.description AS description
+print(f"--- Hypothesis Test Started (Built-in Libs) ---")
 
-3. Collects all evidence found
-   - Handle None descriptions: desc = result.get('description') or 'No description available'
-   - Deduplicate results using a set
-   - Try next strategy only if previous found nothing
+for term in input_terms:
+    clean = term.lower().strip()
+    if clean in blacklist or len(clean) < 3:
+        continue
 
-4. Generates a markdown report file 'hypothesis_test_report.md':
-   # Hypothesis Test Report
-   ## Hypothesis
-   %s
-   ## Evidence
-   - **name**: description (one per line)
-   ## Conclusion
-   Summary with count or "No evidence found"
+    print(f"Querying: {term}")
+    query_str = f"MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('{term}') RETURN c.name AS name, c.description AS description LIMIT 5"
+    payload = json.dumps({"query": query_str}).encode('utf-8')
+    
+    try:
+        req_obj = urllib.request.Request(
+            f"{hdn_url}/api/v1/knowledge/query", 
+            data=payload, 
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+        with urllib.request.urlopen(req_obj, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            if isinstance(data, list) and len(data) > 0:
+                for item in data:
+                    evidence.append({'term': term, 'name': item.get('name'), 'desc': item.get('description')})
+            else:
+                print(f"  No results for {term}")
+    except Exception as e:
+        print(f"  Connection error for {term}: {e}")
 
-Import required libraries: requests, os, re
-Ensure proper error handling and null checking.`, hypothesisContent, hypothesisContent)
+# Build Report
+report = f"# Hypothesis Test Report\n\n## Hypothesis\n{hypothesis}\n\n"
+if evidence:
+    report += "## Evidence Found\n\n"
+    for e in evidence:
+        report += f"### {e['name']}\n- **Term**: {e['term']}\n- **Description**: {e['desc']}\n\n"
+else:
+    report += "## Result\nNo evidence found in knowledge base.\n"
 
-	req.Description = enhancedDesc
-	req.TaskName = fmt.Sprintf("Test hypothesis: %s", hypothesisContent)
+with open('hypothesis_test_report.md', 'w', encoding='utf-8') as f:
+    f.write(report)
+`
 
-	log.Printf("🧪 [INTELLIGENT] Enhanced description length: %d chars", len(enhancedDesc))
-	if len(enhancedDesc) > 500 {
-		log.Printf("🧪 [INTELLIGENT] Enhanced description preview (first 500 chars): %s...", enhancedDesc[:500])
-	} else {
-		log.Printf("🧪 [INTELLIGENT] Enhanced description: %s", enhancedDesc)
-	}
+	cleanTemplate := strings.ReplaceAll(rawTemplate, "@BT@", "`")
+	req.Description = fmt.Sprintf(cleanTemplate,
+		hypothesisContent,
+		string(termsJSON),
+		hypothesisContent,
+		string(termsJSON),
+	)
 
-	// Add context hints
 	if req.Context == nil {
 		req.Context = make(map[string]string)
 	}
-	req.Context["hypothesis_testing"] = "true"
-	req.Context["save_pdf"] = "true"
 	req.Context["artifact_names"] = "hypothesis_test_report.md"
-	req.Context["allow_requests"] = "true"
 
 	return req
+}
+
+func (ie *IntelligentExecutor) extractHypothesisTerms(hypothesis string) []string {
+	var rawTerms []string
+
+	// Regex for test_events
+	eventRegex := regexp.MustCompile(`test_event_\w+_\w+`)
+	rawTerms = append(rawTerms, eventRegex.FindAllString(hypothesis, -1)...)
+
+	// Regex for domains (e.g. "Security domain")
+	domainRegex := regexp.MustCompile(`(?i)(\w+)\s+domain`)
+	domainMatches := domainRegex.FindAllStringSubmatch(hypothesis, -1)
+	for _, m := range domainMatches {
+		if len(m) > 1 {
+			rawTerms = append(rawTerms, m[1]+" domain")
+		}
+	}
+
+	// Filter Configuration
+	stopWords := map[string]bool{
+		"use": true, "test": true, "task": true, "find": true,
+		"get": true, "show": true, "this": true, "using": true,
+	}
+	seen := make(map[string]bool)
+	var unique []string
+
+	log.Printf("🧪 [DEBUG] Raw terms extracted from text: %v", rawTerms)
+
+	for _, t := range rawTerms {
+		lower := strings.ToLower(strings.TrimSpace(t))
+
+		// Check if it's a stopword or starts with one (e.g., "use domain")
+		isStopWord := false
+		for sw := range stopWords {
+			if lower == sw || strings.HasPrefix(lower, sw+" ") {
+				isStopWord = true
+				break
+			}
+		}
+
+		if isStopWord {
+			log.Printf("🧪 [DEBUG] Skipping term '%s': matched stopword list", t)
+			continue
+		}
+		if len(lower) <= 2 {
+			log.Printf("🧪 [DEBUG] Skipping term '%s': too short", t)
+			continue
+		}
+		if seen[lower] {
+			continue
+		}
+
+		log.Printf("🧪 [DEBUG] Keeping term: '%s'", t)
+		seen[lower] = true
+		unique = append(unique, t)
+	}
+
+	return unique
 }
 
 // executeInfoGatheringWithTools invokes html scraper / http get tools based on context and aggregates results.
@@ -2388,6 +2457,11 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	}
 	// (removed: normalization for final execution)
 
+	log.Printf("🔍 [EXEC2] Generated code:")
+	log.Printf("--- START CODE ---")
+	log.Printf("%s", generatedCode.Code)
+	log.Printf("--- END CODE ---")
+
 	// Final execution: Use SSH executor and extract files if artifacts are needed
 	log.Printf("🎯 [INTELLIGENT] Final execution using SSH executor (workflow: %s)", fileStorageWorkflowID)
 	if finalResult, derr := ie.executeWithSSHTool(ctx, generatedCode.Code, req.Language, req.Context, false, fileStorageWorkflowID); derr != nil {
@@ -3176,6 +3250,11 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 	if allowReq, ok := req.Context["allow_requests"]; ok && allowReq == "true" {
 		env["allow_requests"] = "true"
 	}
+
+	log.Printf("🔍 [EXEC] Generated code:")
+	log.Printf("--- START CODE ---")
+	log.Printf("%s", code.Code)
+	log.Printf("--- END CODE ---")
 
 	// Create Docker execution request
 	// (removed: unused dockerReq)
