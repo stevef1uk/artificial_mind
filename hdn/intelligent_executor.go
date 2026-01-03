@@ -1454,6 +1454,45 @@ func (ie *IntelligentExecutor) extractHypothesisTerms(hypothesis string) []strin
 		}
 	}
 
+	// Extract meaningful noun phrases from natural language
+	// Look for capitalized words and important terms
+	words := strings.Fields(hypothesis)
+	for i, word := range words {
+		cleaned := strings.Trim(word, ".,!?;:")
+		// Skip short words and common stop words
+		if len(cleaned) < 4 {
+			continue
+		}
+		lower := strings.ToLower(cleaned)
+		// Check for important technical/domain terms
+		importantTerms := []string{"learning", "memory", "consolidation", "pattern", "cognitive", 
+			"process", "knowledge", "hypothesis", "evidence", "relationship", "insight",
+			"biology", "medicine", "computer", "science", "technology", "system"}
+		for _, term := range importantTerms {
+			if lower == term || strings.HasPrefix(lower, term) {
+				rawTerms = append(rawTerms, cleaned)
+				break
+			}
+		}
+		// Also extract two-word phrases that might be concepts
+		if i < len(words)-1 {
+			nextWord := strings.Trim(words[i+1], ".,!?;:")
+			if len(nextWord) >= 4 {
+				phrase := cleaned + " " + nextWord
+				phraseLower := strings.ToLower(phrase)
+				// Check for common concept patterns
+				conceptPatterns := []string{"learning pattern", "memory consolidation", 
+					"cognitive process", "knowledge graph", "system state"}
+				for _, pattern := range conceptPatterns {
+					if phraseLower == pattern {
+						rawTerms = append(rawTerms, phrase)
+						break
+					}
+				}
+			}
+		}
+	}
+
 	// Filter Configuration
 	stopWords := map[string]bool{
 		"use": true, "test": true, "task": true, "find": true,
