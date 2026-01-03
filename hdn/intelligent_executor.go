@@ -782,7 +782,7 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 	// NOTE: workflowID will be created inside each execution path (executeTraditionally, executeLLMSummarization, etc.)
 	// to ensure consistency between file storage and workflow record creation.
 	// Each path creates fileStorageWorkflowID and sets result.WorkflowID accordingly.
-	workflowID := ""  // Empty string - will be created by execution path
+	workflowID := "" // Empty string - will be created by execution path
 
 	log.Printf("🧠 [INTELLIGENT] Starting execution for task: %s", req.TaskName)
 	log.Printf("🧠 [INTELLIGENT] Description: %s", req.Description)
@@ -1438,33 +1438,6 @@ func (ie *IntelligentExecutor) executeExplicitTool(req *ExecutionRequest, toolID
 	return result, nil
 }
 
-func (ie *IntelligentExecutor) executeWebGathering(ctx context.Context, req *ExecutionRequest, start time.Time, workflowID string) (*IntelligentExecutionResult, error) {
-	log.Printf("🌐 [INTELLIGENT] Web information gathering")
-
-	aggRes, aggErr := ie.executeInfoGatheringWithTools(ctx, req)
-
-	result := &IntelligentExecutionResult{
-		Success:       aggErr == nil,
-		Result:        aggRes,
-		ExecutionTime: time.Since(start),
-		WorkflowID:    workflowID,
-	}
-
-	if aggErr != nil {
-		result.Error = aggErr.Error()
-		return result, aggErr
-	}
-
-	// Record metrics
-	ie.recordMonitorMetrics(result.Success, result.ExecutionTime)
-	if ie.selfModelManager != nil {
-		ie.recordExecutionEpisode(req, result, "tool_info_gathering")
-	}
-
-	return result, nil
-}
-
-func (ie *IntelligentExecutor) enhanceHypothesisRequest(req *ExecutionRequest, descLower string) *ExecutionRequest {
 func (ie *IntelligentExecutor) extractHypothesisTerms(hypothesis string) []string {
 	var rawTerms []string
 
@@ -2515,7 +2488,7 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	} else if finalResult.Success {
 		log.Printf("✅ [INTELLIGENT] Final execution successful")
 		log.Printf("📊 [INTELLIGENT] Execution output length: %d bytes", len(finalResult.Output))
-		
+
 		// Extract and store files if artifact_names is set
 		if names, ok := req.Context["artifact_names"]; ok && names != "" && ie.fileStorage != nil {
 			log.Printf("📁 [INTELLIGENT] artifact_names context flag set: %s", names)
