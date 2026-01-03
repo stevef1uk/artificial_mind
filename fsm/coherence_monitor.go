@@ -81,13 +81,19 @@ func (cm *CoherenceMonitor) CheckCoherence() ([]Inconsistency, error) {
 	var inconsistencies []Inconsistency
 	
 	// 1. Check for belief contradictions
-	log.Printf("🔍 [Coherence] Checking belief contradictions...")
-	beliefContradictions, err := cm.checkBeliefContradictions()
-	if err != nil {
-		log.Printf("⚠️ [Coherence] Error checking belief contradictions: %v", err)
+	// DISABLED: Too slow - queries 125K+ beliefs and does O(n²) comparisons
+	// Re-enable with better query limits or async processing
+	if os.Getenv("ENABLE_BELIEF_CHECK") == "true" {
+		log.Printf("🔍 [Coherence] Checking belief contradictions...")
+		beliefContradictions, err := cm.checkBeliefContradictions()
+		if err != nil {
+			log.Printf("⚠️ [Coherence] Error checking belief contradictions: %v", err)
+		} else {
+			log.Printf("✅ [Coherence] Belief contradiction check complete: %d found", len(beliefContradictions))
+			inconsistencies = append(inconsistencies, beliefContradictions...)
+		}
 	} else {
-		log.Printf("✅ [Coherence] Belief contradiction check complete: %d found", len(beliefContradictions))
-		inconsistencies = append(inconsistencies, beliefContradictions...)
+		log.Printf("⏭️ [Coherence] Belief contradiction check disabled (too slow - set ENABLE_BELIEF_CHECK=true to force)")
 	}
 	
 	// 2. Check for policy conflicts
