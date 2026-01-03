@@ -3876,6 +3876,11 @@ func (s *APIServer) isSimplePrompt(req HierarchicalTaskRequest) bool {
 	if text == "" {
 		return false
 	}
+	// Hypothesis testing tasks should ALWAYS use intelligent executor (not planner)
+	// even if they contain multi-step keywords
+	if strings.Contains(text, "test hypothesis:") {
+		return true
+	}
 	// Multi-step indicators
 	cues := []string{" and then ", " then ", " step ", ";", " -> ", "→"}
 	for _, c := range cues {
