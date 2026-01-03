@@ -1438,6 +1438,33 @@ func (ie *IntelligentExecutor) executeExplicitTool(req *ExecutionRequest, toolID
 	return result, nil
 }
 
+func (ie *IntelligentExecutor) executeWebGathering(ctx context.Context, req *ExecutionRequest, start time.Time, workflowID string) (*IntelligentExecutionResult, error) {
+	log.Printf("🌐 [INTELLIGENT] Web information gathering")
+
+	aggRes, aggErr := ie.executeInfoGatheringWithTools(ctx, req)
+
+	result := &IntelligentExecutionResult{
+		Success:       aggErr == nil,
+		Result:        aggRes,
+		ExecutionTime: time.Since(start),
+		WorkflowID:    workflowID,
+	}
+
+	if aggErr != nil {
+		result.Error = aggErr.Error()
+		return result, aggErr
+	}
+
+	// Record metrics
+	ie.recordMonitorMetrics(result.Success, result.ExecutionTime)
+	if ie.selfModelManager != nil {
+		ie.recordExecutionEpisode(req, result, "tool_info_gathering")
+	}
+
+	return result, nil
+}
+
+func (ie *IntelligentExecutor) enhanceHypothesisRequest(req *ExecutionRequest, descLower string) *ExecutionRequest {
 func (ie *IntelligentExecutor) extractHypothesisTerms(hypothesis string) []string {
 	var rawTerms []string
 
@@ -2487,10 +2514,14 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		log.Printf("⚠️ [INTELLIGENT] Final execution failed: %v", derr)
 	} else if finalResult.Success {
 		log.Printf("✅ [INTELLIGENT] Final execution successful")
+		log.Printf("📊 [INTELLIGENT] Execution output length: %d bytes", len(finalResult.Output))
+		
 		// Extract and store files if artifact_names is set
 		if names, ok := req.Context["artifact_names"]; ok && names != "" && ie.fileStorage != nil {
-			log.Printf("📁 [INTELLIGENT] Extracting artifacts: %s", names)
+			log.Printf("📁 [INTELLIGENT] artifact_names context flag set: %s", names)
+			log.Printf("📁 [INTELLIGENT] Extracting artifacts for workflow: %s", fileStorageWorkflowID)
 			parts := strings.Split(names, ",")
+			var successCount int
 			for _, fname := range parts {
 				fname = strings.TrimSpace(fname)
 				if fname != "" {
@@ -2527,12 +2558,20 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 						if err := ie.fileStorage.StoreFile(storedFile); err != nil {
 							log.Printf("⚠️ [INTELLIGENT] Failed to store artifact %s: %v", fname, err)
 						} else {
-							log.Printf("✅ [INTELLIGENT] Stored artifact: %s (%d bytes)", fname, len(fileContent))
+							log.Printf("✅ [INTELLIGENT] Stored artifact: %s (%d bytes, workflow: %s)", fname, len(fileContent), artifactWorkflowID)
+							successCount++
 						}
 					} else {
 						log.Printf("⚠️ [INTELLIGENT] Could not extract artifact %s: %v", fname, err)
 					}
 				}
+			}
+			log.Printf("📁 [INTELLIGENT] Artifact extraction complete: %d/%d files stored", successCount, len(parts))
+		} else {
+			if names, ok := req.Context["artifact_names"]; ok && names != "" {
+				log.Printf("⚠️ [INTELLIGENT] artifact_names set but fileStorage is nil - artifacts will not be saved")
+			} else {
+				log.Printf("📁 [INTELLIGENT] No artifact_names context flag - skipping artifact extraction")
 			}
 		}
 	} else {
