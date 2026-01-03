@@ -433,8 +433,19 @@ func (cm *CoherenceMonitor) checkBehaviorLoops() ([]Inconsistency, error) {
 	}
 	
 	// Flag transitions that occur too frequently (potential loops)
+	// DEDUPLICATION: Only flag if we haven't recently detected the same loop
 	for transition, count := range stateTransitions {
 		if count >= 5 { // Same transition 5+ times in recent history
+			// Check if we've already flagged this transition recently (within 10 minutes)
+			loopKey := fmt.Sprintf("coherence:flagged_loop:%s", transition)
+			if lastFlaggedTime, err := cm.redis.Get(cm.ctx, loopKey).Result(); err == nil && lastFlaggedTime != "" {
+				log.Printf("⏭️ [Coherence] Loop '%s' already flagged recently, skipping duplicate detection", transition)
+				continue
+			}
+			
+			// Mark this loop as detected/flagged for 10 minutes
+			cm.redis.Set(cm.ctx, loopKey, time.Now().String(), 10*time.Minute)
+			
 			inc := Inconsistency{
 				ID:          fmt.Sprintf("behavior_loop_%d", time.Now().UnixNano()),
 				Type:        "behavior_loop",
@@ -500,8 +511,31 @@ func (cm *CoherenceMonitor) GenerateSelfReflectionTask(inconsistency Inconsisten
 }
 
 // ResolveInconsistency prompts the reasoning engine to resolve an inconsistency
+// DEDUPLICATION: Only creates one resolution goal per inconsistency to prevent infinite loops
 func (cm *CoherenceMonitor) ResolveInconsistency(inconsistency Inconsistency) error {
 	log.Printf("🔧 [Coherence] Attempting to resolve inconsistency: %s", inconsistency.ID)
+	
+	// DEDUPLICATION CHECK: See if we already created a resolution goal for this inconsistency
+	resolutionGoalKey := fmt.Sprintf("coherence:resolution_goal:%s", inconsistency.ID)
+	if existingGoalID, err := cm.redis.Get(cm.ctx, resolutionGoalKey).Result(); err == nil && existingGoalID != "" {
+		log.Printf("⏭️ [Coherence] Resolution goal already exists for inconsistency %s (ID: %s), skipping duplicate", 
+			inconsistency.ID, existingGoalID)
+		return nil
+	}
+	
+	// DEDUPLICATION CHECK: Also check if this type of inconsistency was recently created (within 5 minutes)
+	// This prevents rapid re-creation of the same resolution goals
+	recentInconsistencyKey := fmt.Sprintf("coherence:recent_inconsistency:%s_%s", inconsistency.Type, 
+		fmt.Sprintf("%v", inconsistency.Details))
+	if lastTime, err := cm.redis.Get(cm.ctx, recentInconsistencyKey).Result(); err == nil && lastTime != "" {
+		log.Printf("⏭️ [Coherence] Similar inconsistency was resolved/detected recently, skipping duplicate creation")
+		return nil
+	}
+	
+	// Mark that we're creating a resolution for this inconsistency (TTL: 24 hours)
+	goalID := fmt.Sprintf("coherence_resolution_%s", inconsistency.ID)
+	cm.redis.Set(cm.ctx, resolutionGoalKey, goalID, 24*time.Hour)
+	cm.redis.Set(cm.ctx, recentInconsistencyKey, time.Now().String(), 5*time.Minute)
 	
 	// Create a prompt for the reasoning engine
 	prompt := fmt.Sprintf(`You have detected an inconsistency in the system:
@@ -528,7 +562,7 @@ Provide a clear resolution plan.`,
 	// For now, we'll store the prompt as a curiosity goal for the reasoning engine to process
 	
 	curiosityGoal := CuriosityGoal{
-		ID:          fmt.Sprintf("coherence_resolution_%s", inconsistency.ID),
+		ID:          goalID,
 		Type:        "contradiction_resolution",
 		Description: prompt,
 		Domain:      "system_coherence",
@@ -554,7 +588,7 @@ Provide a clear resolution plan.`,
 	inconsistency.Resolved = false // Will be set to true when resolution is confirmed
 	cm.storeInconsistency(inconsistency)
 	
-	log.Printf("✅ [Coherence] Generated resolution task for inconsistency: %s", inconsistency.ID)
+	log.Printf("✅ [Coherence] Generated resolution task for inconsistency: %s (goal ID: %s)", inconsistency.ID, goalID)
 	
 	return nil
 }
