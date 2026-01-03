@@ -1361,25 +1361,25 @@ func (ie *IntelligentExecutor) enhanceHypothesisRequest(req *ExecutionRequest, d
 	log.Printf("🧪 [INTELLIGENT] Extracted %d terms from hypothesis: %v", len(extractedTerms), extractedTerms)
 
 	// Create an enhanced description that tells the code generator what to do
-	enhancedDesc := fmt.Sprintf(`Test hypothesis by gathering evidence: %s
+	// IMPORTANT: This is a task description, NOT the code itself
+	enhancedDesc := fmt.Sprintf(`Write a Python program to test this hypothesis by querying the Neo4j knowledge base:
 
-Requirements:
-1. Query Neo4j knowledge base (via HTTP API at http://localhost:8081/api/v1/knowledge/query) for information related to the hypothesis
-2. Extract key terms from the hypothesis: %s
-3. Gather evidence that supports or contradicts the hypothesis
-4. Create a markdown report with:
-   - The hypothesis being tested
-   - Evidence found in the knowledge base
-   - Analysis of the evidence
-   - Conclusion (supports/contradicts/inconclusive)
-5. Save the report as hypothesis_test_report.md
+"%s"
 
-Use urllib.request (built-in) for HTTP requests to avoid dependency issues.
+The program must:
+1. Use urllib.request (built-in, no pip install needed) to query http://localhost:8081/api/v1/knowledge/query
+2. Search for these terms: %s
+3. For each term, send a POST request with JSON body: {"query": "MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('TERM') RETURN c.name, c.description LIMIT 5"}
+4. Parse the JSON responses and collect evidence
+5. Create a markdown report file named 'hypothesis_test_report.md' with:
+   - Title: # Hypothesis Test Report
+   - Section: ## Hypothesis (containing the hypothesis text)
+   - Section: ## Evidence Found (list all concepts found with their descriptions)
+   - Section: ## Conclusion (analyze if evidence supports/contradicts the hypothesis)
+6. MUST print "Report saved to hypothesis_test_report.md" when done
+7. MUST print each concept name found (e.g., "Concept: Burlington, Massachusetts")
 
-The hypothesis to test: %s
-Terms to search for: %s`,
-		hypothesisContent,
-		string(termsJSON),
+The program should handle network errors gracefully and still create a report even if some queries fail.`,
 		hypothesisContent,
 		string(termsJSON),
 	)
@@ -2452,10 +2452,14 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		log.Printf("⚠️ [INTELLIGENT] Final execution failed: %v", derr)
 	} else if finalResult.Success {
 		log.Printf("✅ [INTELLIGENT] Final execution successful")
+		log.Printf("📊 [INTELLIGENT] Execution output length: %d bytes", len(finalResult.Output))
+		
 		// Extract and store files if artifact_names is set
 		if names, ok := req.Context["artifact_names"]; ok && names != "" && ie.fileStorage != nil {
-			log.Printf("📁 [INTELLIGENT] Extracting artifacts: %s", names)
+			log.Printf("📁 [INTELLIGENT] artifact_names context flag set: %s", names)
+			log.Printf("📁 [INTELLIGENT] Extracting artifacts for workflow: %s", fileStorageWorkflowID)
 			parts := strings.Split(names, ",")
+			var successCount int
 			for _, fname := range parts {
 				fname = strings.TrimSpace(fname)
 				if fname != "" {
@@ -2492,12 +2496,20 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 						if err := ie.fileStorage.StoreFile(storedFile); err != nil {
 							log.Printf("⚠️ [INTELLIGENT] Failed to store artifact %s: %v", fname, err)
 						} else {
-							log.Printf("✅ [INTELLIGENT] Stored artifact: %s (%d bytes)", fname, len(fileContent))
+							log.Printf("✅ [INTELLIGENT] Stored artifact: %s (%d bytes, workflow: %s)", fname, len(fileContent), artifactWorkflowID)
+							successCount++
 						}
 					} else {
 						log.Printf("⚠️ [INTELLIGENT] Could not extract artifact %s: %v", fname, err)
 					}
 				}
+			}
+			log.Printf("📁 [INTELLIGENT] Artifact extraction complete: %d/%d files stored", successCount, len(parts))
+		} else {
+			if names, ok := req.Context["artifact_names"]; ok && names != "" {
+				log.Printf("⚠️ [INTELLIGENT] artifact_names set but fileStorage is nil - artifacts will not be saved")
+			} else {
+				log.Printf("📁 [INTELLIGENT] No artifact_names context flag - skipping artifact extraction")
 			}
 		}
 	} else {
