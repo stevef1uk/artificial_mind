@@ -435,16 +435,17 @@ func (cm *CoherenceMonitor) checkBehaviorLoops() ([]Inconsistency, error) {
 	// Flag transitions that occur too frequently (potential loops)
 	// DEDUPLICATION: Only flag if we haven't recently detected the same loop
 	for transition, count := range stateTransitions {
-		if count >= 5 { // Same transition 5+ times in recent history
-			// Check if we've already flagged this transition recently (within 10 minutes)
+		if count >= 10 { // Increased threshold from 5 to 10 to reduce false positives
+			// Check if we've already flagged this transition recently
 			loopKey := fmt.Sprintf("coherence:flagged_loop:%s", transition)
 			if lastFlaggedTime, err := cm.redis.Get(cm.ctx, loopKey).Result(); err == nil && lastFlaggedTime != "" {
 				log.Printf("⏭️ [Coherence] Loop '%s' already flagged recently, skipping duplicate detection", transition)
 				continue
 			}
 			
-			// Mark this loop as detected/flagged for 10 minutes
-			cm.redis.Set(cm.ctx, loopKey, time.Now().String(), 10*time.Minute)
+			// Mark this loop as detected/flagged for 24 hours to prevent re-flagging
+			// Use a longer TTL since behavior loops indicate systemic issues that need deeper analysis
+			cm.redis.Set(cm.ctx, loopKey, time.Now().String(), 24*time.Hour)
 			
 			inc := Inconsistency{
 				ID:          fmt.Sprintf("behavior_loop_%d", time.Now().UnixNano()),
