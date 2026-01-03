@@ -104,8 +104,8 @@ echo "----------------------------"
 
 TEST_HYP_ID="test_hyp_$(date +%s)"
 TEST_TIMESTAMP=$(date +%s)
-# Use unique hypothesis description to avoid duplicate workflow rejection
-TEST_HYP_DESC="If we explore test_event_${TEST_TIMESTAMP}_unique further, we can discover new insights about General domain"
+# Use real knowledge concepts to get meaningful evidence from Neo4j
+TEST_HYP_DESC="Exploring the relationship between learning patterns and memory consolidation reveals insights about cognitive processes_${TEST_TIMESTAMP}"
 
 HYP_KEY="fsm:agent_1:hypotheses"
 TEST_HYP_JSON=$(cat <<EOF
@@ -203,12 +203,12 @@ for i in {1..36}; do
     # Check HDN logs for hypothesis testing execution
     HDN_LOGS=""
     if [ -n "$HDN_POD" ]; then
-        HDN_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=1000 --since=5m 2>/dev/null | grep -i "test hypothesis.*test_event_${TEST_TIMESTAMP}\|hypothesis.*test_event_${TEST_TIMESTAMP}\|detected hypothesis.*test_event\|intelligent.*test_event\|🧪.*Detected hypothesis\|Generated code successfully\|Final execution successful" | tail -15 || echo "")
+        HDN_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=1000 --since=5m 2>/dev/null | grep -i "${TEST_TIMESTAMP}\|hypothesis.*learning\|detected hypothesis.*cognitive\|intelligent.*memory\|🧪.*Detected hypothesis\|Generated code successfully\|Final execution successful" | tail -15 || echo "")
     fi
     
     if [ -n "$HDN_LOGS" ]; then
         # Improved detection: check for multiple completion indicators
-        if echo "$HDN_LOGS" | grep -qi "test hypothesis.*test_event_${TEST_TIMESTAMP}\|detected hypothesis.*will generate\|🧪.*Detected hypothesis\|Generated code successfully\|Final execution successful"; then
+        if echo "$HDN_LOGS" | grep -qi "${TEST_TIMESTAMP}\|detected hypothesis.*will generate\|🧪.*Detected hypothesis\|Generated code successfully\|Final execution successful"; then
             EXECUTION_FOUND=true
             echo -e "   ${GREEN}✅ Found hypothesis testing execution in HDN logs${NC}"
             
@@ -227,7 +227,7 @@ for i in {1..36}; do
                 
                 # Try multiple patterns to find workflow ID
                 # Look for workflow IDs near the test event or goal ID in logs
-                WF_FROM_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=5000 --since=10m 2>/dev/null | grep -i "test_event_${TEST_TIMESTAMP}\|goal_id.*${GOAL_ID}\|g_${GOAL_ID##*_}" | grep -oE "intelligent_[0-9]+" | tail -1 || echo "")
+                WF_FROM_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=5000 --since=10m 2>/dev/null | grep -i "${TEST_TIMESTAMP}\|goal_id.*${GOAL_ID}\|g_${GOAL_ID##*_}" | grep -oE "intelligent_[0-9]+" | tail -1 || echo "")
                 
                 # If found, verify it's recent (starts with test timestamp prefix)
                 if [ -n "$WF_FROM_LOGS" ]; then
@@ -250,13 +250,13 @@ for i in {1..36}; do
                 
                 if [ -z "$WF_FROM_LOGS" ]; then
                     # Try to find workflow ID from execution logs - look for "Normalized workflow ID" or "Created intelligent workflow"
-                    # Filter by test event to ensure we get the right one
-                    WF_FROM_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=5000 --since=10m 2>/dev/null | grep -i "test_event_${TEST_TIMESTAMP}" | grep -E "Normalized workflow ID|Created.*workflow|workflow.*intelligent_|WorkflowID" | grep -oE "intelligent_[0-9]+" | tail -1 || echo "")
+                    # Filter by test timestamp to ensure we get the right one
+                    WF_FROM_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=5000 --since=10m 2>/dev/null | grep -i "${TEST_TIMESTAMP}\|learning.*memory" | grep -E "Normalized workflow ID|Created.*workflow|workflow.*intelligent_|WorkflowID" | grep -oE "intelligent_[0-9]+" | tail -1 || echo "")
                 fi
                 
                 if [ -z "$WF_FROM_LOGS" ]; then
-                    # Last resort: find most recent workflow ID from logs that contains test event
-                    WF_FROM_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=10000 --since=10m 2>/dev/null | grep -B 5 -A 5 "test_event_${TEST_TIMESTAMP}" | grep -oE "intelligent_[0-9]+" | tail -1 || echo "")
+                    # Last resort: find most recent workflow ID from logs
+                    WF_FROM_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=10000 --since=10m 2>/dev/null | grep -B 5 -A 5 "${TEST_TIMESTAMP}\|learning.*memory" | grep -oE "intelligent_[0-9]+" | tail -1 || echo "")
                 fi
                 
                 if [ -n "$WF_FROM_LOGS" ]; then
@@ -267,7 +267,7 @@ for i in {1..36}; do
         fi
         
         # Check for duplicate rejection
-        DUPLICATE_CHECK=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=200 --since=5m 2>/dev/null | grep -i "rejecting duplicate.*test_event_${TEST_TIMESTAMP}" | tail -1 || echo "")
+        DUPLICATE_CHECK=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=200 --since=5m 2>/dev/null | grep -i "rejecting duplicate.*${TEST_TIMESTAMP}\|rejecting duplicate.*learning.*memory" | tail -1 || echo "")
         if [ -n "$DUPLICATE_CHECK" ]; then
             DUPLICATE_REJECTED=true
             echo -e "   ${YELLOW}⚠️  Workflow rejected as duplicate${NC}"
@@ -704,10 +704,10 @@ echo "5️⃣ Checking HDN logs for code generation and execution"
 echo "--------------------------------------------------------"
 
 # Look for logs related to our specific test hypothesis (prioritize current test)
-RECENT_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=500 --since=10m 2>/dev/null | grep -i "test_event_${TEST_TIMESTAMP}" | tail -20 || echo "")
+RECENT_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=500 --since=10m 2>/dev/null | grep -i "${TEST_TIMESTAMP}" | tail -20 || echo "")
 # If no logs for current test, show recent hypothesis testing logs
 if [ -z "$RECENT_LOGS" ]; then
-    RECENT_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=300 --since=10m 2>/dev/null | grep -i "test hypothesis.*test_event\|hypothesis.*test_event\|intelligent.*test_event" | tail -20 || echo "")
+    RECENT_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=300 --since=10m 2>/dev/null | grep -i "test hypothesis\|hypothesis.*learning\|intelligent.*memory" | tail -20 || echo "")
 fi
 
 if [ -n "$RECENT_LOGS" ]; then
@@ -733,7 +733,7 @@ if [ -n "$RECENT_LOGS" ]; then
         # Check for execution success/failure (improved patterns)
         EXEC_LOGS=""
         if [ -n "$HDN_POD" ]; then
-            EXEC_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=1000 --since=10m 2>/dev/null | grep -i "test_event_${TEST_TIMESTAMP}" | grep -iE "execution|validation|success|failed|error|Report saved|Final execution|✅.*INTELLIGENT|Extracted file.*md|Stored file" | tail -10 || echo "")
+            EXEC_LOGS=$(kubectl logs -n "$NAMESPACE" "$HDN_POD" --tail=1000 --since=10m 2>/dev/null | grep -i "${TEST_TIMESTAMP}\|learning.*memory" | grep -iE "execution|validation|success|failed|error|Report saved|Final execution|✅.*INTELLIGENT|Extracted file.*md|Stored file" | tail -10 || echo "")
         fi
         if [ -n "$EXEC_LOGS" ]; then
             echo "   Execution logs:"
@@ -798,11 +798,11 @@ elif [ "$EXECUTION_FOUND" = true ] && [ "$ARTIFACTS_FOUND" = true ]; then
 elif [ "$EXECUTION_FOUND" = true ]; then
     echo -e "${YELLOW}⚠️  Partial success: Execution detected but artifacts not found${NC}"
     echo ""
-    echo "   Debugging steps:"
+    echo "Debugging steps:"
     echo "   1. Check if workflow was created:"
-    echo "      kubectl logs -n $NAMESPACE $HDN_POD --tail=300 | grep -i 'test_event_${TEST_TIMESTAMP}'"
+    echo "      kubectl logs -n $NAMESPACE $HDN_POD --tail=300 | grep -i '${TEST_TIMESTAMP}'"
     echo "   2. Check for execution errors:"
-    echo "      kubectl logs -n $NAMESPACE $HDN_POD --tail=300 | grep -i 'error\\|failed\\|validation' | grep -i 'test_event'"
+    echo "      kubectl logs -n $NAMESPACE $HDN_POD --tail=300 | grep -i 'error\\|failed\\|validation' | grep -i 'learning\\|memory'"
     echo "   3. Check artifact storage:"
     echo "      kubectl exec -n $NAMESPACE $REDIS_POD -- redis-cli KEYS 'file:*' | head -10"
     if [ -n "$WORKFLOW_ID" ] && [ "$WORKFLOW_ID" != "N/A" ]; then
