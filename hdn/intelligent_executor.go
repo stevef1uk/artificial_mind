@@ -779,7 +779,10 @@ Rules:
 // This simplified version maintains all functionality while being easier to understand and maintain
 func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req *ExecutionRequest) (*IntelligentExecutionResult, error) {
 	start := time.Now()
-	workflowID := fmt.Sprintf("intelligent_%d", time.Now().UnixNano())
+	// NOTE: workflowID will be created inside each execution path (executeTraditionally, executeLLMSummarization, etc.)
+	// to ensure consistency between file storage and workflow record creation.
+	// Each path creates fileStorageWorkflowID and sets result.WorkflowID accordingly.
+	workflowID := ""  // Empty string - will be created by execution path
 
 	log.Printf("🧠 [INTELLIGENT] Starting execution for task: %s", req.TaskName)
 	log.Printf("🧠 [INTELLIGENT] Description: %s", req.Description)
@@ -789,6 +792,7 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 	// Early cancellation check
 	if ctx.Err() != nil {
 		log.Printf("⏱️ [INTELLIGENT] Context canceled before execution: %v", ctx.Err())
+		workflowID = fmt.Sprintf("intelligent_%d", time.Now().UnixNano())
 		return &IntelligentExecutionResult{
 			Success:         false,
 			Error:           fmt.Sprintf("Execution timed out or was canceled: %v", ctx.Err()),
@@ -825,8 +829,13 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 
 	// PATH 4: Hypothesis testing (enhanced code generation)
 	if ie.shouldUseHypothesisTesting(req, descLower, taskLower) {
+		log.Printf("🧪 [INTELLIGENT] Detected hypothesis testing task - enhancing request")
 		req = ie.enhanceHypothesisRequest(req, descLower)
-		// Continue to traditional execution with enhanced request
+
+		// CRITICAL FIX: Bypass the planner and multi-step logic.
+		// We have already generated the code, so we go straight to traditional execution.
+		log.Printf("🧪 [INTELLIGENT] Bypassing planner for hypothesis execution")
+		return ie.executeTraditionally(ctx, req, start, workflowID)
 	}
 
 	// PATH 5: Explicit tool usage (direct tool call)
@@ -834,14 +843,16 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 		return ie.executeExplicitTool(req, toolID, start, workflowID)
 	}
 
-	// PATH 6: Web information gathering
+	/* PATH 6: Web information gathering
 	if ie.shouldUseWebGathering(req, descLower, taskLower) {
-		result, err := ie.executeWebGathering(ctx, req, start, workflowID)
-		if err == nil && result.Success {
-			return result, nil
+		// Ensure result is captured as the correct pointer type
+		webResult, err := ie.executeWebGathering(ctx, req, start, workflowID)
+		if err == nil && webResult != nil && webResult.Success {
+			return webResult, nil
 		}
-		log.Printf("⚠️ [INTELLIGENT] Web gathering failed, falling back to traditional path")
-	}
+		// If it fails or is unsuccessful, we log and fall through to traditional
+		log.Printf("⚠️ [INTELLIGENT] Web gathering failed or returned no results, falling back")
+	} */
 
 	// Track goal in self-model (skip internal tasks)
 	if ie.selfModelManager != nil && !ie.isInternalTask(taskLower) {
@@ -1004,6 +1015,92 @@ func (ie *IntelligentExecutor) shouldUseHypothesisTesting(req *ExecutionRequest,
 	}
 
 	return false
+}
+
+func (ie *IntelligentExecutor) enhanceHypothesisRequest(req *ExecutionRequest, descLower string) *ExecutionRequest {
+	hypothesisContent := req.Description
+	if strings.HasPrefix(descLower, "test hypothesis:") {
+		parts := strings.SplitN(req.Description, ":", 2)
+		if len(parts) > 1 {
+			hypothesisContent = strings.TrimSpace(parts[1])
+		}
+	}
+
+	extractedTerms := ie.extractHypothesisTerms(hypothesisContent)
+	termsJSON, _ := json.Marshal(extractedTerms)
+
+	// Using 'requests' library as per your successful UI test
+	rawTemplate := `import requests
+import json
+import os
+
+hypothesis = %q
+input_terms = %s
+hdn_url = os.getenv('HDN_URL', 'http://host.docker.internal:8081')
+
+evidence = []
+logs = []
+
+for term in input_terms:
+    if len(term) < 3: continue
+    query = {"query": f"MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('{term}') RETURN c.name AS name, c.description AS description LIMIT 5"}
+    try:
+        resp = requests.post(f"{hdn_url}/api/v1/knowledge/query", json=query, timeout=5)
+        if resp.status_code == 200:
+            results = resp.json().get('results', [])
+            for r in results:
+                evidence.append({'term': term, 'name': r.get('name'), 'desc': r.get('description')})
+    except Exception as e:
+        logs.append(f"Failed {term}: {str(e)}")
+
+# Write Markdown report for UI
+try:
+    with open('hypothesis_test_report.md', 'w') as f:
+        f.write(f"# Hypothesis Test Report\n\n")
+        f.write(f"## Hypothesis\n{hypothesis}\n\n")
+        f.write(f"## Evidence\n")
+        if evidence:
+            evidence_by_term = {}
+            for e in evidence:
+                term = e.get('term', 'Unknown')
+                if term not in evidence_by_term:
+                    evidence_by_term[term] = []
+                evidence_by_term[term].append(e)
+            
+            for term, items in evidence_by_term.items():
+                f.write(f"\n### Search term: {term}\n")
+                for e in items:
+                    name = e.get('name', 'N/A')
+                    desc = e.get('desc', 'No description')
+                    f.write(f"- **{name}**: {desc}\n")
+        else:
+            f.write("\nNo evidence found in knowledge base.\n")
+        
+        f.write(f"\n## Conclusion\n")
+        if evidence:
+            unique_concepts = set(e.get('name') for e in evidence if e.get('name'))
+            f.write(f"Found {len(evidence)} evidence items across {len(unique_concepts)} unique concepts.\n")
+            if unique_concepts:
+                f.write(f"\nConcepts discovered: {', '.join(sorted(unique_concepts))}\n")
+        else:
+            searched_terms = [t for t in input_terms if len(t) >= 3]
+            f.write(f"No evidence found for terms: {searched_terms}\n")
+    
+    print(f"Report generated with {len(evidence)} evidence items")
+except Exception as e:
+    # Force write a failure report so the UI shows SOMETHING
+    with open('hypothesis_test_report.md', 'w') as f:
+        f.write(f"# Hypothesis Test Report\n\n## Error\n{str(e)}")
+`
+	req.Description = fmt.Sprintf(rawTemplate, hypothesisContent, string(termsJSON))
+
+	if req.Context == nil {
+		req.Context = make(map[string]string)
+	}
+	req.Context["hypothesis_enhanced"] = "true"
+	req.Context["artifact_names"] = "hypothesis_test_report.md"
+
+	return req
 }
 
 func (ie *IntelligentExecutor) extractExplicitToolRequest(req *ExecutionRequest, descLower, taskLower string) string {
@@ -1272,6 +1369,32 @@ func (ie *IntelligentExecutor) executeDirectTool(req *ExecutionRequest, start ti
 	return result, nil
 }
 
+func (ie *IntelligentExecutor) executeWebGathering(ctx context.Context, req *ExecutionRequest, start time.Time, workflowID string) (*IntelligentExecutionResult, error) {
+	log.Printf("🌐 [INTELLIGENT] Web information gathering")
+
+	aggRes, aggErr := ie.executeInfoGatheringWithTools(ctx, req)
+
+	result := &IntelligentExecutionResult{
+		Success:       aggErr == nil,
+		Result:        aggRes,
+		ExecutionTime: time.Since(start),
+		WorkflowID:    workflowID,
+	}
+
+	if aggErr != nil {
+		result.Error = aggErr.Error()
+		return result, aggErr
+	}
+
+	// Record metrics
+	ie.recordMonitorMetrics(result.Success, result.ExecutionTime)
+	if ie.selfModelManager != nil {
+		ie.recordExecutionEpisode(req, result, "tool_info_gathering")
+	}
+
+	return result, nil
+}
+
 func (ie *IntelligentExecutor) executeExplicitTool(req *ExecutionRequest, toolID string, start time.Time, workflowID string) (*IntelligentExecutionResult, error) {
 	log.Printf("🔧 [INTELLIGENT] Routing to explicit tool execution: %s", toolID)
 
@@ -1313,113 +1436,6 @@ func (ie *IntelligentExecutor) executeExplicitTool(req *ExecutionRequest, toolID
 	}
 
 	return result, nil
-}
-
-func (ie *IntelligentExecutor) executeWebGathering(ctx context.Context, req *ExecutionRequest, start time.Time, workflowID string) (*IntelligentExecutionResult, error) {
-	log.Printf("🌐 [INTELLIGENT] Web information gathering")
-
-	aggRes, aggErr := ie.executeInfoGatheringWithTools(ctx, req)
-
-	result := &IntelligentExecutionResult{
-		Success:       aggErr == nil,
-		Result:        aggRes,
-		ExecutionTime: time.Since(start),
-		WorkflowID:    workflowID,
-	}
-
-	if aggErr != nil {
-		result.Error = aggErr.Error()
-		return result, aggErr
-	}
-
-	// Record metrics
-	ie.recordMonitorMetrics(result.Success, result.ExecutionTime)
-	if ie.selfModelManager != nil {
-		ie.recordExecutionEpisode(req, result, "tool_info_gathering")
-	}
-
-	return result, nil
-}
-
-func (ie *IntelligentExecutor) enhanceHypothesisRequest(req *ExecutionRequest, descLower string) *ExecutionRequest {
-	hypothesisContent := req.Description
-	if strings.HasPrefix(descLower, "test hypothesis:") {
-		parts := strings.SplitN(req.Description, ":", 2)
-		if len(parts) > 1 {
-			hypothesisContent = strings.TrimSpace(parts[1])
-		}
-	}
-
-	extractedTerms := ie.extractHypothesisTerms(hypothesisContent)
-	termsJSON, _ := json.Marshal(extractedTerms)
-
-	// Use urllib.request (Built-in) to avoid 'requests' installation errors
-	rawTemplate := `import urllib.request
-import json
-import os
-
-hypothesis = %q
-input_terms = %s
-hdn_url = os.getenv('HDN_URL', 'http://localhost:8081')
-
-evidence = []
-blacklist = ['use', 'using', 'test', 'apply', 'insights', 'further', 'discover']
-
-print(f"--- Hypothesis Test Started (Built-in Libs) ---")
-
-for term in input_terms:
-    clean = term.lower().strip()
-    if clean in blacklist or len(clean) < 3:
-        continue
-
-    print(f"Querying: {term}")
-    query_str = f"MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('{term}') RETURN c.name AS name, c.description AS description LIMIT 5"
-    payload = json.dumps({"query": query_str}).encode('utf-8')
-    
-    try:
-        req_obj = urllib.request.Request(
-            f"{hdn_url}/api/v1/knowledge/query", 
-            data=payload, 
-            headers={'Content-Type': 'application/json'},
-            method='POST'
-        )
-        with urllib.request.urlopen(req_obj, timeout=5) as response:
-            data = json.loads(response.read().decode())
-            if isinstance(data, list) and len(data) > 0:
-                for item in data:
-                    evidence.append({'term': term, 'name': item.get('name'), 'desc': item.get('description')})
-            else:
-                print(f"  No results for {term}")
-    except Exception as e:
-        print(f"  Connection error for {term}: {e}")
-
-# Build Report
-report = f"# Hypothesis Test Report\n\n## Hypothesis\n{hypothesis}\n\n"
-if evidence:
-    report += "## Evidence Found\n\n"
-    for e in evidence:
-        report += f"### {e['name']}\n- **Term**: {e['term']}\n- **Description**: {e['desc']}\n\n"
-else:
-    report += "## Result\nNo evidence found in knowledge base.\n"
-
-with open('hypothesis_test_report.md', 'w', encoding='utf-8') as f:
-    f.write(report)
-`
-
-	cleanTemplate := strings.ReplaceAll(rawTemplate, "@BT@", "`")
-	req.Description = fmt.Sprintf(cleanTemplate,
-		hypothesisContent,
-		string(termsJSON),
-		hypothesisContent,
-		string(termsJSON),
-	)
-
-	if req.Context == nil {
-		req.Context = make(map[string]string)
-	}
-	req.Context["artifact_names"] = "hypothesis_test_report.md"
-
-	return req
 }
 
 func (ie *IntelligentExecutor) extractHypothesisTerms(hypothesis string) []string {
@@ -2123,6 +2139,9 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 				result.GeneratedCode = cachedCode
 				result.Result = validationResult.Output
 				result.ExecutionTime = time.Since(start)
+				// Ensure result.WorkflowID is set correctly for API workflow record creation
+				result.WorkflowID = fileStorageWorkflowID
+				log.Printf("🔍 [INTELLIGENT] Set result.WorkflowID = %s (cached code path, matches fileStorageWorkflowID)", result.WorkflowID)
 				return result, nil
 			} else {
 				log.Printf("⚠️ [INTELLIGENT] Compatible cached code validation failed, will regenerate")
@@ -2550,6 +2569,10 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		result.NewAction = dynamicAction
 		log.Printf("✅ [INTELLIGENT] Created dynamic action: %s", dynamicAction.Task)
 	}
+
+	// Ensure result.WorkflowID is set correctly for API workflow record creation
+	result.WorkflowID = fileStorageWorkflowID
+	log.Printf("🔍 [INTELLIGENT] Set result.WorkflowID = %s (matches fileStorageWorkflowID for file retrieval)", result.WorkflowID)
 
 	// Step 6: Return successful result
 	result.Success = true
@@ -3397,13 +3420,13 @@ func isCodeUnsafeStatic(code string, language string, ctx map[string]string) str
 	dangerous := []string{
 		"os.system(", "subprocess.popen", "subprocess.call", "subprocess.run",
 		"shutil.rmtree", "eval(", "exec(", "__import__(", "open('/",
-		"socket.", "urllib.request", "wget ", "curl ",
+		"socket.",
 		// Disallow direct container orchestration commands (but allow mentions in comments/strings)
 		"docker run", "docker exec", "docker build", "docker ps", "docker stop", "docker start",
 		"docker rm", "docker rmi", "docker pull", "docker push", "docker compose",
 		"podman run", "podman exec", "kubectl ",
 	}
-	// Conditionally disallow/allow Python requests
+	// Conditionally disallow/allow Python requests and HTTP libraries
 	allowReq := false
 	if v := strings.TrimSpace(os.Getenv("ALLOW_REQUESTS")); v == "1" || strings.EqualFold(v, "true") {
 		allowReq = true
@@ -3414,7 +3437,8 @@ func isCodeUnsafeStatic(code string, language string, ctx map[string]string) str
 		}
 	}
 	if !allowReq {
-		dangerous = append(dangerous, "requests.")
+		// Block HTTP libraries only if allow_requests is not set
+		dangerous = append(dangerous, "requests.", "urllib.request", "wget ", "curl ")
 	}
 	for _, pat := range dangerous {
 		if strings.Contains(lower, pat) {

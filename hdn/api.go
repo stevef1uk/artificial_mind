@@ -2544,12 +2544,15 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 	// Create a workflow record for the Monitor UI to display
 	// Use the workflow ID from the result if available, otherwise generate a new one
 	workflowID := result.WorkflowID
+	log.Printf("🔍 [API] result.WorkflowID from executor: %s", workflowID)
 	if workflowID == "" {
 		workflowID = fmt.Sprintf("intelligent_%d", time.Now().UnixNano())
+		log.Printf("⚠️ [API] result.WorkflowID was empty, generated new ID: %s", workflowID)
 	}
 	// createIntelligentWorkflowRecord may modify the workflow ID (adds intelligent_ prefix)
 	// so we need to use the returned ID for linking
 	storeID := s.createIntelligentWorkflowRecord(req, result, workflowID)
+	log.Printf("🔍 [API] storeID returned from createIntelligentWorkflowRecord: %s", storeID)
 
 	// Link workflow to project if provided (support name or id)
 	// Extract project_id from request or context for linking
@@ -3545,13 +3548,22 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 			if err != nil {
 				log.Printf("❌ [API] Async direct execution failed: %v", err)
 			}
-			// Persist workflow record
+			// Persist workflow record using result.WorkflowID from executor
+			// This ensures the workflow record uses the same ID as file storage
+			workflowIDForRecord := result.WorkflowID
+			if workflowIDForRecord == "" {
+				// Fallback: use the initially created wfID if result doesn't have one
+				workflowIDForRecord = wfID
+				log.Printf("⚠️ [API] result.WorkflowID was empty, using initial wfID: %s", wfID)
+			} else if workflowIDForRecord != wfID {
+				log.Printf("🔧 [API] Updating workflow ID from initial %s to executor's %s (for file consistency)", wfID, workflowIDForRecord)
+			}
 			storeID := s.createIntelligentWorkflowRecord(IntelligentExecutionRequest{
 				TaskName:    req.TaskName,
 				Description: req.Description,
 				Context:     req.Context,
 				Language:    "python",
-			}, result, wfID)
+			}, result, workflowIDForRecord)
 
 			// Link workflow to project if provided
 			if req.ProjectID != "" {
