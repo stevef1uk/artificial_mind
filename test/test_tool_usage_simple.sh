@@ -30,13 +30,32 @@ curl_with_timeout() {
 
 # Test 1: Health check
 echo "🏥 Step 0: Health check..."
-HEALTH=$(curl_with_timeout "$HDN_URL/health" 2>/dev/null)
+HEALTH=$(curl_with_timeout "$HDN_URL/api/v1/tools" 2>/dev/null)
 if [ $? -eq 0 ] && [ -n "$HEALTH" ]; then
     echo "✅ HDN server is responding"
 else
     echo "❌ HDN server not responding at $HDN_URL"
-    echo "   Try: kubectl port-forward -n agi svc/hdn-server-rpi58 8080:8080"
-    exit 1
+    echo "   Checking if service exists..."
+    kubectl get svc -n agi hdn-server-rpi58 2>/dev/null
+    if [ $? -eq 0 ]; then
+        echo "   Service exists, trying port-forward..."
+        kubectl port-forward -n agi svc/hdn-server-rpi58 8080:8080 &
+        PF_PID=$!
+        sleep 2
+        echo "   Retrying..."
+        HEALTH=$(curl_with_timeout "http://localhost:8080/api/v1/tools" 2>/dev/null)
+        if [ $? -eq 0 ]; then
+            HDN_URL="http://localhost:8080"
+            echo "✅ Connected via port-forward"
+            kill $PF_PID 2>/dev/null
+        else
+            kill $PF_PID 2>/dev/null
+            exit 1
+        fi
+    else
+        echo "   Service not found. Try running on k8s cluster or use: kubectl port-forward -n agi svc/hdn-server-rpi58 8080:8080"
+        exit 1
+    fi
 fi
 echo ""
 
