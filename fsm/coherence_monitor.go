@@ -524,10 +524,25 @@ func (cm *CoherenceMonitor) ResolveInconsistency(inconsistency Inconsistency) er
 		return nil
 	}
 	
-	// DEDUPLICATION CHECK: Also check if this type of inconsistency was recently created (within 5 minutes)
-	// This prevents rapid re-creation of the same resolution goals
-	recentInconsistencyKey := fmt.Sprintf("coherence:recent_inconsistency:%s_%s", inconsistency.Type, 
-		fmt.Sprintf("%v", inconsistency.Details))
+	// DEDUPLICATION CHECK: Also check if this type of inconsistency was recently created (within 24 hours)
+	// For behavior loops, use transition type as key instead of full details (which includes varying counts)
+	// This prevents duplicate goals for the same transition even if count changes
+	var recentInconsistencyKey string
+	if inconsistency.Type == "behavior_loop" {
+		// For behavior loops, deduplicate by transition only, ignoring count differences
+		if transition, ok := inconsistency.Details["transition"].(string); ok {
+			recentInconsistencyKey = fmt.Sprintf("coherence:recent_inconsistency:%s:transition:%s", 
+				inconsistency.Type, transition)
+		} else {
+			recentInconsistencyKey = fmt.Sprintf("coherence:recent_inconsistency:%s_%s", 
+				inconsistency.Type, fmt.Sprintf("%v", inconsistency.Details))
+		}
+	} else {
+		// For other inconsistency types, use full details
+		recentInconsistencyKey = fmt.Sprintf("coherence:recent_inconsistency:%s_%s", 
+			inconsistency.Type, fmt.Sprintf("%v", inconsistency.Details))
+	}
+	
 	if lastTime, err := cm.redis.Get(cm.ctx, recentInconsistencyKey).Result(); err == nil && lastTime != "" {
 		log.Printf("⏭️ [Coherence] Similar inconsistency was resolved/detected recently, skipping duplicate creation")
 		return nil
@@ -536,7 +551,7 @@ func (cm *CoherenceMonitor) ResolveInconsistency(inconsistency Inconsistency) er
 	// Mark that we're creating a resolution for this inconsistency (TTL: 24 hours)
 	goalID := fmt.Sprintf("coherence_resolution_%s", inconsistency.ID)
 	cm.redis.Set(cm.ctx, resolutionGoalKey, goalID, 24*time.Hour)
-	cm.redis.Set(cm.ctx, recentInconsistencyKey, time.Now().String(), 5*time.Minute)
+	cm.redis.Set(cm.ctx, recentInconsistencyKey, time.Now().String(), 24*time.Hour)
 	
 	// Create a prompt for the reasoning engine
 	prompt := fmt.Sprintf(`You have detected an inconsistency in the system:
