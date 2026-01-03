@@ -1342,6 +1342,8 @@ func (ie *IntelligentExecutor) executeWebGathering(ctx context.Context, req *Exe
 }
 
 func (ie *IntelligentExecutor) enhanceHypothesisRequest(req *ExecutionRequest, descLower string) *ExecutionRequest {
+	log.Printf("🧪 [INTELLIGENT] Detected hypothesis testing task, will generate code to test hypothesis")
+	
 	hypothesisContent := req.Description
 	if strings.HasPrefix(descLower, "test hypothesis:") {
 		parts := strings.SplitN(req.Description, ":", 2)
@@ -1350,74 +1352,56 @@ func (ie *IntelligentExecutor) enhanceHypothesisRequest(req *ExecutionRequest, d
 		}
 	}
 
+	log.Printf("🧪 [INTELLIGENT] Hypothesis content: %s", hypothesisContent)
+
+	// Extract terms for the code generator to use
 	extractedTerms := ie.extractHypothesisTerms(hypothesisContent)
 	termsJSON, _ := json.Marshal(extractedTerms)
+	
+	log.Printf("🧪 [INTELLIGENT] Extracted %d terms from hypothesis: %v", len(extractedTerms), extractedTerms)
 
-	// Use urllib.request (Built-in) to avoid 'requests' installation errors
-	rawTemplate := `import urllib.request
-import json
-import os
+	// Create an enhanced description that tells the code generator what to do
+	enhancedDesc := fmt.Sprintf(`Test hypothesis by gathering evidence: %s
 
-hypothesis = %q
-input_terms = %s
-hdn_url = os.getenv('HDN_URL', 'http://localhost:8081')
+Requirements:
+1. Query Neo4j knowledge base (via HTTP API at http://localhost:8081/api/v1/knowledge/query) for information related to the hypothesis
+2. Extract key terms from the hypothesis: %s
+3. Gather evidence that supports or contradicts the hypothesis
+4. Create a markdown report with:
+   - The hypothesis being tested
+   - Evidence found in the knowledge base
+   - Analysis of the evidence
+   - Conclusion (supports/contradicts/inconclusive)
+5. Save the report as hypothesis_test_report.md
 
-evidence = []
-blacklist = ['use', 'using', 'test', 'apply', 'insights', 'further', 'discover']
+Use urllib.request (built-in) for HTTP requests to avoid dependency issues.
 
-print(f"--- Hypothesis Test Started (Built-in Libs) ---")
-
-for term in input_terms:
-    clean = term.lower().strip()
-    if clean in blacklist or len(clean) < 3:
-        continue
-
-    print(f"Querying: {term}")
-    query_str = f"MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('{term}') RETURN c.name AS name, c.description AS description LIMIT 5"
-    payload = json.dumps({"query": query_str}).encode('utf-8')
-    
-    try:
-        req_obj = urllib.request.Request(
-            f"{hdn_url}/api/v1/knowledge/query", 
-            data=payload, 
-            headers={'Content-Type': 'application/json'},
-            method='POST'
-        )
-        with urllib.request.urlopen(req_obj, timeout=5) as response:
-            data = json.loads(response.read().decode())
-            if isinstance(data, list) and len(data) > 0:
-                for item in data:
-                    evidence.append({'term': term, 'name': item.get('name'), 'desc': item.get('description')})
-            else:
-                print(f"  No results for {term}")
-    except Exception as e:
-        print(f"  Connection error for {term}: {e}")
-
-# Build Report
-report = f"# Hypothesis Test Report\n\n## Hypothesis\n{hypothesis}\n\n"
-if evidence:
-    report += "## Evidence Found\n\n"
-    for e in evidence:
-        report += f"### {e['name']}\n- **Term**: {e['term']}\n- **Description**: {e['desc']}\n\n"
-else:
-    report += "## Result\nNo evidence found in knowledge base.\n"
-
-with open('hypothesis_test_report.md', 'w', encoding='utf-8') as f:
-    f.write(report)
-`
-
-	cleanTemplate := strings.ReplaceAll(rawTemplate, "@BT@", "`")
-	req.Description = fmt.Sprintf(cleanTemplate,
+The hypothesis to test: %s
+Terms to search for: %s`,
 		hypothesisContent,
 		string(termsJSON),
 		hypothesisContent,
 		string(termsJSON),
 	)
 
+	req.Description = enhancedDesc
+	
+	// Set language to Python for code generation
+	if req.Language == "" {
+		req.Language = "python"
+	}
+
+	// Initialize context if nil
 	if req.Context == nil {
 		req.Context = make(map[string]string)
 	}
+	
+	// Set critical context flags for hypothesis testing
+	req.Context["hypothesis_testing"] = "true"
+	req.Context["save_pdf"] = "true"
 	req.Context["artifact_names"] = "hypothesis_test_report.md"
+	
+	log.Printf("🧪 [INTELLIGENT] Enhanced hypothesis request - will generate code to test hypothesis and create report")
 
 	return req
 }

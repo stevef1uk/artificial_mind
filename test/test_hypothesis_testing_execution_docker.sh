@@ -7,11 +7,21 @@
 # Don't exit on error - we want to show helpful messages
 set +e
 
+# Deployment mode: auto-detect or override with DEPLOYMENT_MODE env var
+# - hybrid: Infrastructure in Docker, application services run native (Mac development)
+# - k3s: Everything runs in Docker/Kubernetes (RPi cluster)
+DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-auto}"
+
+# Service URLs - defaults for hybrid mode
 FSM_URL="${FSM_URL:-http://localhost:8083}"
 GOAL_MGR_URL="${GOAL_MGR_URL:-http://localhost:8090}"
 HDN_URL="${HDN_URL:-http://localhost:8081}"
 REDIS_HOST="${REDIS_HOST:-localhost}"
 REDIS_PORT="${REDIS_PORT:-6379}"
+
+# Report output
+REPORT_DIR="${REPORT_DIR:-./test-reports}"
+REPORT_FILE="${REPORT_FILE:-hypothesis_test_report_$(date +%Y%m%d_%H%M%S).json}"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -20,8 +30,142 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}🧪 Testing Hypothesis Testing Execution (Docker)${NC}"
+# Report data structure
+declare -A REPORT
+REPORT[start_time]=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+REPORT[deployment_mode]="$DEPLOYMENT_MODE"
+REPORT[test_result]="PENDING"
+
+# Function to write report
+write_report() {
+    mkdir -p "$REPORT_DIR"
+    local report_path="$REPORT_DIR/$REPORT_FILE"
+    
+    REPORT[end_time]=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    
+    cat > "$report_path" <<EOF
+{
+  "test_name": "Hypothesis Testing Execution Test",
+  "deployment_mode": "${REPORT[deployment_mode]}",
+  "start_time": "${REPORT[start_time]}",
+  "end_time": "${REPORT[end_time]}",
+  "test_result": "${REPORT[test_result]}",
+  "hypothesis_id": "${REPORT[hypothesis_id]:-N/A}",
+  "goal_id": "${REPORT[goal_id]:-N/A}",
+  "workflow_id": "${REPORT[workflow_id]:-N/A}",
+  "execution_found": ${REPORT[execution_found]:-false},
+  "artifacts_found": ${REPORT[artifacts_found]:-false},
+  "artifact_count": ${REPORT[artifact_count]:-0},
+  "duplicate_rejected": ${REPORT[duplicate_rejected]:-false},
+  "services": {
+    "redis": "${REPORT[redis_status]:-unknown}",
+    "fsm": "${REPORT[fsm_status]:-unknown}",
+    "hdn": "${REPORT[hdn_status]:-unknown}",
+    "goal_manager": "${REPORT[goal_mgr_status]:-unknown}"
+  },
+  "errors": ${REPORT[errors]:-[]},
+  "logs": ${REPORT[logs]:-[]}
+}
+EOF
+    
+    echo -e "${GREEN}Report saved to: $report_path${NC}"
+    
+    # Also create a simple HTML report
+    local html_path="${report_path%.json}.html"
+    cat > "$html_path" <<EOF
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hypothesis Testing Report</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #333; border-bottom: 2px solid #4CAF50; padding-bottom: 10px; }
+        .success { color: #4CAF50; font-weight: bold; }
+        .warning { color: #FF9800; font-weight: bold; }
+        .error { color: #F44336; font-weight: bold; }
+        .info { color: #2196F3; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f2f2f2; font-weight: bold; }
+        .status-ok { background-color: #E8F5E9; }
+        .status-warning { background-color: #FFF3E0; }
+        .status-error { background-color: #FFEBEE; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Hypothesis Testing Execution Report</h1>
+        <p><strong>Test Time:</strong> ${REPORT[start_time]} to ${REPORT[end_time]}</p>
+        <p><strong>Deployment Mode:</strong> <span class="info">${REPORT[deployment_mode]}</span></p>
+        <p><strong>Result:</strong> <span class="${REPORT[test_result],,}">${REPORT[test_result]}</span></p>
+        
+        <h2>Test Details</h2>
+        <table>
+            <tr><th>Property</th><th>Value</th></tr>
+            <tr><td>Hypothesis ID</td><td>${REPORT[hypothesis_id]:-N/A}</td></tr>
+            <tr><td>Goal ID</td><td>${REPORT[goal_id]:-N/A}</td></tr>
+            <tr><td>Workflow ID</td><td>${REPORT[workflow_id]:-N/A}</td></tr>
+            <tr><td>Execution Found</td><td>${REPORT[execution_found]:-false}</td></tr>
+            <tr><td>Artifacts Found</td><td>${REPORT[artifacts_found]:-false}</td></tr>
+            <tr><td>Artifact Count</td><td>${REPORT[artifact_count]:-0}</td></tr>
+        </table>
+        
+        <h2>Service Status</h2>
+        <table>
+            <tr><th>Service</th><th>Status</th></tr>
+            <tr class="status-${REPORT[redis_status]:-unknown}"><td>Redis</td><td>${REPORT[redis_status]:-unknown}</td></tr>
+            <tr class="status-${REPORT[fsm_status]:-unknown}"><td>FSM</td><td>${REPORT[fsm_status]:-unknown}</td></tr>
+            <tr class="status-${REPORT[hdn_status]:-unknown}"><td>HDN</td><td>${REPORT[hdn_status]:-unknown}</td></tr>
+            <tr class="status-${REPORT[goal_mgr_status]:-unknown}"><td>Goal Manager</td><td>${REPORT[goal_mgr_status]:-unknown}</td></tr>
+        </table>
+    </div>
+</body>
+</html>
+EOF
+    
+    echo -e "${GREEN}HTML report saved to: $html_path${NC}"
+}
+
+# Trap to ensure report is written on exit
+trap write_report EXIT
+
+echo -e "${BLUE}🧪 Testing Hypothesis Testing Execution${NC}"
 echo "=========================================="
+echo ""
+
+# Auto-detect deployment mode if set to auto
+if [ "$DEPLOYMENT_MODE" = "auto" ]; then
+    echo "🔍 Auto-detecting deployment mode..."
+    
+    # Check if we're running in a k3s environment
+    if command -v kubectl &> /dev/null && kubectl get nodes &> /dev/null 2>&1; then
+        # We have kubectl and can access cluster
+        DEPLOYMENT_MODE="k3s"
+        echo -e "   ${GREEN}✅ Detected k3s/Kubernetes environment${NC}"
+        
+        # Update URLs for k3s
+        FSM_URL="${FSM_URL:-http://fsm-server:8083}"
+        GOAL_MGR_URL="${GOAL_MGR_URL:-http://goal-manager:8090}"
+        HDN_URL="${HDN_URL:-http://hdn-server:8081}"
+        REDIS_HOST="${REDIS_HOST:-redis}"
+    else
+        # Check if application services are running natively
+        if curl -s --connect-timeout 2 "http://localhost:8083/health" > /dev/null 2>&1 || \
+           curl -s --connect-timeout 2 "http://localhost:8081/api/v1/domains" > /dev/null 2>&1; then
+            DEPLOYMENT_MODE="hybrid"
+            echo -e "   ${GREEN}✅ Detected hybrid mode (infrastructure in Docker, apps native)${NC}"
+        else
+            # Default to hybrid for Mac development
+            DEPLOYMENT_MODE="hybrid"
+            echo -e "   ${YELLOW}⚠️  Defaulting to hybrid mode${NC}"
+        fi
+    fi
+else
+    echo "🔧 Using deployment mode: $DEPLOYMENT_MODE"
+fi
+
+REPORT[deployment_mode]="$DEPLOYMENT_MODE"
 echo ""
 
 # Check if Docker is available
@@ -35,9 +179,10 @@ fi
 # Find Docker containers (try common naming patterns)
 find_container() {
     local pattern="$1"
+    local containers
     if [ "$DOCKER_AVAILABLE" = true ]; then
         # Get all container names
-        local containers=$(docker ps --format "{{.Names}}" 2>/dev/null)
+        containers=$(docker ps --format "{{.Names}}" 2>/dev/null)
         if [ -z "$containers" ]; then
             echo ""
             return
@@ -102,45 +247,58 @@ SERVICES_OK=true
 if [ -n "$REDIS_CONTAINER" ]; then
     if docker exec "$REDIS_CONTAINER" redis-cli ping &> /dev/null; then
         echo -e "${GREEN}✅ Redis container: $REDIS_CONTAINER${NC}"
+        REPORT[redis_status]="ok"
     else
         echo -e "${RED}❌ Redis container $REDIS_CONTAINER not responding${NC}"
+        REPORT[redis_status]="error"
         SERVICES_OK=false
     fi
 elif redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping &> /dev/null 2>&1; then
     echo -e "${GREEN}✅ Redis accessible at $REDIS_HOST:$REDIS_PORT${NC}"
+    REPORT[redis_status]="ok"
 else
     echo -e "${RED}❌ Redis not accessible${NC}"
+    REPORT[redis_status]="error"
     SERVICES_OK=false
 fi
 
 # Check FSM
 if [ -n "$FSM_CONTAINER" ]; then
     echo -e "${GREEN}✅ FSM container: $FSM_CONTAINER${NC}"
+    REPORT[fsm_status]="ok"
 elif curl -s --connect-timeout 2 "$FSM_URL/health" > /dev/null 2>&1; then
     echo -e "${GREEN}✅ FSM accessible at $FSM_URL${NC}"
+    REPORT[fsm_status]="ok"
 else
     echo -e "${YELLOW}⚠️  FSM not accessible at $FSM_URL${NC}"
     echo "   (Will try to continue - may be running locally)"
+    REPORT[fsm_status]="warning"
 fi
 
 # Check HDN
 if [ -n "$HDN_CONTAINER" ]; then
     echo -e "${GREEN}✅ HDN container: $HDN_CONTAINER${NC}"
+    REPORT[hdn_status]="ok"
 elif curl -s --connect-timeout 2 "$HDN_URL/api/v1/domains" > /dev/null 2>&1; then
     echo -e "${GREEN}✅ HDN accessible at $HDN_URL${NC}"
+    REPORT[hdn_status]="ok"
 else
     echo -e "${YELLOW}⚠️  HDN not accessible at $HDN_URL${NC}"
     echo "   (Will try to continue - may be running locally)"
+    REPORT[hdn_status]="warning"
 fi
 
 # Check Goal Manager
 if [ -n "$GOAL_MGR_CONTAINER" ]; then
     echo -e "${GREEN}✅ Goal Manager container: $GOAL_MGR_CONTAINER${NC}"
+    REPORT[goal_mgr_status]="ok"
 elif curl -s --connect-timeout 2 "$GOAL_MGR_URL/health" > /dev/null 2>&1; then
     echo -e "${GREEN}✅ Goal Manager accessible at $GOAL_MGR_URL${NC}"
+    REPORT[goal_mgr_status]="ok"
 else
     echo -e "${YELLOW}⚠️  Goal Manager not accessible at $GOAL_MGR_URL${NC}"
     echo "   (Will try to continue - may be running locally)"
+    REPORT[goal_mgr_status]="warning"
 fi
 
 echo ""
@@ -196,8 +354,10 @@ redis_cmd HSET "$HYP_KEY" "$TEST_HYP_ID" "$TEST_HYP_JSON" > /dev/null 2>&1
 if [ $? -eq 0 ]; then
     echo -e "   ${GREEN}✅ Created test hypothesis: $TEST_HYP_ID${NC}"
     echo "   Description: $TEST_HYP_DESC"
+    REPORT[hypothesis_id]="$TEST_HYP_ID"
 else
     echo -e "   ${RED}❌ Failed to create test hypothesis${NC}"
+    REPORT[test_result]="ERROR"
     exit 1
 fi
 echo ""
@@ -228,13 +388,16 @@ if echo "$GOAL_RESPONSE" | grep -q '"id"'; then
     GOAL_ID=$(echo "$GOAL_RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('id', ''))" 2>/dev/null || echo "")
     if [ -n "$GOAL_ID" ]; then
         echo -e "   ${GREEN}✅ Created goal: $GOAL_ID${NC}"
+        REPORT[goal_id]="$GOAL_ID"
     else
         echo -e "   ${YELLOW}⚠️  Goal created but ID not extracted${NC}"
         GOAL_ID="unknown"
+        REPORT[goal_id]="unknown"
     fi
 else
     echo -e "   ${RED}❌ Failed to create goal${NC}"
     echo "   Response: $GOAL_RESPONSE"
+    REPORT[test_result]="ERROR"
     exit 1
 fi
 echo ""
@@ -247,6 +410,12 @@ EXECUTION_FOUND=false
 WORKFLOW_ID=""
 DUPLICATE_REJECTED=false
 COMPLETION_DETECTED=false
+
+REPORT[execution_found]=false
+REPORT[artifacts_found]=false
+REPORT[artifact_count]=0
+REPORT[duplicate_rejected]=false
+
 for i in {1..36}; do
     sleep 5
     
@@ -258,6 +427,8 @@ for i in {1..36}; do
             if [ -n "$WORKFLOW_ID" ]; then
                 echo -e "   ${GREEN}✅ Goal triggered, workflow: $WORKFLOW_ID${NC}"
                 EXECUTION_FOUND=true
+                REPORT[execution_found]=true
+                REPORT[workflow_id]="$WORKFLOW_ID"
             fi
         fi
     fi
@@ -306,6 +477,7 @@ for i in {1..36}; do
         fi
         if [ -n "$DUPLICATE_CHECK" ]; then
             DUPLICATE_REJECTED=true
+            REPORT[duplicate_rejected]=true
             echo -e "   ${YELLOW}⚠️  Workflow rejected as duplicate${NC}"
             echo "   (This means a similar goal was executed recently)"
             break
@@ -385,6 +557,7 @@ if [ -n "$WORKFLOW_ID" ] && [ "$WORKFLOW_ID" != "N/A" ]; then
     
     if [ -n "$ARTIFACTS_RESPONSE" ] && echo "$ARTIFACTS_RESPONSE" | grep -qi "hypothesis_test_report\|\.md\|\.pdf\|filename"; then
         ARTIFACTS_FOUND=true
+        REPORT[artifacts_found]=true
         echo -e "   ${GREEN}✅ Found artifacts for workflow $WORKFLOW_ID${NC}"
         echo "$ARTIFACTS_RESPONSE" | python3 -c "
 import sys, json
@@ -454,6 +627,8 @@ except Exception as e:
     if [ -n "$REDIS_FILES" ]; then
         ARTIFACTS_FOUND=true
         ARTIFACT_COUNT=$(echo "$REDIS_FILES" | tr ' ' '\n' | grep -v '^$' | wc -l | tr -d ' ')
+        REPORT[artifacts_found]=true
+        REPORT[artifact_count]="$ARTIFACT_COUNT"
         echo -e "   ${GREEN}✅ Found $ARTIFACT_COUNT artifact(s) in Redis storage${NC}"
         for file_key in $REDIS_FILES; do
             if [ -n "$file_key" ]; then
@@ -540,6 +715,8 @@ if [ "$ARTIFACTS_FOUND" = false ]; then
     if [ -n "$REDIS_FILES" ]; then
         ARTIFACTS_FOUND=true
         ARTIFACT_COUNT=$(echo "$REDIS_FILES" | tr ' ' '\n' | grep -v '^$' | wc -l | tr -d ' ')
+        REPORT[artifacts_found]=true
+        REPORT[artifact_count]="$ARTIFACT_COUNT"
         echo -e "   ${GREEN}✅ Found $ARTIFACT_COUNT artifact(s) in Redis storage${NC}"
         for file_key in $REDIS_FILES; do
             if [ -n "$file_key" ]; then
@@ -989,17 +1166,20 @@ if [ "$DUPLICATE_REJECTED" = true ]; then
         echo -e "${GREEN}✅ Hypothesis testing is working!${NC}"
         echo "   (Workflow was rejected as duplicate, but artifacts exist from original execution)"
         echo "   This confirms the fix is working - hypothesis testing goals execute and produce artifacts."
+        REPORT[test_result]="SUCCESS"
         exit 0
     else
         echo -e "${YELLOW}⚠️  Workflow rejected as duplicate${NC}"
         echo "   This means a similar goal was executed recently."
         echo "   The fix appears to be working (no skip detected), but we need a more unique test."
         echo "   Try running the test again with a different hypothesis description."
+        REPORT[test_result]="WARNING"
         exit 0
     fi
 elif [ "$EXECUTION_FOUND" = true ] && [ "$ARTIFACTS_FOUND" = true ]; then
     echo -e "${GREEN}✅ Hypothesis testing execution is working!${NC}"
     echo "   Goals are being executed and producing artifacts."
+    REPORT[test_result]="SUCCESS"
     exit 0
 elif [ "$EXECUTION_FOUND" = true ]; then
     echo -e "${YELLOW}⚠️  Partial success: Execution detected but artifacts not found${NC}"
@@ -1019,6 +1199,7 @@ elif [ "$EXECUTION_FOUND" = true ]; then
         echo "   4. Check workflow details:"
         echo "      curl -s $HDN_URL/api/v1/hierarchical/workflow/$WORKFLOW_ID/details | jq"
     fi
+    REPORT[test_result]="WARNING"
     exit 0
 else
     echo -e "${RED}❌ FAIL: Hypothesis testing execution not detected${NC}"
@@ -1030,6 +1211,7 @@ else
     if [ -n "$FSM_CONTAINER" ]; then
         echo "   docker logs $FSM_CONTAINER --tail=200 | grep -i 'triggered goal.*$GOAL_ID'"
     fi
+    REPORT[test_result]="FAIL"
     exit 1
 fi
 
