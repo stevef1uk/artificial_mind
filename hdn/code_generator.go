@@ -859,23 +859,46 @@ Code:`
 		}
 	}
 
-	// Check if this is a Wikipedia scraping task
+	// Check if this is a Wikipedia scraping/fetching task
 	isWikipediaScrape := strings.Contains(descLowerForTools, "wikipedia") && 
 		(strings.Contains(descLowerForTools, "scrape") || 
 		 strings.Contains(descLowerForTools, "fetch") || 
-		 strings.Contains(descLowerForTools, "extract"))
+		 strings.Contains(descLowerForTools, "extract") ||
+		 strings.Contains(descLowerForTools, "article"))
 	
 	wikipediaInstructions := ""
 	if isWikipediaScrape {
 		if req.Language == "python" || req.Language == "py" {
-			wikipediaInstructions = "\n\n🚨 CRITICAL: This task requires scraping Wikipedia. Follow these steps exactly:\n"
-			wikipediaInstructions += "1. Construct Wikipedia URL: https://en.wikipedia.org/wiki/ARTICLE_NAME (replace spaces with underscores)\n"
-			wikipediaInstructions += "2. Call tool_html_scraper with the URL\n"
-			wikipediaInstructions += "3. The tool returns: {\"items\": [...]}, NOT {\"title\": ...}\n"
-			wikipediaInstructions += "4. IMPORTANT: tool_html_scraper returns a dict with 'items' array, NOT 'title', 'paragraphs', or 'links'\n"
-			wikipediaInstructions += "5. Each item in 'items' array is a dict with keys like 'tag', 'text', 'href'\n"
-			wikipediaInstructions += "6. Parse and process the items array to extract meaningful content\n"
-			wikipediaInstructions += "7. EXAMPLE response: {\"items\": [{\"tag\": \"h1\", \"text\": \"Machine Learning\"}, {\"tag\": \"p\", \"text\": \"Machine learning is...\"}]}\n"
+			// Determine if this is for tool_html_scraper or tool_http_get
+			if strings.Contains(descLowerForTools, "html_scraper") {
+				wikipediaInstructions = "\n\n🚨 CRITICAL: This task requires scraping Wikipedia with tool_html_scraper. Follow these steps exactly:\n"
+				wikipediaInstructions += "1. Construct Wikipedia URL: https://en.wikipedia.org/wiki/ARTICLE_NAME (replace spaces with underscores)\n"
+				wikipediaInstructions += "2. Call tool_html_scraper with the URL\n"
+				wikipediaInstructions += "3. The tool returns: {\"items\": [...]}, NOT {\"title\": ...}\n"
+				wikipediaInstructions += "4. IMPORTANT: tool_html_scraper returns a dict with 'items' array, NOT 'title', 'paragraphs', or 'links'\n"
+				wikipediaInstructions += "5. Each item in 'items' array is a dict with keys like 'tag', 'text', 'href'\n"
+				wikipediaInstructions += "6. Parse and process the items array to extract meaningful content\n"
+				wikipediaInstructions += "7. EXAMPLE response: {\"items\": [{\"tag\": \"h1\", \"text\": \"Machine Learning\"}, {\"tag\": \"p\", \"text\": \"Machine learning is...\"}]}\n"
+			} else if strings.Contains(descLowerForTools, "tool_http_get") || strings.Contains(descLowerForTools, "http_get") {
+				wikipediaInstructions = "\n\n🚨 CRITICAL: This task requires fetching Wikipedia with tool_http_get. Follow these steps exactly:\n"
+				wikipediaInstructions += "1. DETERMINE WHICH WIKIPEDIA ARTICLES TO FETCH: Extract topic names from the task description\n"
+				wikipediaInstructions += "2. Construct Wikipedia URLs: https://en.wikipedia.org/wiki/ARTICLE_NAME (replace spaces with underscores)\n"
+				wikipediaInstructions += "3. Call tool_http_get via HTTP API for EACH article\n"
+				wikipediaInstructions += "4. Example URLs:\n"
+				wikipediaInstructions += "   - https://en.wikipedia.org/wiki/Machine_Learning\n"
+				wikipediaInstructions += "   - https://en.wikipedia.org/wiki/Artificial_Intelligence\n"
+				wikipediaInstructions += "   - https://en.wikipedia.org/wiki/Deep_Learning\n"
+				wikipediaInstructions += "5. tool_http_get response format: {\"status\": 200, \"body\": \"<html>...\"}\n"
+				wikipediaInstructions += "6. Extract meaningful text from the HTML body (titles, key concepts, definitions)\n"
+				wikipediaInstructions += "7. Return a structured summary of what you learned from the Wikipedia articles\n"
+			} else {
+				wikipediaInstructions = "\n\n🚨 CRITICAL: This task requires fetching and analyzing Wikipedia. Follow these steps exactly:\n"
+				wikipediaInstructions += "1. DETERMINE WHICH WIKIPEDIA ARTICLES TO FETCH from the task description\n"
+				wikipediaInstructions += "2. Construct Wikipedia URLs: https://en.wikipedia.org/wiki/ARTICLE_NAME (replace spaces with underscores)\n"
+				wikipediaInstructions += "3. Use tool_http_get to fetch the Wikipedia articles\n"
+				wikipediaInstructions += "4. Parse the HTML response to extract key information\n"
+				wikipediaInstructions += "5. Return a structured summary with key concepts, definitions, and relationships\n"
+			}
 		}
 	}
 
