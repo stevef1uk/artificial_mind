@@ -252,6 +252,10 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 				_ = e.redis.LPush(e.ctx, key, b).Err()
 				existingGoals[dedupKey] = g
 				newGoalsCount++
+
+				if e.goalManager != nil {
+					_ = e.goalManager.PostCuriosityGoal(g, "autonomy_generated")
+				}
 			}
 		}
 
