@@ -30,11 +30,13 @@ spec:
               name: http
           env:
             - name: DISABLE_NEWS_POLLER
-              value: "true"
+              value: "false"
             - name: FSM_AUTONOMY
               value: "true"
             - name: FSM_AUTONOMY_EVERY
-              value: "120"
+              value: "300"
+            - name: DREAM_INTERVAL_MINUTES
+              value: "5"
             # LLM configuration from secret (aligned with HDN)
             - name: LLM_PROVIDER
               valueFrom:
