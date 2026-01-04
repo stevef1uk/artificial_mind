@@ -48,8 +48,13 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 
 	client := &http.Client{Timeout: 10 * time.Second}
 
-	ticker := time.NewTicker(2 * time.Second)
+	// Start with 2s polling but may back off on 429
+	pollingInterval := 2 * time.Second
+	ticker := time.NewTicker(pollingInterval)
 	defer ticker.Stop()
+	
+	var lastBackoff time.Time
+	backoffMultiplier := 1
 
 	// Start periodic cleanup task to clear triggered flags for achieved/failed goals
 	cleanupTicker := time.NewTicker(5 * time.Minute)
@@ -152,6 +157,7 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 			}
 
 			triggeredCount := 0
+			skippedCount := 0
 			for _, g := range goals {
 				if g.ID == "" {
 					continue
@@ -159,6 +165,7 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 				// Skip if already triggered
 				exists, _ := rdb.SIsMember(ctx, triggeredKey, g.ID).Result()
 				if exists {
+					skippedCount++
 					continue
 				}
 
@@ -193,11 +200,16 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 					execURL = strings.TrimRight(hdnURL, "/") + "/api/v1/hierarchical/execute"
 				}
 				
+				// MARK AS TRIGGERED FIRST to prevent race condition where multiple pollers trigger same goal
+				_ = rdb.SAdd(ctx, triggeredKey, g.ID).Err()
+				_ = rdb.Expire(ctx, triggeredKey, 30*time.Minute).Err()
+				
 				log.Printf("🎯 [FSM][Goals] Executing goal %s (type: %s, description: %s) via %s", g.ID, g.Type, taskName, execURL)
 				b, _ := json.Marshal(req)
 				eresp, err := client.Post(execURL, "application/json", strings.NewReader(string(b)))
 				if err != nil {
 					log.Printf("❌ [FSM][Goals] execute error for goal %s: %v", g.ID, err)
+					triggeredCount++
 					continue
 				}
 				bodyBytes, _ := io.ReadAll(eresp.Body)
@@ -216,12 +228,15 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 						workflowID = execResp.WorkflowID
 					}
 
-					// Record as triggered to prevent duplicate execution
-					_ = rdb.SAdd(ctx, triggeredKey, g.ID).Err()
-					// Set TTL so if something stalls we can retry later (reduced from 12h to 30min)
-					_ = rdb.Expire(ctx, triggeredKey, 30*time.Minute).Err()
 					log.Printf("✅ [FSM][Goals] Triggered goal %s (workflow: %s)", g.ID, workflowID)
 					goalsDebugf("[FSM][Goals] triggered goal %s (workflow: %s)", g.ID, workflowID)
+
+					// Reset backoff when we successfully trigger a goal (HDN is no longer overloaded)
+					if backoffMultiplier > 1 {
+						backoffMultiplier = 1
+						ticker.Reset(pollingInterval)
+						log.Printf("✅ [FSM][Goals] HDN recovered - reset polling interval to %v", pollingInterval)
+					}
 
 					// Start background watcher to clear triggered flag when workflow completes or fails
 					if workflowID != "" {
@@ -252,10 +267,6 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 						workflowID = conflictResp.WorkflowID
 					}
 
-					// Mark goal as triggered since workflow is already running
-					_ = rdb.SAdd(ctx, triggeredKey, g.ID).Err()
-					_ = rdb.Expire(ctx, triggeredKey, 30*time.Minute).Err()
-					
 					if workflowID != "" {
 						goalsDebugf("[FSM][Goals] goal %s already has workflow %s running - marked as triggered", g.ID, workflowID)
 						// Watch the existing workflow to clear triggered flag when it completes
@@ -266,13 +277,34 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 						go watchGoalStatusAndClearTriggered(ctx, agentID, g.ID, goalMgrURL, rdb, triggeredKey)
 					}
 
-					// Don't increment triggeredCount for 409 - this is a duplicate, not a new trigger
-					// Continue to next goal in the loop
+					triggeredCount++
+					// Don't increment skipped/continue - we did mark as triggered
+				} else if eresp.StatusCode == http.StatusTooManyRequests {
+					// Handle 429 Too Many Requests - HDN is overloaded
+					// Remove from triggered set so we can retry later
+					_ = rdb.SRem(ctx, triggeredKey, g.ID).Err()
+					log.Printf("⚠️ [FSM][Goals] HDN overloaded (429) - goal %s not triggered, will retry later", g.ID)
+					// Implement exponential backoff: increase polling interval
+					if time.Since(lastBackoff) > 10*time.Second {
+						backoffMultiplier = 2
+						lastBackoff = time.Now()
+						newInterval := time.Duration(int64(pollingInterval) * int64(backoffMultiplier))
+						if newInterval > 30*time.Second {
+							newInterval = 30 * time.Second
+						}
+						ticker.Reset(newInterval)
+						log.Printf("⏱️ [FSM][Goals] Backed off polling interval to %v due to HDN overload", newInterval)
+					}
+					// Stop triggering more goals this cycle to give HDN time to recover
+					break
 				} else {
-					log.Printf("[FSM][Goals] execute failed for goal %s (status %d): %s", g.ID, eresp.StatusCode, string(bodyBytes))
+					log.Printf("❌ [FSM][Goals] execute failed for goal %s (status %d): %s", g.ID, eresp.StatusCode, string(bodyBytes))
+					triggeredCount++
 				}
 			}
-
+			if triggeredCount > 0 || skippedCount > 0 {
+				log.Printf("🎯 [FSM][Goals] Poller cycle complete: triggered=%d, already_triggered=%d", triggeredCount, skippedCount)
+			}
 		}
 	}
 }
