@@ -652,15 +652,16 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 		safeClient := NewSafeHTTPClient()
 		content, err := safeClient.SafeGetWithContentCheck(ctx, url)
 		if err != nil {
-			// Log the blocked request
-			toolCallLog.Status = "blocked"
-			toolCallLog.Error = "content safety: " + err.Error()
+			// Log the error
+			toolCallLog.Status = "error"
+			toolCallLog.Error = err.Error()
 			toolCallLog.Duration = time.Since(startTime).Milliseconds()
 			if s.toolMetrics != nil {
 				_ = s.toolMetrics.LogToolCall(ctx, toolCallLog)
 			}
-			w.WriteHeader(http.StatusForbidden)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "content blocked for safety", "reason": err.Error()})
+			// Return HTTP error in response, don't block as forbidden
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
 			return
 		}
 
