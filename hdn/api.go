@@ -4069,6 +4069,23 @@ func (s *APIServer) cleanupStaleActiveWorkflows(ctx context.Context) {
 					// Workflow is completed but still in active set - remove it
 					s.redis.SRem(ctx, activeWorkflowsKey, workflowID)
 					removedCount++
+				} else if status == "running" {
+					// Check if workflow has been running too long (10 minutes timeout)
+					if startedAtStr, ok := workflow["started_at"].(string); ok {
+						if startedAt, err := time.Parse(time.RFC3339, startedAtStr); err == nil {
+							if time.Since(startedAt) > 10*time.Minute {
+								// Mark as failed and remove from active set
+								workflow["status"] = "failed"
+								workflow["error"] = "Workflow timeout: exceeded 10 minute execution limit"
+								if updatedJSON, err := json.Marshal(workflow); err == nil {
+									s.redis.Set(ctx, workflowKey, string(updatedJSON), 0)
+									s.redis.SRem(ctx, activeWorkflowsKey, workflowID)
+									removedCount++
+									log.Printf("⏱️ [API] Marked workflow %s as failed (timeout after 10 minutes)", workflowID)
+								}
+							}
+						}
+					}
 				}
 			}
 		} else if err != nil {
