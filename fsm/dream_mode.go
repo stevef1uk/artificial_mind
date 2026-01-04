@@ -160,7 +160,7 @@ func (dm *DreamMode) postGoalToManager(goal CuriosityGoal) {
 		"id":          goal.ID,
 		"agent_id":    "agent_1",
 		"description": goal.Description,
-		"priority":    goal.Priority,
+		"priority":    fmt.Sprintf("%d", goal.Priority),
 		"status":      goal.Status,
 		"confidence":  goal.Value,
 		"context": map[string]interface{}{
