@@ -254,7 +254,10 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 				newGoalsCount++
 
 				if e.goalManager != nil {
-					_ = e.goalManager.PostCuriosityGoal(g, "autonomy_generated")
+					err := e.goalManager.PostCuriosityGoal(g, "autonomy_generated")
+					log.Printf("[DEBUG-AUTONOMY] Posted goal %s result: %v", g.ID, err)
+				} else {
+					log.Printf("[DEBUG-AUTONOMY] Goal Manager is nil!")
 				}
 			}
 		}
