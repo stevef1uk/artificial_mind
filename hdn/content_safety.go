@@ -222,12 +222,6 @@ func (shc *SafeHTTPClient) SafeGet(ctx context.Context, urlStr string) (*http.Re
 		return nil, err
 	}
 
-	// Check HTTP status code
-	if resp.StatusCode >= 400 {
-		resp.Body.Close()
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, http.StatusText(resp.StatusCode))
-	}
-
 	// Check content length
 	if resp.ContentLength > shc.maxContentLength {
 		resp.Body.Close()
