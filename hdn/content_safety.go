@@ -213,19 +213,13 @@ func (shc *SafeHTTPClient) SafeGet(ctx context.Context, urlStr string) (*http.Re
 	}
 
 	// Set safe headers
-	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("User-Agent", "AGI-Safe-Bot/1.0 (+https://agi.local; contact: safety@agi.local)")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
 	resp, err := shc.client.Do(req)
 	if err != nil {
 		return nil, err
-	}
-
-	// Check HTTP status code
-	if resp.StatusCode >= 400 {
-		resp.Body.Close()
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 
 	// Check content length
