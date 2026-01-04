@@ -146,7 +146,7 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 				}
 			}
 
-			log.Printf("🎯 [FSM][Goals] Fetched %d goals from Goal Manager", len(goals))
+			log.Printf("🎯 [FSM][Goals] Fetched %d goals from Goal Manager (checking %d to trigger)", len(goals), len(goals))
 			if len(goals) == 0 {
 				continue
 			}
@@ -193,10 +193,11 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 					execURL = strings.TrimRight(hdnURL, "/") + "/api/v1/hierarchical/execute"
 				}
 				
+				log.Printf("🎯 [FSM][Goals] Executing goal %s (type: %s, description: %s) via %s", g.ID, g.Type, taskName, execURL)
 				b, _ := json.Marshal(req)
 				eresp, err := client.Post(execURL, "application/json", strings.NewReader(string(b)))
 				if err != nil {
-					log.Printf("[FSM][Goals] execute error for goal %s: %v", g.ID, err)
+					log.Printf("❌ [FSM][Goals] execute error for goal %s: %v", g.ID, err)
 					continue
 				}
 				bodyBytes, _ := io.ReadAll(eresp.Body)
@@ -219,6 +220,7 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 					_ = rdb.SAdd(ctx, triggeredKey, g.ID).Err()
 					// Set TTL so if something stalls we can retry later (reduced from 12h to 30min)
 					_ = rdb.Expire(ctx, triggeredKey, 30*time.Minute).Err()
+					log.Printf("✅ [FSM][Goals] Triggered goal %s (workflow: %s)", g.ID, workflowID)
 					goalsDebugf("[FSM][Goals] triggered goal %s (workflow: %s)", g.ID, workflowID)
 
 					// Start background watcher to clear triggered flag when workflow completes or fails
