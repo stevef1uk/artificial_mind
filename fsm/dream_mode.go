@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
+	"net/http"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -13,21 +15,23 @@ import (
 
 // DreamMode generates creative exploration goals by randomly connecting concepts
 type DreamMode struct {
-	fsm     *FSMEngine
-	redis   *redis.Client
-	hdnURL  string
-	ctx     context.Context
-	enabled bool
+	fsm        *FSMEngine
+	redis      *redis.Client
+	hdnURL     string
+	goalMgrURL string
+	ctx        context.Context
+	enabled    bool
 }
 
 // NewDreamMode creates a new dream mode instance
 func NewDreamMode(fsm *FSMEngine, redis *redis.Client, hdnURL string) *DreamMode {
 	return &DreamMode{
-		fsm:     fsm,
-		redis:   redis,
-		hdnURL:  hdnURL,
-		ctx:     context.Background(),
-		enabled: true,
+		fsm:        fsm,
+		redis:      redis,
+		hdnURL:     hdnURL,
+		goalMgrURL: "http://goal-manager:8090",
+		ctx:        context.Background(),
+		enabled:    true,
 	}
 }
 
@@ -141,8 +145,52 @@ func (dm *DreamMode) StartDreamCycle(interval time.Duration) {
 			} else {
 				log.Printf("💭 [Dream] Stored: %s (ID: %s, key: 'reasoning:curiosity_goals:%s')", goal.Description, goal.ID, goal.Domain)
 			}
+
+			dm.postGoalToManager(goal)
 		}
 		
 		log.Printf("💭 [Dream] Cycle complete - created %d goals", len(goals))
+	}
+}
+
+func (dm *DreamMode) postGoalToManager(goal CuriosityGoal) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	
+	goalRequest := map[string]interface{}{
+		"id":          goal.ID,
+		"agent_id":    "agent_1",
+		"description": goal.Description,
+		"priority":    goal.Priority,
+		"status":      goal.Status,
+		"confidence":  goal.Value,
+		"context": map[string]interface{}{
+			"domain":       goal.Domain,
+			"source":       "dream_mode",
+			"targets":      goal.Targets,
+		},
+	}
+	
+	body, err := json.Marshal(goalRequest)
+	if err != nil {
+		log.Printf("⚠️ [Dream] Failed to marshal goal for Goal Manager: %v", err)
+		return
+	}
+	
+	resp, err := client.Post(
+		dm.goalMgrURL+"/goal",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	
+	if err != nil {
+		log.Printf("⚠️ [Dream] Failed to POST goal to Goal Manager: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("⚠️ [Dream] Goal Manager returned status %d for goal %s", resp.StatusCode, goal.ID)
+	} else {
+		log.Printf("✅ [Dream] Posted goal %s to Goal Manager", goal.ID)
 	}
 }
