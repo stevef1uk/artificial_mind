@@ -169,6 +169,11 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 					continue
 				}
 
+				// Already triggered limit reached - stop processing more goals this cycle
+				if triggeredCount >= 1 {
+					break
+				}
+
 				// Build hierarchical execute payload
 				// Use goal description/name as the task_name and user_request; pass identifiers in context
 				goalDesc := firstNonEmpty(g.Description, g.Name, "Execute goal")
@@ -210,7 +215,7 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 				if err != nil {
 					log.Printf("❌ [FSM][Goals] execute error for goal %s: %v", g.ID, err)
 					triggeredCount++
-					continue
+					break
 				}
 				bodyBytes, _ := io.ReadAll(eresp.Body)
 				if eresp.Body != nil {
