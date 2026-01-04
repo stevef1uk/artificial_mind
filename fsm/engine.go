@@ -3580,6 +3580,11 @@ func (e *FSMEngine) createHypothesisTestingGoals(hypotheses []Hypothesis, domain
 						e.redis.LTrim(e.ctx, goalKey, 0, 199)
 						existing[dedupKey] = goal
 						newGoals++
+						
+						if e.goalManager != nil {
+							_ = e.goalManager.PostCuriosityGoal(goal, "hypothesis_testing")
+						}
+						
 						log.Printf("🔬 [CAUSAL] Created intervention goal: %s", interventionGoal[:min(60, len(interventionGoal))])
 					}
 				}
@@ -3679,6 +3684,10 @@ func (e *FSMEngine) createHypothesisTestingGoals(hypotheses []Hypothesis, domain
 			_ = e.redis.LTrim(e.ctx, goalKey, 0, 199).Err()
 			existing[k] = goal
 			newGoals++
+			
+			if e.goalManager != nil {
+				_ = e.goalManager.PostCuriosityGoal(goal, "hypothesis_testing")
+			}
 		}
 	}
 

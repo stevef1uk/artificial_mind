@@ -602,6 +602,10 @@ Provide a clear resolution plan.`,
 	if err == nil {
 		cm.redis.LPush(cm.ctx, curiosityGoalsKey, goalData)
 		cm.redis.LTrim(cm.ctx, curiosityGoalsKey, 0, 199)
+		
+		if cm.engine != nil && cm.engine.goalManager != nil {
+			_ = cm.engine.goalManager.PostCuriosityGoal(curiosityGoal, "coherence_monitor")
+		}
 	}
 	
 	// Store mapping: curiosity_goal_id -> inconsistency_id for later resolution tracking

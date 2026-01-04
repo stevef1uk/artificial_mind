@@ -303,6 +303,10 @@ func (e *FSMEngine) createWorkflowExecutionGoals(workflows []map[string]interfac
 		goalData, _ := json.Marshal(goal)
 		e.redis.LPush(e.ctx, goalKey, goalData)
 		e.redis.LTrim(e.ctx, goalKey, 0, 199) // Keep last 200 goals
+		
+		if e.goalManager != nil {
+			_ = e.goalManager.PostCuriosityGoal(goal, "workflow_execution")
+		}
 	}
 
 	log.Printf("🎯 Created %d workflow execution goals", len(workflows))
