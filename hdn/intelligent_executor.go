@@ -1409,6 +1409,38 @@ func (ie *IntelligentExecutor) executeExplicitTool(req *ExecutionRequest, toolID
 			urlPattern := regexp.MustCompile(`https?://[^\s]+`)
 			if matches := urlPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
 				params["url"] = matches[0]
+			} else if strings.Contains(strings.ToLower(req.Description), "wikipedia") {
+				// If Wikipedia is mentioned, try to extract article names and construct URLs
+				descLower := strings.ToLower(req.Description)
+				
+				// Try to find quoted article names or topics
+				topicPattern := regexp.MustCompile(`'([^']+)'|"([^"]+)"`)
+				var topic string
+				if matches := topicPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
+					if matches[1] != "" {
+						topic = matches[1]
+					} else if matches[2] != "" {
+						topic = matches[2]
+					}
+				}
+				
+				// If no quoted topic, try to extract from "about X" or "for X"
+				if topic == "" {
+					aboutPattern := regexp.MustCompile(`(?:about|for)\s+([A-Z][A-Za-z\s]+)`)
+					if matches := aboutPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
+						topic = matches[1]
+					}
+				}
+				
+				// Construct Wikipedia URL if we found a topic
+				if topic != "" {
+					// Replace spaces with underscores for Wikipedia
+					topic = strings.ReplaceAll(strings.TrimSpace(topic), " ", "_")
+					params["url"] = fmt.Sprintf("https://en.wikipedia.org/wiki/%s", topic)
+				} else {
+					// Default to Wikipedia main page if we can't determine article
+					params["url"] = "https://en.wikipedia.org/wiki/Main_Page"
+				}
 			} else {
 				params["url"] = "http://example.com"
 			}
