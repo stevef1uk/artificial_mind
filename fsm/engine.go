@@ -130,6 +130,7 @@ type FSMEngine struct {
 	reasoning             *ReasoningEngine
 	coherenceMonitor      *CoherenceMonitor
 	explanationLearning   *ExplanationLearningFeedback
+	goalManager           *GoalManagerClient
 	stateEntryTime        time.Time // Track when current state was entered
 }
 
@@ -208,6 +209,10 @@ func NewFSMEngine(configPath string, agentID string, nc *nats.Conn, redis *redis
 	// Create explanation learning feedback system
 	explanationLearning := NewExplanationLearningFeedback(redis, hdnURL)
 
+	// Create goal manager client
+	goalMgrURL := "http://goal-manager:8090"
+	goalManager := NewGoalManagerClient(goalMgrURL, redis)
+
 	engine := &FSMEngine{
 		config:               config,
 		agentID:              agentID,
@@ -223,6 +228,7 @@ func NewFSMEngine(configPath string, agentID string, nc *nats.Conn, redis *redis
 		reasoning:            reasoning,
 		coherenceMonitor:     coherenceMonitor,
 		explanationLearning:  explanationLearning,
+		goalManager:          goalManager,
 		stateEntryTime:       time.Now(),
 	}
 
