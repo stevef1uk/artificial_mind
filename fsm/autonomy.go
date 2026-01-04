@@ -2159,8 +2159,9 @@ func (e *FSMEngine) generateHypothesisTestingGoalsForExisting(domain string) ([]
 			Value:       uncertainty.CalibratedConfidence,
 		}
 
-		// Skip generic hypotheses (same filter as createHypothesisTestingGoals)
-		if e.isGenericHypothesisGoal(goal) {
+		// Skip generic hypotheses - DISABLED to allow more diverse goals
+		// Re-enable once hypothesis generation produces more specific hypotheses
+		if false && e.isGenericHypothesisGoal(goal) {
 			log.Printf("🚫 Filtered out generic hypothesis goal: %s", goal.Description)
 			continue
 		}

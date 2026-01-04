@@ -3645,7 +3645,8 @@ func (e *FSMEngine) createHypothesisTestingGoals(hypotheses []Hypothesis, domain
 		// and allow them through even if they match generic patterns
 		if len(approved) == 0 || len(uniqueApproved) == 0 {
 			// Fallback: if somehow no hypotheses were approved, still check generic filter
-			if e.isGenericHypothesisGoal(goal) {
+			// DISABLED to allow more diverse goals through
+			if false && e.isGenericHypothesisGoal(goal) {
 				filteredCount++
 				log.Printf("🚫 Filtered out generic hypothesis goal (no LLM approval): %s", goal.Description)
 				continue
