@@ -245,8 +245,8 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 		if err == nil {
 			// Check if goals with the same descriptions already exist
 			expectedDescriptions := []string{
-				fmt.Sprintf("Use tool_http_get to fetch Wikipedia category page for '%s' and extract key concepts", domain),
-				fmt.Sprintf("Use tool_http_get to fetch recent Wikipedia articles about domain concepts"),
+				fmt.Sprintf("Use tool_html_scraper to scrape Wikipedia category page for '%s' and extract key concepts", domain),
+				fmt.Sprintf("Use tool_html_scraper to scrape recent Wikipedia articles about domain concepts"),
 				fmt.Sprintf("Use tool_html_scraper to scrape Wikipedia articles about '%s' and extract structured knowledge", domain),
 			}
 
@@ -327,7 +327,7 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 			{
 				ID:          fmt.Sprintf("explore_%s_%d", domain, time.Now().UnixNano()),
 				Type:        "exploration",
-				Description: fmt.Sprintf("Use tool_http_get to fetch Wikipedia category page for '%s' and extract key concepts", domain),
+				Description: fmt.Sprintf("Use tool_html_scraper to scrape Wikipedia category page for '%s' and extract key concepts", domain),
 				Targets:     []string{},
 				Priority:    8,
 				Domain:      domain,
@@ -973,7 +973,7 @@ func (re *ReasoningEngine) generateGapFillingGoals(domain string) ([]CuriosityGo
 		goal := CuriosityGoal{
 			ID:          fmt.Sprintf("gap_filling_%d_%d", time.Now().UnixNano(), i),
 			Type:        "gap_filling",
-			Description: fmt.Sprintf("Use tool_http_get to fetch Wikipedia page for '%s' and extract knowledge", concept),
+			Description: fmt.Sprintf("Use tool_html_scraper to scrape Wikipedia page for '%s' and extract knowledge", concept),
 			Domain:      domain,
 			Priority:    7,
 			Status:      "pending",
@@ -1021,7 +1021,7 @@ func (re *ReasoningEngine) generateExplorationGoals(domain string) ([]CuriosityG
 		{
 			ID:          fmt.Sprintf("exploration_%d", time.Now().UnixNano()),
 			Type:        "concept_exploration",
-			Description: "Use tool_http_get to fetch recent Wikipedia articles about domain concepts",
+			Description: "Use tool_html_scraper to scrape recent Wikipedia articles about domain concepts",
 			Domain:      domain,
 			Priority:    5,
 			Status:      "pending",
@@ -1073,7 +1073,7 @@ func (re *ReasoningEngine) generateNewsCuriosityGoals(domain string) ([]Curiosit
 					goal := CuriosityGoal{
 						ID:          fmt.Sprintf("news_relation_%d_%d", time.Now().UnixNano(), i),
 						Type:        "news_analysis",
-						Description: fmt.Sprintf("Use tool_http_get to fetch Wikipedia pages for '%s' and '%s' to verify relation: %s", head, tail, relationType),
+						Description: fmt.Sprintf("Use tool_html_scraper to scrape Wikipedia pages for '%s' and '%s' to verify relation: %s", head, tail, relationType),
 						Domain:      domain,
 						Priority:    6,
 						Status:      "pending",
