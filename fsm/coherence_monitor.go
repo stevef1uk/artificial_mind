@@ -80,20 +80,14 @@ func (cm *CoherenceMonitor) CheckCoherence() ([]Inconsistency, error) {
 	
 	var inconsistencies []Inconsistency
 	
-	// 1. Check for belief contradictions
-	// DISABLED: Too slow - queries 125K+ beliefs and does O(n²) comparisons
-	// Re-enable with better query limits or async processing
-	if os.Getenv("ENABLE_BELIEF_CHECK") == "true" {
-		log.Printf("🔍 [Coherence] Checking belief contradictions...")
-		beliefContradictions, err := cm.checkBeliefContradictions()
-		if err != nil {
-			log.Printf("⚠️ [Coherence] Error checking belief contradictions: %v", err)
-		} else {
-			log.Printf("✅ [Coherence] Belief contradiction check complete: %d found", len(beliefContradictions))
-			inconsistencies = append(inconsistencies, beliefContradictions...)
-		}
+	// 1. Check for belief contradictions (with strict limits to prevent hanging)
+	log.Printf("🔍 [Coherence] Checking belief contradictions...")
+	beliefContradictions, err := cm.checkBeliefContradictions()
+	if err != nil {
+		log.Printf("⚠️ [Coherence] Error checking belief contradictions: %v", err)
 	} else {
-		log.Printf("⏭️ [Coherence] Belief contradiction check disabled (too slow - set ENABLE_BELIEF_CHECK=true to force)")
+		log.Printf("✅ [Coherence] Belief contradiction check complete: %d found", len(beliefContradictions))
+		inconsistencies = append(inconsistencies, beliefContradictions...)
 	}
 	
 	// 2. Check for policy conflicts
@@ -162,19 +156,19 @@ func (cm *CoherenceMonitor) checkBeliefContradictions() ([]Inconsistency, error)
 		return inconsistencies, nil
 	}
 	
-	// Get recent beliefs from reasoning traces (limit to 10 most recent to avoid slow checks)
+	// PERFORMANCE FIX: Limit belief queries to avoid O(n²) explosion
+	// Instead of querying all concepts, only check recent reasoning traces
 	tracesKey := "reasoning:traces:all"
-	tracesData, err := cm.redis.LRange(cm.ctx, tracesKey, 0, 9).Result() // Limit to 10 traces
+	tracesData, err := cm.redis.LRange(cm.ctx, tracesKey, 0, 2).Result() // Limit to 3 most recent traces
 	if err != nil {
 		return inconsistencies, nil // No traces yet, no contradictions
 	}
 	
-	log.Printf("🔍 [Coherence] Checking %d reasoning traces for belief contradictions", len(tracesData))
+	log.Printf("🔍 [Coherence] Checking %d reasoning traces for belief contradictions (limited scope)", len(tracesData))
 	
-	// Extract beliefs from traces (limit domains to avoid too many HTTP calls)
+	// Extract beliefs from traces - LIMIT to 10 beliefs max per domain
 	beliefs := make(map[string][]Belief)
-	domainsChecked := make(map[string]bool)
-	maxDomains := 5 // Limit to 5 unique domains to avoid hanging
+	maxBeliefs := 10 // Hard limit to prevent O(n²) explosion
 	
 	for _, traceData := range tracesData {
 		var trace ReasoningTrace
@@ -182,27 +176,36 @@ func (cm *CoherenceMonitor) checkBeliefContradictions() ([]Inconsistency, error)
 			continue
 		}
 		
-		// Skip if we've already checked this domain or hit the limit
-		if domainsChecked[trace.Domain] || len(domainsChecked) >= maxDomains {
+		// Skip if we've already checked this domain
+		if _, exists := beliefs[trace.Domain]; exists {
 			continue
 		}
 		
-		domainsChecked[trace.Domain] = true
-		log.Printf("🔍 [Coherence] Querying beliefs for domain: %s", trace.Domain)
+		log.Printf("🔍 [Coherence] Querying beliefs for domain: %s (max: %d)", trace.Domain, maxBeliefs)
 		
-		// Query beliefs for this domain (may be slow if HDN is busy)
-		domainBeliefs, err := cm.reasoning.QueryBeliefs("all concepts", trace.Domain)
+		// Query LIMITED beliefs for this domain (max 10 to avoid hanging)
+		domainBeliefs, err := cm.reasoning.QueryBeliefs("recent concepts", trace.Domain)
 		if err != nil {
 			log.Printf("⚠️ [Coherence] Failed to query beliefs for domain %s: %v", trace.Domain, err)
 			continue
+		}
+		
+		// Hard limit to first 10 beliefs only
+		if len(domainBeliefs) > maxBeliefs {
+			domainBeliefs = domainBeliefs[:maxBeliefs]
 		}
 		
 		beliefs[trace.Domain] = domainBeliefs
 		log.Printf("✅ [Coherence] Retrieved %d beliefs for domain %s", len(domainBeliefs), trace.Domain)
 	}
 	
-	// Check for contradictions within each domain
+	// Check for contradictions - LIMITED to prevent performance issues
 	for domain, domainBeliefs := range beliefs {
+		// Only compare if we have 2-10 beliefs (avoid single belief domains and large explosions)
+		if len(domainBeliefs) < 2 || len(domainBeliefs) > maxBeliefs {
+			continue
+		}
+		
 		for i, b1 := range domainBeliefs {
 			for j, b2 := range domainBeliefs {
 				if i >= j {

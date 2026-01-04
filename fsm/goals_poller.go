@@ -162,6 +162,10 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 				// Build hierarchical execute payload
 				// Use goal description/name as the task_name and user_request; pass identifiers in context
 				goalDesc := firstNonEmpty(g.Description, g.Name, "Execute goal")
+				
+				// GOAL ROUTING: Determine execution path based on goal type
+				execURL, req := routeGoalExecution(goalDesc, g.ID, agentID, hdnURL)
+				
 				// Use goal description as task_name instead of generic "Goal Execution"
 				// This gives the planner better context about what to actually do
 				taskName := goalDesc
@@ -169,19 +173,24 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 					// Truncate very long descriptions for task_name
 					taskName = taskName[:97] + "..."
 				}
-				req := map[string]interface{}{
-					"task_name":    taskName,
-					"description":  goalDesc,
-					"user_request": goalDesc,
-					"context": map[string]string{
-						"session_id": fmt.Sprintf("goal_%s", g.ID),
-						"goal_id":    g.ID,
-						"agent_id":   agentID,
-						"project_id": "Goals",
-					},
+				
+				// If no specific routing, use default hierarchical execute
+				if execURL == "" {
+					req = map[string]interface{}{
+						"task_name":    taskName,
+						"description":  goalDesc,
+						"user_request": goalDesc,
+						"context": map[string]string{
+							"session_id": fmt.Sprintf("goal_%s", g.ID),
+							"goal_id":    g.ID,
+							"agent_id":   agentID,
+							"project_id": "Goals",
+						},
+					}
+					execURL = strings.TrimRight(hdnURL, "/") + "/api/v1/hierarchical/execute"
 				}
+				
 				b, _ := json.Marshal(req)
-				execURL := strings.TrimRight(hdnURL, "/") + "/api/v1/hierarchical/execute"
 				eresp, err := client.Post(execURL, "application/json", strings.NewReader(string(b)))
 				if err != nil {
 					log.Printf("[FSM][Goals] execute error for goal %s: %v", g.ID, err)
@@ -442,4 +451,69 @@ func cleanupStuckTriggeredFlags(ctx context.Context, agentID, goalMgrURL string,
 	if clearedCount > 0 {
 		goalsDebugf("[FSM][Goals] cleanup: cleared %d stuck triggered flag(s)", clearedCount)
 	}
+}
+
+// routeGoalExecution determines the best execution path based on goal description
+// Returns (execURL, requestPayload) - empty URL means use default hierarchical execute
+func routeGoalExecution(goalDesc, goalID, agentID, hdnURL string) (string, map[string]interface{}) {
+	goalDescLower := strings.ToLower(goalDesc)
+	
+	// Route 1: Knowledge queries → Direct knowledge base endpoint
+	if strings.Contains(goalDescLower, "query_knowledge_base") || 
+	   strings.Contains(goalDescLower, "query neo4j") ||
+	   strings.Contains(goalDescLower, "[active-learning] query_knowledge_base") {
+		// For now, still use hierarchical execute but mark as knowledge query
+		// TODO: Create dedicated knowledge query endpoint in HDN
+		return "", map[string]interface{}{
+			"task_name":    "knowledge_query",
+			"description":  goalDesc,
+			"user_request": goalDesc,
+			"context": map[string]string{
+				"session_id":   fmt.Sprintf("goal_%s", goalID),
+				"goal_id":      goalID,
+				"agent_id":     agentID,
+				"project_id":   "Goals",
+				"routing_hint": "knowledge_query",
+			},
+		}
+	}
+	
+	// Route 2: Tool calls → Direct tool execution
+	if strings.Contains(goalDescLower, "use tool_") ||
+	   strings.Contains(goalDescLower, "tool_http_get") ||
+	   strings.Contains(goalDescLower, "tool_html_scraper") {
+		return "", map[string]interface{}{
+			"task_name":    "tool_execution",
+			"description":  goalDesc,
+			"user_request": goalDesc,
+			"context": map[string]string{
+				"session_id":   fmt.Sprintf("goal_%s", goalID),
+				"goal_id":      goalID,
+				"agent_id":     agentID,
+				"project_id":   "Goals",
+				"routing_hint": "tool_call",
+			},
+		}
+	}
+	
+	// Route 3: Inconsistency analysis → Reasoning engine
+	if strings.Contains(goalDescLower, "you have detected an inconsistency") ||
+	   strings.Contains(goalDescLower, "analyze this inconsistency") ||
+	   strings.Contains(goalDescLower, "behavior_loop") {
+		return "", map[string]interface{}{
+			"task_name":    "analyze_inconsistency",
+			"description":  goalDesc,
+			"user_request": goalDesc,
+			"context": map[string]string{
+				"session_id":   fmt.Sprintf("goal_%s", goalID),
+				"goal_id":      goalID,
+				"agent_id":     agentID,
+				"project_id":   "Goals",
+				"routing_hint": "reasoning",
+			},
+		}
+	}
+	
+	// Default: return empty to use hierarchical execute
+	return "", nil
 }
