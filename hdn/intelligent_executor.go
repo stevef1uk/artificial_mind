@@ -1411,7 +1411,6 @@ func (ie *IntelligentExecutor) executeExplicitTool(req *ExecutionRequest, toolID
 				params["url"] = matches[0]
 			} else if strings.Contains(strings.ToLower(req.Description), "wikipedia") {
 				// If Wikipedia is mentioned, try to extract article names and construct URLs
-				descLower := strings.ToLower(req.Description)
 				
 				// Try to find quoted article names or topics
 				topicPattern := regexp.MustCompile(`'([^']+)'|"([^"]+)"`)
