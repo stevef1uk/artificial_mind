@@ -1324,7 +1324,7 @@ func (ie *IntelligentExecutor) executeDirectTool(req *ExecutionRequest, start ti
 			} else if strings.Contains(strings.ToLower(req.Description), "wikipedia") {
 				// If Wikipedia is mentioned, try to extract article names and construct URLs
 				
-				// Try to find quoted article names or topics
+				// Try to find quoted article names or topics first
 				topicPattern := regexp.MustCompile(`'([^']+)'|"([^"]+)"`)
 				var topic string
 				if matches := topicPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
@@ -1335,10 +1335,25 @@ func (ie *IntelligentExecutor) executeDirectTool(req *ExecutionRequest, start ti
 					}
 				}
 				
-				// If no quoted topic, try to extract from "about X" or "for X"
+				// If no quoted topic, try to extract from "for X" or "about X" patterns
+				// but limit to 3 words to avoid capturing "and extract key concepts"
 				if topic == "" {
-					aboutPattern := regexp.MustCompile(`(?:about|for)\s+([A-Z][A-Za-z\s]+)`)
-					if matches := aboutPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
+					// Match "for" or "about" followed by 1-3 capitalized words
+					forPattern := regexp.MustCompile(`(?:for|about)\s+([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)*)`)
+					if matches := forPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
+						topic = matches[1]
+						// If we got multiple words, limit to first few reasonable ones
+						words := strings.Fields(topic)
+						if len(words) > 3 {
+							topic = strings.Join(words[:3], " ")
+						}
+					}
+				}
+				
+				// If still no topic, try to extract from "article for" or "page for" patterns
+				if topic == "" {
+					articlePattern := regexp.MustCompile(`(?:article|page|fetch)\s+(?:for|about)\s+([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?)`)
+					if matches := articlePattern.FindStringSubmatch(req.Description); len(matches) > 0 {
 						topic = matches[1]
 					}
 				}
@@ -1390,7 +1405,7 @@ func (ie *IntelligentExecutor) executeDirectTool(req *ExecutionRequest, start ti
 			} else if strings.Contains(strings.ToLower(req.Description), "wikipedia") {
 				// If Wikipedia is mentioned, try to extract article names and construct URLs
 				
-				// Try to find quoted article names or topics
+				// Try to find quoted article names or topics first
 				topicPattern := regexp.MustCompile(`'([^']+)'|"([^"]+)"`)
 				var topic string
 				if matches := topicPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
@@ -1401,10 +1416,25 @@ func (ie *IntelligentExecutor) executeDirectTool(req *ExecutionRequest, start ti
 					}
 				}
 				
-				// If no quoted topic, try to extract from "about X" or "for X"
+				// If no quoted topic, try to extract from "for X" or "about X" patterns
+				// but limit to 3 words to avoid capturing "and extract key concepts"
 				if topic == "" {
-					aboutPattern := regexp.MustCompile(`(?:about|for)\s+([A-Z][A-Za-z\s]+)`)
-					if matches := aboutPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
+					// Match "for" or "about" followed by 1-3 capitalized words
+					forPattern := regexp.MustCompile(`(?:for|about)\s+([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)*)`)
+					if matches := forPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
+						topic = matches[1]
+						// If we got multiple words, limit to first few reasonable ones
+						words := strings.Fields(topic)
+						if len(words) > 3 {
+							topic = strings.Join(words[:3], " ")
+						}
+					}
+				}
+				
+				// If still no topic, try to extract from "article for" or "page for" patterns
+				if topic == "" {
+					articlePattern := regexp.MustCompile(`(?:article|page|fetch)\s+(?:for|about)\s+([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?)`)
+					if matches := articlePattern.FindStringSubmatch(req.Description); len(matches) > 0 {
 						topic = matches[1]
 					}
 				}
@@ -1492,7 +1522,7 @@ func (ie *IntelligentExecutor) executeExplicitTool(req *ExecutionRequest, toolID
 			} else if strings.Contains(strings.ToLower(req.Description), "wikipedia") {
 				// If Wikipedia is mentioned, try to extract article names and construct URLs
 				
-				// Try to find quoted article names or topics
+				// Try to find quoted article names or topics first
 				topicPattern := regexp.MustCompile(`'([^']+)'|"([^"]+)"`)
 				var topic string
 				if matches := topicPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
@@ -1503,10 +1533,25 @@ func (ie *IntelligentExecutor) executeExplicitTool(req *ExecutionRequest, toolID
 					}
 				}
 				
-				// If no quoted topic, try to extract from "about X" or "for X"
+				// If no quoted topic, try to extract from "for X" or "about X" patterns
+				// but limit to 3 words to avoid capturing "and extract key concepts"
 				if topic == "" {
-					aboutPattern := regexp.MustCompile(`(?:about|for)\s+([A-Z][A-Za-z\s]+)`)
-					if matches := aboutPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
+					// Match "for" or "about" followed by 1-3 capitalized words
+					forPattern := regexp.MustCompile(`(?:for|about)\s+([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)*)`)
+					if matches := forPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
+						topic = matches[1]
+						// If we got multiple words, limit to first few reasonable ones
+						words := strings.Fields(topic)
+						if len(words) > 3 {
+							topic = strings.Join(words[:3], " ")
+						}
+					}
+				}
+				
+				// If still no topic, try to extract from "article for" or "page for" patterns
+				if topic == "" {
+					articlePattern := regexp.MustCompile(`(?:article|page|fetch)\s+(?:for|about)\s+([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?)`)
+					if matches := articlePattern.FindStringSubmatch(req.Description); len(matches) > 0 {
 						topic = matches[1]
 					}
 				}
