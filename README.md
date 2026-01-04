@@ -49,6 +49,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - **Knowledge Growth** - Continuous learning and adaptation
 - **Focused Learning** - System focuses on promising areas and learns from outcomes
 - **Intelligent Goal Routing** (Jan 2026) - Goals automatically routed to optimal execution paths (knowledge queries, tool calls, reasoning engine, or code generation)
+- **Unified Goal Management System** (Jan 2026) - All FSM autonomy activities (dream mode, hypothesis testing, coherence monitoring, active learning) post goals to Goal Manager for centralized workflow creation and UI visibility
 - **Cognitive Integrity** - Coherence monitoring with performance-optimized belief checking and behavior loop deduplication
 - **Meta-Learning** - System learns about its own learning process
 - **Semantic Concept Discovery** - LLM-based concept extraction with understanding
@@ -83,6 +84,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - [**Cross-System Consistency Checking**](docs/CROSS_SYSTEM_CONSISTENCY_CHECKING.md) - Coherence monitor for detecting and resolving inconsistencies across systems
 - [**Explanation-Grounded Learning Feedback**](docs/EXPLANATION_GROUNDED_LEARNING.md) - Post-hoc evaluation system that closes the loop between reasoning quality and execution outcomes
 - [**Active Learning Loops**](docs/ACTIVE_LEARNING_LOOPS.md) - Query-driven learning system for identifying high-uncertainty concepts and generating targeted data acquisition plans
+- [**Goal Manager Integration**](docs/GOAL_MANAGER_INTEGRATION.md) - Unified goal management system for FSM autonomy activities
 
 ### 💬 Interfaces & Communication
 - [**Conversational AI Summary**](docs/CONVERSATIONAL_AI_SUMMARY.md) - Natural language interface
