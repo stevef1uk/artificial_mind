@@ -349,6 +349,16 @@ func main() {
 		log.Printf("🤖 Autonomy disabled")
 	}
 
+	// Dream Mode: Generate creative exploration goals by connecting random concepts
+	dreamMode := NewDreamMode(engine, rdb)
+	dreamInterval := 15 * time.Minute // Dream every 15 minutes
+	if envInterval := os.Getenv("DREAM_INTERVAL_MINUTES"); envInterval != "" {
+		if mins, err := strconv.Atoi(envInterval); err == nil && mins > 0 {
+			dreamInterval = time.Duration(mins) * time.Minute
+		}
+	}
+	go dreamMode.StartDreamCycle(dreamInterval)
+
 	// Nightly scheduler: trigger daily_summary at 02:30 UTC every day
 	go func(hdnURL string) {
 		for {
