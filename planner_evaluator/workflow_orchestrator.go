@@ -132,6 +132,8 @@ func (wo *WorkflowOrchestrator) StartWorkflow(ctx context.Context, plan *Hierarc
 	wo.eventChannels[execution.ID] = make(chan WorkflowEvent, 100)
 	wo.mutex.Unlock()
 
+	_ = wo.redis.SAdd(context.Background(), "active_workflows", execution.ID).Err()
+
 	// Start execution in a goroutine
 	go wo.executeWorkflow(ctx, execution, userRequest)
 

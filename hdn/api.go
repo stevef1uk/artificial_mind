@@ -3425,6 +3425,8 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 		key := fmt.Sprintf("workflow:%s", wfID)
 		_ = s.redis.Set(ctx, key, string(b), 24*time.Hour).Err()
 
+		_ = s.redis.SAdd(ctx, "active_workflows", wfID).Err()
+
 		// Store duplicate key mapping for deduplication
 		if s.redis != nil {
 			hash := sha256.Sum256([]byte(strings.TrimSpace(req.TaskName) + "|" + strings.TrimSpace(req.Description)))
