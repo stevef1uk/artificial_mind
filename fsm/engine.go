@@ -203,15 +203,15 @@ func NewFSMEngine(configPath string, agentID string, nc *nats.Conn, redis *redis
 	// Create reasoning engine using provided HDN URL
 	reasoning := NewReasoningEngine(hdnURL, redis)
 
+	// Create goal manager client (must be before coherence monitor)
+	goalMgrURL := "http://goal-manager:8090"
+	goalManager := NewGoalManagerClient(goalMgrURL, redis)
+
 	// Create coherence monitor (pass NATS connection for goal event subscription)
-	coherenceMonitor := NewCoherenceMonitor(redis, hdnURL, reasoning, agentID, nc)
+	coherenceMonitor := NewCoherenceMonitor(redis, hdnURL, reasoning, agentID, nc, goalManager)
 
 	// Create explanation learning feedback system
 	explanationLearning := NewExplanationLearningFeedback(redis, hdnURL)
-
-	// Create goal manager client
-	goalMgrURL := "http://goal-manager:8090"
-	goalManager := NewGoalManagerClient(goalMgrURL, redis)
 
 	engine := &FSMEngine{
 		config:               config,

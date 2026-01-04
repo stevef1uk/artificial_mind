@@ -18,13 +18,14 @@ import (
 
 // CoherenceMonitor checks for inconsistencies across FSM, HDN, and Self-Model
 type CoherenceMonitor struct {
-	redis      *redis.Client
-	ctx        context.Context
-	hdnURL     string
-	reasoning  *ReasoningEngine
-	agentID    string
-	httpClient *http.Client
-	nc         *nats.Conn // NATS connection for listening to goal events
+	redis       *redis.Client
+	ctx         context.Context
+	hdnURL      string
+	reasoning   *ReasoningEngine
+	agentID     string
+	httpClient  *http.Client
+	nc          *nats.Conn // NATS connection for listening to goal events
+	goalManager *GoalManagerClient
 }
 
 // Inconsistency represents a detected inconsistency
@@ -51,15 +52,16 @@ type SelfReflectionTask struct {
 }
 
 // NewCoherenceMonitor creates a new coherence monitor
-func NewCoherenceMonitor(redis *redis.Client, hdnURL string, reasoning *ReasoningEngine, agentID string, nc *nats.Conn) *CoherenceMonitor {
+func NewCoherenceMonitor(redis *redis.Client, hdnURL string, reasoning *ReasoningEngine, agentID string, nc *nats.Conn, goalManager *GoalManagerClient) *CoherenceMonitor {
 	cm := &CoherenceMonitor{
-		redis:      redis,
-		ctx:        context.Background(),
-		hdnURL:     hdnURL,
-		reasoning:  reasoning,
-		agentID:    agentID,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		nc:         nc,
+		redis:       redis,
+		ctx:         context.Background(),
+		hdnURL:      hdnURL,
+		reasoning:   reasoning,
+		agentID:     agentID,
+		httpClient:  &http.Client{Timeout: 10 * time.Second},
+		nc:          nc,
+		goalManager: goalManager,
 	}
 	
 	// Subscribe to goal completion events to mark inconsistencies as resolved
@@ -603,8 +605,8 @@ Provide a clear resolution plan.`,
 		cm.redis.LPush(cm.ctx, curiosityGoalsKey, goalData)
 		cm.redis.LTrim(cm.ctx, curiosityGoalsKey, 0, 199)
 		
-		if cm.engine != nil && cm.engine.goalManager != nil {
-			_ = cm.engine.goalManager.PostCuriosityGoal(curiosityGoal, "coherence_monitor")
+		if cm.goalManager != nil {
+			_ = cm.goalManager.PostCuriosityGoal(curiosityGoal, "coherence_monitor")
 		}
 	}
 	
