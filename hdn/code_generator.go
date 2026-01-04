@@ -868,13 +868,14 @@ Code:`
 	wikipediaInstructions := ""
 	if isWikipediaScrape {
 		if req.Language == "python" || req.Language == "py" {
-			wikipediaInstructions = "\n\n🚨 CRITICAL: This task requires scraping Wikipedia. You MUST construct the Wikipedia URL correctly:\n"
-			wikipediaInstructions += "- Wikipedia URLs are constructed as: https://en.wikipedia.org/wiki/ARTICLE_NAME\n"
-			wikipediaInstructions += "- Replace spaces with underscores in article names\n"
-			wikipediaInstructions += "- Use the tool_html_scraper to fetch and parse Wikipedia articles\n"
-			wikipediaInstructions += "- EXAMPLE: topic = 'Machine Learning' -> url = 'https://en.wikipedia.org/wiki/Machine_Learning'\n"
-			wikipediaInstructions += "- ALWAYS use tool_html_scraper to fetch Wikipedia content, with explicit URL parameter\n"
-			wikipediaInstructions += "- ALWAYS pass the 'url' parameter when calling tool_html_scraper\n"
+			wikipediaInstructions = "\n\n🚨 CRITICAL: This task requires scraping Wikipedia. Follow these steps exactly:\n"
+			wikipediaInstructions += "1. Construct Wikipedia URL: https://en.wikipedia.org/wiki/ARTICLE_NAME (replace spaces with underscores)\n"
+			wikipediaInstructions += "2. Call tool_html_scraper with the URL\n"
+			wikipediaInstructions += "3. The tool returns: {\"items\": [...]}, NOT {\"title\": ...}\n"
+			wikipediaInstructions += "4. IMPORTANT: tool_html_scraper returns a dict with 'items' array, NOT 'title', 'paragraphs', or 'links'\n"
+			wikipediaInstructions += "5. Each item in 'items' array is a dict with keys like 'tag', 'text', 'href'\n"
+			wikipediaInstructions += "6. Parse and process the items array to extract meaningful content\n"
+			wikipediaInstructions += "7. EXAMPLE response: {\"items\": [{\"tag\": \"h1\", \"text\": \"Machine Learning\"}, {\"tag\": \"p\", \"text\": \"Machine learning is...\"}]}\n"
 		}
 	}
 
