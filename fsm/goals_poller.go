@@ -36,11 +36,13 @@ type GoalItem struct {
 }
 
 func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
+	log.Printf("🎯 [FSM][Goals] Starting goals poller for agent %s (polling interval: 2s)", agentID)
 	ctx := context.Background()
 	hdnURL := strings.TrimSpace(os.Getenv("HDN_URL"))
 	if hdnURL == "" {
 		hdnURL = "http://localhost:8080"
 	}
+	log.Printf("🎯 [FSM][Goals] Goal Manager URL: %s, HDN URL: %s", goalMgrURL, hdnURL)
 
 	triggeredKey := fmt.Sprintf("fsm:%s:goals:triggered", agentID)
 
@@ -144,6 +146,7 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 				}
 			}
 
+			log.Printf("🎯 [FSM][Goals] Fetched %d goals from Goal Manager", len(goals))
 			if len(goals) == 0 {
 				continue
 			}
