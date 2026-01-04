@@ -121,6 +121,7 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 	// This ensures we consider goals created in previous cycles
 	existingGoalsKey := fmt.Sprintf("reasoning:curiosity_goals:%s", domain)
 	existingGoalsData, err := e.redis.LRange(e.ctx, existingGoalsKey, 0, 199).Result()
+	existingCount := 0
 	if err == nil {
 		for _, goalData := range existingGoalsData {
 			var existingGoal CuriosityGoal
@@ -137,11 +138,14 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 					}
 					if !found {
 						goals = append(goals, existingGoal)
+						existingCount++
 					}
 				}
 			}
 		}
-		log.Printf("📋 Loaded existing pending goals from Redis, total goals for selection: %d", len(goals))
+		log.Printf("📋 Loaded existing pending goals from Redis key '%s', found: %d pending goals, total goals for selection: %d", existingGoalsKey, existingCount, len(goals))
+	} else {
+		log.Printf("⚠️ Failed to load existing goals from Redis key '%s': %v", existingGoalsKey, err)
 	}
 
 	// Adjust goal generation based on focus areas

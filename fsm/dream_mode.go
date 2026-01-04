@@ -107,7 +107,7 @@ func (dm *DreamMode) GenerateDreamGoals(maxGoals int) ([]CuriosityGoal, error) {
 		}
 		
 		goals = append(goals, goal)
-		log.Printf("💭 [Dream] Created: %s ↔ %s", c1.Name, c2.Name)
+		log.Printf("💭 [Dream] Created: %s ↔ %s (domain: '%s', status: '%s')", c1.Name, c2.Name, goal.Domain, goal.Status)
 	}
 	
 	log.Printf("💭 [Dream] Generated %d dream exploration goals", len(goals))
@@ -135,8 +135,12 @@ func (dm *DreamMode) StartDreamCycle(interval time.Duration) {
 		for _, goal := range goals {
 			goalData, _ := json.Marshal(goal)
 			key := fmt.Sprintf("reasoning:curiosity_goals:%s", goal.Domain)
-			dm.redis.LPush(dm.ctx, key, string(goalData))
-			log.Printf("💭 [Dream] Stored: %s", goal.Description)
+			err := dm.redis.LPush(dm.ctx, key, string(goalData)).Err()
+			if err != nil {
+				log.Printf("❌ [Dream] Failed to store goal to Redis key '%s': %v", key, err)
+			} else {
+				log.Printf("💭 [Dream] Stored: %s (ID: %s, key: 'reasoning:curiosity_goals:%s')", goal.Description, goal.ID, goal.Domain)
+			}
 		}
 		
 		log.Printf("💭 [Dream] Cycle complete - created %d goals", len(goals))
