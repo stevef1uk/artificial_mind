@@ -141,6 +141,17 @@ func (cs *ContentSafetyManager) CheckContentSafety(content string) (bool, string
 	return true, "", nil
 }
 
+// CheckAdultContentOnly validates content for adult material only (no malicious pattern check)
+// Used for trusted sources like Wikipedia where technical terms may legitimately contain "hack", "virus", etc.
+func (cs *ContentSafetyManager) CheckAdultContentOnly(content string) (bool, string, error) {
+	// Check for adult content only
+	if cs.containsAdultContent(content) {
+		return false, "content contains adult material", nil
+	}
+
+	return true, "", nil
+}
+
 // containsAdultContent checks if content contains adult keywords
 func (cs *ContentSafetyManager) containsAdultContent(text string) bool {
 	for _, regex := range cs.adultKeywords {
@@ -258,12 +269,24 @@ func (shc *SafeHTTPClient) SafeGetWithContentCheck(ctx context.Context, urlStr s
 	content := string(body)
 
 	// Check content safety
-	safe, reason, err := shc.safetyManager.CheckContentSafety(content)
-	if err != nil {
-		return "", fmt.Errorf("content safety check failed: %v", err)
-	}
-	if !safe {
-		return "", fmt.Errorf("content blocked: %s", reason)
+	// For Wikipedia (trusted source), only check for adult content, skip malicious patterns
+	// as Wikipedia articles legitimately contain security/technical terms
+	if strings.Contains(urlStr, "wikipedia.org") {
+		safe, reason, err := shc.safetyManager.CheckAdultContentOnly(content)
+		if err != nil {
+			return "", fmt.Errorf("content safety check failed: %v", err)
+		}
+		if !safe {
+			return "", fmt.Errorf("content blocked: %s", reason)
+		}
+	} else {
+		safe, reason, err := shc.safetyManager.CheckContentSafety(content)
+		if err != nil {
+			return "", fmt.Errorf("content safety check failed: %v", err)
+		}
+		if !safe {
+			return "", fmt.Errorf("content blocked: %s", reason)
+		}
 	}
 
 	return content, nil
