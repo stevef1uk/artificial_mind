@@ -345,11 +345,15 @@ The Coherence Monitor is a **cognitive integrity system** that continuously chec
 
 **Key Features**:
 
-1. **Belief Contradiction Detection**:
+1. **Belief Contradiction Detection** (Re-enabled with Performance Limits):
    - Analyzes beliefs from reasoning traces across domains
+   - **Performance Optimizations** (Jan 2026):
+     - Limited to 3 most recent traces (reduced from 10)
+     - Max 10 beliefs per domain (prevents O(n²) explosion that was causing 125K+ belief comparisons)
+     - Only 1 domain checked per cycle
    - Detects contradictory statements (e.g., "true" vs "false", "increase" vs "decrease")
    - Severity based on confidence levels of conflicting beliefs
-   - Limits checks to recent traces (10 most recent) and unique domains (5 max) for performance
+   - Completes in seconds instead of hanging indefinitely
 
 2. **Policy Conflict Detection**:
    - Checks active goals from Goal Manager for conflicting objectives
@@ -366,28 +370,46 @@ The Coherence Monitor is a **cognitive integrity system** that continuously chec
    - Default threshold: 24 hours without updates
    - Helps identify stale goals that may need attention or cancellation
 
-5. **Behavior Loop Detection**:
+5. **Behavior Loop Detection** (with Deduplication):
    - Analyzes FSM activity logs for repetitive state transitions
-   - Flags transitions that occur 5+ times in recent history
+   - **Deduplication Logic** (Jan 2026):
+     - Threshold increased from 5 to 10 transitions to reduce false positives
+     - Uses transition type as deduplication key (ignores varying counts)
+     - 24-hour TTL on detection flags (prevents duplicate goals for same transition)
+     - Example: `perceive->idle` flagged once per 24h regardless of count changes
    - Identifies potential infinite loops or stuck behaviors
+   - Creates one goal per transition type per day (not per count variation)
 
 **Integration**:
 - **Periodic Monitoring**: Runs automatically every 5 minutes via `coherenceMonitoringLoop()`
 - **Immediate Check**: Performs initial check 10 seconds after FSM startup for faster feedback
 - **Self-Reflection Tasks**: Generates curiosity goals with domain `system_coherence` for resolution
 - **Resolution Flow**: Coherence Monitor → Curiosity Goals → Monitor Service (converter) → Goal Manager → FSM Goals Poller → HDN → LLM execution
+- **Goal Routing** (Jan 2026): Goals are intelligently routed based on type:
+  - Inconsistency analysis → `routing_hint: reasoning` (uses reasoning engine)
+  - Knowledge queries → `routing_hint: knowledge_query` (direct knowledge base)
+  - Tool calls → `routing_hint: tool_call` (direct tool execution)
+  - Complex tasks → Hierarchical planner (default)
 
 **Data Storage**:
 - Inconsistencies stored in Redis: `coherence:inconsistencies:{agent_id}`
 - Reflection tasks stored in Redis: `coherence:reflection_tasks:{agent_id}`
 - Curiosity goals stored in Redis: `reasoning:curiosity_goals:system_coherence`
-- Tasks processed through standard Goal Manager → FSM Goals Poller → HDN execution pipeline
+- Deduplication flags: `coherence:flagged_loop:{transition}` (24h TTL)
+- Resolution goals: `coherence:resolution_goal:{inconsistency_id}` (24h TTL)
+
+**Performance & Reliability** (Jan 2026 Improvements):
+- Belief check: 3 traces × 10 beliefs = max 100 comparisons (vs previous 125K+)
+- Behavior loop: Transition-based deduplication prevents duplicate goals
+- Completes in seconds instead of hanging
+- Expected goal generation: 5-15 goals/hour (vs previous 1-2/hour)
 
 **Benefits**:
 - **Cognitive Integrity**: Ensures the system maintains consistent beliefs and goals
 - **Self-Correction**: Automatically identifies and resolves contradictions
 - **Early Detection**: Catches inconsistencies before they cause problems
 - **Transparency**: Logs all detected inconsistencies for monitoring and debugging
+- **Scalability**: Performance optimizations prevent system hangs while maintaining coverage
 
 #### Uncertainty Modeling & Confidence Calibration
 
@@ -488,6 +510,46 @@ Motivation & Goal Manager (policy layer):
   - Optional config stores for desires/principles/policies as needed
 /- Scoring: simple `importance(priority) * confidence` by default; pluggable policy
 /- Runtime: subscribes to events, spawns/updates goals, archives achieved/failed
+
+#### Goal Routing & Execution Strategies (`fsm/goals_poller.go`)
+
+**Purpose**: Intelligently route goals to appropriate execution paths instead of always generating Python code.
+
+**Routing Strategy** (Jan 2026):
+
+The Goals Poller analyzes goal descriptions and adds `routing_hint` context to guide downstream executors:
+
+1. **Knowledge Queries** → `routing_hint: knowledge_query`
+   - Detects: `query_knowledge_base`, `Query Neo4j`, `[ACTIVE-LEARNING]` tags
+   - Ideal for: Direct Neo4j/Weaviate queries without code generation
+   - Examples: "Query Neo4j for concepts in domain X", "Search knowledge base for Y"
+
+2. **Tool Calls** → `routing_hint: tool_call`
+   - Detects: `use tool_`, `tool_http_get`, `tool_html_scraper`
+   - Ideal for: Direct tool invocation without intermediate code
+   - Examples: "Use tool_http_get to fetch Wikipedia", "Use tool_html_scraper to extract data"
+
+3. **Inconsistency Analysis** → `routing_hint: reasoning`
+   - Detects: `you have detected an inconsistency`, `behavior_loop`, `analyze this inconsistency`
+   - Ideal for: Reasoning engine inference and explanation
+   - Examples: Coherence monitor inconsistencies, contradiction analysis
+
+4. **Complex Tasks** → Hierarchical Planner (default)
+   - No routing hint - uses standard hierarchical execute endpoint
+   - Ideal for: Multi-step tasks requiring planning, code generation, and orchestration
+   - Examples: "Implement feature X", "Analyze data and generate report"
+
+**Benefits**:
+- **Performance**: Direct execution paths are faster than code generation
+- **Reliability**: Pre-built tools more reliable than generated code
+- **Efficiency**: Reduces LLM token usage for simple queries
+- **Scalability**: Reduces load on code generation system
+
+**Future Enhancements**:
+- Phase 2: Create dedicated HDN endpoints for each routing hint (`/api/v1/knowledge/query`, `/api/v1/tools/execute`)
+- Phase 3: Add goal templates that map directly to execution paths
+- Phase 4: Machine learning to optimize routing decisions based on success rates
+
 
 ### 7. **Event Bus** (`eventbus/`)
 - **Purpose**: Single canonical backbone for all perceptions, messages, telemetry, and inter-module events

@@ -48,6 +48,8 @@ The Artificial Mind system consists of several interconnected components that wo
 - **Tool Integration** - Extensible framework for AI capabilities with composite tool provider
 - **Knowledge Growth** - Continuous learning and adaptation
 - **Focused Learning** - System focuses on promising areas and learns from outcomes
+- **Intelligent Goal Routing** (Jan 2026) - Goals automatically routed to optimal execution paths (knowledge queries, tool calls, reasoning engine, or code generation)
+- **Cognitive Integrity** - Coherence monitoring with performance-optimized belief checking and behavior loop deduplication
 - **Meta-Learning** - System learns about its own learning process
 - **Semantic Concept Discovery** - LLM-based concept extraction with understanding
 - **Intelligent Knowledge Filtering** - LLM-based assessment of novelty and value to prevent storing obvious/duplicate knowledge
