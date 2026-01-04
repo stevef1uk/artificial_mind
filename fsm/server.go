@@ -350,7 +350,7 @@ func main() {
 	}
 
 	// Dream Mode: Generate creative exploration goals by connecting random concepts
-	dreamMode := NewDreamMode(engine, rdb)
+	dreamMode := NewDreamMode(engine, rdb, config.HDNURL)
 	dreamInterval := 15 * time.Minute // Dream every 15 minutes
 	if envInterval := os.Getenv("DREAM_INTERVAL_MINUTES"); envInterval != "" {
 		if mins, err := strconv.Atoi(envInterval); err == nil && mins > 0 {
