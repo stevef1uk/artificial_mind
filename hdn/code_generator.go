@@ -859,6 +859,25 @@ Code:`
 		}
 	}
 
+	// Check if this is a Wikipedia scraping task
+	isWikipediaScrape := strings.Contains(descLowerForTools, "wikipedia") && 
+		(strings.Contains(descLowerForTools, "scrape") || 
+		 strings.Contains(descLowerForTools, "fetch") || 
+		 strings.Contains(descLowerForTools, "extract"))
+	
+	wikipediaInstructions := ""
+	if isWikipediaScrape {
+		if req.Language == "python" || req.Language == "py" {
+			wikipediaInstructions = "\n\n🚨 CRITICAL: This task requires scraping Wikipedia. You MUST construct the Wikipedia URL correctly:\n"
+			wikipediaInstructions += "- Wikipedia URLs are constructed as: https://en.wikipedia.org/wiki/ARTICLE_NAME\n"
+			wikipediaInstructions += "- Replace spaces with underscores in article names\n"
+			wikipediaInstructions += "- Use the tool_html_scraper to fetch and parse Wikipedia articles\n"
+			wikipediaInstructions += "- EXAMPLE: topic = 'Machine Learning' -> url = 'https://en.wikipedia.org/wiki/Machine_Learning'\n"
+			wikipediaInstructions += "- ALWAYS use tool_html_scraper to fetch Wikipedia content, with explicit URL parameter\n"
+			wikipediaInstructions += "- ALWAYS pass the 'url' parameter when calling tool_html_scraper\n"
+		}
+	}
+
 	// Add general instruction about avoiding unnecessary imports
 	importInstruction := ""
 	if isSimpleTask {
@@ -888,10 +907,10 @@ Code:`
 	codeBlockTag := "```" + req.Language
 	return fmt.Sprintf(`Generate %s code for this task:
 
-%s%s%s%s%s%s%s%s
+%s%s%s%s%s%s%s%s%s
 
 Return only the %s code in a markdown code block with the language tag: %s
-`, req.Language, cleanDesc, langEnforcement, contextStr, toolInstructions, knowledgeBaseInstructions, importInstruction, internalFlagsWarning, inputWarning, req.Language, codeBlockTag)
+`, req.Language, cleanDesc, langEnforcement, contextStr, toolInstructions, knowledgeBaseInstructions, wikipediaInstructions, importInstruction, internalFlagsWarning, inputWarning, req.Language, codeBlockTag)
 }
 
 // extractCodeFromResponse extracts code from the LLM response
