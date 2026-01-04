@@ -1313,7 +1313,7 @@ func (ie *IntelligentExecutor) executeDirectTool(req *ExecutionRequest, start ti
 	switch toolID {
 	case "tool_ls":
 		params["path"] = "."
-	case "tool_http_get":
+	case "tool_http_get", "tool_html_scraper":
 		if u, ok := req.Context["url"]; ok && strings.TrimSpace(u) != "" {
 			params["url"] = u
 		} else {
@@ -1352,7 +1352,7 @@ func (ie *IntelligentExecutor) executeDirectTool(req *ExecutionRequest, start ti
 				
 				// If still no topic, try to extract from "article for" or "page for" patterns
 				if topic == "" {
-					articlePattern := regexp.MustCompile(`(?:article|page|fetch)\s+(?:for|about)\s+([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?)`)
+					articlePattern := regexp.MustCompile(`(?:article|page|fetch|scrape)\s+(?:for|about)\s+([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?)`)
 					if matches := articlePattern.FindStringSubmatch(req.Description); len(matches) > 0 {
 						topic = matches[1]
 					}
@@ -1393,64 +1393,6 @@ func (ie *IntelligentExecutor) executeDirectTool(req *ExecutionRequest, start ti
 			params["cmd"] = c
 		} else {
 			params["cmd"] = "ls -la"
-		}
-	case "tool_html_scraper":
-		if u, ok := req.Context["url"]; ok && strings.TrimSpace(u) != "" {
-			params["url"] = u
-		} else {
-			// Try to extract URL from description
-			urlPattern := regexp.MustCompile(`https?://[^\s]+`)
-			if matches := urlPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
-				params["url"] = matches[0]
-			} else if strings.Contains(strings.ToLower(req.Description), "wikipedia") {
-				// If Wikipedia is mentioned, try to extract article names and construct URLs
-				
-				// Try to find quoted article names or topics first
-				topicPattern := regexp.MustCompile(`'([^']+)'|"([^"]+)"`)
-				var topic string
-				if matches := topicPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
-					if matches[1] != "" {
-						topic = matches[1]
-					} else if matches[2] != "" {
-						topic = matches[2]
-					}
-				}
-				
-				// If no quoted topic, try to extract from "for X" or "about X" patterns
-				// but limit to 3 words to avoid capturing "and extract key concepts"
-				if topic == "" {
-					// Match "for" or "about" followed by 1-3 capitalized words
-					forPattern := regexp.MustCompile(`(?:for|about)\s+([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)*)`)
-					if matches := forPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
-						topic = matches[1]
-						// If we got multiple words, limit to first few reasonable ones
-						words := strings.Fields(topic)
-						if len(words) > 3 {
-							topic = strings.Join(words[:3], " ")
-						}
-					}
-				}
-				
-				// If still no topic, try to extract from "article for" or "page for" patterns
-				if topic == "" {
-					articlePattern := regexp.MustCompile(`(?:article|page|fetch)\s+(?:for|about)\s+([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?)`)
-					if matches := articlePattern.FindStringSubmatch(req.Description); len(matches) > 0 {
-						topic = matches[1]
-					}
-				}
-				
-				// Construct Wikipedia URL if we found a topic
-				if topic != "" {
-					// Replace spaces with underscores for Wikipedia
-					topic = strings.ReplaceAll(strings.TrimSpace(topic), " ", "_")
-					params["url"] = fmt.Sprintf("https://en.wikipedia.org/wiki/%s", topic)
-				} else {
-					// Default to Wikipedia main page if we can't determine article
-					params["url"] = "https://en.wikipedia.org/wiki/Main_Page"
-				}
-			} else {
-				params["url"] = "http://example.com"
-			}
 		}
 	}
 
@@ -1511,7 +1453,7 @@ func (ie *IntelligentExecutor) executeExplicitTool(req *ExecutionRequest, toolID
 	params := make(map[string]interface{})
 
 	// Extract parameters based on tool type
-	if toolID == "tool_http_get" {
+	if toolID == "tool_http_get" || toolID == "tool_html_scraper" {
 		if u, ok := req.Context["url"]; ok && strings.TrimSpace(u) != "" {
 			params["url"] = u
 		} else {
@@ -1550,7 +1492,7 @@ func (ie *IntelligentExecutor) executeExplicitTool(req *ExecutionRequest, toolID
 				
 				// If still no topic, try to extract from "article for" or "page for" patterns
 				if topic == "" {
-					articlePattern := regexp.MustCompile(`(?:article|page|fetch)\s+(?:for|about)\s+([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?)`)
+					articlePattern := regexp.MustCompile(`(?:article|page|fetch|scrape)\s+(?:for|about)\s+([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?)`)
 					if matches := articlePattern.FindStringSubmatch(req.Description); len(matches) > 0 {
 						topic = matches[1]
 					}
