@@ -52,7 +52,7 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 	pollingInterval := 2 * time.Second
 	ticker := time.NewTicker(pollingInterval)
 	defer ticker.Stop()
-	
+
 	var lastBackoff time.Time
 	backoffMultiplier := 1
 
@@ -76,20 +76,20 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 				log.Printf("[FSM][Goals] Auto-executor paused by Redis flag; skipping tick")
 				continue
 			}
-			
+
 			// Check how many active workflows are running to prevent execution slot exhaustion
 			activeWorkflowCount, err := rdb.SCard(ctx, "active_workflows").Result()
 			if err == nil {
 				// Don't trigger new goals if too many workflows are already running
 				// With default of 4 general execution slots, allow up to 3 active workflows
 				// before pausing new goal triggers (leaves 1 slot free for other operations)
-				maxActiveWorkflows := 3
+				maxActiveWorkflows := 10
 				if activeWorkflowCount >= int64(maxActiveWorkflows) {
 					goalsDebugf("[FSM][Goals] Skipping goal trigger - %d active workflows (max: %d)", activeWorkflowCount, maxActiveWorkflows)
 					continue
 				}
 			}
-			
+
 			// Fetch active goals for this agent
 			url := fmt.Sprintf("%s/goals/%s/active", goalMgrURL, agentID)
 			resp, err := client.Get(url)
@@ -177,10 +177,10 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 				// Build hierarchical execute payload
 				// Use goal description/name as the task_name and user_request; pass identifiers in context
 				goalDesc := firstNonEmpty(g.Description, g.Name, "Execute goal")
-				
+
 				// GOAL ROUTING: Determine execution path based on goal type
 				execURL, req := routeGoalExecution(goalDesc, g.ID, agentID, hdnURL)
-				
+
 				// Use goal description as task_name instead of generic "Goal Execution"
 				// This gives the planner better context about what to actually do
 				taskName := goalDesc
@@ -188,7 +188,7 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 					// Truncate very long descriptions for task_name
 					taskName = taskName[:97] + "..."
 				}
-				
+
 				// If no specific routing, use default hierarchical execute
 				if execURL == "" {
 					req = map[string]interface{}{
@@ -204,11 +204,11 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 					}
 					execURL = strings.TrimRight(hdnURL, "/") + "/api/v1/hierarchical/execute"
 				}
-				
+
 				// MARK AS TRIGGERED FIRST to prevent race condition where multiple pollers trigger same goal
 				_ = rdb.SAdd(ctx, triggeredKey, g.ID).Err()
 				_ = rdb.Expire(ctx, triggeredKey, 30*time.Minute).Err()
-				
+
 				log.Printf("🎯 [FSM][Goals] Executing goal %s (type: %s, description: %s) via %s", g.ID, g.Type, taskName, execURL)
 				b, _ := json.Marshal(req)
 				eresp, err := client.Post(execURL, "application/json", strings.NewReader(string(b)))
@@ -499,11 +499,11 @@ func cleanupStuckTriggeredFlags(ctx context.Context, agentID, goalMgrURL string,
 // Returns (execURL, requestPayload) - empty URL means use default hierarchical execute
 func routeGoalExecution(goalDesc, goalID, agentID, hdnURL string) (string, map[string]interface{}) {
 	goalDescLower := strings.ToLower(goalDesc)
-	
+
 	// Route 1: Knowledge queries → Direct knowledge base endpoint
-	if strings.Contains(goalDescLower, "query_knowledge_base") || 
-	   strings.Contains(goalDescLower, "query neo4j") ||
-	   strings.Contains(goalDescLower, "[active-learning] query_knowledge_base") {
+	if strings.Contains(goalDescLower, "query_knowledge_base") ||
+		strings.Contains(goalDescLower, "query neo4j") ||
+		strings.Contains(goalDescLower, "[active-learning] query_knowledge_base") {
 		// For now, still use hierarchical execute but mark as knowledge query
 		// TODO: Create dedicated knowledge query endpoint in HDN
 		return "", map[string]interface{}{
@@ -519,11 +519,11 @@ func routeGoalExecution(goalDesc, goalID, agentID, hdnURL string) (string, map[s
 			},
 		}
 	}
-	
+
 	// Route 2: Tool calls → Direct tool execution
 	if strings.Contains(goalDescLower, "use tool_") ||
-	   strings.Contains(goalDescLower, "tool_http_get") ||
-	   strings.Contains(goalDescLower, "tool_html_scraper") {
+		strings.Contains(goalDescLower, "tool_http_get") ||
+		strings.Contains(goalDescLower, "tool_html_scraper") {
 		return "", map[string]interface{}{
 			"task_name":    "tool_execution",
 			"description":  goalDesc,
@@ -537,11 +537,11 @@ func routeGoalExecution(goalDesc, goalID, agentID, hdnURL string) (string, map[s
 			},
 		}
 	}
-	
+
 	// Route 3: Inconsistency analysis → Reasoning engine
 	if strings.Contains(goalDescLower, "you have detected an inconsistency") ||
-	   strings.Contains(goalDescLower, "analyze this inconsistency") ||
-	   strings.Contains(goalDescLower, "behavior_loop") {
+		strings.Contains(goalDescLower, "analyze this inconsistency") ||
+		strings.Contains(goalDescLower, "behavior_loop") {
 		return "", map[string]interface{}{
 			"task_name":    "analyze_inconsistency",
 			"description":  goalDesc,
@@ -555,7 +555,7 @@ func routeGoalExecution(goalDesc, goalID, agentID, hdnURL string) (string, map[s
 			},
 		}
 	}
-	
+
 	// Default: return empty to use hierarchical execute
 	return "", nil
 }

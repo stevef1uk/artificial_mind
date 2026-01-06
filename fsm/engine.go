@@ -115,23 +115,23 @@ type UIPanelConfig struct {
 
 // FSMEngine represents the running state machine
 type FSMEngine struct {
-	config                *FSMConfig
-	agentID               string
-	currentState          string
-	context               map[string]interface{}
-	nc                    *nats.Conn
-	redis                 *redis.Client
-	subs                  []*nats.Subscription
-	ctx                   context.Context
-	cancel                context.CancelFunc
-	principles            *PrinciplesIntegration
-	knowledgeGrowth       *KnowledgeGrowthEngine
-	knowledgeIntegration  *KnowledgeIntegration
-	reasoning             *ReasoningEngine
-	coherenceMonitor      *CoherenceMonitor
-	explanationLearning   *ExplanationLearningFeedback
-	goalManager           *GoalManagerClient
-	stateEntryTime        time.Time // Track when current state was entered
+	config               *FSMConfig
+	agentID              string
+	currentState         string
+	context              map[string]interface{}
+	nc                   *nats.Conn
+	redis                *redis.Client
+	subs                 []*nats.Subscription
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	principles           *PrinciplesIntegration
+	knowledgeGrowth      *KnowledgeGrowthEngine
+	knowledgeIntegration *KnowledgeIntegration
+	reasoning            *ReasoningEngine
+	coherenceMonitor     *CoherenceMonitor
+	explanationLearning  *ExplanationLearningFeedback
+	goalManager          *GoalManagerClient
+	stateEntryTime       time.Time // Track when current state was entered
 }
 
 // ActivityLogEntry represents a human-readable activity log entry
@@ -203,8 +203,11 @@ func NewFSMEngine(configPath string, agentID string, nc *nats.Conn, redis *redis
 	// Create reasoning engine using provided HDN URL
 	reasoning := NewReasoningEngine(hdnURL, redis)
 
-	// Create goal manager client (must be before coherence monitor)
-	goalMgrURL := "http://goal-manager:8090"
+	// Create goal manager client
+	goalMgrURL := os.Getenv("GOAL_MANAGER_URL")
+	if goalMgrURL == "" {
+		goalMgrURL = "http://localhost:8090"
+	}
 	goalManager := NewGoalManagerClient(goalMgrURL, redis)
 
 	// Create coherence monitor (pass NATS connection for goal event subscription)
@@ -389,7 +392,7 @@ func (e *FSMEngine) subscribeToEvents() error {
 		eventName := event.Name // Capture event name for closure
 		sub, err := e.nc.Subscribe(event.NatsSubject, func(msg *nats.Msg) {
 			log.Printf("📨 Received NATS event on %s: %s", event.NatsSubject, string(msg.Data))
-			
+
 			// For news events, store immediately regardless of state
 			// This ensures news is always stored even if FSM is in a state without news transitions
 			if eventName == "news_relations" || eventName == "news_alerts" {
@@ -408,7 +411,7 @@ func (e *FSMEngine) subscribeToEvents() error {
 					log.Printf("⚠️ Failed to parse news event for immediate storage: %v", err)
 				}
 			}
-			
+
 			e.handleEvent(eventName, msg.Data)
 		})
 		if err != nil {
@@ -480,12 +483,12 @@ func (e *FSMEngine) coherenceMonitoringLoop() {
 	go func() {
 		// Wait a few seconds for system to be ready
 		time.Sleep(10 * time.Second)
-		
+
 		if e.coherenceMonitor == nil {
 			log.Printf("⚠️ [Coherence] Coherence monitor is nil, skipping initial check")
 			return
 		}
-		
+
 		log.Printf("🔍 [Coherence] Running initial coherence check...")
 		e.runCoherenceCheck()
 	}()
@@ -507,7 +510,7 @@ func (e *FSMEngine) runCoherenceCheck() {
 		log.Printf("⚠️ [Coherence] Coherence monitor is nil, skipping check")
 		return
 	}
-	
+
 	// Perform coherence check
 	inconsistencies, err := e.coherenceMonitor.CheckCoherence()
 	if err != nil {
@@ -517,7 +520,7 @@ func (e *FSMEngine) runCoherenceCheck() {
 
 	if len(inconsistencies) > 0 {
 		log.Printf("⚠️ [Coherence] Detected %d inconsistencies", len(inconsistencies))
-		
+
 		// Generate self-reflection tasks for each inconsistency
 		for _, inc := range inconsistencies {
 			if !inc.Resolved {
@@ -527,7 +530,7 @@ func (e *FSMEngine) runCoherenceCheck() {
 					log.Printf("⚠️ [Coherence] Failed to generate reflection task: %v", err)
 					continue
 				}
-				
+
 				// Attempt to resolve the inconsistency
 				if err := e.coherenceMonitor.ResolveInconsistency(inc); err != nil {
 					log.Printf("⚠️ [Coherence] Failed to resolve inconsistency %s: %v", inc.ID, err)
@@ -588,7 +591,7 @@ func (e *FSMEngine) handleEvent(eventName string, data []byte) {
 	// Publish user goal for new_input events
 	if eventName == "new_input" && data != nil {
 		e.publishUserGoal(event)
-		
+
 		// Clear/update current_goal with new user input to prioritize user requests over curiosity goals
 		userRequest := ""
 		if text, ok := event.Payload["text"].(string); ok && text != "" {
@@ -598,7 +601,7 @@ func (e *FSMEngine) handleEvent(eventName string, data []byte) {
 		} else if message, ok := event.Payload["message"].(string); ok && message != "" {
 			userRequest = message
 		}
-		
+
 		if userRequest != "" {
 			// Clean up the goal description
 			userRequest = e.cleanGoalDescription(userRequest)
@@ -3455,19 +3458,19 @@ func (e *FSMEngine) storeHypotheses(hypotheses []Hypothesis, domain string) {
 			"constraints": hypothesis.Constraints,
 			"created_at":  hypothesis.CreatedAt.Format(time.RFC3339),
 		}
-		
+
 		// Include uncertainty model data if available
 		if hypothesis.Uncertainty != nil {
 			hypothesisData["uncertainty"] = map[string]interface{}{
-				"epistemic_uncertainty":  hypothesis.Uncertainty.EpistemicUncertainty,
-				"aleatoric_uncertainty":  hypothesis.Uncertainty.AleatoricUncertainty,
+				"epistemic_uncertainty": hypothesis.Uncertainty.EpistemicUncertainty,
+				"aleatoric_uncertainty": hypothesis.Uncertainty.AleatoricUncertainty,
 				"calibrated_confidence": hypothesis.Uncertainty.CalibratedConfidence,
-				"stability":              hypothesis.Uncertainty.Stability,
-				"volatility":             hypothesis.Uncertainty.Volatility,
-				"last_updated":           hypothesis.Uncertainty.LastUpdated.Format(time.RFC3339),
+				"stability":             hypothesis.Uncertainty.Stability,
+				"volatility":            hypothesis.Uncertainty.Volatility,
+				"last_updated":          hypothesis.Uncertainty.LastUpdated.Format(time.RFC3339),
 			}
 		}
-		
+
 		// Include causal reasoning fields if available
 		if hypothesis.CausalType != "" {
 			hypothesisData["causal_type"] = hypothesis.CausalType
@@ -3529,134 +3532,134 @@ func (e *FSMEngine) createHypothesisTestingGoals(hypotheses []Hypothesis, domain
 		}
 	}
 
-		// Create curiosity goals for testing each approved hypothesis, deduplicated
-		newGoals := 0
-		filteredCount := 0
-		for _, hypothesis := range uniqueApproved {
-			// For causal hypotheses with intervention goals, create intervention-style goals
-			// These push toward grounded learning and self-designed experiments
-			if hypothesis.CausalType != "" && len(hypothesis.InterventionGoals) > 0 {
-				// Prioritize intervention goals for causal hypotheses
-				for i, interventionGoal := range hypothesis.InterventionGoals {
-					// Create uncertainty model for intervention goal
-					var uncertainty *UncertaintyModel
-					if hypothesis.Uncertainty != nil {
-						// Intervention goals have slightly higher epistemic uncertainty (experiments are exploratory)
-						uncertainty = NewUncertaintyModel(
-							hypothesis.Uncertainty.CalibratedConfidence,
-							clamp(hypothesis.Uncertainty.EpistemicUncertainty+0.1, 0.0, 1.0),
-							hypothesis.Uncertainty.AleatoricUncertainty,
-						)
-					} else {
-						epistemicUncertainty := EstimateEpistemicUncertainty(len(hypothesis.Facts), false, false)
-						aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "intervention_testing")
-						uncertainty = NewUncertaintyModel(hypothesis.Confidence, epistemicUncertainty, aleatoricUncertainty)
+	// Create curiosity goals for testing each approved hypothesis, deduplicated
+	newGoals := 0
+	filteredCount := 0
+	for _, hypothesis := range uniqueApproved {
+		// For causal hypotheses with intervention goals, create intervention-style goals
+		// These push toward grounded learning and self-designed experiments
+		if hypothesis.CausalType != "" && len(hypothesis.InterventionGoals) > 0 {
+			// Prioritize intervention goals for causal hypotheses
+			for i, interventionGoal := range hypothesis.InterventionGoals {
+				// Create uncertainty model for intervention goal
+				var uncertainty *UncertaintyModel
+				if hypothesis.Uncertainty != nil {
+					// Intervention goals have slightly higher epistemic uncertainty (experiments are exploratory)
+					uncertainty = NewUncertaintyModel(
+						hypothesis.Uncertainty.CalibratedConfidence,
+						clamp(hypothesis.Uncertainty.EpistemicUncertainty+0.1, 0.0, 1.0),
+						hypothesis.Uncertainty.AleatoricUncertainty,
+					)
+				} else {
+					epistemicUncertainty := EstimateEpistemicUncertainty(len(hypothesis.Facts), false, false)
+					aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "intervention_testing")
+					uncertainty = NewUncertaintyModel(hypothesis.Confidence, epistemicUncertainty, aleatoricUncertainty)
+				}
+
+				// Higher priority for intervention goals (they're more actionable)
+				priority := 9
+				if hypothesis.CausalType == "experimentally_testable_relation" {
+					priority = 10 // Highest priority for experimentally testable relations
+				}
+
+				goal := CuriosityGoal{
+					ID:          fmt.Sprintf("intervention_%s_%d", hypothesis.ID, i),
+					Type:        "intervention_testing",
+					Description: interventionGoal,
+					Targets:     []string{hypothesis.ID},
+					Priority:    priority,
+					Status:      "pending",
+					Domain:      domain,
+					CreatedAt:   time.Now(),
+					Uncertainty: uncertainty,
+					Value:       uncertainty.CalibratedConfidence * 1.1, // Slight boost for intervention goals
+				}
+
+				// Check for duplicates
+				dedupKey := e.createDedupKey(goal)
+				if _, exists := existing[dedupKey]; !exists {
+					goalData, _ := json.Marshal(goal)
+					e.redis.LPush(e.ctx, goalKey, goalData)
+					e.redis.LTrim(e.ctx, goalKey, 0, 199)
+					existing[dedupKey] = goal
+					newGoals++
+
+					if e.goalManager != nil {
+						_ = e.goalManager.PostCuriosityGoal(goal, "hypothesis_testing")
 					}
-					
-					// Higher priority for intervention goals (they're more actionable)
-					priority := 9
-					if hypothesis.CausalType == "experimentally_testable_relation" {
-						priority = 10 // Highest priority for experimentally testable relations
-					}
-					
-					goal := CuriosityGoal{
-						ID:          fmt.Sprintf("intervention_%s_%d", hypothesis.ID, i),
-						Type:        "intervention_testing",
-						Description: interventionGoal,
-						Targets:     []string{hypothesis.ID},
-						Priority:    priority,
-						Status:      "pending",
-						Domain:      domain,
-						CreatedAt:   time.Now(),
-						Uncertainty: uncertainty,
-						Value:       uncertainty.CalibratedConfidence * 1.1, // Slight boost for intervention goals
-					}
-					
-					// Check for duplicates
-					dedupKey := e.createDedupKey(goal)
-					if _, exists := existing[dedupKey]; !exists {
-						goalData, _ := json.Marshal(goal)
-						e.redis.LPush(e.ctx, goalKey, goalData)
-						e.redis.LTrim(e.ctx, goalKey, 0, 199)
-						existing[dedupKey] = goal
-						newGoals++
-						
-						if e.goalManager != nil {
-							_ = e.goalManager.PostCuriosityGoal(goal, "hypothesis_testing")
-						}
-						
-						log.Printf("🔬 [CAUSAL] Created intervention goal: %s", interventionGoal[:min(60, len(interventionGoal))])
-					}
+
+					log.Printf("🔬 [CAUSAL] Created intervention goal: %s", interventionGoal[:min(60, len(interventionGoal))])
 				}
 			}
-			
-			// Also create standard hypothesis testing goal (but with lower priority if intervention goals exist)
-			// Create actionable goal description, avoiding nested prefixes
-			hypDesc := hypothesis.Description
-			goalDesc := hypDesc
-			
-			// If description already has nested prefixes, extract the core hypothesis
-			if strings.Contains(hypDesc, ": ") {
-				parts := strings.SplitN(hypDesc, ": ", 2)
-				if len(parts) == 2 {
-					prefix := strings.ToLower(parts[0])
-					// Check if it's a follow-up hypothesis prefix
-					if strings.Contains(prefix, "how can we better test") ||
-						strings.Contains(prefix, "what additional evidence") ||
-						strings.Contains(prefix, "what are the specific conditions") ||
-						strings.Contains(prefix, "what are the implications") ||
-						strings.Contains(prefix, "how can we extend") ||
-						strings.Contains(prefix, "what is the opposite") {
-						// Extract the actual hypothesis
-						actualHyp := strings.TrimSpace(parts[1])
-						goalDesc = fmt.Sprintf("Test and refine: %s", actualHyp)
-					} else {
-						goalDesc = fmt.Sprintf("Test hypothesis: %s", hypDesc)
-					}
+		}
+
+		// Also create standard hypothesis testing goal (but with lower priority if intervention goals exist)
+		// Create actionable goal description, avoiding nested prefixes
+		hypDesc := hypothesis.Description
+		goalDesc := hypDesc
+
+		// If description already has nested prefixes, extract the core hypothesis
+		if strings.Contains(hypDesc, ": ") {
+			parts := strings.SplitN(hypDesc, ": ", 2)
+			if len(parts) == 2 {
+				prefix := strings.ToLower(parts[0])
+				// Check if it's a follow-up hypothesis prefix
+				if strings.Contains(prefix, "how can we better test") ||
+					strings.Contains(prefix, "what additional evidence") ||
+					strings.Contains(prefix, "what are the specific conditions") ||
+					strings.Contains(prefix, "what are the implications") ||
+					strings.Contains(prefix, "how can we extend") ||
+					strings.Contains(prefix, "what is the opposite") {
+					// Extract the actual hypothesis
+					actualHyp := strings.TrimSpace(parts[1])
+					goalDesc = fmt.Sprintf("Test and refine: %s", actualHyp)
 				} else {
 					goalDesc = fmt.Sprintf("Test hypothesis: %s", hypDesc)
 				}
 			} else {
 				goalDesc = fmt.Sprintf("Test hypothesis: %s", hypDesc)
 			}
-			
-			// Create uncertainty model for hypothesis testing goal
-			// Use hypothesis uncertainty if available, otherwise estimate
-			var uncertainty *UncertaintyModel
-			if hypothesis.Uncertainty != nil {
-				// Copy hypothesis uncertainty but adjust for testing context
-				uncertainty = NewUncertaintyModel(
-					hypothesis.Uncertainty.CalibratedConfidence,
-					hypothesis.Uncertainty.EpistemicUncertainty,
-					hypothesis.Uncertainty.AleatoricUncertainty,
-				)
-				uncertainty.Stability = hypothesis.Uncertainty.Stability
-				uncertainty.Volatility = hypothesis.Uncertainty.Volatility
-			} else {
-				// Estimate uncertainties for testing goal
-				epistemicUncertainty := EstimateEpistemicUncertainty(len(hypothesis.Facts), false, false)
-				aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "hypothesis_testing")
-				uncertainty = NewUncertaintyModel(hypothesis.Confidence, epistemicUncertainty, aleatoricUncertainty)
-			}
-			
-			// Lower priority if intervention goals exist (interventions are preferred for causal hypotheses)
-			priority := 8
-			if len(hypothesis.InterventionGoals) > 0 {
-				priority = 7 // Slightly lower priority when intervention goals exist
-			}
-			
-			goal := CuriosityGoal{
-				ID:          fmt.Sprintf("hyp_test_%s", hypothesis.ID),
-				Type:        "hypothesis_testing",
-				Description: goalDesc,
-				Targets:     []string{hypothesis.ID},
-				Priority:    priority,
-				Status:      "pending",
-				Domain:      domain,
-				CreatedAt:   time.Now(),
-				Uncertainty: uncertainty,
-				Value:       uncertainty.CalibratedConfidence,
-			}
+		} else {
+			goalDesc = fmt.Sprintf("Test hypothesis: %s", hypDesc)
+		}
+
+		// Create uncertainty model for hypothesis testing goal
+		// Use hypothesis uncertainty if available, otherwise estimate
+		var uncertainty *UncertaintyModel
+		if hypothesis.Uncertainty != nil {
+			// Copy hypothesis uncertainty but adjust for testing context
+			uncertainty = NewUncertaintyModel(
+				hypothesis.Uncertainty.CalibratedConfidence,
+				hypothesis.Uncertainty.EpistemicUncertainty,
+				hypothesis.Uncertainty.AleatoricUncertainty,
+			)
+			uncertainty.Stability = hypothesis.Uncertainty.Stability
+			uncertainty.Volatility = hypothesis.Uncertainty.Volatility
+		} else {
+			// Estimate uncertainties for testing goal
+			epistemicUncertainty := EstimateEpistemicUncertainty(len(hypothesis.Facts), false, false)
+			aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "hypothesis_testing")
+			uncertainty = NewUncertaintyModel(hypothesis.Confidence, epistemicUncertainty, aleatoricUncertainty)
+		}
+
+		// Lower priority if intervention goals exist (interventions are preferred for causal hypotheses)
+		priority := 8
+		if len(hypothesis.InterventionGoals) > 0 {
+			priority = 7 // Slightly lower priority when intervention goals exist
+		}
+
+		goal := CuriosityGoal{
+			ID:          fmt.Sprintf("hyp_test_%s", hypothesis.ID),
+			Type:        "hypothesis_testing",
+			Description: goalDesc,
+			Targets:     []string{hypothesis.ID},
+			Priority:    priority,
+			Status:      "pending",
+			Domain:      domain,
+			CreatedAt:   time.Now(),
+			Uncertainty: uncertainty,
+			Value:       uncertainty.CalibratedConfidence,
+		}
 
 		// Skip generic filter for LLM-approved hypotheses - they've already been screened
 		// Only apply generic filter if the hypothesis wasn't screened (shouldn't happen, but safety check)
@@ -3684,7 +3687,7 @@ func (e *FSMEngine) createHypothesisTestingGoals(hypotheses []Hypothesis, domain
 			_ = e.redis.LTrim(e.ctx, goalKey, 0, 199).Err()
 			existing[k] = goal
 			newGoals++
-			
+
 			if e.goalManager != nil {
 				_ = e.goalManager.PostCuriosityGoal(goal, "hypothesis_testing")
 			}
@@ -3716,7 +3719,7 @@ func (e *FSMEngine) screenHypothesesWithLLM(hypotheses []Hypothesis, domain stri
 		// Improved prompt with clearer instructions and examples
 		// CRITICAL: Use explicit instruction to return JSON directly, not a task
 		// Request text response type explicitly to bypass tool_call preference
-		
+
 		// Include causal type information in the prompt
 		causalTypeInfo := ""
 		if h.CausalType != "" {
@@ -3725,7 +3728,7 @@ func (e *FSMEngine) screenHypothesesWithLLM(hypotheses []Hypothesis, domain stri
 				causalTypeInfo += fmt.Sprintf("\nIntervention Goals Available: %d", len(h.InterventionGoals))
 			}
 		}
-		
+
 		prompt := fmt.Sprintf(`You are evaluating a hypothesis. This is a SIMPLE SCORING TASK that requires NO tools, NO actions, and NO queries. Just return a JSON score.
 
 CRITICAL: You MUST respond with type "text" containing ONLY a JSON object. Do NOT use tools. Do NOT create tasks. This is a pure evaluation task.
@@ -4352,15 +4355,15 @@ func (e *FSMEngine) handleConfirmedHypothesis(hypothesis map[string]interface{},
 	uncertainty := NewUncertaintyModel(result.Confidence, epistemicUncertainty, aleatoricUncertainty)
 	// Reinforce with evidence strength
 	uncertainty.Reinforce(result.Confidence)
-	
+
 	belief := Belief{
-		ID:         fmt.Sprintf("belief_from_hyp_%s", hypothesisID),
-		Statement:  description,
-		Confidence: uncertainty.CalibratedConfidence,
-		Domain:     domain,
-		Source:     "hypothesis_testing",
-		Evidence:   []string{hypothesisID},
-		CreatedAt:  time.Now(),
+		ID:          fmt.Sprintf("belief_from_hyp_%s", hypothesisID),
+		Statement:   description,
+		Confidence:  uncertainty.CalibratedConfidence,
+		Domain:      domain,
+		Source:      "hypothesis_testing",
+		Evidence:    []string{hypothesisID},
+		CreatedAt:   time.Now(),
 		LastUpdated: time.Now(),
 		Uncertainty: uncertainty,
 		Properties: map[string]interface{}{
@@ -4557,7 +4560,7 @@ func (e *FSMEngine) generateFollowUpHypotheses(originalHypothesis map[string]int
 				}
 			}
 		}
-		
+
 		// Create more specific, actionable follow-up hypotheses
 		followUpDescriptions = []string{
 			fmt.Sprintf("Design a specific test to validate: %s", coreHyp),
@@ -4573,7 +4576,7 @@ func (e *FSMEngine) generateFollowUpHypotheses(originalHypothesis map[string]int
 		epistemicUncertainty := EstimateEpistemicUncertainty(1, false, false)
 		aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "")
 		uncertainty := NewUncertaintyModel(0.6, epistemicUncertainty, aleatoricUncertainty)
-		
+
 		followUpHypothesis := Hypothesis{
 			ID:          fmt.Sprintf("followup_%s_%d_%d", resultType, time.Now().UnixNano(), i),
 			Description: followUpDesc,
@@ -4611,19 +4614,19 @@ func (e *FSMEngine) generateFollowUpHypotheses(originalHypothesis map[string]int
 // handleGoalCompletion handles goal completion events and triggers explanation learning feedback
 func (e *FSMEngine) handleGoalCompletion(msg *nats.Msg) {
 	log.Printf("🧠 [EXPLANATION-LEARNING] Received goal completion event: %s", string(msg.Data))
-	
+
 	// Parse goal data from event
 	var goalData map[string]interface{}
 	if err := json.Unmarshal(msg.Data, &goalData); err != nil {
 		log.Printf("⚠️ [EXPLANATION-LEARNING] Failed to parse goal data: %v", err)
 		return
 	}
-	
+
 	// Extract goal information
 	goalID, _ := goalData["id"].(string)
 	goalDescription, _ := goalData["description"].(string)
 	status, _ := goalData["status"].(string)
-	
+
 	// Determine domain from context or use default
 	domain := "General"
 	if context, ok := goalData["context"].(map[string]interface{}); ok {
@@ -4631,7 +4634,7 @@ func (e *FSMEngine) handleGoalCompletion(msg *nats.Msg) {
 			domain = domainVal
 		}
 	}
-	
+
 	// Extract outcome metrics
 	outcomeMetrics := make(map[string]interface{})
 	if metrics, ok := goalData["metrics"].(map[string]interface{}); ok {
@@ -4642,7 +4645,7 @@ func (e *FSMEngine) handleGoalCompletion(msg *nats.Msg) {
 	if confidence, ok := goalData["confidence"].(float64); ok {
 		outcomeMetrics["confidence"] = confidence
 	}
-	
+
 	// Trigger explanation learning feedback evaluation
 	if e.explanationLearning != nil {
 		go func() {
@@ -4653,7 +4656,7 @@ func (e *FSMEngine) handleGoalCompletion(msg *nats.Msg) {
 					log.Printf("❌ [EXPLANATION-LEARNING] Panic in evaluation goroutine: %v", r)
 				}
 			}()
-			
+
 			if err := e.explanationLearning.EvaluateGoalCompletion(
 				goalID,
 				goalDescription,

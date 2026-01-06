@@ -303,10 +303,10 @@ func (all *ActiveLearningLoop) generateAcquisitionSteps(concept HighUncertaintyC
 		steps = append(steps, AcquisitionStep{
 			StepNumber:                   2,
 			Action:                       "fetch_external_data",
-			Description:                  fmt.Sprintf("Fetch Wikipedia or external sources about '%s'", concept.ConceptName),
+			Description:                  fmt.Sprintf("Scrape Wikipedia or external sources about '%s'", concept.ConceptName),
 			Target:                       concept.ConceptName,
 			ExpectedUncertaintyReduction: concept.EpistemicUncertainty * 0.3, // 30% reduction from external data
-			Tool:                         "tool_http_get",
+			Tool:                         "tool_html_scraper",
 		})
 	}
 
@@ -456,7 +456,7 @@ func (all *ActiveLearningLoop) getBeliefsWithUncertainty(domain string) ([]Belie
 func (all *ActiveLearningLoop) getHypothesesWithUncertainty(domain string) ([]Hypothesis, error) {
 	// Query Redis for hypotheses (stored as HASH, not LIST)
 	key := "fsm:agent_1:hypotheses"
-	
+
 	// Try HGETALL first (for HASH)
 	hypothesesMap, err := all.redis.HGetAll(all.ctx, key)
 	if err == nil && len(hypothesesMap) > 0 {
@@ -471,7 +471,7 @@ func (all *ActiveLearningLoop) getHypothesesWithUncertainty(domain string) ([]Hy
 		}
 		return hypotheses, nil
 	}
-	
+
 	// Fallback to LRANGE (for LIST) if HGETALL fails
 	hypothesesData, err := all.redis.LRange(all.ctx, key, 0, 100)
 	if err != nil {
