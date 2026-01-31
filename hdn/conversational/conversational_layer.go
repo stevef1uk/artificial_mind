@@ -466,21 +466,49 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			return ""
 		}
 
+		// Helper function to filter skip words from extracted text
+		filterSkipWords := func(text string) string {
+			words := strings.Fields(strings.ToLower(text))
+			skipWords := map[string]bool{
+				"the": true, "a": true, "an": true, "and": true, "or": true, "but": true,
+				"in": true, "on": true, "at": true, "to": true, "for": true, "of": true,
+				"with": true, "by": true, "is": true, "are": true, "was": true, "were": true,
+				"who": true, "what": true, "where": true, "when": true, "why": true, "how": true,
+				"tell": true, "me": true, "about": true, "search": true, "find": true,
+				"news": true, "latest": true, "current": true, "recent": true,
+			}
+			filtered := make([]string, 0)
+			for _, word := range words {
+				word = strings.Trim(word, ".,!?;:()[]{}'\"")
+				if !skipWords[word] && len(word) > 2 {
+					filtered = append(filtered, word)
+				}
+			}
+			if len(filtered) > 0 {
+				return strings.Join(filtered, " ")
+			}
+			return text // Return original if all words filtered
+		}
+
 		// Try different patterns in order of specificity
 		coreQuery = extractPattern("who is ")
 		if coreQuery != "" {
+			coreQuery = filterSkipWords(coreQuery)
 			log.Printf("✅ [CONVERSATIONAL] Extracted concept name from 'Who is' pattern: '%s'", coreQuery)
 		} else {
 			coreQuery = extractPattern("who are ")
 			if coreQuery != "" {
+				coreQuery = filterSkipWords(coreQuery)
 				log.Printf("✅ [CONVERSATIONAL] Extracted concept name from 'Who are' pattern: '%s'", coreQuery)
 			} else {
 				coreQuery = extractPattern("what is ")
 				if coreQuery != "" {
+					coreQuery = filterSkipWords(coreQuery)
 					log.Printf("✅ [CONVERSATIONAL] Extracted concept name from 'What is' pattern: '%s'", coreQuery)
 				} else {
 					coreQuery = extractPattern("what are ")
 					if coreQuery != "" {
+						coreQuery = filterSkipWords(coreQuery)
 						log.Printf("✅ [CONVERSATIONAL] Extracted concept name from 'What are' pattern: '%s'", coreQuery)
 					}
 				}
