@@ -59,7 +59,8 @@ required_files=(
     "Dockerfile.fsm.secure"
     "Dockerfile.monitor-ui.secure"
     "Dockerfile.goal-manager.secure"
-    "Dockerfile.wiki-summarizer.secure"
+    "Dockerfile.wiki-summarizer.secure",
+    "Dockerfile.telegram-bot.secure"
 )
 
 for file in "${required_files[@]}"; do
@@ -143,6 +144,7 @@ build_and_push "Dockerfile.goal-manager.secure" "goal-manager" "Goal Manager"
 build_and_push "Dockerfile.wiki-bootstrapper.secure" "knowledge-builder" "Knowledge Builder"
 build_and_push "Dockerfile.wiki-summarizer.secure" "wiki-summarizer" "Wiki Summarizer"
 build_and_push "Dockerfile.news-ingestor.secure" "data-processor" "Data Processor"
+build_and_push "Dockerfile.telegram-bot.secure" "telegram-agi-bot" "Telegram AGI Bot"
 
 
 print_success "All Docker images have been built and pushed successfully!"
@@ -157,5 +159,6 @@ echo "  - $DOCKER_USERNAME/goal-manager:secure"
 echo "  - $DOCKER_USERNAME/knowledge-builder:secure"
 echo "  - $DOCKER_USERNAME/wiki-summarizer:secure"
 echo "  - $DOCKER_USERNAME/data-processor:secure"
+echo "  - $DOCKER_USERNAME/telegram-agi-bot:secure"
 
 print_status "You can now deploy these images to your Kubernetes cluster."

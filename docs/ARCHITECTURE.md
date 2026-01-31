@@ -13,6 +13,7 @@ graph TB
     API[🌐 HDN API Server<br/>Port 8081]
     Principles[🔒 Principles Server<br/>Port 8080]
     Monitor[📊 Monitor UI<br/>Port 8082]
+    TeleBot[🤖 Telegram Bot]
     
     %% HDN Core Components
     IE[🧠 Intelligent Executor]
@@ -60,6 +61,7 @@ graph TB
     User --> API
     User --> Principles
     User --> Monitor
+    User --> TeleBot
     
     %% Main Data Flow
     User --> |1. Request Task| API
@@ -78,6 +80,7 @@ graph TB
     API --> DA
     API --> TR
     API --> PI
+    TeleBot --> API
     
     %% Event Bus Producers
     API --> |Publish Canonical Events| NATS
@@ -154,6 +157,7 @@ graph TB
 ### Recent Capabilities (Implemented)
 
 - **Thinking Mode & Conversational Layer**: Full chat interface with real-time thought streaming, session history, and Chain-of-Thought views in the Monitor UI (proxied via HDN `/api/v1/chat*` APIs).
+- **Telegram Bot Interface**: Secure, whitelist-based chat interface allowing users to interact with the AGI, execute tools, and view reasoning traces directly from Telegram.
 - **Activity Log & FSM Monitoring**: Human-readable activity log, reasoning traces, hypotheses, curiosity goals, and episodes exposed via FSM HTTP endpoints and surfaced in the Monitor UI.
 - **Learning Focus & Meta-Learning**: Outcome-based goal learning, enhanced goal scoring, focused learning strategy, meta-learning about the learning process, and improved semantic concept discovery (see sections below).
 - **Multi-Modal Memory System**: Unified working memory (Redis), episodic memory (Qdrant), and semantic/domain knowledge (Neo4j) integrated into HDN, FSM, and Planner flows.

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -14,7 +16,8 @@ import (
 type MCPClient struct {
 	config     DomainConfig
 	httpClient *http.Client
-	endpoint   string
+	endpoints  []string
+	toolRouter map[string]string // tool name -> endpoint
 }
 
 type MCPRequest struct {
@@ -52,9 +55,35 @@ type MCPToolCall struct {
 }
 
 func NewMCPClient(config DomainConfig) *MCPClient {
-	endpoint := config.MCPEndpoint
-	if endpoint == "" {
-		endpoint = "http://localhost:3000/mcp" // Default MCP endpoint
+	// Start with config endpoint
+	endpoints := []string{}
+	if config.MCPEndpoint != "" {
+		endpoints = append(endpoints, config.MCPEndpoint)
+	} else {
+		// Default
+		endpoints = append(endpoints, "http://localhost:3000/mcp")
+	}
+
+	// Add env endpoints
+	envEndpointsStr := os.Getenv("MCP_ENDPOINTS")
+	if envEndpointsStr != "" {
+		parts := strings.Split(envEndpointsStr, ",")
+		for _, p := range parts {
+			trimmed := strings.TrimSpace(p)
+			if trimmed != "" {
+				// Check for duplicates
+				isDup := false
+				for _, exist := range endpoints {
+					if exist == trimmed {
+						isDup = true
+						break
+					}
+				}
+				if !isDup {
+					endpoints = append(endpoints, trimmed)
+				}
+			}
+		}
 	}
 
 	return &MCPClient{
@@ -62,7 +91,8 @@ func NewMCPClient(config DomainConfig) *MCPClient {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		endpoint: endpoint,
+		endpoints:  endpoints,
+		toolRouter: make(map[string]string),
 	}
 }
 
@@ -138,7 +168,7 @@ func (c *MCPClient) createMethodFromTools(taskName string, tools []MCPTool, cont
 	}
 }
 
-func (c *MCPClient) sendRequest(request MCPRequest) (*MCPResponse, error) {
+func (c *MCPClient) sendRequest(endpoint string, request MCPRequest) (*MCPResponse, error) {
 	// Marshal request
 	jsonData, err := json.Marshal(request)
 	if err != nil {
@@ -146,7 +176,7 @@ func (c *MCPClient) sendRequest(request MCPRequest) (*MCPResponse, error) {
 	}
 
 	// Create HTTP request
-	req, err := http.NewRequest("POST", c.endpoint, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +199,7 @@ func (c *MCPClient) sendRequest(request MCPRequest) (*MCPResponse, error) {
 
 	// Check for HTTP errors
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("MCP API error: %s", string(body))
+		return nil, fmt.Errorf("MCP API error from %s: %s", endpoint, string(body))
 	}
 
 	// Parse response
@@ -194,14 +224,14 @@ func NewMockMCPClient() *MCPClient {
 			MCPEndpoint: "mock://localhost:3000/mcp",
 		},
 		httpClient: &http.Client{Timeout: 1 * time.Second},
-		endpoint:   "mock://localhost:3000/mcp",
+		endpoints:  []string{"mock://localhost:3000/mcp"},
 	}
 	return client
 }
 
 func (c *MCPClient) listTools() ([]MCPTool, error) {
 	// Mock tools for testing
-	if c.endpoint == "mock://localhost:3000/mcp" {
+	if len(c.endpoints) > 0 && c.endpoints[0] == "mock://localhost:3000/mcp" {
 		return c.getMockTools(), nil
 	}
 
@@ -210,33 +240,47 @@ func (c *MCPClient) listTools() ([]MCPTool, error) {
 }
 
 func (c *MCPClient) listToolsReal() ([]MCPTool, error) {
-	request := MCPRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "tools/list",
+	var allTools []MCPTool
+	c.toolRouter = make(map[string]string)
+
+	for _, endpoint := range c.endpoints {
+		request := MCPRequest{
+			JSONRPC: "2.0",
+			ID:      1,
+			Method:  "tools/list",
+		}
+
+		response, err := c.sendRequest(endpoint, request)
+		if err != nil {
+			// Log error but continue with other endpoints
+			fmt.Printf("Warning: Failed to list tools from %s: %v\n", endpoint, err)
+			continue
+		}
+
+		if response.Error != nil {
+			fmt.Printf("Warning: MCP list tools error from %s: %s\n", endpoint, response.Error.Message)
+			continue
+		}
+
+		// Parse the result
+		resultBytes, err := json.Marshal(response.Result)
+		if err != nil {
+			continue
+		}
+
+		var toolList MCPToolList
+		if err := json.Unmarshal(resultBytes, &toolList); err != nil {
+			continue
+		}
+
+		// Register tools
+		for _, tool := range toolList.Tools {
+			c.toolRouter[tool.Name] = endpoint
+			allTools = append(allTools, tool)
+		}
 	}
 
-	response, err := c.sendRequest(request)
-	if err != nil {
-		return nil, err
-	}
-
-	if response.Error != nil {
-		return nil, fmt.Errorf("MCP list tools error: %s", response.Error.Message)
-	}
-
-	// Parse the result
-	resultBytes, err := json.Marshal(response.Result)
-	if err != nil {
-		return nil, err
-	}
-
-	var toolList MCPToolList
-	if err := json.Unmarshal(resultBytes, &toolList); err != nil {
-		return nil, err
-	}
-
-	return toolList.Tools, nil
+	return allTools, nil
 }
 
 func (c *MCPClient) getMockTools() []MCPTool {
@@ -306,7 +350,7 @@ func (c *MCPClient) getMockTools() []MCPTool {
 
 func (c *MCPClient) ExecuteTool(toolName string, arguments map[string]interface{}) (interface{}, error) {
 	// Mock tool execution for testing
-	if c.endpoint == "mock://localhost:3000/mcp" {
+	if len(c.endpoints) > 0 && c.endpoints[0] == "mock://localhost:3000/mcp" {
 		return c.mockToolExecution(toolName, arguments)
 	}
 
@@ -315,6 +359,23 @@ func (c *MCPClient) ExecuteTool(toolName string, arguments map[string]interface{
 }
 
 func (c *MCPClient) executeToolReal(toolName string, arguments map[string]interface{}) (interface{}, error) {
+	// Find the endpoint for this tool
+	endpoint, ok := c.toolRouter[toolName]
+
+	// If not found in router, try to refresh tools just in case
+	if !ok {
+		// Attempt refresh
+		_, err := c.listToolsReal()
+		if err == nil {
+			endpoint, ok = c.toolRouter[toolName]
+		}
+	}
+
+	if !ok {
+		// Provide a helpful error message listing available tools
+		return nil, fmt.Errorf("unknown tool: %s (tool not found in any connected MCP server)", toolName)
+	}
+
 	request := MCPRequest{
 		JSONRPC: "2.0",
 		ID:      1,
@@ -325,7 +386,7 @@ func (c *MCPClient) executeToolReal(toolName string, arguments map[string]interf
 		},
 	}
 
-	response, err := c.sendRequest(request)
+	response, err := c.sendRequest(endpoint, request)
 	if err != nil {
 		return nil, err
 	}

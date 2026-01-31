@@ -7,6 +7,8 @@ import (
 	"log"
 	"time"
 
+	"sync"
+
 	"github.com/redis/go-redis/v9"
 )
 
@@ -14,6 +16,7 @@ import (
 type ReasoningTrace struct {
 	redis  *redis.Client
 	traces map[string]*ReasoningTraceData
+	mu     sync.RWMutex
 }
 
 // ReasoningTraceData contains the complete reasoning trace
@@ -75,19 +78,15 @@ func (rt *ReasoningTrace) StartTrace(sessionID string) {
 		Metadata:       make(map[string]interface{}),
 	}
 
+	rt.mu.Lock()
 	rt.traces[sessionID] = trace
+	rt.mu.Unlock()
 	log.Printf("🧠 [REASONING-TRACE] Started trace for session: %s", sessionID)
 }
 
 // AddStep adds a reasoning step to the trace
 func (rt *ReasoningTrace) AddStep(step string, description string, input map[string]interface{}) {
-	// Find the most recent trace (assuming we're working with the latest session)
-	var latestTrace *ReasoningTraceData
-	for _, trace := range rt.traces {
-		if latestTrace == nil || trace.StartTime.After(latestTrace.StartTime) {
-			latestTrace = trace
-		}
-	}
+	latestTrace := rt.getLatestTrace()
 
 	if latestTrace == nil {
 		log.Printf("⚠️ [REASONING-TRACE] No active trace found for step: %s", step)
@@ -116,12 +115,7 @@ func (rt *ReasoningTrace) AddStep(step string, description string, input map[str
 // AddDecision adds a decision point to the trace
 func (rt *ReasoningTrace) AddDecision(description string, options []string, chosen string, reasoning string, confidence float64) {
 	// Find the most recent trace
-	var latestTrace *ReasoningTraceData
-	for _, trace := range rt.traces {
-		if latestTrace == nil || trace.StartTime.After(latestTrace.StartTime) {
-			latestTrace = trace
-		}
-	}
+	latestTrace := rt.getLatestTrace()
 
 	if latestTrace == nil {
 		log.Printf("⚠️ [REASONING-TRACE] No active trace found for decision: %s", description)
@@ -146,12 +140,7 @@ func (rt *ReasoningTrace) AddDecision(description string, options []string, chos
 // AddAction adds an action to the trace
 func (rt *ReasoningTrace) AddAction(action string) {
 	// Find the most recent trace
-	var latestTrace *ReasoningTraceData
-	for _, trace := range rt.traces {
-		if latestTrace == nil || trace.StartTime.After(latestTrace.StartTime) {
-			latestTrace = trace
-		}
-	}
+	latestTrace := rt.getLatestTrace()
 
 	if latestTrace == nil {
 		log.Printf("⚠️ [REASONING-TRACE] No active trace found for action: %s", action)
@@ -165,12 +154,7 @@ func (rt *ReasoningTrace) AddAction(action string) {
 // AddKnowledgeUsed adds knowledge source to the trace
 func (rt *ReasoningTrace) AddKnowledgeUsed(source string) {
 	// Find the most recent trace
-	var latestTrace *ReasoningTraceData
-	for _, trace := range rt.traces {
-		if latestTrace == nil || trace.StartTime.After(latestTrace.StartTime) {
-			latestTrace = trace
-		}
-	}
+	latestTrace := rt.getLatestTrace()
 
 	if latestTrace == nil {
 		log.Printf("⚠️ [REASONING-TRACE] No active trace found for knowledge: %s", source)
@@ -184,12 +168,7 @@ func (rt *ReasoningTrace) AddKnowledgeUsed(source string) {
 // AddToolInvoked adds a tool invocation to the trace
 func (rt *ReasoningTrace) AddToolInvoked(tool string) {
 	// Find the most recent trace
-	var latestTrace *ReasoningTraceData
-	for _, trace := range rt.traces {
-		if latestTrace == nil || trace.StartTime.After(latestTrace.StartTime) {
-			latestTrace = trace
-		}
-	}
+	latestTrace := rt.getLatestTrace()
 
 	if latestTrace == nil {
 		log.Printf("⚠️ [REASONING-TRACE] No active trace found for tool: %s", tool)
@@ -203,12 +182,7 @@ func (rt *ReasoningTrace) AddToolInvoked(tool string) {
 // SetGoal sets the current goal for the trace
 func (rt *ReasoningTrace) SetGoal(goal string) {
 	// Find the most recent trace
-	var latestTrace *ReasoningTraceData
-	for _, trace := range rt.traces {
-		if latestTrace == nil || trace.StartTime.After(latestTrace.StartTime) {
-			latestTrace = trace
-		}
-	}
+	latestTrace := rt.getLatestTrace()
 
 	if latestTrace == nil {
 		log.Printf("⚠️ [REASONING-TRACE] No active trace found for goal: %s", goal)
@@ -222,12 +196,7 @@ func (rt *ReasoningTrace) SetGoal(goal string) {
 // SetFSMState sets the current FSM state for the trace
 func (rt *ReasoningTrace) SetFSMState(state string) {
 	// Find the most recent trace
-	var latestTrace *ReasoningTraceData
-	for _, trace := range rt.traces {
-		if latestTrace == nil || trace.StartTime.After(latestTrace.StartTime) {
-			latestTrace = trace
-		}
-	}
+	latestTrace := rt.getLatestTrace()
 
 	if latestTrace == nil {
 		log.Printf("⚠️ [REASONING-TRACE] No active trace found for FSM state: %s", state)
@@ -241,12 +210,7 @@ func (rt *ReasoningTrace) SetFSMState(state string) {
 // SetConfidence sets the overall confidence for the trace
 func (rt *ReasoningTrace) SetConfidence(confidence float64) {
 	// Find the most recent trace
-	var latestTrace *ReasoningTraceData
-	for _, trace := range rt.traces {
-		if latestTrace == nil || trace.StartTime.After(latestTrace.StartTime) {
-			latestTrace = trace
-		}
-	}
+	latestTrace := rt.getLatestTrace()
 
 	if latestTrace == nil {
 		log.Printf("⚠️ [REASONING-TRACE] No active trace found for confidence: %.2f", confidence)
@@ -259,7 +223,9 @@ func (rt *ReasoningTrace) SetConfidence(confidence float64) {
 
 // CompleteTrace completes the reasoning trace and returns it
 func (rt *ReasoningTrace) CompleteTrace(sessionID string) *ReasoningTraceData {
+	rt.mu.RLock()
 	trace, exists := rt.traces[sessionID]
+	rt.mu.RUnlock()
 	if !exists {
 		log.Printf("⚠️ [REASONING-TRACE] No trace found for session: %s", sessionID)
 		return nil
@@ -276,7 +242,9 @@ func (rt *ReasoningTrace) CompleteTrace(sessionID string) *ReasoningTraceData {
 	rt.saveTraceToRedis(sessionID, trace)
 
 	// Remove from memory
+	rt.mu.Lock()
 	delete(rt.traces, sessionID)
+	rt.mu.Unlock()
 
 	log.Printf("🧠 [REASONING-TRACE] Completed trace for session: %s (duration: %v)", sessionID, trace.EndTime.Sub(trace.StartTime))
 
@@ -285,7 +253,9 @@ func (rt *ReasoningTrace) CompleteTrace(sessionID string) *ReasoningTraceData {
 
 // GetTrace returns the current trace for a session
 func (rt *ReasoningTrace) GetTrace(sessionID string) *ReasoningTraceData {
+	rt.mu.RLock()
 	trace, exists := rt.traces[sessionID]
+	rt.mu.RUnlock()
 	if !exists {
 		// Try to load from Redis
 		return rt.loadTraceFromRedis(sessionID)
@@ -411,4 +381,17 @@ func (rt *ReasoningTrace) ClearOldTraces(olderThan time.Duration) error {
 
 	log.Printf("🧠 [REASONING-TRACE] Cleared %d old traces", deleted)
 	return nil
+}
+
+// getLatestTrace returns the most recently started trace
+func (rt *ReasoningTrace) getLatestTrace() *ReasoningTraceData {
+	var latestTrace *ReasoningTraceData
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+	for _, trace := range rt.traces {
+		if latestTrace == nil || trace.StartTime.After(latestTrace.StartTime) {
+			latestTrace = trace
+		}
+	}
+	return latestTrace
 }

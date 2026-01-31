@@ -67,6 +67,7 @@ func extractBasic(htmlStr string) []Item {
 	root := findContentRoot(doc)
 
 	var items []Item
+	lastText := "" // Track last text to avoid duplicates
 
 	// State for section-based pruning
 	skipRemaining := false
@@ -100,14 +101,33 @@ func extractBasic(htmlStr string) []Item {
 			// Extract useful content tags
 			if n.Data == "title" || n.Data == "h1" || n.Data == "h2" || n.Data == "h3" || n.Data == "p" || n.Data == "li" || n.Data == "blockquote" {
 				text := strings.TrimSpace(textContent(n))
-				// Only add if there is actual text
-				if text != "" {
-					attrs := map[string]string{}
-					for _, a := range n.Attr {
-						attrs[a.Key] = a.Val
+
+				// Skip if:
+				// 1. Empty text
+				// 2. Too short (likely navigation/menu items)
+				// 3. Duplicate of previous item (case-insensitive)
+				if text == "" || len(text) < 10 {
+					// Skip for child processing but don't add
+					for c := n.FirstChild; c != nil; c = c.NextSibling {
+						f(c)
 					}
-					items = append(items, Item{Tag: n.Data, Text: text, Attributes: attrs})
+					return
 				}
+
+				// Check for duplicate (case-insensitive)
+				textLower := strings.ToLower(text)
+				if textLower == strings.ToLower(lastText) {
+					return // Skip duplicate
+				}
+
+				// Only add if there is actual text
+				attrs := map[string]string{}
+				for _, a := range n.Attr {
+					attrs[a.Key] = a.Val
+				}
+				items = append(items, Item{Tag: n.Data, Text: text, Attributes: attrs})
+				lastText = text
+				return // Don't process children of content nodes
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {

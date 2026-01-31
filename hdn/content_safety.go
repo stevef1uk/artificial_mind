@@ -51,7 +51,7 @@ func (cs *ContentSafetyManager) initializeSafetyRules() {
 	allowedDomains := []string{
 		"wikipedia.org", "www.wikipedia.org", "en.wikipedia.org", "github.com", "stackoverflow.com", "developer.mozilla.org",
 		"docs.python.org", "golang.org", "nodejs.org", "reactjs.org",
-		"news.bbc.co.uk", "reuters.com", "ap.org", "npr.org",
+		"news.bbc.co.uk", "bbc.co.uk", "www.bbc.co.uk", "reuters.com", "ap.org", "npr.org",
 		"mit.edu", "stanford.edu", "harvard.edu", "berkeley.edu",
 		"w3.org", "ietf.org", "rfc-editor.org", "tools.ietf.org",
 		"httpbin.org", "jsonplaceholder.typicode.com",
@@ -143,7 +143,15 @@ func (cs *ContentSafetyManager) CheckContentSafety(content string) (bool, string
 
 // CheckAdultContentOnly validates content for adult material only (no malicious pattern check)
 // Used for trusted sources like Wikipedia where technical terms may legitimately contain "hack", "virus", etc.
-func (cs *ContentSafetyManager) CheckAdultContentOnly(content string) (bool, string, error) {
+func (cs *ContentSafetyManager) CheckAdultContentOnly(content string, urlStr string) (bool, string, error) {
+	// Skip adult content check for trusted news domains
+	trustedNewsDomains := []string{"bbc.co.uk", "reuters.com", "ap.org", "npr.org", "wikipedia.org"}
+	for _, domain := range trustedNewsDomains {
+		if strings.Contains(urlStr, domain) {
+			return true, "", nil // Skip check for trusted news sites
+		}
+	}
+
 	// Check for adult content only
 	if cs.containsAdultContent(content) {
 		return false, "content contains adult material", nil
@@ -269,10 +277,10 @@ func (shc *SafeHTTPClient) SafeGetWithContentCheck(ctx context.Context, urlStr s
 	content := string(body)
 
 	// Check content safety
-	// For Wikipedia (trusted source), only check for adult content, skip malicious patterns
-	// as Wikipedia articles legitimately contain security/technical terms
-	if strings.Contains(urlStr, "wikipedia.org") {
-		safe, reason, err := shc.safetyManager.CheckAdultContentOnly(content)
+	// For Wikipedia and BBC (trusted sources), only check for adult content, skip malicious patterns
+	// as these sites legitimately contain security/technical terms in their articles
+	if strings.Contains(urlStr, "wikipedia.org") || strings.Contains(urlStr, "bbc.co.uk") {
+		safe, reason, err := shc.safetyManager.CheckAdultContentOnly(content, urlStr)
 		if err != nil {
 			return "", fmt.Errorf("content safety check failed: %v", err)
 		}

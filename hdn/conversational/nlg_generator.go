@@ -54,9 +54,10 @@ func NewNLGGenerator(llmClient LLMClientInterface) *NLGGenerator {
 
 // GenerateResponse generates a natural language response
 func (nlg *NLGGenerator) GenerateResponse(ctx context.Context, req *NLGRequest) (*NLGResponse, error) {
-	log.Printf("🗣️ [NLG] Generating response for intent: %s", req.Intent.Type)
-
-	// Choose the appropriate generation strategy based on the action type
+	log.Printf("🗣️ [NLG] Generating response for intent: %s (action: %s)", req.Intent.Type, req.Action.Type)
+	if req.Result != nil {
+		log.Printf("🗣️ [NLG] Result available: type=%s, success=%v, data_keys=%d", req.Result.Type, req.Result.Success, len(req.Result.Data))
+	}
 	switch req.Action.Type {
 	case "knowledge_query":
 		return nlg.generateKnowledgeResponse(ctx, req)
@@ -78,6 +79,7 @@ func (nlg *NLGGenerator) GenerateResponse(ctx context.Context, req *NLGRequest) 
 // generateKnowledgeResponse generates a response for knowledge queries
 func (nlg *NLGGenerator) generateKnowledgeResponse(ctx context.Context, req *NLGRequest) (*NLGResponse, error) {
 	prompt := nlg.buildKnowledgePrompt(req)
+	log.Printf("🗣️ [NLG] Knowledge prompt length: %d", len(prompt))
 
 	response, err := nlg.llmClient.GenerateResponse(ctx, prompt, 500)
 	if err != nil {
@@ -217,7 +219,9 @@ User Question: "%s"
 Intent: %s
 Goal: %s
 
-Please provide a clear, informative answer based on the available information.`
+Please provide a clear, informative answer. 
+
+IMPORTANT: If the 'Retrieved Information' below is empty or says 'No results', please use your own internal knowledge to answer as best as you can, but add a brief note that no specific real-time updates were found in the knowledge base.`
 
 	// Add reasoning trace if available and requested
 	if req.ShowThinking && req.ReasoningTrace != nil {
@@ -419,11 +423,60 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 		return "No data available"
 	}
 
-	// Try to extract meaningful information
+	var sb strings.Builder
+
+	// Helper to extract content from an InterpretResult or similar
+	extractContent := func(val interface{}) string {
+		if val == nil {
+			return ""
+		}
+		if ir, ok := val.(*InterpretResult); ok {
+			return fmt.Sprintf("%v", ir.Interpreted)
+		}
+		if ir, ok := val.(InterpretResult); ok {
+			return fmt.Sprintf("%v", ir.Interpreted)
+		}
+		return fmt.Sprintf("%v", val)
+	}
+
+	// Check for combined results first
+	if source, ok := data["source"].(string); ok && source == "neo4j_and_rag" {
+		if neo4j, ok := data["neo4j_result"]; ok {
+			content := extractContent(neo4j)
+			if content != "" {
+				sb.WriteString("### Knowledge Graph (Neo4j):\n")
+				sb.WriteString(content)
+				sb.WriteString("\n\n")
+			}
+		}
+		if episodic, ok := data["episodic_memory"]; ok {
+			content := extractContent(episodic)
+			if content != "" {
+				sb.WriteString("### Episodic Memory (Weaviate):\n")
+				sb.WriteString(content)
+				sb.WriteString("\n\n")
+			}
+		}
+		if news, ok := data["news_articles"]; ok {
+			content := extractContent(news)
+			if content != "" {
+				sb.WriteString("### News Articles (Weaviate):\n")
+				sb.WriteString(content)
+				sb.WriteString("\n\n")
+			}
+		}
+		if sb.Len() > 0 {
+			return sb.String()
+		}
+	}
+
+	// Handle standard "result" key
 	if result, ok := data["result"]; ok {
-		return fmt.Sprintf("%v", result)
+		return extractContent(result)
 	}
 
 	// Fallback to formatting the entire data structure
-	return fmt.Sprintf("%v", data)
+	fallback := fmt.Sprintf("%v", data)
+	log.Printf("🗣️ [NLG] Result data formatted (length: %d)", len(fallback))
+	return fallback
 }

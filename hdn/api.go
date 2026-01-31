@@ -6006,8 +6006,9 @@ func getMaxConcurrentExecutions() int {
 
 // isUIRequest checks if the request is from the UI based on headers or context
 func isUIRequest(r *http.Request) bool {
-	// Check for UI-specific header
-	if r.Header.Get("X-Request-Source") == "ui" {
+	// Check for UI-specific header or Telegram bot header
+	source := r.Header.Get("X-Request-Source")
+	if source == "ui" || source == "telegram" {
 		return true
 	}
 	// Check for UI context in query params (for backward compatibility)

@@ -79,6 +79,25 @@ kill_port() {
     fi
 }
 
+# Function to kill processes by name pattern
+kill_by_name() {
+    local pattern=$1
+    local service_name=$2
+    local pids=$(pgrep -f "$pattern" 2>/dev/null || true)
+    if [ -n "$pids" ]; then
+        echo "🔄 Stopping $service_name processes (pattern: $pattern)..."
+        echo "$pids" | xargs kill -TERM 2>/dev/null || true
+        sleep 2
+        # Force kill if still running
+        for pid in $pids; do
+            if ps -p "$pid" > /dev/null 2>&1; then
+                kill -9 "$pid" 2>/dev/null || true
+            fi
+        done
+        echo "✅ $service_name processes stopped"
+    fi
+}
+
 # Function to wait for a service to be ready
 wait_for_service() {
     local url=$1
@@ -108,6 +127,7 @@ kill_port 8081 "HDN Server"
 kill_port 8082 "Monitor UI"
 kill_port 8083 "FSM Server"
 kill_port 8090 "Goal Manager"
+kill_by_name "telegram-bot" "Telegram Bot"
 # Infra ports (potentially managed by Docker Desktop) — only clean up if not skipping infra
 if [ "$SKIP_INFRA" != "true" ]; then
     kill_port 8080 "Weaviate"
@@ -471,6 +491,24 @@ GOAL_PID=$(run_service "goal_manager" \
 # (Optional) Wait a moment for Goal Manager to warm up
 sleep 1
 
+# Start Telegram Bot if token is available
+if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+    echo "🔨 Building Telegram Bot..."
+    cd "$AGI_PROJECT_ROOT"
+    make build-telegram-bot >/dev/null 2>&1 || { echo "❌ Failed to build Telegram Bot"; TELEGRAM_BOT_PID=""; }
+    
+    if [ -f "$AGI_PROJECT_ROOT/bin/telegram-bot" ]; then
+        export MCP_SERVER_URL="http://localhost:8081/mcp"
+        export CHAT_SERVER_URL="http://localhost:8081/api/v1/chat"
+        TELEGRAM_BOT_PID=$(run_service "telegram_bot" \
+            "$AGI_PROJECT_ROOT/telegram-bot" \
+            "$AGI_PROJECT_ROOT/bin/telegram-bot") || {
+            echo "⚠️  Telegram Bot failed to start, but continuing"; TELEGRAM_BOT_PID=""; }
+    fi
+else
+    echo "⏭️  TELEGRAM_BOT_TOKEN not set, skipping Telegram Bot startup"
+fi
+
 
 # Save PIDs for cleanup
 echo "$PRINCIPLES_PID" > /tmp/principles_server.pid
@@ -483,6 +521,9 @@ if [ ! -z "$FSM_PID" ]; then
 fi
 if [ ! -z "$GOAL_PID" ]; then
     echo "$GOAL_PID" > /tmp/goal_manager.pid
+fi
+if [ ! -z "$TELEGRAM_BOT_PID" ]; then
+    echo "$TELEGRAM_BOT_PID" > /tmp/telegram_bot.pid
 fi
 
 echo ""
@@ -506,6 +547,9 @@ fi
 if [ ! -z "$GOAL_PID" ]; then
     echo "  🧭 Goal Manager: NATS=nats://localhost:4222, Redis=redis://localhost:6379"
 fi
+if [ ! -z "$TELEGRAM_BOT_PID" ]; then
+    echo "  🤖 Telegram Bot: Connected to HDN @ $CHAT_SERVER_URL"
+fi
 echo ""
 echo "📊 Service Status:"
 echo "  Neo4j: $(curl -s -o /dev/null -w "%{http_code}" http://localhost:7474)"
@@ -527,6 +571,9 @@ if [ ! -z "$MONITOR_PID" ]; then
 fi
 if [ ! -z "$FSM_PID" ]; then
     echo "📄 FSM logs: tail -f /tmp/fsm_server.log"
+fi
+if [ ! -z "$TELEGRAM_BOT_PID" ]; then
+    echo "📄 Telegram Bot logs: tail -f /tmp/telegram_bot.log"
 fi
 echo ""
 echo "✅ Ready to run demos!"

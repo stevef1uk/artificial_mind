@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telegram-bot
+  namespace: agi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: telegram-bot
+  template:
+    metadata:
+      labels:
+        app: telegram-bot
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: rpi58
+      containers:
+      - name: telegram-bot
+        image: stevef1uk/telegram-agi-bot:secure
+        envFrom:
+        - secretRef:
+            name: telegram-bot-secret
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"

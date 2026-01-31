@@ -125,6 +125,7 @@ stop_service "/tmp/hdn_server.pid" "HDN Server" "8081" "hdn-server"
 stop_service "/tmp/principles_server.pid" "Principles Server" "8084" "principles-server"
 stop_service "/tmp/fsm_server.pid" "FSM Server" "8083" "fsm-server"
 stop_service "/tmp/goal_manager.pid" "Goal Manager" "" "goal-manager"
+stop_service "/tmp/telegram_bot.pid" "Telegram Bot" "" "telegram-bot"
 
 # Stop infrastructure services
 echo ""
@@ -160,6 +161,7 @@ rm -f /tmp/hdn_server.pid
 rm -f /tmp/monitor_ui.pid
 rm -f /tmp/fsm_server.pid
 rm -f /tmp/goal_manager.pid
+rm -f /tmp/telegram_bot.pid
 
 echo ""
 echo "🎉 AGI System stopped successfully!"
