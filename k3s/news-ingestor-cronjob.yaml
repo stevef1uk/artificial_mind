@@ -15,16 +15,18 @@ spec:
           - name: news-ingestor
             image: stevef1uk/data-processor:secure
             imagePullPolicy: Always
-            args: ["-url", "https://www.bbc.com/news", "-max", "100", "-llm", "-batch-size", "10", "-debug"]
+            args: ["-url", "https://www.bbc.com/news", "-max", "100", "-llm", "-batch-size", "1", "-debug"]
             env:
             - name: NATS_URL
               value: "nats://nats:4222"
             # LLM configuration from secret (can be updated without changing deployment)
             - name: LLM_MODEL
-              valueFrom:
-                secretKeyRef:
-                  name: llm-config
-                  key: LLM_MODEL
+              # Explicitly use Llama 3.2 for stronger JSONL formatting adherence than Gemma
+              value: "llama3.2:latest"
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: llm-config
+            #       key: LLM_MODEL
             - name: OLLAMA_URL
               valueFrom:
                 secretKeyRef:
