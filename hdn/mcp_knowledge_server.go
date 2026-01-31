@@ -979,24 +979,27 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 		log.Printf("🔍 [MCP-KNOWLEDGE] Filtering with distance <= %.2f and keywords: %v", maxDistance, keywords)
 
 		for _, item := range collectionData {
-			// Step 1: Check distance threshold (MANDATORY)
+			// Step 1: Check distance threshold (MANDATORY for vector search, skip for BM25)
+			// BM25 (WikipediaArticle) uses 'score' not 'distance', so skip this check
 			var distance float64
-			hasDistance := false
-			if additional, ok := item["_additional"].(map[string]interface{}); ok {
-				if d, ok := additional["distance"].(float64); ok {
-					distance = d
-					hasDistance = true
+			if collection != "WikipediaArticle" {
+				hasDistance := false
+				if additional, ok := item["_additional"].(map[string]interface{}); ok {
+					if d, ok := additional["distance"].(float64); ok {
+						distance = d
+						hasDistance = true
+					}
 				}
-			}
 
-			if !hasDistance {
-				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (no distance): %v", item["title"])
-				continue
-			}
+				if !hasDistance {
+					log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (no distance): %v", item["title"])
+					continue
+				}
 
-			if distance > maxDistance {
-				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (distance %.3f > %.2f): %v", distance, maxDistance, item["title"])
-				continue
+				if distance > maxDistance {
+					log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (distance %.3f > %.2f): %v", distance, maxDistance, item["title"])
+					continue
+				}
 			}
 
 			// Step 2: Keyword matching (PRIMARY)
@@ -1038,12 +1041,20 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 			}
 
 			if !primaryInTitle && !primaryInText {
-				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (primary keyword '%s' not in title or text preview, distance=%.3f): %v", primaryKeyword, distance, title)
+				if collection == "WikipediaArticle" {
+					log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (primary keyword '%s' not in title or text preview): %v", primaryKeyword, title)
+				} else {
+					log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (primary keyword '%s' not in title or text preview, distance=%.3f): %v", primaryKeyword, distance, title)
+				}
 				continue
 			}
 
 			// Passed all filters
-			log.Printf("✅ [MCP-KNOWLEDGE] Including result (distance=%.3f, primary keyword '%s' matched in title/text): %v", distance, primaryKeyword, title)
+			if collection == "WikipediaArticle" {
+				log.Printf("✅ [MCP-KNOWLEDGE] Including result (BM25, primary keyword '%s' matched in title/text): %v", primaryKeyword, title)
+			} else {
+				log.Printf("✅ [MCP-KNOWLEDGE] Including result (distance=%.3f, primary keyword '%s' matched in title/text): %v", distance, primaryKeyword, title)
+			}
 			results = append(results, item)
 
 			// Limit results to requested limit
