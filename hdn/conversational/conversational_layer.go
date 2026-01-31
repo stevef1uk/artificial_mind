@@ -708,7 +708,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				combinedData["episodic_memory"] = ragResult
 			}
 			if hasNewsResults {
-				combinedData["news_results"] = newsResult
+				combinedData["news_articles"] = newsResult
 			}
 
 			return &ActionResult{

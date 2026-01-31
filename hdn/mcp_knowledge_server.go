@@ -746,6 +746,12 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 	} else if collection == "WikipediaArticle" {
 		// FIXED: Use Like filter for WikipediaArticle to ensure better keyword matching than BM25
 		// This handles cases like 'Ukraine' matching 'Ukrainians' and avoids BM25 tokenization issues.
+		searchTerm := query
+		// Apply the same stemming as in keyword extraction for consistency
+		if strings.HasSuffix(strings.ToLower(searchTerm), "e") && len(searchTerm) > 5 {
+			searchTerm = searchTerm[:len(searchTerm)-1]
+		}
+
 		queryStr = fmt.Sprintf(`{
 			Get {
 				WikipediaArticle(where: {
@@ -767,7 +773,7 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 					metadata
 				}
 			}
-		}`, query, query, requestLimit)
+		}`, searchTerm, searchTerm, requestLimit)
 	} else {
 		// Generic collection query using vector search fallback
 		queryStr = fmt.Sprintf(`{
@@ -947,6 +953,11 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 		for _, word := range queryWords {
 			word = strings.Trim(word, ".,!?;:()[]{}'\"")
 			if !stopWords[word] && len(word) > 2 {
+				// Simple stemming: if word ends in 'e' and is long, remove it to match variations
+				// e.g. 'ukraine' -> 'ukrain' matches 'ukrainians'
+				if strings.HasSuffix(word, "e") && len(word) > 5 {
+					word = strings.TrimSuffix(word, "e")
+				}
 				keywords = append(keywords, word)
 			}
 		}
