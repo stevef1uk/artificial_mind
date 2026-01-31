@@ -742,8 +742,27 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 				}
 			}
 		}`, vectorStr, requestLimit)
+	} else if collection == "WikipediaArticle" {
+		// FIXED: Use BM25 for WikipediaArticle to avoid vector issues (missing modules/indexes)
+		// This ensures robust keyword search for News/Wikipedia
+		queryStr = fmt.Sprintf(`{
+			Get {
+				WikipediaArticle(bm25: {query: "%s"}, limit: %d) {
+					_additional {
+						id
+						score
+					}
+					title
+					text
+					source
+					timestamp
+					url
+					metadata
+				}
+			}
+		}`, query, requestLimit)
 	} else {
-		// Generic collection query
+		// Generic collection query using vector search fallback
 		queryStr = fmt.Sprintf(`{
 			Get {
 				%s(nearVector: {vector: %s}, limit: %d) {
