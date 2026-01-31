@@ -372,7 +372,8 @@ func (s *MCPKnowledgeServer) queryNeo4j(ctx context.Context, args map[string]int
 			// Escape single quotes to prevent Cypher injection
 			escapedConcept := strings.ReplaceAll(concept, "'", "\\'")
 			// Use direct string matching since queryViaHDN doesn't support parameters
-			query = fmt.Sprintf("MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('%s') RETURN c LIMIT 10", escapedConcept)
+			// SEARCH BOTH NAME AND DEFINITION
+			query = fmt.Sprintf("MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('%s') OR toLower(c.definition) CONTAINS toLower('%s') RETURN c LIMIT 10", escapedConcept, escapedConcept)
 			log.Printf("🧠 [MCP-KNOWLEDGE] Translated to Cypher: %s", query)
 		}
 	}
@@ -743,11 +744,17 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 			}
 		}`, vectorStr, requestLimit)
 	} else if collection == "WikipediaArticle" {
-		// FIXED: Use BM25 for WikipediaArticle to avoid vector issues (missing modules/indexes)
-		// This ensures robust keyword search for News/Wikipedia
+		// FIXED: Use Like filter for WikipediaArticle to ensure better keyword matching than BM25
+		// This handles cases like 'Ukraine' matching 'Ukrainians' and avoids BM25 tokenization issues.
 		queryStr = fmt.Sprintf(`{
 			Get {
-				WikipediaArticle(bm25: {query: "%s"}, limit: %d) {
+				WikipediaArticle(where: {
+					operator: Or,
+					operands: [
+						{ path: ["title"], operator: Like, valueString: "*%s*" },
+						{ path: ["text"], operator: Like, valueString: "*%s*" }
+					]
+				}, limit: %d) {
 					_additional {
 						id
 						score
@@ -760,7 +767,7 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 					metadata
 				}
 			}
-		}`, query, requestLimit)
+		}`, query, query, requestLimit)
 	} else {
 		// Generic collection query using vector search fallback
 		queryStr = fmt.Sprintf(`{
@@ -1087,12 +1094,13 @@ func (s *MCPKnowledgeServer) getConcept(ctx context.Context, args map[string]int
 	escapedName := strings.ReplaceAll(name, "'", "\\'")
 
 	// Build query with embedded parameters (safer than parameterized queries for this endpoint)
-	cypher := fmt.Sprintf("MATCH (c:Concept {name: '%s'", escapedName)
+	// Build query searching both name and definition
+	cypher := fmt.Sprintf("MATCH (c:Concept) WHERE (toLower(c.name) CONTAINS toLower('%s') OR toLower(c.definition) CONTAINS toLower('%s'))", escapedName, escapedName)
 	if domain != "" {
 		escapedDomain := strings.ReplaceAll(domain, "'", "\\'")
-		cypher += fmt.Sprintf(", domain: '%s'", escapedDomain)
+		cypher += fmt.Sprintf(" AND c.domain = '%s'", escapedDomain)
 	}
-	cypher += "}) RETURN c"
+	cypher += " RETURN c LIMIT 5"
 
 	return s.queryViaHDN(ctx, cypher)
 }

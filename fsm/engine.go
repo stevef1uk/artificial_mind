@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1204,21 +1206,14 @@ func (e *FSMEngine) executeEmbedding(action ActionConfig, event map[string]inter
 
 // generateSimpleEmbedding creates a simple hash-based embedding
 func (e *FSMEngine) generateSimpleEmbedding(text string, dim int) []float32 {
-	// Simple hash-based embedding for demonstration
-	// In production, use a real embedding model
-	hash := 0
-	for _, c := range text {
-		hash = hash*31 + int(c)
-	}
-
-	embedding := make([]float32, dim)
+	vec := make([]float32, dim)
 	for i := 0; i < dim; i++ {
-		// Generate pseudo-random values based on hash and position
-		val := float32((hash+i*17)%1000) / 1000.0
-		embedding[i] = val - 0.5 // Center around 0
+		// Use SHA256 matches hdn/api.go:toyEmbed for cross-service compatibility
+		h := sha256.Sum256([]byte(fmt.Sprintf("%s-%d", text, i)))
+		val := binary.BigEndian.Uint32(h[:4])
+		vec[i] = float32(val%1000) / 1000.0
 	}
-
-	return embedding
+	return vec
 }
 
 func min(a, b int) int {
