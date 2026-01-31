@@ -59,7 +59,7 @@ required_files=(
     "Dockerfile.fsm.secure"
     "Dockerfile.monitor-ui.secure"
     "Dockerfile.goal-manager.secure"
-    "Dockerfile.wiki-summarizer.secure",
+    "Dockerfile.wiki-summarizer.secure"
     "Dockerfile.telegram-bot.secure"
 )
 
