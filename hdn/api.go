@@ -849,7 +849,9 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 }
 
 func (h *SimpleChatHDN) SearchWeaviate(ctx context.Context, query string, collection string, limit int) (*conversational.InterpretResult, error) {
+	log.Printf("🔍 [SIMPLE-CHAT-HDN] SearchWeaviate called for query='%s', collection='%s'", query, collection)
 	if h.server == nil || h.server.mcpKnowledgeServer == nil {
+		log.Printf("⚠️ [SIMPLE-CHAT-HDN] SearchWeaviate failed: server or mcpKnowledgeServer is nil")
 		return nil, fmt.Errorf("knowledge server not available")
 	}
 

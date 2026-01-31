@@ -663,10 +663,13 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		log.Printf("🔍 [CONVERSATIONAL] RAG search query: '%s' (extracted from: '%s')", ragQueryText, searchText)
 
 		// 1. Try searching episodic memory (AgiEpisodes) DIRECTLY
+		log.Printf("🔍 [CONVERSATIONAL] Calling SearchWeaviate for episodic memory: %s", ragQueryText)
 		ragResult, ragErr := cl.hdnClient.SearchWeaviate(ctx, ragQueryText, "AgiEpisodes", 3)
 
 		hasRAGResults := false
-		if ragErr == nil && ragResult != nil && ragResult.Metadata != nil {
+		if ragErr != nil {
+			log.Printf("⚠️ [CONVERSATIONAL] Episodic RAG search failed: %v", ragErr)
+		} else if ragResult != nil && ragResult.Metadata != nil {
 			if toolSuccess, ok := ragResult.Metadata["tool_success"].(bool); ok && toolSuccess {
 				if toolResult, ok := ragResult.Metadata["tool_result"].(map[string]interface{}); ok {
 					if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
@@ -678,10 +681,13 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		}
 
 		// 2. Try searching news (WikipediaArticle) INDEPENDENTLY and DIRECTLY
+		log.Printf("🔍 [CONVERSATIONAL] Calling SearchWeaviate for news articles: %s", ragQueryText)
 		newsResult, newsErr := cl.hdnClient.SearchWeaviate(ctx, ragQueryText, "WikipediaArticle", 3)
 
 		hasNewsResults := false
-		if newsErr == nil && newsResult != nil && newsResult.Metadata != nil {
+		if newsErr != nil {
+			log.Printf("⚠️ [CONVERSATIONAL] News RAG search failed: %v", newsErr)
+		} else if newsResult != nil && newsResult.Metadata != nil {
 			if toolSuccess, ok := newsResult.Metadata["tool_success"].(bool); ok && toolSuccess {
 				if toolResult, ok := newsResult.Metadata["tool_result"].(map[string]interface{}); ok {
 					if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
