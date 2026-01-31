@@ -496,7 +496,8 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				"who": true, "what": true, "where": true, "when": true, "why": true, "how": true,
 				"is": true, "are": true, "the": true, "a": true, "an": true, "in": true, "of": true,
 				"tell": true, "me": true, "about": true, "current": true, "latest": true, "situation": true,
-				"update": true, "summary": true,
+				"update": true, "summary": true, "search": true, "for": true, "news": true, "find": true,
+				"get": true, "show": true, "give": true,
 			}
 			startIdx := 0
 			for i, word := range words {
@@ -608,7 +609,8 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			filtered := make([]string, 0)
 			skipWords := map[string]bool{"who": true, "what": true, "where": true, "when": true, "why": true, "how": true,
 				"is": true, "are": true, "the": true, "a": true, "an": true, "tell": true, "me": true, "about": true,
-				"latest": true, "situation": true, "current": true, "update": true, "in": true, "of": true}
+				"latest": true, "situation": true, "current": true, "update": true, "in": true, "of": true,
+				"search": true, "for": true, "news": true, "find": true, "get": true, "show": true, "give": true}
 			for _, word := range words {
 				if !skipWords[word] && len(word) > 2 {
 					filtered = append(filtered, word)
