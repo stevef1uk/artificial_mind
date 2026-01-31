@@ -631,85 +631,66 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 
 		log.Printf("🔍 [CONVERSATIONAL] RAG search query: '%s' (extracted from: '%s')", ragQueryText, searchText)
 
-		// Try searching episodic memory (AgiEpisodes) and news (WikipediaArticle)
-		// Use very small limit (3) to get only the most relevant results
-		ragQuery := fmt.Sprintf("Search episodic memory and news articles about '%s'. Use the mcp_search_weaviate tool with query='%s', collection='AgiEpisodes', and limit=3 to find relevant information.", ragQueryText, ragQueryText)
+		// 1. Try searching episodic memory (AgiEpisodes)
+		ragQuery := fmt.Sprintf("Search episodic memory about '%s'. Use the mcp_search_weaviate tool with query='%s', collection='AgiEpisodes', and limit=3 to find relevant information.", ragQueryText, ragQueryText)
 		ragResult, ragErr := cl.hdnClient.InterpretNaturalLanguage(ctx, ragQuery, hdnContext)
-		if ragErr == nil && ragResult != nil {
-			// Check if RAG search found results
-			hasRAGResults := false
-			if ragResult.Metadata != nil {
-				if toolSuccess, ok := ragResult.Metadata["tool_success"].(bool); ok && toolSuccess {
-					if toolResult, ok := ragResult.Metadata["tool_result"].(map[string]interface{}); ok {
-						if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
-							hasRAGResults = true
-							log.Printf("✅ [CONVERSATIONAL] RAG search found %d results in episodic memory", len(results))
-						}
+
+		hasRAGResults := false
+		if ragErr == nil && ragResult != nil && ragResult.Metadata != nil {
+			if toolSuccess, ok := ragResult.Metadata["tool_success"].(bool); ok && toolSuccess {
+				if toolResult, ok := ragResult.Metadata["tool_result"].(map[string]interface{}); ok {
+					if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
+						hasRAGResults = true
+						log.Printf("✅ [CONVERSATIONAL] RAG search found %d results in episodic memory", len(results))
 					}
 				}
 			}
-
-			// Always try WikipediaArticle collection for news items, even if episodic memory has no results
-			// Use a strict command format to force the LLM to pick the correct tool (mcp_search_weaviate)
-			// instead of getting confused by natural language concepts.
-			newsQuery := fmt.Sprintf("COMMAND: Execute tool 'mcp_search_weaviate' with arguments: {\"query\": \"%s\", \"collection\": \"WikipediaArticle\", \"limit\": 3}. Do not use any other tool.", ragQueryText)
-			newsResult, newsErr := cl.hdnClient.InterpretNaturalLanguage(ctx, newsQuery, hdnContext)
-
-			// Determine if news search returned any results
-			hasNewsResults := false
-			if newsErr == nil && newsResult != nil && newsResult.Metadata != nil {
-				if toolSuccess, ok := newsResult.Metadata["tool_success"].(bool); ok && toolSuccess {
-					if toolResult, ok := newsResult.Metadata["tool_result"].(map[string]interface{}); ok {
-						if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
-							hasNewsResults = true
-							log.Printf("✅ [CONVERSATIONAL] RAG search found %d results in news articles (WikipediaArticle)", len(results))
-						}
-					}
-				}
-			}
-
-			// If either episodic memory or news search found results, combine with Neo4j (even if Neo4j was empty)
-			if hasRAGResults || hasNewsResults {
-				combinedData := map[string]interface{}{
-					"neo4j_result": interpretResult,
-					"source":       "neo4j_and_rag",
-				}
-				if hasRAGResults {
-					combinedData["episodic_memory"] = ragResult
-				}
-				if hasNewsResults {
-					combinedData["news_articles"] = newsResult
-				}
-
-				// Track RAG tool usage
-				if ragResult != nil && ragResult.Metadata != nil {
-					if toolID, ok := ragResult.Metadata["tool_used"].(string); ok && toolID != "" {
-						cl.reasoningTrace.AddToolInvoked(toolID)
-					}
-				}
-				if newsResult != nil && newsResult.Metadata != nil {
-					if toolID, ok := newsResult.Metadata["tool_used"].(string); ok && toolID != "" {
-						cl.reasoningTrace.AddToolInvoked(toolID)
-					}
-				}
-
-				return &ActionResult{
-					Type:    "knowledge_result",
-					Success: true,
-					Data:    combinedData,
-				}, nil
-			}
-		} else {
-			log.Printf("⚠️ [CONVERSATIONAL] RAG search failed: %v", ragErr)
 		}
 
-		log.Printf("🔍 [CONVERSATIONAL] Falling back to Neo4j-only results")
+		// 2. Try searching news (WikipediaArticle) INDEPENDENTLY
+		// Use a strict command format to force the LLM to pick the correct tool (mcp_search_weaviate)
+		newsQuery := fmt.Sprintf("COMMAND: Execute tool 'mcp_search_weaviate' with arguments: {\"query\": \"%s\", \"collection\": \"WikipediaArticle\", \"limit\": 3}. Do not use any other tool.", ragQueryText)
+		newsResult, newsErr := cl.hdnClient.InterpretNaturalLanguage(ctx, newsQuery, hdnContext)
+
+		hasNewsResults := false
+		if newsErr == nil && newsResult != nil && newsResult.Metadata != nil {
+			if toolSuccess, ok := newsResult.Metadata["tool_success"].(bool); ok && toolSuccess {
+				if toolResult, ok := newsResult.Metadata["tool_result"].(map[string]interface{}); ok {
+					if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
+						hasNewsResults = true
+						log.Printf("✅ [CONVERSATIONAL] RAG search found %d results in news articles (WikipediaArticle)", len(results))
+					}
+				}
+			}
+		}
+
+		// 3. Combine results
+		if hasRAGResults || hasNewsResults {
+			combinedData := map[string]interface{}{
+				"neo4j_result": interpretResult,
+				"source":       "neo4j_and_rag",
+			}
+			if hasRAGResults {
+				combinedData["episodic_memory"] = ragResult
+			}
+			if hasNewsResults {
+				combinedData["news_results"] = newsResult
+			}
+
+			return &ActionResult{
+				Type:    "knowledge_result",
+				Success: true,
+				Data:    combinedData,
+			}, nil
+		}
+
+		log.Printf("🔍 [CONVERSATIONAL] RAG yielded no new info, using Neo4j-only results")
 		return &ActionResult{
 			Type:    "knowledge_result",
 			Success: true,
 			Data: map[string]interface{}{
-				"result": interpretResult,
-				"source": "neo4j",
+				"neo4j_result": interpretResult,
+				"source":       "neo4j_only",
 			},
 		}, nil
 
