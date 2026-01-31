@@ -652,7 +652,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			// Always try WikipediaArticle collection for news items, even if episodic memory has no results
 			// Use the same improved query text for consistency
 			// Use very small limit (3) to get only the most relevant results
-			newsQuery := fmt.Sprintf("Search news articles about '%s'. Use the mcp_search_weaviate tool with query='%s', collection='AgiWiki', and limit=3 to find relevant information.", ragQueryText, ragQueryText)
+			newsQuery := fmt.Sprintf("Search news articles about '%s'. Use the mcp_search_weaviate tool with query='%s', collection='WikipediaArticle', and limit=3 to find relevant information.", ragQueryText, ragQueryText)
 			newsResult, newsErr := cl.hdnClient.InterpretNaturalLanguage(ctx, newsQuery, hdnContext)
 
 			// Determine if news search returned any results
