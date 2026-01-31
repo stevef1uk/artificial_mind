@@ -29,6 +29,7 @@ principles/principles-server
 fsm/fsm-server
 monitor/monitor-ui
 self/goal-manager
+telegram-bot/telegram-bot
 
 # Test binaries
 test_fsm
