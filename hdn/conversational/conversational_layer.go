@@ -37,6 +37,7 @@ type HDNClientInterface interface {
 	PlanTask(ctx context.Context, task string, context map[string]string) (*PlanResult, error)
 	LearnFromLLM(ctx context.Context, input string, context map[string]string) (*LearnResult, error)
 	InterpretNaturalLanguage(ctx context.Context, input string, context map[string]string) (*InterpretResult, error)
+	SearchWeaviate(ctx context.Context, query string, collection string, limit int) (*InterpretResult, error)
 }
 
 // ConversationRequest represents a user's conversational input
@@ -661,9 +662,8 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 
 		log.Printf("🔍 [CONVERSATIONAL] RAG search query: '%s' (extracted from: '%s')", ragQueryText, searchText)
 
-		// 1. Try searching episodic memory (AgiEpisodes)
-		ragQuery := fmt.Sprintf("Search episodic memory about '%s'. Use the mcp_search_weaviate tool with query='%s', collection='AgiEpisodes', and limit=3 to find relevant information.", ragQueryText, ragQueryText)
-		ragResult, ragErr := cl.hdnClient.InterpretNaturalLanguage(ctx, ragQuery, hdnContext)
+		// 1. Try searching episodic memory (AgiEpisodes) DIRECTLY
+		ragResult, ragErr := cl.hdnClient.SearchWeaviate(ctx, ragQueryText, "AgiEpisodes", 3)
 
 		hasRAGResults := false
 		if ragErr == nil && ragResult != nil && ragResult.Metadata != nil {
@@ -677,10 +677,8 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			}
 		}
 
-		// 2. Try searching news (WikipediaArticle) INDEPENDENTLY
-		// Use a strict command format to force the LLM to pick the correct tool (mcp_search_weaviate)
-		newsQuery := fmt.Sprintf("COMMAND: Execute tool 'mcp_search_weaviate' with arguments: {\"query\": \"%s\", \"collection\": \"WikipediaArticle\", \"limit\": 3}. Do not use any other tool.", ragQueryText)
-		newsResult, newsErr := cl.hdnClient.InterpretNaturalLanguage(ctx, newsQuery, hdnContext)
+		// 2. Try searching news (WikipediaArticle) INDEPENDENTLY and DIRECTLY
+		newsResult, newsErr := cl.hdnClient.SearchWeaviate(ctx, ragQueryText, "WikipediaArticle", 3)
 
 		hasNewsResults := false
 		if newsErr == nil && newsResult != nil && newsResult.Metadata != nil {

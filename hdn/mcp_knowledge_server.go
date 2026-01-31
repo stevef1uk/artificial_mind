@@ -979,9 +979,9 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 		log.Printf("🔍 [MCP-KNOWLEDGE] Filtering with distance <= %.2f and keywords: %v", maxDistance, keywords)
 
 		for _, item := range collectionData {
+			distance := 0.0
 			// Step 1: Check distance threshold (MANDATORY for vector search, skip for BM25)
 			// BM25 (WikipediaArticle) uses 'score' not 'distance', so skip this check
-			var distance float64
 			if collection != "WikipediaArticle" {
 				hasDistance := false
 				if additional, ok := item["_additional"].(map[string]interface{}); ok {

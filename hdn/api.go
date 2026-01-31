@@ -848,6 +848,33 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 	}, nil
 }
 
+func (h *SimpleChatHDN) SearchWeaviate(ctx context.Context, query string, collection string, limit int) (*conversational.InterpretResult, error) {
+	if h.server == nil || h.server.mcpKnowledgeServer == nil {
+		return nil, fmt.Errorf("knowledge server not available")
+	}
+
+	args := map[string]interface{}{
+		"query":      query,
+		"collection": collection,
+		"limit":      float64(limit),
+	}
+
+	result, err := h.server.mcpKnowledgeServer.searchWeaviate(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+
+	return &conversational.InterpretResult{
+		Success:     true,
+		Interpreted: fmt.Sprintf("Search results for %s in %s", query, collection),
+		Metadata: map[string]interface{}{
+			"tool_success": true,
+			"tool_result":  result,
+			"tool_used":    "mcp_search_weaviate",
+		},
+	}, nil
+}
+
 // SimpleChatLLM provides basic LLM interface for chat
 type SimpleChatLLM struct{}
 
