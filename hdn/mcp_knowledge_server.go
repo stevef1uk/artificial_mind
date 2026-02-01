@@ -27,6 +27,7 @@ type MCPKnowledgeServer struct {
 	vectorDB        mempkg.VectorDBAdapter
 	redis           *redis.Client
 	hdnURL          string // For proxying queries
+	skillRegistry   *DynamicSkillRegistry // Dynamic skills from configuration
 }
 
 // MCPKnowledgeRequest represents an MCP JSON-RPC request for knowledge server
@@ -60,12 +61,27 @@ type MCPKnowledgeTool struct {
 
 // NewMCPKnowledgeServer creates a new MCP knowledge server
 func NewMCPKnowledgeServer(domainKnowledge mempkg.DomainKnowledgeClient, vectorDB mempkg.VectorDBAdapter, redis *redis.Client, hdnURL string) *MCPKnowledgeServer {
-	return &MCPKnowledgeServer{
+	server := &MCPKnowledgeServer{
 		domainKnowledge: domainKnowledge,
 		vectorDB:        vectorDB,
 		redis:           redis,
 		hdnURL:          hdnURL,
+		skillRegistry:   NewDynamicSkillRegistry(),
 	}
+
+	// Load skills from configuration
+	configPath := os.Getenv("N8N_MCP_SKILLS_CONFIG")
+	if configPath == "" {
+		configPath = "n8n_mcp_skills.yaml" // Default path
+	}
+	log.Printf("🔍 [MCP-KNOWLEDGE] Attempting to load skills from config: %s", configPath)
+	if err := server.skillRegistry.LoadSkillsFromConfig(configPath); err != nil {
+		log.Printf("⚠️ [MCP-KNOWLEDGE] Failed to load skills from configuration: %v (continuing with hardcoded tools)", err)
+	} else {
+		log.Printf("✅ [MCP-KNOWLEDGE] Successfully loaded skills from configuration")
+	}
+
+	return server
 }
 
 // HandleRequest handles an MCP JSON-RPC request
@@ -369,19 +385,23 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 		},
 	})
 
-	tools = append(tools, MCPKnowledgeTool{
-		Name:        "read_google_data",
-		Description: "Read emails or calendar events from Google Workspace via n8n integration.",
-		InputSchema: map[string]interface{}{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"query": map[string]interface{}{"type": "string", "description": "Search query for emails or calendar events (e.g., 'unread', 'recent', 'today')"},
-				"type":  map[string]interface{}{"type": "string", "enum": []string{"email", "calendar", "all"}, "description": "Type of data to retrieve", "default": "all"},
-				"limit": map[string]interface{}{"type": "integer", "description": "Maximum number of results to return (default: 5, max: 50)", "default": 5, "minimum": 1, "maximum": 50},
-			},
-			"required": []string{},
-		},
-	})
+	// Add dynamically configured skills from registry
+	if s.skillRegistry != nil {
+		configuredSkills := s.skillRegistry.ListSkills()
+		// Check for duplicates and only add new skills
+		existingNames := make(map[string]bool)
+		for _, tool := range tools {
+			existingNames[tool.Name] = true
+		}
+		for _, skill := range configuredSkills {
+			if !existingNames[skill.Name] {
+				tools = append(tools, skill)
+				log.Printf("✅ [MCP-KNOWLEDGE] Added configured skill: %s", skill.Name)
+			} else {
+				log.Printf("⚠️ [MCP-KNOWLEDGE] Skipping duplicate configured skill: %s (hardcoded version takes precedence)", skill.Name)
+			}
+		}
+	}
 
 	return map[string]interface{}{
 		"tools": tools,
@@ -390,6 +410,13 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 
 // callTool executes an MCP tool
 func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, arguments map[string]interface{}) (interface{}, error) {
+	// First check if this is a configured skill
+	if s.skillRegistry != nil && s.skillRegistry.HasSkill(toolName) {
+		log.Printf("🔧 [MCP-KNOWLEDGE] Executing configured skill: %s", toolName)
+		return s.skillRegistry.ExecuteSkill(ctx, toolName, arguments)
+	}
+
+	// Fall back to hardcoded tools
 	switch toolName {
 	case "query_neo4j":
 		return s.queryNeo4j(ctx, arguments)
@@ -405,8 +432,6 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		return s.saveAvatarContext(ctx, arguments)
 	case "save_episode":
 		return s.saveEpisode(ctx, arguments)
-	case "read_google_data":
-		return s.readGoogleWorkspace(ctx, arguments)
 	case "scrape_url", "execute_code", "read_file":
 		// Route to the new wrapper
 		return s.executeToolWrapper(ctx, toolName, arguments)
