@@ -51,7 +51,7 @@ func (ip *IntentParser) ParseIntent(ctx context.Context, message string, context
 		`^who is `, `^who are `, `^who am i`, `^what's my name`,
 	}
 	for _, pattern := range queryOverridePatterns {
-		if matched, _ := regexp.MatchString(strings.ToLower(message), pattern); matched {
+		if matched, _ := regexp.MatchString(pattern, strings.ToLower(strings.TrimSpace(message))); matched {
 			return &Intent{
 				Type:            "query",
 				Confidence:      0.99,
@@ -63,29 +63,40 @@ func (ip *IntentParser) ParseIntent(ctx context.Context, message string, context
 	}
 
 	// Step 1: Check for hardcoded personal patterns (statements)
-	personalPatterns := []string{
-		"remember",
-		"my name is",
-		"i prefer",
-		"i live in",
-		"call me",
-		"i'm known as",
-		"i am known as",
-		"born in",
-		"i work at",
-		"my birthday",
-		"my children",
-		"my favorite",
+	// Safety: Don't treat it as a personal update if it looks like a question
+	isQuestion := false
+	lowerMsg := strings.ToLower(strings.TrimSpace(message))
+	if strings.HasPrefix(lowerMsg, "what") || strings.HasPrefix(lowerMsg, "who") ||
+		strings.HasPrefix(lowerMsg, "how") || strings.HasPrefix(lowerMsg, "did") ||
+		strings.HasSuffix(lowerMsg, "?") {
+		isQuestion = true
 	}
-	for _, p := range personalPatterns {
-		if strings.Contains(strings.ToLower(message), p) {
-			return &Intent{
-				Type:            "personal_update",
-				Confidence:      0.99,
-				Goal:            "Save the following personal information to long-term memory: " + message,
-				OriginalMessage: message,
-				Entities:        map[string]string{"content": message},
-			}, nil
+
+	if !isQuestion {
+		personalPatterns := []string{
+			"remember",
+			"my name is",
+			"i prefer",
+			"i live in",
+			"call me",
+			"i'm known as",
+			"i am known as",
+			"born in",
+			"i work at",
+			"my birthday",
+			"my children",
+			"my favorite",
+		}
+		for _, p := range personalPatterns {
+			if strings.Contains(lowerMsg, p) {
+				return &Intent{
+					Type:            "personal_update",
+					Confidence:      0.99,
+					Goal:            "Save the following personal information to long-term memory: " + message,
+					OriginalMessage: message,
+					Entities:        map[string]string{"content": message},
+				}, nil
+			}
 		}
 	}
 
