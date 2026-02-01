@@ -1783,14 +1783,32 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 	bodyBytes, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Printf("❌ [MCP-KNOWLEDGE] n8n returned error status %d. Response body: %s", resp.StatusCode, string(bodyBytes))
 		return nil, fmt.Errorf("n8n returned status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
+
+	// Log raw response for debugging
+	log.Printf("📥 [MCP-KNOWLEDGE] n8n response status: %d, body length: %d bytes", resp.StatusCode, len(bodyBytes))
+	if len(bodyBytes) == 0 {
+		log.Printf("⚠️ [MCP-KNOWLEDGE] n8n returned EMPTY response body!")
+		return map[string]interface{}{
+			"results": []interface{}{},
+			"message": "n8n returned empty response",
+		}, nil
+	}
+
+	// Log first 500 chars of response for debugging
+	preview := string(bodyBytes)
+	if len(preview) > 500 {
+		preview = preview[:500] + "..."
+	}
+	log.Printf("📥 [MCP-KNOWLEDGE] n8n response preview: %s", preview)
 
 	// Parse response
 	var result interface{}
 	if err := json.Unmarshal(bodyBytes, &result); err != nil {
 		// If not JSON, return string
-		log.Printf("⚠️ [MCP-KNOWLEDGE] n8n response is not JSON, returning as string. Length: %d", len(bodyBytes))
+		log.Printf("⚠️ [MCP-KNOWLEDGE] n8n response is not JSON, returning as string. Length: %d, Error: %v", len(bodyBytes), err)
 		return map[string]interface{}{
 			"result": string(bodyBytes),
 		}, nil
@@ -1799,18 +1817,62 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 	// Log the structure of the result for debugging
 	resultType := "unknown"
 	resultLen := 0
+	var finalResult interface{} = result
+	
 	if resultArray, ok := result.([]interface{}); ok {
 		resultType = "array"
 		resultLen = len(resultArray)
 		log.Printf("📧 [MCP-KNOWLEDGE] n8n returned array with %d items", resultLen)
+		
+		// n8n "allIncomingItems" mode returns array of objects with "json" key containing the actual data
+		// Extract the actual email data from the n8n structure
 		if resultLen > 0 {
-			// Log first item structure
+			// Check if first item has "json" key (n8n structure)
 			if firstItem, ok := resultArray[0].(map[string]interface{}); ok {
 				var keys []string
 				for k := range firstItem {
 					keys = append(keys, k)
 				}
-				log.Printf("📧 [MCP-KNOWLEDGE] First email item has keys: %v", keys)
+				log.Printf("📧 [MCP-KNOWLEDGE] First item has keys: %v", keys)
+				
+				// If it has "json" key, extract the actual data
+				if _, hasJson := firstItem["json"]; hasJson {
+					log.Printf("📧 [MCP-KNOWLEDGE] Extracting data from 'json' key (n8n allIncomingItems format)")
+					// Extract all items' json data
+					extractedItems := make([]interface{}, 0, resultLen)
+					for _, item := range resultArray {
+						if itemMap, ok := item.(map[string]interface{}); ok {
+							if jsonVal, ok := itemMap["json"]; ok {
+								extractedItems = append(extractedItems, jsonVal)
+							} else {
+								// If no json key, use the item itself
+								extractedItems = append(extractedItems, item)
+							}
+						} else {
+							extractedItems = append(extractedItems, item)
+						}
+					}
+					finalResult = extractedItems
+					resultLen = len(extractedItems)
+					log.Printf("📧 [MCP-KNOWLEDGE] Extracted %d items from n8n json structure", resultLen)
+					
+					// Log first extracted item structure
+					if resultLen > 0 {
+						if firstExtracted, ok := extractedItems[0].(map[string]interface{}); ok {
+							var extractedKeys []string
+							for k := range firstExtracted {
+								extractedKeys = append(extractedKeys, k)
+							}
+							log.Printf("📧 [MCP-KNOWLEDGE] First extracted email item has keys: %v", extractedKeys)
+						}
+					}
+				} else {
+					// Check if first item is already an email object (has Subject, From, To)
+					if _, hasSubject := firstItem["Subject"]; hasSubject {
+						log.Printf("📧 [MCP-KNOWLEDGE] Items are already email objects (no json wrapper)")
+						finalResult = resultArray
+					}
+				}
 			}
 		}
 	} else if resultMap, ok := result.(map[string]interface{}); ok {
@@ -1825,5 +1887,5 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 	}
 
 	log.Printf("✅ [MCP-KNOWLEDGE] Successfully retrieved Google Workspace data (type: %s, size: %d)", resultType, resultLen)
-	return result, nil
+	return finalResult, nil
 }

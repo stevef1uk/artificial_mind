@@ -446,9 +446,12 @@ func (nlg *NLGGenerator) formatDecisions(decisions []DecisionPoint) string {
 // formatResultData formats result data for display
 func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 	if data == nil {
+		log.Printf("⚠️ [NLG] formatResultData called with nil data")
 		return "No data available"
 	}
 
+	log.Printf("🗣️ [NLG] formatResultData called with data keys: %v", getMapKeys(data))
+	
 	var sb strings.Builder
 
 	// Helper to extract content from an InterpretResult or similar
@@ -473,7 +476,9 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 
 		// If we have metadata with a tool result, format the actual data
 		if metadata != nil {
+			log.Printf("🗣️ [NLG] Checking metadata for tool_result. Metadata keys: %v", getMapKeys(metadata))
 			if toolResult, ok := metadata["tool_result"].(map[string]interface{}); ok {
+				log.Printf("🗣️ [NLG] Found tool_result in metadata. Tool result keys: %v", getMapKeys(toolResult))
 				var resultSb strings.Builder
 
 				// Handle Weaviate or Neo4j results (list of objects)
@@ -502,7 +507,7 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 									from := getStringFromMap(item, "From")
 									to := getStringFromMap(item, "To")
 									snippet := getStringFromMap(item, "snippet")
-									
+
 									// Check for UNREAD label
 									isUnread := false
 									if labels, ok := item["labels"].([]interface{}); ok {
@@ -515,12 +520,12 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 											}
 										}
 									}
-									
+
 									unreadMark := ""
 									if isUnread {
 										unreadMark = " [UNREAD]"
 									}
-									
+
 									resultSb.WriteString(fmt.Sprintf("[%d]%s\n", i+1, unreadMark))
 									if subject != "" {
 										resultSb.WriteString(fmt.Sprintf("    Subject: %s\n", subject))
@@ -544,7 +549,7 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 							return resultSb.String()
 						}
 					}
-					
+
 					// Default formatting for other data types
 					resultSb.WriteString(fmt.Sprintf("Found %d relevant items:\n\n", len(resultsList)))
 					for i, res := range resultsList {
@@ -648,6 +653,17 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 }
 
 // getStringFromMap safely extracts a string value from a map
+func getMapKeys(m map[string]interface{}) []string {
+	if m == nil {
+		return []string{}
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 func getStringFromMap(m map[string]interface{}, key string) string {
 	if val, exists := m[key]; exists && val != nil {
 		if s, ok := val.(string); ok {
