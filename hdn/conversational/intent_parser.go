@@ -49,7 +49,6 @@ func (ip *IntentParser) ParseIntent(ctx context.Context, message string, context
 		`^was my `, `^did i `, `^do i `, `^am i `,
 		`^what was my `, `^where did i `, `^who did i `,
 		`^who is `, `^who are `, `^who am i`, `^what's my name`,
-		`^check my `, // Email/calendar requests should be queries, not tasks
 	}
 	for _, pattern := range queryOverridePatterns {
 		if matched, _ := regexp.MatchString(pattern, strings.ToLower(strings.TrimSpace(message))); matched {
@@ -446,7 +445,6 @@ func (ip *IntentParser) applyRuleBasedRefinements(message string, intentType str
 		`^what was my `,
 		`^where did i `,
 		`^who did i `,
-		`^check my `, // Email/calendar requests should be queries, not tasks
 	}
 	for _, pattern := range queryOverridePatterns {
 		if matched, _ := regexp.MatchString(pattern, message); matched {
