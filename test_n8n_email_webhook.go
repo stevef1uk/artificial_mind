@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -74,7 +75,14 @@ func main() {
 	}
 
 	// Execute with timeout
-	client := &http.Client{Timeout: 60 * time.Second}
+	// Skip TLS verification for testing (certificate may not match domain)
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{
+		Timeout:   60 * time.Second,
+		Transport: tr,
+	}
 	fmt.Printf("⏳ Calling n8n webhook...\n\n")
 	
 	startTime := time.Now()
@@ -89,13 +97,14 @@ func main() {
 
 	fmt.Printf("✅ Response received in %v\n", duration)
 	fmt.Printf("📥 Status Code: %d\n", resp.StatusCode)
-	fmt.Printf("📥 Content-Type: %s\n\n", resp.Header.Get("Content-Type"))
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		fmt.Printf("❌ Error response body:\n%s\n", string(bodyBytes))
-		os.Exit(1)
+	fmt.Printf("📥 Content-Type: %s\n", resp.Header.Get("Content-Type"))
+	fmt.Printf("📥 Response Headers:\n")
+	for k, v := range resp.Header {
+		if len(v) > 0 {
+			fmt.Printf("   %s: %s\n", k, v[0])
+		}
 	}
+	fmt.Printf("\n")
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -103,7 +112,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("📥 Response body length: %d bytes\n\n", len(bodyBytes))
+	fmt.Printf("📥 Response body length: %d bytes\n", len(bodyBytes))
+	
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		fmt.Printf("❌ Error response (status %d):\n%s\n", resp.StatusCode, string(bodyBytes))
+		os.Exit(1)
+	}
+	
+	if len(bodyBytes) == 0 {
+		fmt.Printf("⚠️  Empty response body received\n")
+		fmt.Printf("   This might indicate:\n")
+		fmt.Printf("   - Authentication issue (check N8N_WEBHOOK_SECRET)\n")
+		fmt.Printf("   - Webhook not configured correctly\n")
+		fmt.Printf("   - n8n workflow not active\n")
+		os.Exit(1)
+	}
+	
+	fmt.Printf("\n")
 
 	// Parse response
 	var result interface{}
@@ -190,30 +215,37 @@ func formatEmails(data interface{}) {
 	case []interface{}:
 		emails = v
 	case map[string]interface{}:
-		// Check if it's a single email
-		hasSubject := false
-		hasFrom := false
-		for k := range v {
-			kLower := fmt.Sprintf("%v", k)
-			if kLower == "subject" || kLower == "Subject" {
-				hasSubject = true
-			}
-			if kLower == "from" || kLower == "From" {
-				hasFrom = true
-			}
-		}
-		if hasSubject || hasFrom {
-			emails = []interface{}{v}
-		} else if jsonData, ok := v["json"]; ok {
-			// Check if json key contains array
-			if arr, ok := jsonData.([]interface{}); ok {
+		// Check if it has an "emails" key (new format from Format as Array node)
+		if emailsData, ok := v["emails"]; ok {
+			if arr, ok := emailsData.([]interface{}); ok {
 				emails = arr
-			} else if m, ok := jsonData.(map[string]interface{}); ok {
-				emails = []interface{}{m}
 			}
-		} else if results, ok := v["results"]; ok {
-			if arr, ok := results.([]interface{}); ok {
-				emails = arr
+		} else {
+			// Check if it's a single email
+			hasSubject := false
+			hasFrom := false
+			for k := range v {
+				kLower := fmt.Sprintf("%v", k)
+				if kLower == "subject" || kLower == "Subject" {
+					hasSubject = true
+				}
+				if kLower == "from" || kLower == "From" {
+					hasFrom = true
+				}
+			}
+			if hasSubject || hasFrom {
+				emails = []interface{}{v}
+			} else if jsonData, ok := v["json"]; ok {
+				// Check if json key contains array
+				if arr, ok := jsonData.([]interface{}); ok {
+					emails = arr
+				} else if m, ok := jsonData.(map[string]interface{}); ok {
+					emails = []interface{}{m}
+				}
+			} else if results, ok := v["results"]; ok {
+				if arr, ok := results.([]interface{}); ok {
+					emails = arr
+				}
 			}
 		}
 	}

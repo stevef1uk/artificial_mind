@@ -1928,6 +1928,19 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 			finalResult = []interface{}{resultMap}
 			resultLen = 1
 			resultType = "array (wrapped)"
+		} else if emailsData, hasEmails := resultMap["emails"]; hasEmails {
+			// New format from "Format as Array" node: { emails: [...] }
+			log.Printf("📧 [MCP-KNOWLEDGE] Extracting data from 'emails' key in map")
+			if emailsArray, ok := emailsData.([]interface{}); ok {
+				finalResult = emailsArray
+				resultLen = len(emailsArray)
+				resultType = "array (from emails key)"
+				log.Printf("📧 [MCP-KNOWLEDGE] Extracted %d emails from 'emails' key", resultLen)
+			} else {
+				log.Printf("⚠️ [MCP-KNOWLEDGE] 'emails' key is not an array, type: %T", emailsData)
+				finalResult = []interface{}{emailsData}
+				resultLen = 1
+			}
 		} else if jsonData, hasJson := resultMap["json"]; hasJson {
 			// If it has "json" key, extract it
 			log.Printf("📧 [MCP-KNOWLEDGE] Extracting data from 'json' key in map")
