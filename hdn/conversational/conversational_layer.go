@@ -260,16 +260,32 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 	// Step 6b: Check if we should summarize the conversation
 	shouldSummarize, _ := cl.summarizer.ShouldSummarize(ctx, req.SessionID)
 	if shouldSummarize {
+		log.Printf("📝 [CONVERSATIONAL] Summarization triggered for session %s", req.SessionID)
 		// Get conversation history and summarize
-		if history, ok := conversationContext["conversation_history"].([]ConversationTurn); ok {
+		var turns []ConversationTurn
+		if history, ok := conversationContext["conversation_history"].([]ConversationEntry); ok {
+			for _, entry := range history {
+				turns = append(turns, ConversationTurn{
+					UserMessage:       entry.UserMessage,
+					AssistantResponse: entry.AIResponse,
+					Timestamp:         entry.Timestamp,
+				})
+			}
+		} else if history, ok := conversationContext["conversation_history"].([]ConversationTurn); ok {
+			turns = history
+		}
+
+		if len(turns) > 0 {
 			go func() {
 				summarizeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
-				err := cl.summarizer.SummarizeConversation(summarizeCtx, req.SessionID, history)
+				err := cl.summarizer.SummarizeConversation(summarizeCtx, req.SessionID, turns)
 				if err != nil {
 					log.Printf("⚠️ [CONVERSATIONAL] Async summarization failed: %v", err)
 				}
 			}()
+		} else {
+			log.Printf("⚠️ [CONVERSATIONAL] Summarization triggered but no history found (type: %T)", conversationContext["conversation_history"])
 		}
 	}
 
