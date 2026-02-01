@@ -531,7 +531,17 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 								if item, ok := res.(map[string]interface{}); ok {
 									// Case-insensitive field extraction
 									subject := getStringFromMapCaseInsensitive(item, "subject")
-									from := getStringFromMapCaseInsensitive(item, "from")
+									
+									// Extract "from" field (might be string or complex object)
+									var fromField interface{}
+									keyLower := strings.ToLower("from")
+									for k, v := range item {
+										if strings.ToLower(k) == keyLower {
+											fromField = v
+											break
+										}
+									}
+									from := extractEmailAddress(fromField)
 
 									// Check for UNREAD label
 									isUnread := false
@@ -691,7 +701,17 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 								if item, ok := res.(map[string]interface{}); ok {
 									// Case-insensitive field extraction
 									subject := getStringFromMapCaseInsensitive(item, "subject")
-									from := getStringFromMapCaseInsensitive(item, "from")
+									
+									// Extract "from" field (might be string or complex object)
+									var fromField interface{}
+									keyLower := strings.ToLower("from")
+									for k, v := range item {
+										if strings.ToLower(k) == keyLower {
+											fromField = v
+											break
+										}
+									}
+									from := extractEmailAddress(fromField)
 
 									isUnread := false
 									if labels, ok := item["labels"].([]interface{}); ok {
@@ -776,6 +796,53 @@ func getStringFromMap(m map[string]interface{}, key string) string {
 	}
 
 	return ""
+}
+
+// extractEmailAddress extracts a clean email address from a "from" field that might be a string or complex object
+func extractEmailAddress(fromField interface{}) string {
+	if fromField == nil {
+		return ""
+	}
+	
+	// If it's already a string, return it
+	if s, ok := fromField.(string); ok {
+		return s
+	}
+	
+	// If it's a map, try to extract the email address
+	if m, ok := fromField.(map[string]interface{}); ok {
+		// Try "address" field first
+		if addr, ok := m["address"].(string); ok && addr != "" {
+			name, _ := m["name"].(string)
+			if name != "" {
+				return fmt.Sprintf("%s <%s>", name, addr)
+			}
+			return addr
+		}
+		
+		// Try "value" field which might contain an array
+		if value, ok := m["value"]; ok {
+			if arr, ok := value.([]interface{}); ok && len(arr) > 0 {
+				if firstItem, ok := arr[0].(map[string]interface{}); ok {
+					if addr, ok := firstItem["address"].(string); ok && addr != "" {
+						name, _ := firstItem["name"].(string)
+						if name != "" {
+							return fmt.Sprintf("%s <%s>", name, addr)
+						}
+						return addr
+					}
+				}
+			}
+		}
+		
+		// Try "text" field (sometimes email is in text format)
+		if text, ok := m["text"].(string); ok && text != "" {
+			return text
+		}
+	}
+	
+	// Fallback: convert to string
+	return fmt.Sprintf("%v", fromField)
 }
 
 // getStringFromMapCaseInsensitive extracts a string value from a map using case-insensitive key matching
