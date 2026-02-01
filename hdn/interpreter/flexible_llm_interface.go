@@ -130,7 +130,7 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 	inputLower := strings.ToLower(input)
 	var relevant []Tool
 	seen := make(map[string]bool)
-	commonKeywords := []string{"query", "neo4j", "http", "file", "read", "write", "exec", "docker", "code", "generate", "search", "scrape"}
+	commonKeywords := []string{"query", "neo4j", "http", "file", "read", "write", "exec", "docker", "code", "generate", "search", "scrape", "email", "emails"}
 
 	// Keywords that suggest specific tool usage
 	toolKeywords := map[string][]string{
@@ -138,6 +138,7 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		"mcp_get_concept":           {"concept", "get concept", "retrieve concept", "knowledge"},
 		"mcp_find_related_concepts": {"related", "related concepts", "find related", "connections"},
 		"mcp_search_weaviate":       {"weaviate", "search", "vector", "semantic", "similar", "episodes", "memories"},
+		"mcp_read_google_data":      {"email", "emails", "check email", "check emails", "read email", "read emails", "gmail", "google workspace", "calendar", "calendar events", "inbox"},
 		"tool_http_get":             {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
 		"tool_html_scraper":         {"scrape", "html", "web", "website", "article", "news", "page", "parse html"},
 		"tool_file_read":            {"read", "file", "load", "open", "readfile", "read file", "content", "text"},
