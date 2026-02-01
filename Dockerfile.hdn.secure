@@ -59,6 +59,9 @@ COPY --from=secure-build /out/encrypted_files.zip ./hdn-server.enc
 # app config
 COPY hdn/config.json ./config.json
 COPY hdn/domain.json ./domain.json
+# n8n/MCP skills configuration
+RUN mkdir -p ./config
+COPY config/n8n_mcp_skills.yaml ./config/n8n_mcp_skills.yaml
 # include host-exec tools used by HDN tool handlers
 RUN mkdir -p /app/bin /app/bin/tools
 COPY --from=builder /app/bin/tools/ /app/bin/tools/
