@@ -261,6 +261,7 @@ graph TB
   - **Tool Registry & Discovery**: Redis-backed catalog (`tool:{id}`, `tools:registry`), bootstrap, discovery, registration APIs (`/api/v1/tools*`)
   - **Tool Executor**: Sandboxed execution (Docker), pre-exec Principles gate, output JSON parsing/normalization, usage logging (`tools:{agent_id}:usage_history`)
   - **MCP Knowledge Server**: Exposes knowledge bases (Neo4j, Weaviate) as MCP tools for LLM access
+  - **Configuration-Based Skills**: Add n8n/MCP skills via YAML configuration without code changes (see [Configuration-Based Skills](CONFIG_BASED_N8N_MCP_SKILLS.md))
   - **Composite Tool Provider**: Combines HDN tools and MCP knowledge tools, automatically discovered by the LLM
   - **Conversational Layer**: Natural language interface with chain-of-thought visibility and thought storage
   - **Async LLM Queue System**: Priority-based async queue for all LLM calls with LIFO processing, worker pools, and callback routing

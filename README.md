@@ -35,6 +35,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - **📊 Monitor UI** - Real-time visualization and control interface with Chain of Thought tab
 - **🧠 Thinking Mode** - Real-time AI introspection and transparency
 - **🔌 MCP Knowledge Server** - Exposes knowledge bases (Neo4j, Weaviate) as MCP tools for LLM access
+- **⚙️ Configuration-Based Skills** - Add n8n/MCP skills via YAML configuration without code changes
 - **🔍 Coherence Monitor** - Cross-system consistency checking and cognitive integrity system
 
 ### Advanced Features
@@ -103,6 +104,7 @@ The Artificial Mind system consists of several interconnected components that wo
 ### 🔧 Implementation & Development
 - [**Setup Guide**](docs/SETUP_GUIDE.md) - Complete setup instructions for new users
 - [**Configuration Guide**](docs/CONFIGURATION_GUIDE.md) - Docker, LLM, and deployment configuration
+- [**Configuration-Based Skills**](docs/CONFIG_BASED_N8N_MCP_SKILLS.md) - Add n8n/MCP skills via YAML configuration
 - [**Secure Packaging Guide**](docs/SECURE_PACKAGING_GUIDE.md) - Binary encryption and security
 - [**Implementation Summary**](docs/IMPLEMENTATION_SUMMARY.md) - Development overview
 - [**Integration Guide**](docs/INTEGRATION_GUIDE.md) - System integration instructions
