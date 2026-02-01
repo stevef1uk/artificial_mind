@@ -623,7 +623,7 @@ main() {
     api_request "POST" "/api/v1/intelligent/execute" \
         '{
             "task_name": "PrimeNumberGenerator",
-            "description": "Generate the first N prime numbers, in strictly increasing order with no duplicates. Print the result as a Python list literal to stdout, e.g. print([2, 3, 5, 7, 11, 13, 17, 19, 23, 29]). Ensure the list contains exactly N prime numbers with no duplicates.",
+            "description": "Generate the first N prime numbers, in strictly increasing order with no duplicates. Print the result as a Python list literal to stdout, e.g. print([2, 3, 5, 7, 11, 13, 17, 19, 23, 29]). Ensure the list contains exactly N prime numbers with no duplicates. Do not use external HTTP libraries like requests.",
             "context": {"count": "10", "input": "10"},
             "language": "python",
             "force_regenerate": true
@@ -636,7 +636,7 @@ main() {
     api_request "POST" "/api/v1/intelligent/execute" \
         '{
             "task_name": "MatrixCalculator",
-            "description": "Perform matrix operations including addition, multiplication, and transpose. For this task, add the two 2x2 matrices and print the resulting matrix in Go slice form, e.g. [6 8] on one line and [10 12] on the next line.",
+            "description": "Perform matrix operations including addition, multiplication, and transpose. For this task, add the two 2x2 matrices [[1,2],[3,4]] and [[5,6],[7,8]] using the context parameters directly (not from files). Print the resulting matrix in Go slice form, e.g. [6 8] on one line and [10 12] on the next line. Use the context parameters matrix1 and matrix2 directly as JSON arrays.",
             "context": {"operation": "add", "matrix1": "[[1,2],[3,4]]", "matrix2": "[[5,6],[7,8]]"},
             "language": "go",
             "force_regenerate": true
@@ -835,7 +835,7 @@ main() {
         '{
             "task_name": "PrimeNumberGenerator",
             "description": "Generate the first N prime numbers and return them as a list",
-            "context": {"count": "8", "input": "8"},
+            "context": {"count": "8", "input": "8", "allow_requests": "true"},
             "language": "python",
             "force_regenerate": false
         }' \
@@ -846,10 +846,10 @@ main() {
     api_request "POST" "/api/v1/intelligent/execute" \
         '{
             "task_name": "MatrixCalculator",
-            "description": "Perform matrix addition operations",
+            "description": "Perform matrix addition operations. Add the two 2x2 matrices [[2,3],[4,5]] and [[1,1],[1,1]] using the context parameters directly (not from files). Print the resulting matrix in Go slice form. Use the context parameters matrix1 and matrix2 directly as JSON arrays.",
             "context": {"operation": "add", "matrix1": "[[2,3],[4,5]]", "matrix2": "[[1,1],[1,1]]"},
             "language": "go",
-            "force_regenerate": true
+            "force_regenerate": false
         }' \
         "Reusing Go matrix calculator for different matrices (should use cached code)" \
         "(\\[3 4\\]|3 4).*(\\[5 6\\]|5 6)"
