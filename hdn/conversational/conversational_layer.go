@@ -571,12 +571,13 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		}
 		// For knowledge queries, create a more direct prompt that forces tool usage
 		// Extract just the core concept name from the original message or goal
-		// Try to get the original message from context first
-		originalMessage := ""
-		if origMsg, ok := hdnContext["original_message"]; ok {
-			originalMessage = origMsg
-		} else if origMsg, ok := context["original_message"].(string); ok {
-			originalMessage = origMsg
+		// Try to get the original message from context first (if not already set above)
+		if originalMessage == "" {
+			if origMsg, ok := hdnContext["original_message"]; ok {
+				originalMessage = origMsg
+			} else if origMsg, ok := context["original_message"].(string); ok {
+				originalMessage = origMsg
+			}
 		}
 
 		// Extract concept name from "What is X?" pattern
