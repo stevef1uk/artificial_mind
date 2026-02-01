@@ -94,6 +94,11 @@ spec:
                 secretKeyRef:
                   name: secure-vendor
                   key: token
+            - name: N8N_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: secure-vendor
+                  key: token
             - name: UNPACK_WORK_DIR
               value: "/tmp/unpack"
             # Docker resource limits for Raspberry Pi (increased for code validation)
