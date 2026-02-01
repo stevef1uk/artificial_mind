@@ -1,0 +1,73 @@
+# Example configuration for n8n/MCP Skills
+# Copy this file to n8n_mcp_skills.yaml and customize for your environment
+
+skills:
+  - id: read_google_data
+    name: Read Google Workspace Data
+    description: Read emails or calendar events from Google Workspace via n8n integration
+    type: n8n_webhook
+    endpoint: ${N8N_WEBHOOK_URL}
+    method: POST
+    auth:
+      type: header
+      header: X-Webhook-Secret
+      secret_env: N8N_WEBHOOK_SECRET
+    tls:
+      skip_verify: true
+    request:
+      payload_template: |
+        {
+          "query": "{{.query}}",
+          "type": "{{.type}}",
+          "limit": {{.limit}}
+        }
+    input_schema:
+      query:
+        type: string
+        description: Search query for emails or calendar events (e.g., 'unread', 'recent', 'today')
+        default: ""
+      type:
+        type: string
+        enum: [email, calendar, all]
+        description: Type of data to retrieve
+        default: email
+      limit:
+        type: integer
+        description: Maximum number of results to return
+        minimum: 1
+        maximum: 50
+        default: 5
+    response:
+      format: json
+      structure:
+        type: object
+      emails_key: emails  # Extract array from this key in response
+    timeout: 60s
+
+  # Example: Add more skills here
+  # - id: send_slack_message
+  #   name: Send Slack Message
+  #   description: Send a message to a Slack channel via n8n
+  #   type: n8n_webhook
+  #   endpoint: ${N8N_SLACK_WEBHOOK_URL}
+  #   method: POST
+  #   auth:
+  #     type: header
+  #     header: Authorization
+  #     secret_env: N8N_SLACK_SECRET
+  #   request:
+  #     payload_template: |
+  #       {
+  #         "channel": "{{.channel}}",
+  #         "message": "{{.message}}"
+  #       }
+  #   input_schema:
+  #     channel:
+  #       type: string
+  #       description: Slack channel name
+  #       required: true
+  #     message:
+  #       type: string
+  #       description: Message text
+  #       required: true
+
