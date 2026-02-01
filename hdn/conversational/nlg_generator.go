@@ -470,11 +470,17 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 							text := getStringFromMap(item, "text")
 							name := getStringFromMap(item, "name")
 							defn := getStringFromMap(item, "definition")
+							content := getStringFromMap(item, "content")
+							source := getStringFromMap(item, "source")
 
 							if title != "" {
 								resultSb.WriteString(fmt.Sprintf("[%d] TITLE: %s\n", i+1, title))
 							} else if name != "" {
 								resultSb.WriteString(fmt.Sprintf("[%d] NAME: %s\n", i+1, name))
+							} else if source != "" {
+								resultSb.WriteString(fmt.Sprintf("[%d] SOURCE: %s\n", i+1, source))
+							} else if title == "" && name == "" && source == "" {
+								resultSb.WriteString(fmt.Sprintf("[%d] ITEM:\n", i+1))
 							}
 
 							if text != "" {
@@ -485,6 +491,11 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 								resultSb.WriteString(fmt.Sprintf("    CONTENT: %s\n", text))
 							} else if defn != "" {
 								resultSb.WriteString(fmt.Sprintf("    DEFINITION: %s\n", defn))
+							} else if content != "" {
+								if len(content) > 800 {
+									content = content[:800] + "..."
+								}
+								resultSb.WriteString(fmt.Sprintf("    CONTENT: %s\n", content))
 							}
 							resultSb.WriteString("\n")
 						}
@@ -525,6 +536,14 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 			content := extractContent(news)
 			if content != "" {
 				sb.WriteString("### News Articles (Weaviate):\n")
+				sb.WriteString(content)
+				sb.WriteString("\n\n")
+			}
+		}
+		if avatar, ok := data["avatar_context"]; ok {
+			content := extractContent(avatar)
+			if content != "" {
+				sb.WriteString("### Personal Background (AvatarContext):\n")
 				sb.WriteString(content)
 				sb.WriteString("\n\n")
 			}

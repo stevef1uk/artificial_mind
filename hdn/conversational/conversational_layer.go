@@ -716,8 +716,26 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			}
 		}
 
-		// 4. Combine results
-		if hasRAGResults || hasNewsResults || hasWikiResults {
+		// 4. Try searching avatar context (personal info) independently and directly
+		log.Printf("🔍 [CONVERSATIONAL] Calling SearchWeaviate for avatar context: %s", ragQueryText)
+		avatarResult, avatarErr := cl.hdnClient.SearchWeaviate(ctx, ragQueryText, "AvatarContext", 3)
+
+		hasAvatarResults := false
+		if avatarErr != nil {
+			log.Printf("⚠️ [CONVERSATIONAL] Avatar RAG search failed: %v", avatarErr)
+		} else if avatarResult != nil && avatarResult.Metadata != nil {
+			if toolSuccess, ok := avatarResult.Metadata["tool_success"].(bool); ok && toolSuccess {
+				if toolResult, ok := avatarResult.Metadata["tool_result"].(map[string]interface{}); ok {
+					if hasResultsInToolResult(toolResult) {
+						hasAvatarResults = true
+						log.Printf("✅ [CONVERSATIONAL] RAG search found results in avatar context")
+					}
+				}
+			}
+		}
+
+		// 5. Combine results
+		if hasRAGResults || hasNewsResults || hasWikiResults || hasAvatarResults {
 			combinedData := map[string]interface{}{
 				"neo4j_result": interpretResult,
 				"source":       "neo4j_and_rag",
@@ -730,6 +748,9 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			}
 			if hasWikiResults {
 				combinedData["wikipedia_articles"] = wikiResult
+			}
+			if hasAvatarResults {
+				combinedData["avatar_context"] = avatarResult
 			}
 
 			return &ActionResult{

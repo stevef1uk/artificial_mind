@@ -667,6 +667,11 @@ func (s *MCPKnowledgeServer) searchWeaviate(ctx context.Context, args map[string
 		collection = c
 	}
 
+	// Route AvatarContext to specialized semantic search
+	if collection == "AvatarContext" {
+		return s.searchAvatarContext(ctx, args)
+	}
+
 	if s.vectorDB == nil {
 		return nil, fmt.Errorf("Weaviate not available")
 	}
