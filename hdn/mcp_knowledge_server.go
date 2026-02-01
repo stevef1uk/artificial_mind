@@ -1882,9 +1882,20 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 						}
 					}
 				} else {
-					// Check if first item is already an email object (has Subject, From, To)
-					if _, hasSubject := firstItem["Subject"]; hasSubject {
-						log.Printf("📧 [MCP-KNOWLEDGE] Items are already email objects (no json wrapper)")
+					// Check if first item is already an email object (has Subject/subject, From/from) - case insensitive
+					hasSubject := false
+					hasFrom := false
+					for k := range firstItem {
+						kLower := strings.ToLower(k)
+						if kLower == "subject" {
+							hasSubject = true
+						}
+						if kLower == "from" {
+							hasFrom = true
+						}
+					}
+					if hasSubject || hasFrom {
+						log.Printf("📧 [MCP-KNOWLEDGE] Items are already email objects (no json wrapper, hasSubject=%v, hasFrom=%v)", hasSubject, hasFrom)
 						finalResult = resultArray
 					}
 				}
@@ -1898,9 +1909,21 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 		}
 		log.Printf("📧 [MCP-KNOWLEDGE] n8n returned map with keys: %v", keys)
 		
-		// Check if this is a single email object (has Subject, From, To)
-		if _, hasSubject := resultMap["Subject"]; hasSubject {
-			log.Printf("📧 [MCP-KNOWLEDGE] Single email object detected, wrapping in array")
+		// Check if this is a single email object (has Subject/subject, From/from, To/to) - case insensitive
+		hasSubject := false
+		hasFrom := false
+		for k := range resultMap {
+			kLower := strings.ToLower(k)
+			if kLower == "subject" {
+				hasSubject = true
+			}
+			if kLower == "from" {
+				hasFrom = true
+			}
+		}
+		
+		if hasSubject || hasFrom {
+			log.Printf("📧 [MCP-KNOWLEDGE] Single email object detected (hasSubject=%v, hasFrom=%v), wrapping in array", hasSubject, hasFrom)
 			// Wrap single email in array for consistent handling
 			finalResult = []interface{}{resultMap}
 			resultLen = 1
@@ -1913,8 +1936,19 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 				resultLen = len(jsonArray)
 				resultType = "array (from json key)"
 			} else if jsonMap, ok := jsonData.(map[string]interface{}); ok {
-				// Single email in json key
-				if _, hasSubject := jsonMap["Subject"]; hasSubject {
+				// Single email in json key - check case-insensitively
+				hasSubject := false
+				hasFrom := false
+				for k := range jsonMap {
+					kLower := strings.ToLower(k)
+					if kLower == "subject" {
+						hasSubject = true
+					}
+					if kLower == "from" {
+						hasFrom = true
+					}
+				}
+				if hasSubject || hasFrom {
 					finalResult = []interface{}{jsonMap}
 					resultLen = 1
 					resultType = "array (wrapped from json)"
