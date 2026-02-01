@@ -1882,6 +1882,36 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 			keys = append(keys, k)
 		}
 		log.Printf("📧 [MCP-KNOWLEDGE] n8n returned map with keys: %v", keys)
+		
+		// Check if this is a single email object (has Subject, From, To)
+		if _, hasSubject := resultMap["Subject"]; hasSubject {
+			log.Printf("📧 [MCP-KNOWLEDGE] Single email object detected, wrapping in array")
+			// Wrap single email in array for consistent handling
+			finalResult = []interface{}{resultMap}
+			resultLen = 1
+			resultType = "array (wrapped)"
+		} else if jsonData, hasJson := resultMap["json"]; hasJson {
+			// If it has "json" key, extract it
+			log.Printf("📧 [MCP-KNOWLEDGE] Extracting data from 'json' key in map")
+			if jsonArray, ok := jsonData.([]interface{}); ok {
+				finalResult = jsonArray
+				resultLen = len(jsonArray)
+				resultType = "array (from json key)"
+			} else if jsonMap, ok := jsonData.(map[string]interface{}); ok {
+				// Single email in json key
+				if _, hasSubject := jsonMap["Subject"]; hasSubject {
+					finalResult = []interface{}{jsonMap}
+					resultLen = 1
+					resultType = "array (wrapped from json)"
+				} else {
+					finalResult = []interface{}{jsonMap}
+					resultLen = 1
+				}
+			} else {
+				finalResult = []interface{}{jsonData}
+				resultLen = 1
+			}
+		}
 	} else {
 		log.Printf("⚠️ [MCP-KNOWLEDGE] n8n returned unexpected type: %T", result)
 	}

@@ -829,6 +829,58 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 	// Extract tool information if a tool was used
 	metadata := map[string]interface{}{
 		"interpreted_at": time.Now(),
+	}
+	
+	// Convert ToolExecutionResult to tool_result metadata format for NLG
+	if result.ToolExecutionResult != nil && result.ToolExecutionResult.Success {
+		toolResult := map[string]interface{}{
+			"success": true,
+		}
+		
+		// Handle different result formats from tools
+		if result.ToolExecutionResult.Result != nil {
+			// Check if result is already in the expected format (map with "results" key)
+			if resultMap, ok := result.ToolExecutionResult.Result.(map[string]interface{}); ok {
+				// If it has a "results" key, use it directly
+				if _, hasResults := resultMap["results"]; hasResults {
+					toolResult["results"] = resultMap["results"]
+				} else {
+					// Check if it's a single email object (has Subject, From, To)
+					if _, hasSubject := resultMap["Subject"]; hasSubject {
+						// Wrap single email in array
+						toolResult["results"] = []interface{}{resultMap}
+					} else {
+						// Otherwise, wrap the entire result in a results array
+						toolResult["results"] = []interface{}{resultMap}
+					}
+				}
+			} else if resultSlice, ok := result.ToolExecutionResult.Result.([]interface{}); ok {
+				// If result is already a slice, use it directly
+				toolResult["results"] = resultSlice
+			} else {
+				// Otherwise, wrap single result in a results array
+				toolResult["results"] = []interface{}{result.ToolExecutionResult.Result}
+			}
+		}
+		
+		metadata["tool_result"] = toolResult
+		metadata["tool_used"] = result.ToolCall.ToolID
+		
+		// Log the structure for debugging
+		if results, ok := toolResult["results"]; ok {
+			if resultsArray, ok := results.([]interface{}); ok {
+				log.Printf("🔧 [SIMPLE-CHAT-HDN] Added tool_result to metadata for tool: %s (with %d results)", result.ToolCall.ToolID, len(resultsArray))
+			} else {
+				log.Printf("🔧 [SIMPLE-CHAT-HDN] Added tool_result to metadata for tool: %s (results type: %T)", result.ToolCall.ToolID, results)
+			}
+		} else {
+			log.Printf("⚠️ [SIMPLE-CHAT-HDN] Added tool_result to metadata for tool: %s (NO RESULTS KEY!)", result.ToolCall.ToolID)
+		}
+	}
+	
+	// Set up base metadata
+	baseMetadata := map[string]interface{}{
+		"interpreted_at": time.Now(),
 		"response_type":  string(result.ResponseType),
 	}
 
