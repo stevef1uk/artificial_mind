@@ -499,14 +499,12 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 						_, hasSubject := firstItem["Subject"]
 						_, hasFrom := firstItem["From"]
 						if hasSubject || hasFrom {
-							// Format as email list
+							// Format as email list (only sender and subject)
 							resultSb.WriteString(fmt.Sprintf("Found %d email(s):\n\n", len(resultsList)))
 							for i, res := range resultsList {
 								if item, ok := res.(map[string]interface{}); ok {
 									subject := getStringFromMap(item, "Subject")
 									from := getStringFromMap(item, "From")
-									to := getStringFromMap(item, "To")
-									snippet := getStringFromMap(item, "snippet")
 
 									// Check for UNREAD label
 									isUnread := false
@@ -527,21 +525,11 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 									}
 
 									resultSb.WriteString(fmt.Sprintf("[%d]%s\n", i+1, unreadMark))
-									if subject != "" {
-										resultSb.WriteString(fmt.Sprintf("    Subject: %s\n", subject))
-									}
 									if from != "" {
 										resultSb.WriteString(fmt.Sprintf("    From: %s\n", from))
 									}
-									if to != "" {
-										resultSb.WriteString(fmt.Sprintf("    To: %s\n", to))
-									}
-									if snippet != "" {
-										// Limit snippet length
-										if len(snippet) > 200 {
-											snippet = snippet[:200] + "..."
-										}
-										resultSb.WriteString(fmt.Sprintf("    Preview: %s\n", snippet))
+									if subject != "" {
+										resultSb.WriteString(fmt.Sprintf("    Subject: %s\n", subject))
 									}
 									resultSb.WriteString("\n")
 								}
@@ -663,9 +651,7 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 								if item, ok := res.(map[string]interface{}); ok {
 									subject := getStringFromMap(item, "Subject")
 									from := getStringFromMap(item, "From")
-									to := getStringFromMap(item, "To")
-									snippet := getStringFromMap(item, "snippet")
-									
+
 									isUnread := false
 									if labels, ok := item["labels"].([]interface{}); ok {
 										for _, label := range labels {
@@ -677,27 +663,18 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 											}
 										}
 									}
-									
+
 									unreadMark := ""
 									if isUnread {
 										unreadMark = " [UNREAD]"
 									}
-									
+
 									emailSb.WriteString(fmt.Sprintf("[%d]%s\n", i+1, unreadMark))
-									if subject != "" {
-										emailSb.WriteString(fmt.Sprintf("    Subject: %s\n", subject))
-									}
 									if from != "" {
 										emailSb.WriteString(fmt.Sprintf("    From: %s\n", from))
 									}
-									if to != "" {
-										emailSb.WriteString(fmt.Sprintf("    To: %s\n", to))
-									}
-									if snippet != "" {
-										if len(snippet) > 200 {
-											snippet = snippet[:200] + "..."
-										}
-										emailSb.WriteString(fmt.Sprintf("    Preview: %s\n", snippet))
+									if subject != "" {
+										emailSb.WriteString(fmt.Sprintf("    Subject: %s\n", subject))
 									}
 									emailSb.WriteString("\n")
 								}
