@@ -80,8 +80,9 @@ func (r *DynamicSkillRegistry) ListSkills() []MCPKnowledgeTool {
 	tools := make([]MCPKnowledgeTool, 0, len(r.skills))
 	for _, skill := range r.skills {
 		// Convert SkillConfig to MCPKnowledgeTool
+		// Use skill ID as the tool name (e.g., "read_google_data") to match expected MCP tool naming
 		tool := MCPKnowledgeTool{
-			Name:        skill.Name,
+			Name:        skill.ID, // Use ID, not display name, for MCP tool name
 			Description: skill.Description,
 			InputSchema: r.buildInputSchema(skill),
 		}
