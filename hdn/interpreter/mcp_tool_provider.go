@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // MCPToolProvider provides MCP tools to the interpreter
