@@ -802,6 +802,7 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 	queryData := map[string]interface{}{
 		"query": queryStr,
 	}
+	log.Printf("🔍 [MCP-KNOWLEDGE] Sending GraphQL query to Weaviate: %s", queryStr)
 
 	jsonData, err := json.Marshal(queryData)
 	if err != nil {
@@ -822,10 +823,11 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 300 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("weaviate returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+	log.Printf("🔍 [MCP-KNOWLEDGE] Weaviate raw response: %s", string(bodyBytes))
 
 	var result struct {
 		Data struct {
@@ -836,7 +838,7 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 		} `json:"errors"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
