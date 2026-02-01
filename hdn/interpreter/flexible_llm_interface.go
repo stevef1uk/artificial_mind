@@ -104,8 +104,48 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 		if err != nil {
 			return nil, fmt.Errorf("failed to call LLM: %v", err)
 		}
-		log.Printf("✅ [FLEXIBLE-LLM] Generated response length: %d", len(response))
-		return f.parseFlexibleResponse(response, len(filteredTools))
+	log.Printf("✅ [FLEXIBLE-LLM] Generated response length: %d", len(response))
+	parsedResponse, err := f.parseFlexibleResponse(response, len(filteredTools))
+	if err != nil {
+		return nil, err
+	}
+	
+	// Validation: Reject text responses for email/calendar requests if email tool is available
+	if parsedResponse.Type == ResponseTypeText {
+		inputLower := strings.ToLower(input)
+		isEmailRequest := strings.Contains(inputLower, "email") || strings.Contains(inputLower, "emails") || 
+		                 strings.Contains(inputLower, "calendar") || strings.Contains(inputLower, "inbox") ||
+		                 strings.Contains(inputLower, "gmail") || strings.Contains(inputLower, "check my")
+		
+		if isEmailRequest {
+			// Check if email tool is available
+			hasEmailTool := false
+			for _, tool := range filteredTools {
+				if tool.ID == "mcp_read_google_data" {
+					hasEmailTool = true
+					break
+				}
+			}
+			
+			if hasEmailTool {
+				log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response for email request when mcp_read_google_data tool is available. Forcing tool call.")
+				// Force tool call instead
+				return &FlexibleLLMResponse{
+					Type: ResponseTypeToolCall,
+					ToolCall: &ToolCall{
+						ToolID: "mcp_read_google_data",
+						Parameters: map[string]interface{}{
+							"query": "recent emails",
+							"type":  "email",
+						},
+						Description: "Reading emails as requested",
+					},
+				}, nil
+			}
+		}
+	}
+	
+	return parsedResponse, nil
 	}
 
 	// Fallback to standard method (low priority)
@@ -117,7 +157,47 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 	log.Printf("✅ [FLEXIBLE-LLM] Generated response length: %d", len(response))
 
 	// Parse the flexible response
-	return f.parseFlexibleResponse(response, len(filteredTools))
+	parsedResponse, err := f.parseFlexibleResponse(response, len(filteredTools))
+	if err != nil {
+		return nil, err
+	}
+	
+	// Validation: Reject text responses for email/calendar requests if email tool is available
+	if parsedResponse.Type == ResponseTypeText {
+		inputLower := strings.ToLower(input)
+		isEmailRequest := strings.Contains(inputLower, "email") || strings.Contains(inputLower, "emails") || 
+		                 strings.Contains(inputLower, "calendar") || strings.Contains(inputLower, "inbox") ||
+		                 strings.Contains(inputLower, "gmail") || strings.Contains(inputLower, "check my")
+		
+		if isEmailRequest {
+			// Check if email tool is available
+			hasEmailTool := false
+			for _, tool := range filteredTools {
+				if tool.ID == "mcp_read_google_data" {
+					hasEmailTool = true
+					break
+				}
+			}
+			
+			if hasEmailTool {
+				log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response for email request when mcp_read_google_data tool is available. Forcing tool call.")
+				// Force tool call instead
+				return &FlexibleLLMResponse{
+					Type: ResponseTypeToolCall,
+					ToolCall: &ToolCall{
+						ToolID: "mcp_read_google_data",
+						Parameters: map[string]interface{}{
+							"query": "recent emails",
+							"type":  "email",
+						},
+						Description: "Reading emails as requested",
+					},
+				}, nil
+			}
+		}
+	}
+	
+	return parsedResponse, nil
 }
 
 // filterRelevantTools filters tools based on task relevance to reduce prompt size
@@ -206,6 +286,13 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		"tool_file_read",  // Common for file operations
 		"tool_file_write", // Common for saving results
 		"tool_exec",       // Common for system operations
+	}
+	
+	// Special case: Always include email tool if input mentions email/calendar
+	if strings.Contains(inputLower, "email") || strings.Contains(inputLower, "emails") || 
+	   strings.Contains(inputLower, "calendar") || strings.Contains(inputLower, "inbox") ||
+	   strings.Contains(inputLower, "gmail") || strings.Contains(inputLower, "check my") {
+		alwaysInclude = append(alwaysInclude, "mcp_read_google_data")
 	}
 
 	for _, toolID := range alwaysInclude {
@@ -408,6 +495,7 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 	}
 
 	prompt.WriteString("🚨 CRITICAL: You MUST respond with ONLY a valid JSON object. NO explanatory text before or after the JSON.\n\n")
+	prompt.WriteString("⚠️ FOR EMAIL/CALENDAR REQUESTS: You MUST use mcp_read_google_data tool. DO NOT generate fake email content. DO NOT hallucinate emails.\n\n")
 	prompt.WriteString("Respond using EXACTLY ONE of these JSON formats (no extra text, no markdown, no code blocks):\n")
 	prompt.WriteString("1. STRONGLY PREFER (use this if ANY tool can help): {\"type\": \"tool_call\", \"tool_call\": {\"tool_id\": \"tool_name\", \"parameters\": {...}, \"description\": \"...\"}}\n")
 	prompt.WriteString("2. Or: {\"type\": \"structured_task\", \"structured_task\": {\"task_name\": \"...\", \"description\": \"...\", \"subtasks\": [...]}}\n")
@@ -418,9 +506,10 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 	// Enhanced guidance for tool usage
 	prompt.WriteString("Rules:\n")
 	prompt.WriteString("- CRITICAL: ALWAYS try to use available tools first before generating code.\n")
+	prompt.WriteString("- 🚫 NEVER generate fake or hallucinated content. If you need data, use a tool to get it.\n")
 	prompt.WriteString("- If the request is vague or generic, infer the most likely tool needed and use it with reasonable default parameters.\n")
 	prompt.WriteString("- For knowledge queries: use mcp_query_neo4j, mcp_get_concept, or mcp_find_related_concepts to query the knowledge base.\n")
-	prompt.WriteString("- For email or calendar requests: use mcp_read_google_data to read emails or calendar events from Google Workspace.\n")
+	prompt.WriteString("- ⚠️ FOR EMAIL/CALENDAR REQUESTS: You MUST use mcp_read_google_data tool. NEVER generate fake email content. If the user asks about emails, you MUST call mcp_read_google_data with appropriate parameters.\n")
 	prompt.WriteString("- For HTTP requests: use tool_http_get with a valid URL.\n")
 	prompt.WriteString("- For file operations: use tool_file_read, tool_file_write, or tool_ls.\n")
 	prompt.WriteString("- For system operations: use tool_exec with appropriate commands.\n")
