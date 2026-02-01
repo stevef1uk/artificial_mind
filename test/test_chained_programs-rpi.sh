@@ -179,10 +179,22 @@ if [ "$SUCCESS" = "true" ] && [ -n "$WORKFLOW_ID" ]; then
     print_ok "Both files generated!"
     echo
     echo "prog1.py content:"
-    curl -s -H "X-Request-Source: ui" "$HDN_URL/api/v1/workflow/$WORKFLOW_ID/files/prog1.py" | head -30
+    # Try workflow-specific endpoint first, fallback to filename-based endpoint
+    FILE1_CONTENT=$(curl -s -H "X-Request-Source: ui" "$HDN_URL/api/v1/workflow/$WORKFLOW_ID/files/prog1.py" 2>&1)
+    if echo "$FILE1_CONTENT" | grep -q "File not found\|Workflow not found"; then
+      # Fallback to filename-based endpoint (uses file storage)
+      FILE1_CONTENT=$(curl -s -H "X-Request-Source: ui" "$HDN_URL/api/v1/files/prog1.py" 2>&1)
+    fi
+    echo "$FILE1_CONTENT" | head -30
     echo
     echo "prog2.go content:"
-    curl -s -H "X-Request-Source: ui" "$HDN_URL/api/v1/workflow/$WORKFLOW_ID/files/prog2.go" | head -30
+    # Try workflow-specific endpoint first, fallback to filename-based endpoint
+    FILE2_CONTENT=$(curl -s -H "X-Request-Source: ui" "$HDN_URL/api/v1/workflow/$WORKFLOW_ID/files/prog2.go" 2>&1)
+    if echo "$FILE2_CONTENT" | grep -q "File not found\|Workflow not found"; then
+      # Fallback to filename-based endpoint (uses file storage)
+      FILE2_CONTENT=$(curl -s -H "X-Request-Source: ui" "$HDN_URL/api/v1/files/prog2.go" 2>&1)
+    fi
+    echo "$FILE2_CONTENT" | head -30
   else
     print_warn "Missing files:"
     [ -z "$HAS_PROG1" ] && echo "  - prog1.py not found"
