@@ -878,15 +878,14 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 		}
 	}
 	
-	// Set up base metadata
-	baseMetadata := map[string]interface{}{
-		"interpreted_at": time.Now(),
-		"response_type":  string(result.ResponseType),
-	}
+	// Add response type to metadata
+	metadata["response_type"] = string(result.ResponseType)
 
-	// Track tool usage
+	// Track tool usage (tool_result and tool_used already added above if tool was executed)
 	if result.ToolCall != nil {
-		metadata["tool_used"] = result.ToolCall.ToolID
+		if _, exists := metadata["tool_used"]; !exists {
+			metadata["tool_used"] = result.ToolCall.ToolID
+		}
 		metadata["tool_description"] = result.ToolCall.Description
 		if result.ToolExecutionResult != nil {
 			metadata["tool_success"] = result.ToolExecutionResult.Success
