@@ -110,24 +110,25 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 		return nil, err
 	}
 	
-	// Validation: Reject text responses for email/calendar requests if email tool is available
-	if parsedResponse.Type == ResponseTypeText {
-		inputLower := strings.ToLower(input)
-		isEmailRequest := strings.Contains(inputLower, "email") || strings.Contains(inputLower, "emails") || 
-		                 strings.Contains(inputLower, "calendar") || strings.Contains(inputLower, "inbox") ||
-		                 strings.Contains(inputLower, "gmail") || strings.Contains(inputLower, "check my")
-		
-		if isEmailRequest {
-			// Check if email tool is available
-			hasEmailTool := false
-			for _, tool := range filteredTools {
-				if tool.ID == "mcp_read_google_data" {
-					hasEmailTool = true
-					break
-				}
+	// Validation: Check for email/calendar requests and enforce correct tool usage
+	inputLower := strings.ToLower(input)
+	isEmailRequest := strings.Contains(inputLower, "email") || strings.Contains(inputLower, "emails") || 
+	                 strings.Contains(inputLower, "calendar") || strings.Contains(inputLower, "inbox") ||
+	                 strings.Contains(inputLower, "gmail") || strings.Contains(inputLower, "check my")
+	
+	if isEmailRequest {
+		// Check if email tool is available
+		hasEmailTool := false
+		for _, tool := range filteredTools {
+			if tool.ID == "mcp_read_google_data" {
+				hasEmailTool = true
+				break
 			}
-			
-			if hasEmailTool {
+		}
+		
+		if hasEmailTool {
+			// Reject text responses
+			if parsedResponse.Type == ResponseTypeText {
 				log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response for email request when mcp_read_google_data tool is available. Forcing tool call.")
 				// Force tool call instead
 				return &FlexibleLLMResponse{
@@ -141,6 +142,25 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 						Description: "Reading emails as requested",
 					},
 				}, nil
+			}
+			
+			// Reject wrong tool calls (must use mcp_read_google_data)
+			if parsedResponse.Type == ResponseTypeToolCall && parsedResponse.ToolCall != nil {
+				if parsedResponse.ToolCall.ToolID != "mcp_read_google_data" {
+					log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s' for email request. Forcing mcp_read_google_data.", parsedResponse.ToolCall.ToolID)
+					// Force correct tool call
+					return &FlexibleLLMResponse{
+						Type: ResponseTypeToolCall,
+						ToolCall: &ToolCall{
+							ToolID: "mcp_read_google_data",
+							Parameters: map[string]interface{}{
+								"query": "recent emails",
+								"type":  "email",
+							},
+							Description: "Reading emails as requested",
+						},
+					}, nil
+				}
 			}
 		}
 	}
@@ -162,24 +182,25 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 		return nil, err
 	}
 	
-	// Validation: Reject text responses for email/calendar requests if email tool is available
-	if parsedResponse.Type == ResponseTypeText {
-		inputLower := strings.ToLower(input)
-		isEmailRequest := strings.Contains(inputLower, "email") || strings.Contains(inputLower, "emails") || 
-		                 strings.Contains(inputLower, "calendar") || strings.Contains(inputLower, "inbox") ||
-		                 strings.Contains(inputLower, "gmail") || strings.Contains(inputLower, "check my")
-		
-		if isEmailRequest {
-			// Check if email tool is available
-			hasEmailTool := false
-			for _, tool := range filteredTools {
-				if tool.ID == "mcp_read_google_data" {
-					hasEmailTool = true
-					break
-				}
+	// Validation: Check for email/calendar requests and enforce correct tool usage
+	inputLower := strings.ToLower(input)
+	isEmailRequest := strings.Contains(inputLower, "email") || strings.Contains(inputLower, "emails") || 
+	                 strings.Contains(inputLower, "calendar") || strings.Contains(inputLower, "inbox") ||
+	                 strings.Contains(inputLower, "gmail") || strings.Contains(inputLower, "check my")
+	
+	if isEmailRequest {
+		// Check if email tool is available
+		hasEmailTool := false
+		for _, tool := range filteredTools {
+			if tool.ID == "mcp_read_google_data" {
+				hasEmailTool = true
+				break
 			}
-			
-			if hasEmailTool {
+		}
+		
+		if hasEmailTool {
+			// Reject text responses
+			if parsedResponse.Type == ResponseTypeText {
 				log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response for email request when mcp_read_google_data tool is available. Forcing tool call.")
 				// Force tool call instead
 				return &FlexibleLLMResponse{
@@ -193,6 +214,25 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 						Description: "Reading emails as requested",
 					},
 				}, nil
+			}
+			
+			// Reject wrong tool calls (must use mcp_read_google_data)
+			if parsedResponse.Type == ResponseTypeToolCall && parsedResponse.ToolCall != nil {
+				if parsedResponse.ToolCall.ToolID != "mcp_read_google_data" {
+					log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s' for email request. Forcing mcp_read_google_data.", parsedResponse.ToolCall.ToolID)
+					// Force correct tool call
+					return &FlexibleLLMResponse{
+						Type: ResponseTypeToolCall,
+						ToolCall: &ToolCall{
+							ToolID: "mcp_read_google_data",
+							Parameters: map[string]interface{}{
+								"query": "recent emails",
+								"type":  "email",
+							},
+							Description: "Reading emails as requested",
+						},
+					}, nil
+				}
 			}
 		}
 	}
