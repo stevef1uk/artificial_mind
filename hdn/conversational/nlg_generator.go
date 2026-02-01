@@ -492,6 +492,12 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 					}
 				}
 
+				// Handle empty results
+				if len(resultsList) == 0 {
+					log.Printf("📧 [NLG] No results found in tool_result")
+					return "No items found."
+				}
+
 				if len(resultsList) > 0 {
 					// Check if this is email data (has Subject, From, To fields)
 					firstItem, isEmailData := resultsList[0].(map[string]interface{})
@@ -502,9 +508,19 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 							keys = append(keys, k)
 						}
 						log.Printf("📧 [NLG] First item keys: %v", keys)
-						
-						_, hasSubject := firstItem["Subject"]
-						_, hasFrom := firstItem["From"]
+
+						// Case-insensitive email detection
+						hasSubject := false
+						hasFrom := false
+						for k := range firstItem {
+							kLower := strings.ToLower(k)
+							if kLower == "subject" {
+								hasSubject = true
+							}
+							if kLower == "from" {
+								hasFrom = true
+							}
+						}
 						log.Printf("📧 [NLG] Email detection: hasSubject=%v, hasFrom=%v", hasSubject, hasFrom)
 						if hasSubject || hasFrom {
 							// Log how many emails we're formatting
@@ -513,8 +529,9 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 							resultSb.WriteString(fmt.Sprintf("Found %d email(s):\n\n", len(resultsList)))
 							for i, res := range resultsList {
 								if item, ok := res.(map[string]interface{}); ok {
-									subject := getStringFromMap(item, "Subject")
-									from := getStringFromMap(item, "From")
+									// Case-insensitive field extraction
+									subject := getStringFromMapCaseInsensitive(item, "subject")
+									from := getStringFromMapCaseInsensitive(item, "from")
 
 									// Check for UNREAD label
 									isUnread := false
@@ -652,17 +669,29 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 				log.Printf("🗣️ [NLG] Found tool_result directly in InterpretResult metadata")
 				// Format the tool result
 				if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
-					// Check if this is email data
+					// Check if this is email data (case-insensitive)
 					if firstItem, ok := results[0].(map[string]interface{}); ok {
-						if _, hasSubject := firstItem["Subject"]; hasSubject {
+						hasSubject := false
+						hasFrom := false
+						for k := range firstItem {
+							kLower := strings.ToLower(k)
+							if kLower == "subject" {
+								hasSubject = true
+							}
+							if kLower == "from" {
+								hasFrom = true
+							}
+						}
+						if hasSubject || hasFrom {
 							// Log how many emails we're formatting
 							log.Printf("📧 [NLG] Formatting %d email(s) from tool_result metadata", len(results))
 							var emailSb strings.Builder
 							emailSb.WriteString(fmt.Sprintf("Found %d email(s):\n\n", len(results)))
 							for i, res := range results {
 								if item, ok := res.(map[string]interface{}); ok {
-									subject := getStringFromMap(item, "Subject")
-									from := getStringFromMap(item, "From")
+									// Case-insensitive field extraction
+									subject := getStringFromMapCaseInsensitive(item, "subject")
+									from := getStringFromMapCaseInsensitive(item, "from")
 
 									isUnread := false
 									if labels, ok := item["labels"].([]interface{}); ok {
@@ -742,6 +771,57 @@ func getStringFromMap(m map[string]interface{}, key string) string {
 			}
 			if val, exists := metadata[key]; exists && val != nil {
 				return fmt.Sprintf("%v", val)
+			}
+		}
+	}
+
+	return ""
+}
+
+// getStringFromMapCaseInsensitive extracts a string value from a map using case-insensitive key matching
+func getStringFromMapCaseInsensitive(m map[string]interface{}, key string) string {
+	keyLower := strings.ToLower(key)
+
+	// First try exact match (most common case)
+	if val, exists := m[key]; exists && val != nil {
+		if s, ok := val.(string); ok {
+			return s
+		}
+		if f, ok := val.(float64); ok {
+			return fmt.Sprintf("%.2f", f)
+		}
+		return fmt.Sprintf("%v", val)
+	}
+
+	// Then try case-insensitive match
+	for k, v := range m {
+		if strings.ToLower(k) == keyLower && v != nil {
+			if s, ok := v.(string); ok {
+				return s
+			}
+			if f, ok := v.(float64); ok {
+				return fmt.Sprintf("%.2f", f)
+			}
+			return fmt.Sprintf("%v", v)
+		}
+	}
+
+	// Special case for Weaviate: properties might be in a nested "metadata" JSON string
+	if metadataStr, ok := m["metadata"].(string); ok && metadataStr != "" {
+		var metadata map[string]interface{}
+		if err := json.Unmarshal([]byte(metadataStr), &metadata); err == nil {
+			// Try looking in original_metadata if present
+			if orig, ok := metadata["original_metadata"].(map[string]interface{}); ok {
+				for k, v := range orig {
+					if strings.ToLower(k) == keyLower && v != nil {
+						return fmt.Sprintf("%v", v)
+					}
+				}
+			}
+			for k, v := range metadata {
+				if strings.ToLower(k) == keyLower && v != nil {
+					return fmt.Sprintf("%v", v)
+				}
 			}
 		}
 	}
