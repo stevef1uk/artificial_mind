@@ -447,20 +447,15 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 func (f *FlexibleLLMAdapter) parseFlexibleResponse(response string, availableToolsCount int) (*FlexibleLLMResponse, error) {
 	// First, strip markdown code blocks if present
 	cleaned := f.stripMarkdownCodeBlocks(response)
-	
+
 	// Fix common JSON issues BEFORE extraction (to help with unescaped quotes in code strings)
 	// This helps extractFirstJSONObject correctly identify string boundaries
 	cleaned = f.fixCommonJSONIssues(cleaned)
-	
+
 	// Try to parse as JSON first
 	var flexibleResp FlexibleLLMResponse
 	if err := json.Unmarshal([]byte(cleaned), &flexibleResp); err == nil {
-		log.Printf("✅ [FLEXIBLE-LLM] Parsed flexible response: %s", flexibleResp.Type)
-		if flexibleResp.Type == "" {
-			log.Printf("⚠️ [FLEXIBLE-LLM] WARNING: Parsed JSON but Type is empty! Response preview: %s", truncateString(cleaned, 200))
-		} else if flexibleResp.Type == ResponseTypeText && availableToolsCount > 0 {
-			log.Printf("⚠️ [FLEXIBLE-LLM] WARNING: LLM returned 'text' type but %d tools are available! Response preview: %s", availableToolsCount, truncateString(cleaned, 300))
-		}
+		f.normalizeResponse(&flexibleResp, cleaned)
 		return &flexibleResp, nil
 	}
 
@@ -469,15 +464,15 @@ func (f *FlexibleLLMAdapter) parseFlexibleResponse(response string, availableToo
 	if jsonStr != "" {
 		// Try to fix common JSON issues again (in case extraction introduced issues)
 		fixedJSON := f.fixCommonJSONIssues(jsonStr)
-		
+
 		if err := json.Unmarshal([]byte(fixedJSON), &flexibleResp); err == nil {
 			log.Printf("✅ [FLEXIBLE-LLM] Extracted and parsed JSON: %s", flexibleResp.Type)
+			f.normalizeResponse(&flexibleResp, fixedJSON)
+
 			if flexibleResp.Type == "" {
 				log.Printf("⚠️ [FLEXIBLE-LLM] WARNING: Extracted JSON but Type is empty! Extracted JSON: %s", truncateString(jsonStr, 200))
 			} else if flexibleResp.Type == ResponseTypeToolCall && flexibleResp.ToolCall != nil {
 				log.Printf("🔧 [FLEXIBLE-LLM] Tool call parsed: %s", flexibleResp.ToolCall.ToolID)
-			} else if flexibleResp.Type == ResponseTypeToolCall && flexibleResp.ToolCall == nil {
-				log.Printf("⚠️ [FLEXIBLE-LLM] Tool call type but ToolCall is nil!")
 			}
 			return &flexibleResp, nil
 		} else {
@@ -485,6 +480,7 @@ func (f *FlexibleLLMAdapter) parseFlexibleResponse(response string, availableToo
 			// Try one more time with the original (maybe the fix made it worse)
 			if err2 := json.Unmarshal([]byte(jsonStr), &flexibleResp); err2 == nil {
 				log.Printf("✅ [FLEXIBLE-LLM] Parsed original extracted JSON after fix attempt failed")
+				f.normalizeResponse(&flexibleResp, jsonStr)
 				return &flexibleResp, nil
 			}
 		}
@@ -500,15 +496,79 @@ func (f *FlexibleLLMAdapter) parseFlexibleResponse(response string, availableToo
 	}, nil
 }
 
+// normalizeResponse attempts to fix responses where the LLM might have used a slightly different structure
+func (f *FlexibleLLMAdapter) normalizeResponse(resp *FlexibleLLMResponse, rawJSON string) {
+	// If Type is not a standard one, check if it's a tool ID
+	isStandard := false
+	for _, t := range []ResponseType{ResponseTypeToolCall, ResponseTypeCodeArtifact, ResponseTypeStructuredTask, ResponseTypeText} {
+		if resp.Type == t {
+			isStandard = true
+			break
+		}
+	}
+
+	if !isStandard && resp.Type != "" {
+		// LLM likely put the tool ID in the Type field
+		toolID := string(resp.Type)
+		log.Printf("🔄 [FLEXIBLE-LLM] Normalizing non-standard type '%s' as tool_call", toolID)
+
+		// If ToolCall is nil, create it
+		if resp.ToolCall == nil {
+			resp.ToolCall = &ToolCall{
+				ToolID: toolID,
+			}
+
+			// Try to find parameters in the raw JSON
+			var raw map[string]interface{}
+			if err := json.Unmarshal([]byte(rawJSON), &raw); err == nil {
+				if params, ok := raw["parameters"].(map[string]interface{}); ok {
+					resp.ToolCall.Parameters = params
+				} else {
+					// Fallback: use all non-standard fields as parameters
+					params = make(map[string]interface{})
+					for k, v := range raw {
+						if k != "type" && k != "tool_call" && k != "content" {
+							params[k] = v
+						}
+					}
+					// Also include content if it was provided (common for small models)
+					if resp.Content != "" {
+						params["content"] = resp.Content
+					}
+					resp.ToolCall.Parameters = params
+				}
+			}
+		}
+		resp.Type = ResponseTypeToolCall
+	}
+
+	// Special case for tool_call type with missing tool_call object but tool_id at root
+	if resp.Type == ResponseTypeToolCall && resp.ToolCall == nil {
+		var raw map[string]interface{}
+		if err := json.Unmarshal([]byte(rawJSON), &raw); err == nil {
+			if toolID, ok := raw["tool_id"].(string); ok {
+				resp.ToolCall = &ToolCall{
+					ToolID: toolID,
+				}
+				if params, ok := raw["parameters"].(map[string]interface{}); ok {
+					resp.ToolCall.Parameters = params
+				} else if content, ok := raw["content"].(string); ok {
+					resp.ToolCall.Parameters = map[string]interface{}{"content": content}
+				}
+			}
+		}
+	}
+}
+
 // fixCommonJSONIssues attempts to fix common JSON issues from LLM responses
 func (f *FlexibleLLMAdapter) fixCommonJSONIssues(jsonStr string) string {
 	// The LLM sometimes generates JSON with unescaped quotes in code strings
 	// Pattern: "code": "package main\n\nimport (\n\t"encoding/json"\n\t...
 	// The quotes inside the code string need to be escaped: \"encoding/json\"
-	
+
 	// Use a regex to find "code": "..." and escape unescaped quotes inside the value
 	// This is a best-effort fix - the proper solution is to ensure the LLM generates valid JSON
-	
+
 	// Find the code field and fix quotes inside it
 	// We'll use a simple approach: find "code": " and then escape quotes until we find the matching closing quote
 	// Use regex to find the pattern (handles whitespace variations)
@@ -517,35 +577,35 @@ func (f *FlexibleLLMAdapter) fixCommonJSONIssues(jsonStr string) string {
 	if codeMatch == nil {
 		return jsonStr // No code field, return as-is
 	}
-	
+
 	// Find the start of the code string value (after the opening quote)
 	valueStart := codeMatch[1]
 	if valueStart >= len(jsonStr) {
 		return jsonStr
 	}
-	
+
 	// Find the closing quote for the code string value
 	// We need to be careful - the string might contain escaped quotes or newlines
 	var result strings.Builder
 	result.WriteString(jsonStr[:valueStart])
-	
+
 	inString := true
 	escapeNext := false
 	for i := valueStart; i < len(jsonStr); i++ {
 		char := jsonStr[i]
-		
+
 		if escapeNext {
 			result.WriteByte(char)
 			escapeNext = false
 			continue
 		}
-		
+
 		if char == '\\' {
 			result.WriteByte(char)
 			escapeNext = true
 			continue
 		}
-		
+
 		if char == '"' && inString {
 			// Check if this is the closing quote for the code field
 			// Look ahead to see if we're at the end of the JSON object or if there's a comma/brace
@@ -564,7 +624,7 @@ func (f *FlexibleLLMAdapter) fixCommonJSONIssues(jsonStr string) string {
 			result.WriteByte(char)
 		}
 	}
-	
+
 	// If we didn't find a closing quote, return original (might be incomplete JSON)
 	return jsonStr
 }
@@ -601,31 +661,31 @@ func (f *FlexibleLLMAdapter) extractFirstJSONObject(text string) string {
 	if start == -1 {
 		return ""
 	}
-	
+
 	depth := 0
 	inString := false
 	escapeNext := false
-	
+
 	for i := start; i < len(text); i++ {
 		char := text[i]
-		
+
 		// Handle escape sequences
 		if escapeNext {
 			escapeNext = false
 			continue
 		}
-		
+
 		if char == '\\' && inString {
 			escapeNext = true
 			continue
 		}
-		
+
 		// Track string boundaries (only if not escaped)
 		if char == '"' && !escapeNext {
 			inString = !inString
 			continue
 		}
-		
+
 		// Only process braces when not inside a string
 		if !inString {
 			switch char {
@@ -639,7 +699,7 @@ func (f *FlexibleLLMAdapter) extractFirstJSONObject(text string) string {
 			}
 		}
 	}
-	
+
 	// If we didn't find a complete object, return what we have
 	return strings.TrimSpace(text[start:])
 }

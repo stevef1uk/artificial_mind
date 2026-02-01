@@ -265,6 +265,40 @@ func (s *APIServer) listTools(ctx context.Context) ([]Tool, error) {
 			log.Printf("❌ [LIST-TOOLS] Failed to unmarshal tool %s: %v", id, err)
 		}
 	}
+
+	// Add MCP knowledge tools
+	if s.mcpKnowledgeServer != nil {
+		mcpResult, err := s.mcpKnowledgeServer.listTools()
+		if err == nil {
+			if m, ok := mcpResult.(map[string]interface{}); ok {
+				if mTools, ok := m["tools"].([]MCPKnowledgeTool); ok {
+					for _, mt := range mTools {
+						// Convert MCP tool to HDN tool
+						t := Tool{
+							ID:          "mcp_" + mt.Name,
+							Name:        mt.Name,
+							Description: mt.Description,
+							CreatedBy:   "system",
+							InputSchema: make(map[string]string),
+						}
+						// Simplified schema conversion
+						if props, ok := mt.InputSchema["properties"].(map[string]interface{}); ok {
+							for k, v := range props {
+								if prop, ok := v.(map[string]interface{}); ok {
+									if tStr, ok := prop["type"].(string); ok {
+										t.InputSchema[k] = tStr
+									}
+								}
+							}
+						}
+						tools = append(tools, t)
+						log.Printf("✅ [LIST-TOOLS] Successfully loaded MCP tool: %s", t.ID)
+					}
+				}
+			}
+		}
+	}
+
 	log.Printf("🔧 [LIST-TOOLS] Returning %d tools", len(tools))
 	return tools, nil
 }
@@ -640,6 +674,23 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch id {
+	case "mcp_query_neo4j", "mcp_search_weaviate", "mcp_get_concept", "mcp_find_related_concepts", "mcp_search_avatar_context", "mcp_save_avatar_context", "mcp_scrape_url", "mcp_execute_code", "mcp_read_file":
+		if s.mcpKnowledgeServer == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "MCP knowledge server not available"})
+			return
+		}
+		// Strip mcp_ prefix for the internal call
+		mcpToolName := strings.TrimPrefix(id, "mcp_")
+		result, err := s.mcpKnowledgeServer.callTool(ctx, mcpToolName, params)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(result)
+		return
+
 	case "tool_http_get":
 		url, _ := getString(params, "url")
 		if strings.TrimSpace(url) == "" {

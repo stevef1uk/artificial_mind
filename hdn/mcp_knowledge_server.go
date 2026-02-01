@@ -1381,36 +1381,40 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 				continue
 			}
 
-			// Get title and text for matching
-			title, hasTitle := item["title"].(string)
-			text, hasText := item["text"].(string)
+			// Get title, text, or content for matching
+			title, _ := item["title"].(string)
+			text, _ := item["text"].(string)
+			content, _ := item["content"].(string)
 
-			if !hasTitle && !hasText {
-				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (no title or text): %v", item)
+			// Also check metadata summary if available (common in AgiWiki)
+			metadataSummary := ""
+			if metadataStr, ok := item["metadata"].(string); ok && metadataStr != "" {
+				var meta map[string]interface{}
+				if err := json.Unmarshal([]byte(metadataStr), &meta); err == nil {
+					if summary, ok := meta["summary"].(string); ok {
+						metadataSummary = summary
+					}
+				}
+			}
+
+			if title == "" && text == "" && content == "" && metadataSummary == "" {
+				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (no identifiable text fields): %v", item)
 				continue
 			}
 
-			titleLower := ""
-			if hasTitle {
-				titleLower = strings.ToLower(title)
-			}
+			titleLower := strings.ToLower(title)
+			textLower := strings.ToLower(text)
+			contentLower := strings.ToLower(content)
+			metaLower := strings.ToLower(metadataSummary)
 
-			// Relaxed rule: primary keyword MUST be in title OR text (for collections with titles),
-			// so good matches in the article body are not discarded.
+			// Relaxed rule: primary keyword MUST be in one of the text fields
 			primaryKeyword := keywords[0]
-			primaryInTitle := strings.Contains(titleLower, primaryKeyword)
-			primaryInText := false
-			if hasText {
-				textLower := strings.ToLower(text)
-				// Check first 1000 chars (more than before to catch context)
-				textPreview := textLower
-				if len(textPreview) > 1000 {
-					textPreview = textPreview[:1000]
-				}
-				primaryInText = strings.Contains(textPreview, primaryKeyword)
-			}
+			matched := strings.Contains(titleLower, primaryKeyword) ||
+				strings.Contains(textLower, primaryKeyword) ||
+				strings.Contains(contentLower, primaryKeyword) ||
+				strings.Contains(metaLower, primaryKeyword)
 
-			if !primaryInTitle && !primaryInText {
+			if !matched {
 				if collection == "WikipediaArticle" {
 					log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (primary keyword '%s' not in title or text preview): %v", primaryKeyword, title)
 				} else {

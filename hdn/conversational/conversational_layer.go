@@ -142,7 +142,17 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 	} else if avatarResult != nil && avatarResult.Metadata != nil {
 		if toolSuccess, ok := avatarResult.Metadata["tool_success"].(bool); ok && toolSuccess {
 			if toolResult, ok := avatarResult.Metadata["tool_result"].(map[string]interface{}); ok {
-				if items, ok := toolResult["results"].([]interface{}); ok && len(items) > 0 {
+				// Safely extract results as []interface{}
+				var items []interface{}
+				if i, ok := toolResult["results"].([]interface{}); ok {
+					items = i
+				} else if i, ok := toolResult["results"].([]map[string]interface{}); ok {
+					for _, item := range i {
+						items = append(items, item)
+					}
+				}
+
+				if len(items) > 0 {
 					conversationContext["avatar_context"] = avatarResult
 					log.Printf("✅ [CONVERSATIONAL] Found %d relevant personal facts", len(items))
 					cl.reasoningTrace.AddKnowledgeUsed("avatar_context")
@@ -159,7 +169,17 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		} else if wikiResult != nil && wikiResult.Metadata != nil {
 			if toolSuccess, ok := wikiResult.Metadata["tool_success"].(bool); ok && toolSuccess {
 				if toolResult, ok := wikiResult.Metadata["tool_result"].(map[string]interface{}); ok {
-					if items, ok := toolResult["results"].([]interface{}); ok && len(items) > 0 {
+					// Safely extract results as []interface{}
+					var items []interface{}
+					if i, ok := toolResult["results"].([]interface{}); ok {
+						items = i
+					} else if i, ok := toolResult["results"].([]map[string]interface{}); ok {
+						for _, item := range i {
+							items = append(items, item)
+						}
+					}
+
+					if len(items) > 0 {
 						conversationContext["wiki_context"] = wikiResult
 						log.Printf("✅ [CONVERSATIONAL] Found %d relevant news/wiki articles", len(items))
 						cl.reasoningTrace.AddKnowledgeUsed("agi_wiki")

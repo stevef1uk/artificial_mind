@@ -222,7 +222,9 @@ Goal: %s
 
 Please provide a clear, informative answer. 
 
-IMPORTANT: If the 'Retrieved Information' below is empty or says 'No results', please use your own internal knowledge to answer as best as you can, but add a brief note that no specific real-time updates were found in the knowledge base.`
+IMPORTANT: If the 'Retrieved Personal Context' section below contains information about the user (Steven Fisher), use it to answer as if you already know this information. Do not say 'I don't have access to personal information' if the answer is present in that section.
+	
+	If both the 'Retrieved Information' and 'Retrieved Personal Context' are empty, use your internal knowledge but add a brief note that no specific real-time updates were found.`
 
 	// Add reasoning trace if available and requested
 	if req.ShowThinking && req.ReasoningTrace != nil {
@@ -658,6 +660,10 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 			var items []interface{}
 			if i, ok := toolResult["results"].([]interface{}); ok {
 				items = i
+			} else if i, ok := toolResult["results"].([]map[string]interface{}); ok {
+				for _, item := range i {
+					items = append(items, item)
+				}
 			}
 
 			if len(items) > 0 {
