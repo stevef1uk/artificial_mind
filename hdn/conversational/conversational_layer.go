@@ -21,6 +21,7 @@ type ConversationalLayer struct {
 	nlgGenerator       *NLGGenerator
 	conversationMemory *ConversationMemory
 	thoughtExpression  *ThoughtExpressionService
+	summarizer         *ConversationSummarizer
 }
 
 // FSMInterface defines the interface for FSM operations
