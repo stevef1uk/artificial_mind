@@ -1,0 +1,46 @@
+# Configuration for n8n/MCP Skills
+# This file defines skills that are loaded dynamically at startup
+
+skills:
+  - id: read_google_data
+    name: Read Google Workspace Data
+    description: Read emails or calendar events from Google Workspace via n8n integration
+    type: n8n_webhook
+    endpoint: ${N8N_WEBHOOK_URL}
+    method: POST
+    auth:
+      type: header
+      header: X-Webhook-Secret
+      secret_env: N8N_WEBHOOK_SECRET
+    tls:
+      skip_verify: true
+    request:
+      payload_template: |
+        {
+          "query": "{{.query}}",
+          "type": "{{.type}}",
+          "limit": {{.limit | toInt}}
+        }
+    input_schema:
+      query:
+        type: string
+        description: Search query for emails or calendar events (e.g., 'unread', 'recent', 'today')
+        default: ""
+      type:
+        type: string
+        enum: [email, calendar, all]
+        description: Type of data to retrieve
+        default: email
+      limit:
+        type: integer
+        description: Maximum number of results to return
+        minimum: 1
+        maximum: 50
+        default: 5
+    response:
+      format: json
+      structure:
+        type: object
+      emails_key: emails  # Extract array from this key in response
+    timeout: 60s
+
