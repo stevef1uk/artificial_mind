@@ -2,6 +2,7 @@ package conversational
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -31,7 +32,7 @@ func NewConversationSummarizer(llm LLMClientInterface, hdn HDNClientInterface, r
 		llmClient:              llm,
 		hdnClient:              hdn,
 		redis:                  redisClient,
-		summarizeAfterMessages: 10, // Default: summarize every 10 messages
+		summarizeAfterMessages: 5, // Default: summarize every 5 messages
 	}
 }
 
@@ -117,28 +118,32 @@ Keep the summary concise but comprehensive.`, conversationText.String())
 	episodeText := fmt.Sprintf("Conversation Summary (Session: %s, Time: %s)\n\n%s", sessionID, timestamp, summary)
 
 	// Use the HDN client to store in Weaviate
-	// We'll need to add a method to store episodes, for now we'll log
 	log.Printf("📦 [SUMMARIZER] Storing summary in Weaviate: session=%s, topics=%v", sessionID, topics)
 
-	// TODO: Implement actual Weaviate storage via HDN client
-	// For now, store in Redis as a backup
-	summaryKey := fmt.Sprintf("conversation_summary:%s:%d", sessionID, time.Now().Unix())
-	err = cs.redis.Set(ctx, summaryKey, episodeText, 30*24*time.Hour).Err() // Keep for 30 days
-	if err != nil {
-		log.Printf("⚠️ [SUMMARIZER] Failed to store summary in Redis: %v", err)
-	}
-
-	// Store metadata about the summary
-	metadataKey := fmt.Sprintf("conversation_summary_metadata:%s", sessionID)
+	// Prepare metadata for Weaviate
 	metadata := map[string]interface{}{
+		"summary":           summary,
+		"session_id":        sessionID,
 		"last_summary_time": timestamp,
-		"topics":            strings.Join(topics, ","),
+		"topics":            topics,
 		"message_count":     len(conversationHistory),
+		"type":              "conversation_summary",
 	}
 
+	err = cs.hdnClient.SaveEpisode(ctx, episodeText, metadata)
+	if err != nil {
+		log.Printf("⚠️ [SUMMARIZER] Failed to store summary in Weaviate: %v", err)
+	}
+
+	// For now, also store in Redis as a backup
+	summaryKey := fmt.Sprintf("conversation_summary:%s:%d", sessionID, time.Now().Unix())
+	_ = cs.redis.Set(ctx, summaryKey, episodeText, 30*24*time.Hour).Err() // Keep for 30 days
+
+	// Store metadata about the summary in Redis
+	metadataKey := fmt.Sprintf("conversation_summary_metadata:%s", sessionID)
 	// Store as JSON in Redis
-	cs.redis.HSet(ctx, metadataKey, metadata)
-	cs.redis.Expire(ctx, metadataKey, 30*24*time.Hour)
+	b, _ := json.Marshal(metadata)
+	cs.redis.Set(ctx, metadataKey, string(b), 30*24*time.Hour)
 
 	log.Printf("✅ [SUMMARIZER] Summary stored successfully")
 	return nil

@@ -760,6 +760,21 @@ func (h *SimpleChatHDN) LearnFromLLM(ctx context.Context, input string, context 
 	}, nil
 }
 
+func (h *SimpleChatHDN) SaveEpisode(ctx context.Context, text string, metadata map[string]interface{}) error {
+	log.Printf("📥 [SIMPLE-CHAT-HDN] SaveEpisode called")
+	if h.server == nil || h.server.mcpKnowledgeServer == nil {
+		return fmt.Errorf("knowledge server not available")
+	}
+
+	args := map[string]interface{}{
+		"text":     text,
+		"metadata": metadata,
+	}
+
+	_, err := h.server.mcpKnowledgeServer.saveEpisode(ctx, args)
+	return err
+}
+
 func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input string, context map[string]string) (*conversational.InterpretResult, error) {
 	log.Printf("🔍 [SIMPLE-CHAT-HDN] InterpretNaturalLanguage called with input: %s", input)
 

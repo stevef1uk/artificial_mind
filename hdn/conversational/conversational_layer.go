@@ -39,6 +39,7 @@ type HDNClientInterface interface {
 	LearnFromLLM(ctx context.Context, input string, context map[string]string) (*LearnResult, error)
 	InterpretNaturalLanguage(ctx context.Context, input string, context map[string]string) (*InterpretResult, error)
 	SearchWeaviate(ctx context.Context, query string, collection string, limit int) (*InterpretResult, error)
+	SaveEpisode(ctx context.Context, text string, metadata map[string]interface{}) error
 }
 
 // ConversationRequest represents a user's conversational input

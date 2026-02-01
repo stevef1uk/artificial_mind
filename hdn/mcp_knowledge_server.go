@@ -356,14 +356,15 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 	})
 
 	tools = append(tools, MCPKnowledgeTool{
-		Name:        "read_file",
-		Description: "Read a local file from the system (read-only access).",
+		Name:        "save_episode",
+		Description: "Save a conversation summary or significant event to the episodic memory knowledge base.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"path": map[string]interface{}{"type": "string"},
+				"text":     map[string]interface{}{"type": "string", "description": "The content of the episode or summary"},
+				"metadata": map[string]interface{}{"type": "object", "description": "Optional metadata as a JSON object"},
 			},
-			"required": []string{"path"},
+			"required": []string{"text"},
 		},
 	})
 
@@ -387,6 +388,8 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		return s.searchAvatarContext(ctx, arguments)
 	case "save_avatar_context":
 		return s.saveAvatarContext(ctx, arguments)
+	case "save_episode":
+		return s.saveEpisode(ctx, arguments)
 	case "scrape_url", "execute_code", "read_file":
 		// Route to the new wrapper
 		return s.executeToolWrapper(ctx, toolName, arguments)
@@ -1629,24 +1632,91 @@ func (s *MCPKnowledgeServer) saveAvatarContext(ctx context.Context, args map[str
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("weaviate request failed: %w", err)
+		return nil, fmt.Errorf("failed to send storage request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("storage request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("weaviate returned status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	log.Printf("✅ [MCP-KNOWLEDGE] Successfully saved data to AvatarContext")
-
+	log.Printf("✅ [MCP-KNOWLEDGE] Successfully saved personal fact to AvatarContext")
 	return map[string]interface{}{
-		"status":     "success",
-		"collection": "AvatarContext",
-		"content":    content,
+		"success": true,
+		"message": "Information saved to personal context",
+	}, nil
+}
+
+// saveEpisode saves a conversation summary or significant event to the AgiEpisodes collection
+func (s *MCPKnowledgeServer) saveEpisode(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	text, ok := args["text"].(string)
+	if !ok || text == "" {
+		return nil, fmt.Errorf("text parameter is required")
+	}
+
+	metadataMap, _ := args["metadata"].(map[string]interface{})
+	metadataStr := ""
+	if metadataMap != nil {
+		if b, err := json.Marshal(metadataMap); err == nil {
+			metadataStr = string(b)
+		}
+	}
+
+	log.Printf("📥 [MCP-KNOWLEDGE] saveEpisode called with text length: %d", len(text))
+
+	// Get embedding for the text
+	embedding, err := s.getOllamaEmbedding(ctx, text)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get embedding for storage: %w", err)
+	}
+
+	// Get Weaviate URL
+	weaviateURL := os.Getenv("WEAVIATE_URL")
+	if weaviateURL == "" {
+		weaviateURL = "http://localhost:8080"
+	}
+
+	// Prepare the object to store
+	properties := map[string]interface{}{
+		"text":      text,
+		"metadata":  metadataStr,
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+
+	createData := map[string]interface{}{
+		"class":      "AgiEpisodes",
+		"properties": properties,
+		"vector":     embedding,
+	}
+
+	jsonData, err := json.Marshal(createData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal object for storage: %w", err)
+	}
+
+	url := strings.TrimRight(weaviateURL, "/") + "/v1/objects"
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send storage request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("storage request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	log.Printf("✅ [MCP-KNOWLEDGE] Successfully saved episode to AgiEpisodes")
+	return map[string]interface{}{
+		"success": true,
+		"message": "Episode saved to knowledge base",
 	}, nil
 }
