@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 )
 
@@ -53,6 +54,75 @@ func NewNLGGenerator(llmClient LLMClientInterface) *NLGGenerator {
 	}
 }
 
+// validateResponseSafety checks if a generated response contains dangerous content
+func (nlg *NLGGenerator) validateResponseSafety(responseText string) (bool, string) {
+	lower := strings.ToLower(responseText)
+	
+	// Dangerous command patterns
+	dangerousPatterns := []string{
+		"rm -rf", "rm -rf /", "rm -rf *", "rm -rf /",
+		"cd /; rm", "cd / && rm", "cd /; rm -rf",
+		"format disk", "dd if=/dev/zero", "mkfs",
+		"delete all files", "wipe all files", "destroy all",
+		"sudo rm -rf", "sudo rm -rf /",
+		"#!/bin/bash", "#!/bin/sh", // Block script generation
+		"chmod 777", "chmod +x", // Dangerous permissions
+	}
+	
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(lower, pattern) {
+			log.Printf("🚨 [NLG-SAFETY] Blocked dangerous content: %s", pattern)
+			return false, fmt.Sprintf("Response contains dangerous command pattern: %s", pattern)
+		}
+	}
+	
+	// Check for code blocks containing dangerous commands
+	if strings.Contains(lower, "```") {
+		// Extract code blocks and check them
+		codeBlockPattern := regexp.MustCompile("```[\\s\\S]*?```")
+		codeBlocks := codeBlockPattern.FindAllString(lower, -1)
+		for _, block := range codeBlocks {
+			for _, pattern := range dangerousPatterns {
+				if strings.Contains(block, pattern) {
+					log.Printf("🚨 [NLG-SAFETY] Blocked dangerous code block with pattern: %s", pattern)
+					return false, fmt.Sprintf("Response contains dangerous code: %s", pattern)
+				}
+			}
+		}
+	}
+	
+	return true, ""
+}
+
+// validateAndWrapResponse validates a response and returns a safe NLGResponse
+func (nlg *NLGGenerator) validateAndWrapResponse(responseText string, responseType string, intentType string, confidence float64) *NLGResponse {
+	text := strings.TrimSpace(responseText)
+	
+	// Safety check: validate response doesn't contain dangerous content
+	if safe, reason := nlg.validateResponseSafety(text); !safe {
+		log.Printf("🚨 [NLG-SAFETY] Blocked unsafe response: %s", reason)
+		return &NLGResponse{
+			Text:       "I cannot provide code or instructions that could be harmful or destructive. Please ask for help with a safe, constructive task instead.",
+			Confidence: 0.1,
+			Metadata: map[string]interface{}{
+				"response_type": responseType,
+				"intent_type":   intentType,
+				"blocked":       true,
+				"block_reason":  reason,
+			},
+		}
+	}
+	
+	return &NLGResponse{
+		Text:       text,
+		Confidence: confidence,
+		Metadata: map[string]interface{}{
+			"response_type": responseType,
+			"intent_type":   intentType,
+		},
+	}
+}
+
 // GenerateResponse generates a natural language response
 func (nlg *NLGGenerator) GenerateResponse(ctx context.Context, req *NLGRequest) (*NLGResponse, error) {
 	log.Printf("🗣️ [NLG] Generating response for intent: %s (action: %s)", req.Intent.Type, req.Action.Type)
@@ -87,14 +157,7 @@ func (nlg *NLGGenerator) generateKnowledgeResponse(ctx context.Context, req *NLG
 		return nlg.generateFallbackResponse(req, "knowledge query"), nil
 	}
 
-	return &NLGResponse{
-		Text:       strings.TrimSpace(response),
-		Confidence: 0.8,
-		Metadata: map[string]interface{}{
-			"response_type": "knowledge",
-			"intent_type":   req.Intent.Type,
-		},
-	}, nil
+	return nlg.validateAndWrapResponse(response, "knowledge", req.Intent.Type, 0.8), nil
 }
 
 // generateTaskResponse generates a response for task execution
@@ -106,14 +169,7 @@ func (nlg *NLGGenerator) generateTaskResponse(ctx context.Context, req *NLGReque
 		return nlg.generateFallbackResponse(req, "task execution"), nil
 	}
 
-	return &NLGResponse{
-		Text:       strings.TrimSpace(response),
-		Confidence: 0.7,
-		Metadata: map[string]interface{}{
-			"response_type": "task",
-			"intent_type":   req.Intent.Type,
-		},
-	}, nil
+	return nlg.validateAndWrapResponse(response, "task", req.Intent.Type, 0.7), nil
 }
 
 // generatePlanningResponse generates a response for planning requests
@@ -125,14 +181,7 @@ func (nlg *NLGGenerator) generatePlanningResponse(ctx context.Context, req *NLGR
 		return nlg.generateFallbackResponse(req, "planning"), nil
 	}
 
-	return &NLGResponse{
-		Text:       strings.TrimSpace(response),
-		Confidence: 0.8,
-		Metadata: map[string]interface{}{
-			"response_type": "planning",
-			"intent_type":   req.Intent.Type,
-		},
-	}, nil
+	return nlg.validateAndWrapResponse(response, "planning", req.Intent.Type, 0.8), nil
 }
 
 // generateLearningResponse generates a response for learning requests
@@ -144,14 +193,7 @@ func (nlg *NLGGenerator) generateLearningResponse(ctx context.Context, req *NLGR
 		return nlg.generateFallbackResponse(req, "learning"), nil
 	}
 
-	return &NLGResponse{
-		Text:       strings.TrimSpace(response),
-		Confidence: 0.8,
-		Metadata: map[string]interface{}{
-			"response_type": "learning",
-			"intent_type":   req.Intent.Type,
-		},
-	}, nil
+	return nlg.validateAndWrapResponse(response, "learning", req.Intent.Type, 0.8), nil
 }
 
 // generateExplanationResponse generates a response for explanation requests
@@ -163,14 +205,7 @@ func (nlg *NLGGenerator) generateExplanationResponse(ctx context.Context, req *N
 		return nlg.generateFallbackResponse(req, "explanation"), nil
 	}
 
-	return &NLGResponse{
-		Text:       strings.TrimSpace(response),
-		Confidence: 0.8,
-		Metadata: map[string]interface{}{
-			"response_type": "explanation",
-			"intent_type":   req.Intent.Type,
-		},
-	}, nil
+	return nlg.validateAndWrapResponse(response, "explanation", req.Intent.Type, 0.8), nil
 }
 
 // generateConversationResponse generates a response for general conversation
@@ -182,14 +217,7 @@ func (nlg *NLGGenerator) generateConversationResponse(ctx context.Context, req *
 		return nlg.generateFallbackResponse(req, "conversation"), nil
 	}
 
-	return &NLGResponse{
-		Text:       strings.TrimSpace(response),
-		Confidence: 0.6,
-		Metadata: map[string]interface{}{
-			"response_type": "conversation",
-			"intent_type":   req.Intent.Type,
-		},
-	}, nil
+	return nlg.validateAndWrapResponse(response, "conversation", req.Intent.Type, 0.6), nil
 }
 
 // generateGenericResponse generates a generic response
@@ -201,14 +229,7 @@ func (nlg *NLGGenerator) generateGenericResponse(ctx context.Context, req *NLGRe
 		return nlg.generateFallbackResponse(req, "generic"), nil
 	}
 
-	return &NLGResponse{
-		Text:       strings.TrimSpace(response),
-		Confidence: 0.5,
-		Metadata: map[string]interface{}{
-			"response_type": "generic",
-			"intent_type":   req.Intent.Type,
-		},
-	}, nil
+	return nlg.validateAndWrapResponse(response, "generic", req.Intent.Type, 0.5), nil
 }
 
 // buildKnowledgePrompt builds a prompt for knowledge responses
@@ -223,9 +244,15 @@ Goal: %s
 🚨 CRITICAL RULES:
 1. You MUST use ONLY the information provided in the "Retrieved Information" section below.
 2. DO NOT invent, make up, or hallucinate any data that is not explicitly shown.
-3. If the "Retrieved Information" contains email data (with Subject, From, To fields), you MUST present ONLY those exact emails - do NOT create fake emails.
-4. If no information is retrieved, say so clearly - do NOT invent fake data to fill the gap.
-5. If you see email data formatted as "[1] Subject: ... From: ...", present those emails exactly as shown.
+3. If the "Retrieved Information" contains email data formatted as a list (starting with "[1]" or similar), you MUST copy and paste that entire formatted list EXACTLY as it appears. Do NOT re-describe it, do NOT add commentary, do NOT add sentences like "This email is from..." or "The subject line is...". Just present the formatted list verbatim.
+4. When you see formatted email data like:
+   [1] [UNREAD]
+       From: Name <email@domain.com>
+       Subject: Subject line
+   You MUST output it EXACTLY like that - no additional text before or after.
+5. If no information is retrieved, say so clearly - do NOT invent fake data to fill the gap.
+6. NEVER provide code, scripts, or commands that could be harmful or destructive (e.g., rm -rf, format disk, delete all files).
+7. NEVER generate bash scripts, shell commands, or executable code that could damage systems or data.
 
 Please provide a clear, informative answer. 
 
@@ -267,7 +294,7 @@ Retrieved Information:
 %s
 
 🚨 CRITICAL: You MUST use ONLY the information provided above. DO NOT make up, invent, or hallucinate any data. 
-If the information shows email data (Subject, From, To fields), present ONLY those emails exactly as shown.
+If the "Retrieved Information" shows email data formatted as a list (e.g., "[1] [UNREAD]\n    From: ...\n    Subject: ..."), you MUST copy and paste that entire formatted list EXACTLY as it appears. Do NOT re-describe it, do NOT add commentary like "This email is from..." or "The subject line is...". Just present the formatted email list as-is.
 If no information is provided, say so clearly - do NOT invent fake emails or data.`, formattedData)
 	}
 
