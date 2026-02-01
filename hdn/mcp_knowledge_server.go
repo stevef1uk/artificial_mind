@@ -290,6 +290,25 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 				"required": []string{"concept_name"},
 			},
 		},
+		{
+			Name:        "search_avatar_context",
+			Description: "Search personal information about Steven Fisher (the user). Use this for questions about his work history, education, skills, projects, or any personal background. Examples: 'Did I work for Accenture?', 'What companies have I worked for?', 'What are my skills?'",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "Question or search query about Steven Fisher's personal information",
+					},
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of results to return (default: 5)",
+						"default":     5,
+					},
+				},
+				"required": []string{"query"},
+			},
+		},
 	}
 
 	// Add standard HDN tools
@@ -346,6 +365,8 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		return s.getConcept(ctx, arguments)
 	case "find_related_concepts":
 		return s.findRelatedConcepts(ctx, arguments)
+	case "search_avatar_context":
+		return s.searchAvatarContext(ctx, arguments)
 	case "scrape_url", "execute_code", "read_file":
 		// Route to the new wrapper
 		return s.executeToolWrapper(ctx, toolName, arguments)
@@ -699,6 +720,310 @@ func (s *MCPKnowledgeServer) toyEmbed(text string, dim int) []float32 {
 		vec[i] = float32((hash>>i)&1) * 0.5 // simple binary-like features
 	}
 	return vec
+}
+
+// searchAvatarContext searches the AvatarContext collection for personal information about Steven Fisher
+func (s *MCPKnowledgeServer) searchAvatarContext(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	query, ok := args["query"].(string)
+	if !ok || query == "" {
+		return nil, fmt.Errorf("query parameter is required")
+	}
+
+	log.Printf("🔍 [MCP-KNOWLEDGE] searchAvatarContext called with query: '%s'", query)
+
+	limit := 5
+	if l, ok := args["limit"].(float64); ok {
+		limit = int(l)
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+
+	// Get embedding for the query using Ollama's nomic-embed-text model
+	embedding, err := s.getOllamaEmbedding(ctx, query)
+	if err != nil {
+		log.Printf("⚠️ [MCP-KNOWLEDGE] Failed to get embedding, falling back to keyword search: %v", err)
+		// Fallback to keyword-based search if embedding fails
+		return s.searchAvatarContextKeyword(ctx, query, limit)
+	}
+
+	// Get Weaviate URL from environment
+	weaviateURL := os.Getenv("WEAVIATE_URL")
+	if weaviateURL == "" {
+		weaviateURL = "http://localhost:8080"
+	}
+
+	// Convert embedding to GraphQL vector format
+	vectorStr := "["
+	for i, v := range embedding {
+		if i > 0 {
+			vectorStr += ","
+		}
+		vectorStr += fmt.Sprintf("%.6f", v)
+	}
+	vectorStr += "]"
+
+	// Build GraphQL query using nearVector for semantic search
+	queryStr := fmt.Sprintf(`{
+		Get {
+			AvatarContext(nearVector: {vector: %s}, limit: %d) {
+				_additional {
+					id
+					distance
+				}
+				content
+				source
+			}
+		}
+	}`, vectorStr, limit)
+
+	queryData := map[string]interface{}{
+		"query": queryStr,
+	}
+	log.Printf("🔍 [MCP-KNOWLEDGE] Sending vector search query to Weaviate for AvatarContext")
+
+	jsonData, err := json.Marshal(queryData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal GraphQL query: %w", err)
+	}
+
+	url := strings.TrimRight(weaviateURL, "/") + "/v1/graphql"
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("weaviate request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("weaviate returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var graphqlResp struct {
+		Data struct {
+			Get struct {
+				AvatarContext []struct {
+					Additional struct {
+						ID       string  `json:"id"`
+						Distance float64 `json:"distance"`
+					} `json:"_additional"`
+					Content string `json:"content"`
+					Source  string `json:"source"`
+				} `json:"AvatarContext"`
+			} `json:"Get"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+
+	if err := json.Unmarshal(bodyBytes, &graphqlResp); err != nil {
+		return nil, fmt.Errorf("failed to parse GraphQL response: %w", err)
+	}
+
+	if len(graphqlResp.Errors) > 0 {
+		return nil, fmt.Errorf("weaviate GraphQL error: %s", graphqlResp.Errors[0].Message)
+	}
+
+	// Convert results to a more user-friendly format
+	var results []map[string]interface{}
+	for _, item := range graphqlResp.Data.Get.AvatarContext {
+		results = append(results, map[string]interface{}{
+			"content":  item.Content,
+			"source":   item.Source,
+			"id":       item.Additional.ID,
+			"distance": item.Additional.Distance,
+		})
+	}
+
+	log.Printf("✅ [MCP-KNOWLEDGE] Found %d results in AvatarContext using vector search", len(results))
+
+	return map[string]interface{}{
+		"results":    results,
+		"count":      len(results),
+		"query":      query,
+		"collection": "AvatarContext",
+		"method":     "vector_search",
+	}, nil
+}
+
+// getOllamaEmbedding gets an embedding vector from Ollama using nomic-embed-text model
+func (s *MCPKnowledgeServer) getOllamaEmbedding(ctx context.Context, text string) ([]float32, error) {
+	// Get Ollama URL from environment
+	ollamaURL := os.Getenv("OLLAMA_BASE_URL")
+	if ollamaURL == "" {
+		ollamaURL = os.Getenv("OPENAI_BASE_URL") // Fallback
+	}
+	if ollamaURL == "" {
+		ollamaURL = "http://ollama.agi.svc.cluster.local:11434"
+	}
+
+	// Prepare request for Ollama embeddings API
+	reqBody := map[string]interface{}{
+		"model":  "nomic-embed-text:latest",
+		"prompt": text,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	url := strings.TrimRight(ollamaURL, "/") + "/api/embeddings"
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ollama request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("ollama returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var ollamaResp struct {
+		Embedding []float64 `json:"embedding"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&ollamaResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if len(ollamaResp.Embedding) == 0 {
+		return nil, fmt.Errorf("received empty embedding from Ollama")
+	}
+
+	// Convert float64 to float32
+	embedding := make([]float32, len(ollamaResp.Embedding))
+	for i, v := range ollamaResp.Embedding {
+		embedding[i] = float32(v)
+	}
+
+	log.Printf("✅ [MCP-KNOWLEDGE] Got embedding vector of size %d from Ollama", len(embedding))
+	return embedding, nil
+}
+
+// searchAvatarContextKeyword is a fallback keyword-based search for AvatarContext
+func (s *MCPKnowledgeServer) searchAvatarContextKeyword(ctx context.Context, query string, limit int) (interface{}, error) {
+	log.Printf("🔍 [MCP-KNOWLEDGE] Using keyword-based search for AvatarContext")
+
+	weaviateURL := os.Getenv("WEAVIATE_URL")
+	if weaviateURL == "" {
+		weaviateURL = "http://localhost:8080"
+	}
+
+	// Build GraphQL query using Like operator for keyword matching
+	queryStr := fmt.Sprintf(`{
+		Get {
+			AvatarContext(where: {
+				operator: Or,
+				operands: [
+					{ path: ["content"], operator: Like, valueString: "*%s*" },
+					{ path: ["source"], operator: Like, valueString: "*%s*" }
+				]
+			}, limit: %d) {
+				_additional {
+					id
+				}
+				content
+				source
+			}
+		}
+	}`, query, query, limit)
+
+	queryData := map[string]interface{}{
+		"query": queryStr,
+	}
+
+	jsonData, err := json.Marshal(queryData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal GraphQL query: %w", err)
+	}
+
+	url := strings.TrimRight(weaviateURL, "/") + "/v1/graphql"
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("weaviate request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("weaviate returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var graphqlResp struct {
+		Data struct {
+			Get struct {
+				AvatarContext []struct {
+					Additional struct {
+						ID string `json:"id"`
+					} `json:"_additional"`
+					Content string `json:"content"`
+					Source  string `json:"source"`
+				} `json:"AvatarContext"`
+			} `json:"Get"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+
+	if err := json.Unmarshal(bodyBytes, &graphqlResp); err != nil {
+		return nil, fmt.Errorf("failed to parse GraphQL response: %w", err)
+	}
+
+	if len(graphqlResp.Errors) > 0 {
+		return nil, fmt.Errorf("weaviate GraphQL error: %s", graphqlResp.Errors[0].Message)
+	}
+
+	var results []map[string]interface{}
+	for _, item := range graphqlResp.Data.Get.AvatarContext {
+		results = append(results, map[string]interface{}{
+			"content": item.Content,
+			"source":  item.Source,
+			"id":      item.Additional.ID,
+		})
+	}
+
+	log.Printf("✅ [MCP-KNOWLEDGE] Found %d results in AvatarContext using keyword search", len(results))
+
+	return map[string]interface{}{
+		"results":    results,
+		"count":      len(results),
+		"query":      query,
+		"collection": "AvatarContext",
+		"method":     "keyword_search",
+	}, nil
 }
 
 // searchWeaviateGraphQL performs a direct GraphQL query to Weaviate for non-episodic collections
