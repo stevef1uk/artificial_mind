@@ -193,11 +193,45 @@ func (i *Interpreter) convertFlexibleToLegacy(flexibleResult *FlexibleInterpreta
 		Metadata:      flexibleResult.Metadata,
 	}
 
+	// Initialize metadata if needed
+	if result.Metadata == nil {
+		result.Metadata = make(map[string]interface{})
+	}
+
+	// Convert ToolExecutionResult to tool_result metadata format for NLG
+	if flexibleResult.ToolExecutionResult != nil && flexibleResult.ToolExecutionResult.Success {
+		// Store tool result in metadata format that NLG expects
+		toolResult := map[string]interface{}{
+			"success": true,
+		}
+		
+		// Handle different result formats from tools
+		if flexibleResult.ToolExecutionResult.Result != nil {
+			// Check if result is already in the expected format (map with "results" key)
+			if resultMap, ok := flexibleResult.ToolExecutionResult.Result.(map[string]interface{}); ok {
+				// If it has a "results" key, use it directly
+				if _, hasResults := resultMap["results"]; hasResults {
+					toolResult["results"] = resultMap["results"]
+				} else {
+					// Otherwise, wrap the entire result in a results array
+					toolResult["results"] = []interface{}{resultMap}
+				}
+			} else if resultSlice, ok := flexibleResult.ToolExecutionResult.Result.([]interface{}); ok {
+				// If result is already a slice, use it directly
+				toolResult["results"] = resultSlice
+			} else {
+				// Otherwise, wrap single result in a results array
+				toolResult["results"] = []interface{}{flexibleResult.ToolExecutionResult.Result}
+			}
+		}
+		
+		result.Metadata["tool_result"] = toolResult
+		result.Metadata["tool_used"] = flexibleResult.ToolCall.ToolID
+		log.Printf("🔧 [INTERPRETER] Added tool_result to metadata for tool: %s", flexibleResult.ToolCall.ToolID)
+	}
+
 	// Preserve text_response field for text responses
 	if flexibleResult.ResponseType == ResponseTypeText && flexibleResult.TextResponse != "" {
-		if result.Metadata == nil {
-			result.Metadata = make(map[string]interface{})
-		}
 		result.Metadata["text_response"] = flexibleResult.TextResponse
 		// Also put it in message if message is just "Text response provided"
 		if result.Message == "Text response provided" {

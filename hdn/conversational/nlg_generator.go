@@ -478,6 +478,64 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 				}
 
 				if len(resultsList) > 0 {
+					// Check if this is email data (has Subject, From, To fields)
+					firstItem, isEmailData := resultsList[0].(map[string]interface{})
+					if isEmailData {
+						_, hasSubject := firstItem["Subject"]
+						_, hasFrom := firstItem["From"]
+						if hasSubject || hasFrom {
+							// Format as email list
+							resultSb.WriteString(fmt.Sprintf("Found %d email(s):\n\n", len(resultsList)))
+							for i, res := range resultsList {
+								if item, ok := res.(map[string]interface{}); ok {
+									subject := getStringFromMap(item, "Subject")
+									from := getStringFromMap(item, "From")
+									to := getStringFromMap(item, "To")
+									snippet := getStringFromMap(item, "snippet")
+									
+									// Check for UNREAD label
+									isUnread := false
+									if labels, ok := item["labels"].([]interface{}); ok {
+										for _, label := range labels {
+											if labelMap, ok := label.(map[string]interface{}); ok {
+												if name, ok := labelMap["name"].(string); ok && name == "UNREAD" {
+													isUnread = true
+													break
+												}
+											}
+										}
+									}
+									
+									unreadMark := ""
+									if isUnread {
+										unreadMark = " [UNREAD]"
+									}
+									
+									resultSb.WriteString(fmt.Sprintf("[%d]%s\n", i+1, unreadMark))
+									if subject != "" {
+										resultSb.WriteString(fmt.Sprintf("    Subject: %s\n", subject))
+									}
+									if from != "" {
+										resultSb.WriteString(fmt.Sprintf("    From: %s\n", from))
+									}
+									if to != "" {
+										resultSb.WriteString(fmt.Sprintf("    To: %s\n", to))
+									}
+									if snippet != "" {
+										// Limit snippet length
+										if len(snippet) > 200 {
+											snippet = snippet[:200] + "..."
+										}
+										resultSb.WriteString(fmt.Sprintf("    Preview: %s\n", snippet))
+									}
+									resultSb.WriteString("\n")
+								}
+							}
+							return resultSb.String()
+						}
+					}
+					
+					// Default formatting for other data types
 					resultSb.WriteString(fmt.Sprintf("Found %d relevant items:\n\n", len(resultsList)))
 					for i, res := range resultsList {
 						if item, ok := res.(map[string]interface{}); ok {
