@@ -246,6 +246,17 @@ Please incorporate this reasoning context into your response.`,
 		)
 	}
 
+	// Add conversation summaries if available
+	if req.Context != nil {
+		if summaries, ok := req.Context["conversation_summaries"].([]string); ok && len(summaries) > 0 {
+			basePrompt += "\n\nRelevant Past Conversation Context (Summarized):\n"
+			for _, summary := range summaries {
+				basePrompt += fmt.Sprintf("--- SUMMARY ---\n%s\n", summary)
+			}
+			basePrompt += "\nUse these summaries to maintain continuity with what you've discussed with the user previously."
+		}
+	}
+
 	// Add result data if available
 	if req.Result != nil && req.Result.Success {
 		basePrompt += fmt.Sprintf(`

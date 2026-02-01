@@ -90,6 +90,7 @@ func (ip *IntentParser) classifyIntent(ctx context.Context, message string) (str
 		"general_conversation", // General chat
 		"help",                 // Requesting help
 		"debug",                // Debugging/technical support
+		"personal_update",      // Sharing personal information to be remembered
 	}
 
 	// Use LLM for classification
@@ -105,6 +106,25 @@ func (ip *IntentParser) classifyIntent(ctx context.Context, message string) (str
 // ruleBasedClassification provides fallback classification using patterns
 func (ip *IntentParser) ruleBasedClassification(message string) string {
 	message = strings.ToLower(message)
+
+	// Personal update patterns
+	personalPatterns := []string{
+		`remember`,
+		`my name is`,
+		`i prefer`,
+		`call me`,
+		`i'm known as`,
+		`i am known as`,
+		`born in`,
+		`i live in`,
+		`i work at`,
+		`my birthday`,
+	}
+	for _, pattern := range personalPatterns {
+		if strings.Contains(message, pattern) {
+			return "personal_update"
+		}
+	}
 
 	// Query patterns
 	queryPatterns := []string{

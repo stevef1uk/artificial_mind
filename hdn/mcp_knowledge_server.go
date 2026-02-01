@@ -309,6 +309,24 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 				"required": []string{"query"},
 			},
 		},
+		{
+			Name:        "save_avatar_context",
+			Description: "Save personal information, preferences, or facts about Steven Fisher (the user) to long-term memory. Use this when the user shares something they want remembered. Example: 'I prefer to be called Steve', 'I worked at Google in 2020'.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"content": map[string]interface{}{
+						"type":        "string",
+						"description": "The personal fact or information to save",
+					},
+					"source": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional source of the information (e.g. 'user_chat')",
+					},
+				},
+				"required": []string{"content"},
+			},
+		},
 	}
 
 	// Add standard HDN tools
@@ -367,6 +385,8 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		return s.findRelatedConcepts(ctx, arguments)
 	case "search_avatar_context":
 		return s.searchAvatarContext(ctx, arguments)
+	case "save_avatar_context":
+		return s.saveAvatarContext(ctx, arguments)
 	case "scrape_url", "execute_code", "read_file":
 		// Route to the new wrapper
 		return s.executeToolWrapper(ctx, toolName, arguments)
@@ -1549,4 +1569,80 @@ func isSelfConnectionHDN(endpoint string) bool {
 	}
 
 	return false
+}
+
+// saveAvatarContext saves a personal fact to the AvatarContext collection
+func (s *MCPKnowledgeServer) saveAvatarContext(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	content, ok := args["content"].(string)
+	if !ok || content == "" {
+		return nil, fmt.Errorf("content parameter is required")
+	}
+
+	source := "user_chat"
+	if s, ok := args["source"].(string); ok && s != "" {
+		source = s
+	}
+
+	log.Printf("📥 [MCP-KNOWLEDGE] saveAvatarContext called with content length: %d", len(content))
+
+	// Get embedding for the content
+	embedding, err := s.getOllamaEmbedding(ctx, content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get embedding for storage: %w", err)
+	}
+
+	// Get Weaviate URL
+	weaviateURL := os.Getenv("WEAVIATE_URL")
+	if weaviateURL == "" {
+		weaviateURL = "http://localhost:8080"
+	}
+
+	// Prepare the object to store
+	properties := map[string]interface{}{
+		"content":   content,
+		"source":    source,
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+
+	createData := map[string]interface{}{
+		"class":      "AvatarContext",
+		"properties": properties,
+		"vector":     embedding,
+	}
+
+	jsonData, err := json.Marshal(createData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal object for storage: %w", err)
+	}
+
+	url := strings.TrimRight(weaviateURL, "/") + "/v1/objects"
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("weaviate request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("weaviate returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	log.Printf("✅ [MCP-KNOWLEDGE] Successfully saved data to AvatarContext")
+
+	return map[string]interface{}{
+		"status":     "success",
+		"collection": "AvatarContext",
+		"content":    content,
+	}, nil
 }

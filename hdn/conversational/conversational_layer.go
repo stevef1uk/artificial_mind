@@ -81,6 +81,7 @@ func NewConversationalLayer(
 		nlgGenerator:       NewNLGGenerator(llmClient),
 		conversationMemory: NewConversationMemory(redis),
 		thoughtExpression:  NewThoughtExpressionService(redis, llmClient),
+		summarizer:         NewConversationSummarizer(llmClient, hdnClient, redis),
 	}
 }
 
@@ -122,6 +123,17 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 	cl.reasoningTrace.AddStep("context_loading", "Loaded conversation context", map[string]interface{}{
 		"context_keys": len(conversationContext),
 	})
+
+	// Step 2b: Load relevant conversation summaries (RAG)
+	summaries, err := cl.summarizer.GetRelevantSummaries(ctx, req.SessionID, req.Message)
+	if err != nil {
+		log.Printf("⚠️ [CONVERSATIONAL] Failed to load conversation summaries: %v", err)
+	} else if len(summaries) > 0 {
+		conversationContext["conversation_summaries"] = summaries
+		cl.reasoningTrace.AddStep("summary_retrieval", fmt.Sprintf("Retrieved %d relevant conversation summaries", len(summaries)), map[string]interface{}{
+			"summary_count": len(summaries),
+		})
+	}
 
 	// Step 3: Determine the appropriate action based on intent
 	action, err := cl.determineAction(ctx, intent, conversationContext)
@@ -188,6 +200,22 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 	})
 	if err != nil {
 		log.Printf("⚠️ [CONVERSATIONAL] Failed to save conversation context: %v", err)
+	}
+
+	// Step 6b: Check if we should summarize the conversation
+	shouldSummarize, _ := cl.summarizer.ShouldSummarize(ctx, req.SessionID)
+	if shouldSummarize {
+		// Get conversation history and summarize
+		if history, ok := conversationContext["conversation_history"].([]ConversationTurn); ok {
+			go func() {
+				summarizeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				err := cl.summarizer.SummarizeConversation(summarizeCtx, req.SessionID, history)
+				if err != nil {
+					log.Printf("⚠️ [CONVERSATIONAL] Async summarization failed: %v", err)
+				}
+			}()
+		}
 	}
 
 	// Step 7: Complete reasoning trace
@@ -322,6 +350,15 @@ func (cl *ConversationalLayer) determineAction(ctx context.Context, intent *Inte
 			Parameters: map[string]interface{}{
 				"topic":  intent.Entities["topic"],
 				"source": intent.Entities["source"],
+			},
+		}, nil
+
+	case "personal_update":
+		return &Action{
+			Type: "personal_update",
+			Goal: intent.Goal,
+			Parameters: map[string]interface{}{
+				"message": intent.OriginalMessage,
 			},
 		}, nil
 
@@ -845,6 +882,31 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			Data: map[string]interface{}{
 				"result": interpretResult,
 				"source": "hdn_natural_language",
+			},
+		}, nil
+
+	case "personal_update":
+		log.Printf("📥 [CONVERSATIONAL] Processing personal information update")
+		// Use InterpretNaturalLanguage to handle the storage via tool_save_avatar_context
+		interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, "Save the following personal information: "+action.Goal, hdnContext)
+		if err != nil {
+			return nil, fmt.Errorf("personal update failed: %w", err)
+		}
+
+		// Track tool usage if present in the result
+		if interpretResult != nil && interpretResult.Metadata != nil {
+			if toolID, ok := interpretResult.Metadata["tool_used"].(string); ok && toolID != "" {
+				cl.reasoningTrace.AddToolInvoked(toolID)
+				log.Printf("🔧 [CONVERSATIONAL] Tracked tool invocation: %s", toolID)
+			}
+		}
+
+		return &ActionResult{
+			Type:    "personal_update_result",
+			Success: true,
+			Data: map[string]interface{}{
+				"result": interpretResult,
+				"source": "hdn_personal_update",
 			},
 		}, nil
 
