@@ -368,6 +368,19 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 		},
 	})
 
+	tools = append(tools, MCPKnowledgeTool{
+		Name:        "read_google_data",
+		Description: "Read emails or calendar events from Google Workspace via n8n integration.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"query": map[string]interface{}{"type": "string", "description": "Search query for emails or calendar events"},
+				"type":  map[string]interface{}{"type": "string", "enum": []string{"email", "calendar", "all"}, "description": "Type of data to retrieve", "default": "all"},
+			},
+			"required": []string{"query"},
+		},
+	})
+
 	return map[string]interface{}{
 		"tools": tools,
 	}, nil
@@ -390,6 +403,8 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		return s.saveAvatarContext(ctx, arguments)
 	case "save_episode":
 		return s.saveEpisode(ctx, arguments)
+	case "read_google_data":
+		return s.readGoogleWorkspace(ctx, arguments)
 	case "scrape_url", "execute_code", "read_file":
 		// Route to the new wrapper
 		return s.executeToolWrapper(ctx, toolName, arguments)
@@ -1719,4 +1734,59 @@ func (s *MCPKnowledgeServer) saveEpisode(ctx context.Context, args map[string]in
 		"success": true,
 		"message": "Episode saved to knowledge base",
 	}, nil
+}
+
+// readGoogleWorkspace calls n8n webhook to fetch email/calendar data
+func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	query, _ := args["query"].(string)
+	dataType, _ := args["type"].(string)
+
+	log.Printf("📥 [MCP-KNOWLEDGE] readGoogleWorkspace called with query: '%s', type: '%s'", query, dataType)
+
+	// Construct request payload
+	payload := map[string]interface{}{
+		"query": query,
+		"type":  dataType,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// n8n service URL in cluster
+	n8nURL := "http://n8n.n8n.svc.cluster.local:5678/webhook/google-workspace"
+
+	// Create request
+	req, err := http.NewRequestWithContext(ctx, "POST", n8nURL, bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Execute
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call n8n webhook: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("n8n returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Parse response
+	var result interface{}
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		// If not JSON, return string
+		return map[string]interface{}{
+			"result": string(bodyBytes),
+		}, nil
+	}
+
+	log.Printf("✅ [MCP-KNOWLEDGE] Successfully retrieved Google Workspace data")
+	return result, nil
 }
