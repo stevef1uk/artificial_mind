@@ -451,7 +451,7 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 	}
 
 	log.Printf("🗣️ [NLG] formatResultData called with data keys: %v", getMapKeys(data))
-	
+
 	var sb strings.Builder
 
 	// Helper to extract content from an InterpretResult or similar
@@ -643,7 +643,72 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 
 	// Handle standard "result" key
 	if result, ok := data["result"]; ok {
-		return extractContent(result)
+		content := extractContent(result)
+		if content != "" && content != "No data available" {
+			return content
+		}
+		// If extractContent returned empty, the tool result might not be in metadata
+		// Try to extract it directly from the InterpretResult
+		if ir, ok := result.(*InterpretResult); ok && ir.Metadata != nil {
+			if toolResult, ok := ir.Metadata["tool_result"].(map[string]interface{}); ok {
+				log.Printf("🗣️ [NLG] Found tool_result directly in InterpretResult metadata")
+				// Format the tool result
+				if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
+					// Check if this is email data
+					if firstItem, ok := results[0].(map[string]interface{}); ok {
+						if _, hasSubject := firstItem["Subject"]; hasSubject {
+							var emailSb strings.Builder
+							emailSb.WriteString(fmt.Sprintf("Found %d email(s):\n\n", len(results)))
+							for i, res := range results {
+								if item, ok := res.(map[string]interface{}); ok {
+									subject := getStringFromMap(item, "Subject")
+									from := getStringFromMap(item, "From")
+									to := getStringFromMap(item, "To")
+									snippet := getStringFromMap(item, "snippet")
+									
+									isUnread := false
+									if labels, ok := item["labels"].([]interface{}); ok {
+										for _, label := range labels {
+											if labelMap, ok := label.(map[string]interface{}); ok {
+												if name, ok := labelMap["name"].(string); ok && name == "UNREAD" {
+													isUnread = true
+													break
+												}
+											}
+										}
+									}
+									
+									unreadMark := ""
+									if isUnread {
+										unreadMark = " [UNREAD]"
+									}
+									
+									emailSb.WriteString(fmt.Sprintf("[%d]%s\n", i+1, unreadMark))
+									if subject != "" {
+										emailSb.WriteString(fmt.Sprintf("    Subject: %s\n", subject))
+									}
+									if from != "" {
+										emailSb.WriteString(fmt.Sprintf("    From: %s\n", from))
+									}
+									if to != "" {
+										emailSb.WriteString(fmt.Sprintf("    To: %s\n", to))
+									}
+									if snippet != "" {
+										if len(snippet) > 200 {
+											snippet = snippet[:200] + "..."
+										}
+										emailSb.WriteString(fmt.Sprintf("    Preview: %s\n", snippet))
+									}
+									emailSb.WriteString("\n")
+								}
+							}
+							return emailSb.String()
+						}
+					}
+				}
+			}
+		}
+		return content
 	}
 
 	// Fallback to formatting the entire data structure
