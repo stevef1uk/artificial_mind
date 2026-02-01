@@ -583,9 +583,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				if toolSuccess, ok := interpretResult.Metadata["tool_success"].(bool); ok && toolSuccess {
 					// Check if tool_result is in metadata (if available)
 					if toolResult, ok := interpretResult.Metadata["tool_result"].(map[string]interface{}); ok {
-						if count, ok := toolResult["count"].(float64); ok && count > 0 {
-							hasNeo4jResults = true
-						} else if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
+						if hasResultsInToolResult(toolResult) {
 							hasNeo4jResults = true
 						}
 					}
@@ -672,9 +670,9 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		} else if ragResult != nil && ragResult.Metadata != nil {
 			if toolSuccess, ok := ragResult.Metadata["tool_success"].(bool); ok && toolSuccess {
 				if toolResult, ok := ragResult.Metadata["tool_result"].(map[string]interface{}); ok {
-					if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
+					if hasResultsInToolResult(toolResult) {
 						hasRAGResults = true
-						log.Printf("✅ [CONVERSATIONAL] RAG search found %d results in episodic memory", len(results))
+						log.Printf("✅ [CONVERSATIONAL] RAG search found results in episodic memory")
 					}
 				}
 			}
@@ -690,9 +688,9 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		} else if newsResult != nil && newsResult.Metadata != nil {
 			if toolSuccess, ok := newsResult.Metadata["tool_success"].(bool); ok && toolSuccess {
 				if toolResult, ok := newsResult.Metadata["tool_result"].(map[string]interface{}); ok {
-					if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
+					if hasResultsInToolResult(toolResult) {
 						hasNewsResults = true
-						log.Printf("✅ [CONVERSATIONAL] RAG search found %d results in news articles (WikipediaArticle)", len(results))
+						log.Printf("✅ [CONVERSATIONAL] RAG search found results in news articles (WikipediaArticle)")
 					}
 				}
 			}
@@ -863,4 +861,33 @@ func (cl *ConversationalLayer) GetConversationHistory(ctx context.Context, sessi
 // GetCurrentThinking returns the current reasoning process
 func (cl *ConversationalLayer) GetCurrentThinking(ctx context.Context, sessionID string) (*ReasoningTraceData, error) {
 	return cl.reasoningTrace.GetTrace(sessionID), nil
+}
+
+// hasResultsInToolResult checks if a tool result map contains actual results
+func hasResultsInToolResult(toolResult map[string]interface{}) bool {
+	if toolResult == nil {
+		return false
+	}
+
+	// Check count first
+	if val, ok := toolResult["count"]; ok {
+		if count, ok := val.(float64); ok && count > 0 {
+			return true
+		}
+		if count, ok := val.(int); ok && count > 0 {
+			return true
+		}
+	}
+
+	// Check results slice (handle both interface types)
+	if val, ok := toolResult["results"]; ok {
+		if results, ok := val.([]interface{}); ok && len(results) > 0 {
+			return true
+		}
+		if results, ok := val.([]map[string]interface{}); ok && len(results) > 0 {
+			return true
+		}
+	}
+
+	return false
 }
