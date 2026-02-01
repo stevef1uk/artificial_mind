@@ -697,8 +697,26 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			}
 		}
 
-		// 3. Combine results
-		if hasRAGResults || hasNewsResults {
+		// 3. Try searching Wikipedia knowledge base (AgiWiki) INDEPENDENTLY and DIRECTLY
+		log.Printf("🔍 [CONVERSATIONAL] Calling SearchWeaviate for Wikipedia articles: %s", ragQueryText)
+		wikiResult, wikiErr := cl.hdnClient.SearchWeaviate(ctx, ragQueryText, "AgiWiki", 3)
+
+		hasWikiResults := false
+		if wikiErr != nil {
+			log.Printf("⚠️ [CONVERSATIONAL] Wikipedia RAG search failed: %v", wikiErr)
+		} else if wikiResult != nil && wikiResult.Metadata != nil {
+			if toolSuccess, ok := wikiResult.Metadata["tool_success"].(bool); ok && toolSuccess {
+				if toolResult, ok := wikiResult.Metadata["tool_result"].(map[string]interface{}); ok {
+					if hasResultsInToolResult(toolResult) {
+						hasWikiResults = true
+						log.Printf("✅ [CONVERSATIONAL] RAG search found results in Wikipedia knowledge base (AgiWiki)")
+					}
+				}
+			}
+		}
+
+		// 4. Combine results
+		if hasRAGResults || hasNewsResults || hasWikiResults {
 			combinedData := map[string]interface{}{
 				"neo4j_result": interpretResult,
 				"source":       "neo4j_and_rag",
@@ -708,6 +726,9 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			}
 			if hasNewsResults {
 				combinedData["news_articles"] = newsResult
+			}
+			if hasWikiResults {
+				combinedData["wikipedia_articles"] = wikiResult
 			}
 
 			return &ActionResult{
