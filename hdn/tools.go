@@ -849,10 +849,27 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 		// Handle wiki bootstrapper by running host binary if present
 		if id == "tool_wiki_bootstrapper" {
 			// Determine binary path; HDN runs from hdn/, while binary is at repo-root/bin/wiki-bootstrapper
-			candidates := []string{
+			// Determine binary path; HDN runs from hdn/, while binary is at repo-root/bin/wiki-bootstrapper
+			// Also check AGI_PROJECT_ROOT if set
+			projectRoot := strings.TrimSpace(os.Getenv("AGI_PROJECT_ROOT"))
+			candidates := []string{}
+
+			if projectRoot != "" {
+				// Use absolute paths based on project root
+				candidates = append(candidates,
+					filepath.Join(projectRoot, "bin", "wiki-bootstrapper"),
+					filepath.Join(projectRoot, "bin", "tools", "wiki_bootstrapper"),
+					filepath.Join(projectRoot, "bin", "tools", "wiki-bootstrapper"),
+				)
+			}
+
+			// Add relative/standard paths
+			candidates = append(candidates,
 				filepath.Join("bin", "wiki-bootstrapper"),
 				filepath.Join("..", "bin", "wiki-bootstrapper"),
-			}
+				filepath.Join("bin", "tools", "wiki_bootstrapper"),
+				filepath.Join("..", "bin", "tools", "wiki_bootstrapper"),
+			)
 			bin := ""
 			for _, c := range candidates {
 				if fileExists(c) {
@@ -1092,7 +1109,7 @@ for k, v in params.items():
 			executionMethod := os.Getenv("EXECUTION_METHOD")
 			dockerAvailable := s.dockerExecutor != nil && fileExists("/var/run/docker.sock")
 			useDrone := executionMethod == "drone" || (executionMethod == "" && !dockerAvailable)
-			
+
 			if useDrone {
 				// Use Drone executor for Kubernetes environments or when Docker is unavailable
 				droneResp, err := s.submitToDroneCI(wrappedCode, language, "")
@@ -1103,9 +1120,9 @@ for k, v in params.items():
 					if sshErr != nil {
 						w.WriteHeader(http.StatusInternalServerError)
 						_ = json.NewEncoder(w).Encode(map[string]interface{}{
-							"error":            fmt.Sprintf("Drone CI failed: %v; SSH fallback also failed: %v", err, sshErr),
-							"drone_error":      err.Error(),
-							"ssh_error":        sshErr.Error(),
+							"error":       fmt.Sprintf("Drone CI failed: %v; SSH fallback also failed: %v", err, sshErr),
+							"drone_error": err.Error(),
+							"ssh_error":   sshErr.Error(),
 						})
 						return
 					}
@@ -1129,7 +1146,7 @@ for k, v in params.items():
 				if sshErr != nil {
 					w.WriteHeader(http.StatusInternalServerError)
 					_ = json.NewEncoder(w).Encode(map[string]interface{}{
-						"error": fmt.Sprintf("Docker executor not available and SSH fallback failed: %v", sshErr),
+						"error":     fmt.Sprintf("Docker executor not available and SSH fallback failed: %v", sshErr),
 						"ssh_error": sshErr.Error(),
 					})
 					return

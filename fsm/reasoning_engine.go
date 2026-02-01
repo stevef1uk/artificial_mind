@@ -454,7 +454,7 @@ func (re *ReasoningEngine) GenerateCuriosityGoals(domain string) ([]CuriosityGoa
 	}
 
 	// Limit the number of goals returned to prevent overwhelming the system
-	maxGoals := 10
+	maxGoals := 30
 	if len(filteredGoals) > maxGoals {
 		// Keep the highest priority goals
 		sort.Slice(filteredGoals, func(i, j int) bool {
@@ -616,7 +616,7 @@ func (re *ReasoningEngine) executeCypherQuery(cypherQuery string) ([]Belief, err
 	var filteredCount int
 
 	// Limit how many beliefs we process to avoid overwhelming the system
-	maxBeliefsToProcess := 100
+	maxBeliefsToProcess := 500
 	if len(result.Results) > maxBeliefsToProcess {
 		log.Printf("⚠️ Limiting belief processing to %d out of %d results", maxBeliefsToProcess, len(result.Results))
 		result.Results = result.Results[:maxBeliefsToProcess]
@@ -655,7 +655,7 @@ func (re *ReasoningEngine) executeCypherQuery(cypherQuery string) ([]Belief, err
 
 		// Skip LLM assessment for simple concept names (they're already in KB as concepts)
 		// Only assess beliefs that have substantial content beyond just a name
-		shouldAssess := confidence >= 0.7 && len(statement) > 20 &&
+		shouldAssess := confidence >= 0.7 && len(statement) > 100 &&
 			!strings.Contains(strings.ToLower(statement), "century") && // Skip time periods
 			!strings.Contains(strings.ToLower(statement), "in ") // Skip "X in Y" patterns
 
@@ -692,6 +692,7 @@ func (re *ReasoningEngine) executeCypherQuery(cypherQuery string) ([]Belief, err
 			Domain:      re.extractDomainFromResult(res),
 			CreatedAt:   time.Now(),
 			LastUpdated: time.Now(),
+			Properties:  re.extractPropertiesFromResult(res),
 			Uncertainty: uncertainty,
 		}
 		beliefs = append(beliefs, belief)
@@ -741,12 +742,32 @@ func (re *ReasoningEngine) extractStatementFromResult(result map[string]interfac
 		return definition
 	}
 
-	// If only name is available, format it as a statement
-	if name != "" {
-		return fmt.Sprintf("%s is a concept in the knowledge base", name)
+	// If only name is available, don't return a filler statement
+	// This prevents the FSM from looping on existing concepts that lack definitions
+	return ""
+}
+
+func (re *ReasoningEngine) extractPropertiesFromResult(result map[string]interface{}) map[string]interface{} {
+	// Check for flat props
+	if props, ok := result["Props"].(map[string]interface{}); ok {
+		return props
 	}
 
-	return "Unknown concept"
+	// Check nested nodes
+	for _, k := range []string{"n", "c", "a", "b", "related"} {
+		if node, ok := result[k].(map[string]interface{}); ok {
+			if props, ok := node["Props"].(map[string]interface{}); ok {
+				return props
+			}
+		}
+	}
+
+	// Fallback: if top level has name, return result itself
+	if _, ok := result["name"]; ok {
+		return result
+	}
+
+	return nil
 }
 
 func (re *ReasoningEngine) extractDomainFromResult(result map[string]interface{}) string {
@@ -954,7 +975,7 @@ func (re *ReasoningEngine) generateStatementFromConclusion(conclusion string, ev
 
 func (re *ReasoningEngine) generateGapFillingGoals(domain string) ([]CuriosityGoal, error) {
 	// Find concepts without relationships or definitions
-	query := fmt.Sprintf("MATCH (c:Concept) WHERE c.domain = '%s' AND (NOT (c)-[:RELATED_TO]->() OR c.definition IS NULL) RETURN c", domain)
+	query := fmt.Sprintf("MATCH (c:Concept) WHERE c.domain = '%s' AND (NOT (c)-[:RELATED_TO]->() OR c.definition IS NULL OR c.definition = '') RETURN c", domain)
 	results, err := re.executeCypherQuery(query)
 	if err != nil {
 		return nil, err
@@ -963,6 +984,14 @@ func (re *ReasoningEngine) generateGapFillingGoals(domain string) ([]CuriosityGo
 	var goals []CuriosityGoal
 	for i, result := range results {
 		concept := result.Statement
+
+		// Prefer the exact concept name if available in properties
+		// This avoids using constructed statements like "X is a concept..." as the target
+		if result.Properties != nil {
+			if name, ok := result.Properties["name"].(string); ok && name != "" {
+				concept = name
+			}
+		}
 
 		// Create uncertainty model for gap filling goal
 		// Gap filling has moderate epistemic uncertainty (we know there's a gap)
@@ -975,12 +1004,12 @@ func (re *ReasoningEngine) generateGapFillingGoals(domain string) ([]CuriosityGo
 			Type:        "gap_filling",
 			Description: fmt.Sprintf("Use tool_html_scraper to scrape Wikipedia page for '%s' and extract knowledge", concept),
 			Domain:      domain,
-			Priority:    7,
+			Priority:    9,
 			Status:      "pending",
 			Targets:     []string{concept},
 			CreatedAt:   time.Now(),
 			Uncertainty: uncertainty,
-			Value:       0.6,
+			Value:       0.9,
 		}
 		goals = append(goals, goal)
 	}
@@ -1128,7 +1157,7 @@ func (re *ReasoningEngine) generateNewsCuriosityGoals(domain string) ([]Curiosit
 					goal := CuriosityGoal{
 						ID:          fmt.Sprintf("news_alert_%d_%d", time.Now().UnixNano(), i),
 						Type:        "news_analysis",
-						Description: fmt.Sprintf("Use tool_http_get to fetch news article about '%s' and analyze impact: %s", headline, impact),
+						Description: fmt.Sprintf("Use tool_html_scraper to scrape news article about '%s' and analyze impact: %s", headline, impact),
 						Domain:      domain,
 						Priority:    priority,
 						Status:      "pending",
@@ -1454,7 +1483,7 @@ Remember: NO tools, NO tasks, NO actions - just return the JSON assessment.`, st
 
 	// Rate limiting: Add delay between LLM requests to prevent GPU overload
 	// Default: 5 seconds, configurable via FSM_LLM_REQUEST_DELAY_MS
-	delayMs := 5000
+	delayMs := 1000
 	if v := strings.TrimSpace(os.Getenv("FSM_LLM_REQUEST_DELAY_MS")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			delayMs = n

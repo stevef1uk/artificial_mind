@@ -195,7 +195,7 @@ func NewPlannerIntegration(
 		log.Printf("⚠️ [PLANNER-INTEGRATION] Failed to create default templates: %v", err)
 	}
 
-	return &PlannerIntegration{
+	integration := &PlannerIntegration{
 		planner:                 basePlanner,
 		feedbackEvaluator:       feedbackEvaluator,
 		hierarchicalPlanner:     hierarchicalIntegration.GetHierarchicalPlanner(),
@@ -206,6 +206,19 @@ func NewPlannerIntegration(
 		useHierarchical:         true, // Enable hierarchical planning
 		apiServer:               apiServer,
 	}
+
+	// Pre-load MCP tools as capabilities immediately
+	if apiServer != nil {
+		go func() {
+			// Give the server a moment to start up and register its own tools
+			time.Sleep(2 * time.Second)
+			if err := integration.LoadMCPToolsAsCapabilities(); err != nil {
+				log.Printf("⚠️ [PLANNER-INTEGRATION] Failed to load MCP tools: %v", err)
+			}
+		}()
+	}
+
+	return integration
 }
 
 // PlanAndExecuteTask plans and executes a task using the planner
@@ -800,6 +813,53 @@ func (pi *PlannerIntegration) ResumeWorkflow(workflowID string, resumeToken stri
 	return pi.hierarchicalIntegration.ResumeWorkflow(workflowID, resumeToken)
 }
 
+// LoadMCPToolsAsCapabilities fetches all tools from the API Server and registers them
+// as planner capabilities, allowing the planner to use them in plans.
+func (pi *PlannerIntegration) LoadMCPToolsAsCapabilities() error {
+	if pi.apiServer == nil {
+		return fmt.Errorf("API server reference not available")
+	}
+
+	// Use the internal method of APIServer to get tools directly
+	// This avoids HTTP overhead and auth issues during internal startup
+	tools, err := pi.apiServer.listTools(pi.ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list tools from API server: %v", err)
+	}
+
+	log.Printf("📥 [PLANNER-INTEGRATION] Loading %d MCP tools as capabilities...", len(tools))
+
+	count := 0
+	for _, tool := range tools {
+		// Create a capability definition from the tool
+		cap := planner.Capability{
+			ID:           tool.ID,
+			TaskName:     tool.Name,
+			Description:  tool.Description,
+			Language:     "mcp_tool", // Special marker for the executor
+			ContextCheck: "",         // Always available
+			Code:         "",         // No code, handled via tool invocation
+			Type:         "tool",
+			Risk:         tool.SafetyLevel,
+			Tags:         []string{"mcp", "tool", tool.ID},
+		}
+
+		// Map input schema to parameters
+		// This helps the planner understand what args to generate
+		// Note: We might need a better mapping if the planner supports structured schemas
+		// For now we just add them as tags or description hints could be added
+
+		if err := pi.RegisterCapability(&cap); err != nil {
+			log.Printf("⚠️ [PLANNER-INTEGRATION] Failed to register tool aspect %s: %v", tool.ID, err)
+		} else {
+			count++
+		}
+	}
+
+	log.Printf("✅ [PLANNER-INTEGRATION] Successfully loaded %d/%d MCP tools as capabilities", count, len(tools))
+	return nil
+}
+
 // CancelWorkflow cancels a workflow
 func (pi *PlannerIntegration) CancelWorkflow(workflowID string) error {
 	if pi.hierarchicalIntegration == nil {
@@ -956,7 +1016,7 @@ func ConvertToolToCapability(tool Tool) *planner.Capability {
 		Validation: map[string]interface{}{
 			"tool_id":      tool.ID,
 			"safety_level": tool.SafetyLevel,
-			"permissions":   tool.Permissions,
+			"permissions":  tool.Permissions,
 			"exec_type": func() string {
 				if tool.Exec != nil {
 					return tool.Exec.Type

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -907,20 +908,55 @@ func (ki *KnowledgeIntegration) generateConceptBasedHypothesis(conceptName, conc
 	var confidence float64 = 0.5
 
 	if strings.Contains(lowerDef, "study") || strings.Contains(lowerDef, "science") {
-		hypothesisDesc = fmt.Sprintf("If we apply scientific methods to %s, we can enhance %s capabilities", conceptName, domain)
+		templates := []string{
+			"If we apply scientific methods to %s, we can enhance %s capabilities",
+			"Conduct a study on %s to advance %s",
+			"Analyze %s rigorously to improve %s",
+		}
+		hypothesisDesc = fmt.Sprintf(ki.getRandomTemplate(templates), conceptName, domain)
 		confidence = 0.7
 	} else if strings.Contains(lowerDef, "technology") || strings.Contains(lowerDef, "system") {
-		hypothesisDesc = fmt.Sprintf("If we optimize the %s system, we can improve %s performance", conceptName, domain)
+		templates := []string{
+			"If we optimize the %s system, we can improve %s performance",
+			"Refactor %s to boost %s efficiency",
+			"Integrate %s more deeply to strenghten %s",
+		}
+		hypothesisDesc = fmt.Sprintf(ki.getRandomTemplate(templates), conceptName, domain)
 		confidence = 0.6
 	} else if strings.Contains(lowerDef, "practice") || strings.Contains(lowerDef, "application") {
-		hypothesisDesc = fmt.Sprintf("If we enhance %s practices, we can improve %s outcomes", conceptName, domain)
+		templates := []string{
+			"If we enhance %s practices, we can improve %s outcomes",
+			"Refine the application of %s in %s",
+			"Standardize %s to streamline %s",
+		}
+		hypothesisDesc = fmt.Sprintf(ki.getRandomTemplate(templates), conceptName, domain)
 		confidence = 0.6
 	} else if strings.Contains(lowerDef, "knowledge") || strings.Contains(lowerDef, "understanding") {
-		hypothesisDesc = fmt.Sprintf("If we expand our knowledge of %s, we can improve %s capabilities", conceptName, domain)
+		templates := []string{
+			"If we expand our knowledge of %s, we can improve %s capabilities",
+			"Deepen understanding of %s to master %s",
+			"Map out %s to clarify %s",
+		}
+		hypothesisDesc = fmt.Sprintf(ki.getRandomTemplate(templates), conceptName, domain)
 		confidence = 0.5
+	} else if strings.Contains(lowerDef, "algorithm") || strings.Contains(lowerDef, "optimization") {
+		templates := []string{
+			"Tune the %s algorithm to maximize %s",
+			"Benchmark %s to find %s bottlenecks",
+			"Iterate on %s to improve %s convergence",
+		}
+		hypothesisDesc = fmt.Sprintf(ki.getRandomTemplate(templates), conceptName, domain)
+		confidence = 0.7
 	} else {
 		// Generic hypothesis based on concept
-		hypothesisDesc = fmt.Sprintf("If we explore %s further, we can discover new insights about %s", conceptName, domain)
+		templates := []string{
+			"If we explore %s further, we can discover new insights about %s",
+			"Investigate %s to reveal %s secrets",
+			"Probe %s to find potential %s improvements",
+			"Examine %s in the context of %s",
+			"Audit %s for %s flaws/opportunities",
+		}
+		hypothesisDesc = fmt.Sprintf(ki.getRandomTemplate(templates), conceptName, domain)
 		confidence = 0.4
 	}
 
@@ -1173,6 +1209,14 @@ func (ki *KnowledgeIntegration) enhanceConceptsWithRelated(concepts []map[string
 	return enhanced
 }
 
+// getRandomTemplate returns a random template from the slice
+func (ki *KnowledgeIntegration) getRandomTemplate(templates []string) string {
+	if len(templates) == 0 {
+		return ""
+	}
+	return templates[rand.Intn(len(templates))]
+}
+
 // generateRelationshipHypotheses creates hypotheses based on concept relationships
 func (ki *KnowledgeIntegration) generateRelationshipHypotheses(concepts []map[string]interface{}, domain string) []Hypothesis {
 	var hypotheses []Hypothesis
@@ -1208,9 +1252,18 @@ func (ki *KnowledgeIntegration) generateRelationshipHypotheses(concepts []map[st
 				aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "")
 				uncertainty := NewUncertaintyModel(0.6, epistemicUncertainty, aleatoricUncertainty)
 
+				templates := []string{
+					"If we combine %s and %s, we can create new %s capabilities",
+					"Integrating %s with %s could lead to breakthroughs in %s",
+					"Investigate the intersection of %s and %s within %s",
+					"Explore how %s influences %s in the context of %s",
+					"Synthesize %s and %s to advance %s",
+				}
+				desc := fmt.Sprintf(ki.getRandomTemplate(templates), name1, name2, domain)
+
 				hypothesis := Hypothesis{
 					ID:          fmt.Sprintf("hyp_rel_%d_%d_%d", time.Now().UnixNano(), i, j),
-					Description: fmt.Sprintf("If we combine %s and %s, we can create new %s capabilities", name1, name2, domain),
+					Description: desc,
 					Domain:      domain,
 					Confidence:  uncertainty.CalibratedConfidence,
 					Status:      "proposed",
@@ -1236,14 +1289,42 @@ func (ki *KnowledgeIntegration) generateFactBasedHypothesis(fact Fact, concepts 
 	var confidence float64 = fact.Confidence * 0.6
 
 	// Look for patterns in fact content
+	// Look for patterns in fact content
 	if strings.Contains(lowerContent, "working") || strings.Contains(lowerContent, "functioning") {
-		hypothesisDesc = fmt.Sprintf("If %s continues working, we can leverage it to improve %s", fact.Content, domain)
+		templates := []string{
+			"If %s continues working, we can leverage it to improve %s",
+			"Since %s is operational, we should use it to boost %s",
+			"Capitalize on the fact that %s to enhance %s",
+		}
+		hypothesisDesc = fmt.Sprintf(ki.getRandomTemplate(templates), fact.Content, domain)
 	} else if strings.Contains(lowerContent, "improve") || strings.Contains(lowerContent, "enhance") {
-		hypothesisDesc = fmt.Sprintf("If we build on %s, we can further improve %s", fact.Content, domain)
+		templates := []string{
+			"If we build on %s, we can further improve %s",
+			"Using %s as a baseline, we can optimize %s",
+			"Extend the improvements from %s to the rest of %s",
+		}
+		hypothesisDesc = fmt.Sprintf(ki.getRandomTemplate(templates), fact.Content, domain)
 	} else if strings.Contains(lowerContent, "learn") || strings.Contains(lowerContent, "understand") {
-		hypothesisDesc = fmt.Sprintf("If we apply insights from %s, we can improve our %s approach", fact.Content, domain)
+		templates := []string{
+			"If we apply insights from %s, we can improve our %s approach",
+			"Apply the key learnings from %s to %s",
+			"Leverage the understanding of %s to refine %s",
+		}
+		hypothesisDesc = fmt.Sprintf(ki.getRandomTemplate(templates), fact.Content, domain)
+	} else if strings.Contains(lowerContent, "system state") {
+		templates := []string{
+			"Analyze %s to optimize the %s loop",
+			"Use %s telemetry to tune %s parameters",
+			"Reflect on %s to drive %s self-improvement",
+		}
+		hypothesisDesc = fmt.Sprintf(ki.getRandomTemplate(templates), fact.Content, domain)
 	} else {
-		hypothesisDesc = fmt.Sprintf("If we investigate %s further, we can discover new %s opportunities", fact.Content, domain)
+		templates := []string{
+			"If we investigate %s further, we can discover new %s opportunities",
+			"Dig deeper into %s to uncover %s patterns",
+			"Research %s to expand our %s knowledge base",
+		}
+		hypothesisDesc = fmt.Sprintf(ki.getRandomTemplate(templates), fact.Content, domain)
 	}
 
 	// Create uncertainty model for fact-based hypothesis

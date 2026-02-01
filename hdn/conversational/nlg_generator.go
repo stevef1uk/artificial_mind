@@ -2,6 +2,7 @@ package conversational
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -54,9 +55,10 @@ func NewNLGGenerator(llmClient LLMClientInterface) *NLGGenerator {
 
 // GenerateResponse generates a natural language response
 func (nlg *NLGGenerator) GenerateResponse(ctx context.Context, req *NLGRequest) (*NLGResponse, error) {
-	log.Printf("🗣️ [NLG] Generating response for intent: %s", req.Intent.Type)
-
-	// Choose the appropriate generation strategy based on the action type
+	log.Printf("🗣️ [NLG] Generating response for intent: %s (action: %s)", req.Intent.Type, req.Action.Type)
+	if req.Result != nil {
+		log.Printf("🗣️ [NLG] Result available: type=%s, success=%v, data_keys=%d", req.Result.Type, req.Result.Success, len(req.Result.Data))
+	}
 	switch req.Action.Type {
 	case "knowledge_query":
 		return nlg.generateKnowledgeResponse(ctx, req)
@@ -78,6 +80,7 @@ func (nlg *NLGGenerator) GenerateResponse(ctx context.Context, req *NLGRequest) 
 // generateKnowledgeResponse generates a response for knowledge queries
 func (nlg *NLGGenerator) generateKnowledgeResponse(ctx context.Context, req *NLGRequest) (*NLGResponse, error) {
 	prompt := nlg.buildKnowledgePrompt(req)
+	log.Printf("🗣️ [NLG] Knowledge prompt length: %d", len(prompt))
 
 	response, err := nlg.llmClient.GenerateResponse(ctx, prompt, 500)
 	if err != nil {
@@ -217,7 +220,9 @@ User Question: "%s"
 Intent: %s
 Goal: %s
 
-Please provide a clear, informative answer based on the available information.`
+Please provide a clear, informative answer. 
+
+IMPORTANT: If the 'Retrieved Information' below is empty or says 'No results', please use your own internal knowledge to answer as best as you can, but add a brief note that no specific real-time updates were found in the knowledge base.`
 
 	// Add reasoning trace if available and requested
 	if req.ShowThinking && req.ReasoningTrace != nil {
@@ -419,11 +424,155 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 		return "No data available"
 	}
 
-	// Try to extract meaningful information
+	var sb strings.Builder
+
+	// Helper to extract content from an InterpretResult or similar
+	extractContent := func(val interface{}) string {
+		if val == nil {
+			return ""
+		}
+
+		var interpretedStr string
+		var metadata map[string]interface{}
+
+		// Try to handle both pointer and value types
+		if ir, ok := val.(*InterpretResult); ok {
+			interpretedStr = fmt.Sprintf("%v", ir.Interpreted)
+			metadata = ir.Metadata
+		} else if ir, ok := val.(InterpretResult); ok {
+			interpretedStr = fmt.Sprintf("%v", ir.Interpreted)
+			metadata = ir.Metadata
+		} else {
+			return fmt.Sprintf("%v", val)
+		}
+
+		// If we have metadata with a tool result, format the actual data
+		if metadata != nil {
+			if toolResult, ok := metadata["tool_result"].(map[string]interface{}); ok {
+				var resultSb strings.Builder
+
+				// Handle Weaviate or Neo4j results (list of objects)
+				// We check for both []interface{} and []map[string]interface{} to avoid cast errors
+				var resultsList []interface{}
+				if list, ok := toolResult["results"].([]interface{}); ok {
+					resultsList = list
+				} else if list, ok := toolResult["results"].([]map[string]interface{}); ok {
+					for _, item := range list {
+						resultsList = append(resultsList, item)
+					}
+				}
+
+				if len(resultsList) > 0 {
+					resultSb.WriteString(fmt.Sprintf("Found %d relevant items:\n\n", len(resultsList)))
+					for i, res := range resultsList {
+						if item, ok := res.(map[string]interface{}); ok {
+							title := getStringFromMap(item, "title")
+							text := getStringFromMap(item, "text")
+							name := getStringFromMap(item, "name")
+							defn := getStringFromMap(item, "definition")
+
+							if title != "" {
+								resultSb.WriteString(fmt.Sprintf("[%d] TITLE: %s\n", i+1, title))
+							} else if name != "" {
+								resultSb.WriteString(fmt.Sprintf("[%d] NAME: %s\n", i+1, name))
+							}
+
+							if text != "" {
+								// Limit text length to avoid blowing up prompt
+								if len(text) > 800 {
+									text = text[:800] + "..."
+								}
+								resultSb.WriteString(fmt.Sprintf("    CONTENT: %s\n", text))
+							} else if defn != "" {
+								resultSb.WriteString(fmt.Sprintf("    DEFINITION: %s\n", defn))
+							}
+							resultSb.WriteString("\n")
+						}
+					}
+					return resultSb.String()
+				}
+
+				// Handle simple count + results results if not already handled
+				if count, ok := toolResult["count"].(float64); ok && count > 0 {
+					// This is a fallback in case the result structure is different
+					return fmt.Sprintf("Retrieved %d matching records from knowledge base.", int(count))
+				}
+			}
+		}
+
+		return interpretedStr
+	}
+
+	// Check for combined results first
+	if source, ok := data["source"].(string); ok && source == "neo4j_and_rag" {
+		if neo4j, ok := data["neo4j_result"]; ok {
+			content := extractContent(neo4j)
+			if content != "" {
+				sb.WriteString("### Knowledge Graph (Neo4j):\n")
+				sb.WriteString(content)
+				sb.WriteString("\n\n")
+			}
+		}
+		if episodic, ok := data["episodic_memory"]; ok {
+			content := extractContent(episodic)
+			if content != "" {
+				sb.WriteString("### Episodic Memory (Weaviate):\n")
+				sb.WriteString(content)
+				sb.WriteString("\n\n")
+			}
+		}
+		if news, ok := data["news_articles"]; ok {
+			content := extractContent(news)
+			if content != "" {
+				sb.WriteString("### News Articles (Weaviate):\n")
+				sb.WriteString(content)
+				sb.WriteString("\n\n")
+			}
+		}
+		if sb.Len() > 0 {
+			return sb.String()
+		}
+	}
+
+	// Handle standard "result" key
 	if result, ok := data["result"]; ok {
-		return fmt.Sprintf("%v", result)
+		return extractContent(result)
 	}
 
 	// Fallback to formatting the entire data structure
-	return fmt.Sprintf("%v", data)
+	fallback := fmt.Sprintf("%v", data)
+	log.Printf("🗣️ [NLG] Result data formatted (length: %d)", len(fallback))
+	return fallback
+}
+
+// getStringFromMap safely extracts a string value from a map
+func getStringFromMap(m map[string]interface{}, key string) string {
+	if val, exists := m[key]; exists && val != nil {
+		if s, ok := val.(string); ok {
+			return s
+		}
+		// If it's a number, convert to string
+		if f, ok := val.(float64); ok {
+			return fmt.Sprintf("%.2f", f)
+		}
+		return fmt.Sprintf("%v", val)
+	}
+
+	// Special case for Weaviate: properties might be in a nested "metadata" JSON string
+	if metadataStr, ok := m["metadata"].(string); ok && metadataStr != "" {
+		var metadata map[string]interface{}
+		if err := json.Unmarshal([]byte(metadataStr), &metadata); err == nil {
+			// Try looking in original_metadata if present
+			if orig, ok := metadata["original_metadata"].(map[string]interface{}); ok {
+				if val, exists := orig[key]; exists && val != nil {
+					return fmt.Sprintf("%v", val)
+				}
+			}
+			if val, exists := metadata[key]; exists && val != nil {
+				return fmt.Sprintf("%v", val)
+			}
+		}
+	}
+
+	return ""
 }

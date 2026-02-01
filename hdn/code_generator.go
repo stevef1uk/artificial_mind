@@ -84,10 +84,10 @@ func (cg *CodeGenerator) GenerateCode(req *CodeGenerationRequest) (*CodeGenerati
 	if err != nil {
 		// Check if error is due to context size
 		errStr := err.Error()
-		if strings.Contains(errStr, "Context size has been exceeded") || 
-		   strings.Contains(errStr, "context size") || 
-		   strings.Contains(errStr, "context_length_exceeded") ||
-		   strings.Contains(errStr, "maximum context length") {
+		if strings.Contains(errStr, "Context size has been exceeded") ||
+			strings.Contains(errStr, "context size") ||
+			strings.Contains(errStr, "context_length_exceeded") ||
+			strings.Contains(errStr, "maximum context length") {
 			log.Printf("❌ [CODEGEN] Context size error detected - prompt may still be too large")
 			return &CodeGenerationResponse{
 				Success: false,
@@ -329,8 +329,8 @@ func (cg *CodeGenerator) truncatePrompt(prompt string, maxSize int) string {
 	// Strategy: Keep the beginning (task description, language requirements) and truncate from the middle/end
 	// Most important parts are usually at the beginning
 	// Reserve space for the ending (code block tag)
-	const headerReserve = 2000  // Reserve for header (task description, language enforcement)
-	const footerReserve = 500    // Reserve for footer (code block tag)
+	const headerReserve = 2000 // Reserve for header (task description, language enforcement)
+	const footerReserve = 500  // Reserve for footer (code block tag)
 	availableSize := maxSize - headerReserve - footerReserve
 
 	if availableSize <= 0 {
@@ -589,7 +589,7 @@ Code:`
 			cleanDesc = matches[1]
 		}
 	}
-	
+
 	// Truncate description if it's too large to prevent context size issues
 	const maxDescriptionSize = 10000 // 10KB for description
 	if len(cleanDesc) > maxDescriptionSize {
@@ -634,7 +634,7 @@ Code:`
 	isHypothesisTask := strings.HasPrefix(strings.ToLower(req.TaskName), "test hypothesis:") ||
 		strings.HasPrefix(strings.ToLower(cleanDesc), "test hypothesis:") ||
 		strings.Contains(strings.ToLower(cleanDesc), "🚨🚨🚨 critical: do not use tools")
-	
+
 	shouldIncludeTools := false
 	if isHypothesisTask {
 		shouldIncludeTools = false // Never include tools for hypothesis testing
@@ -650,7 +650,7 @@ Code:`
 			// Filter tools based on task relevance to reduce prompt size
 			filteredTools := cg.filterRelevantToolsForTask(req.Tools, req.TaskName, cleanDesc)
 			log.Printf("📝 [CODEGEN] Filtered tools: %d relevant tools out of %d total", len(filteredTools), len(req.Tools))
-			
+
 			if len(filteredTools) == 0 {
 				// If no relevant tools found, don't include tool instructions
 				log.Printf("⚠️ [CODEGEN] No relevant tools found for task, skipping tool instructions")
@@ -664,89 +664,90 @@ Code:`
 					toolsToInclude = toolsToInclude[:maxTools]
 					toolInstructions += fmt.Sprintf("(Showing %d of %d relevant tools)\n", maxTools, len(filteredTools))
 				}
-			for _, tool := range toolsToInclude {
-				// Truncate tool description if too long
-				desc := tool.Description
-				const maxToolDescSize = 500
-				if len(desc) > maxToolDescSize {
-					desc = desc[:maxToolDescSize] + "..."
-				}
-				toolInstructions += fmt.Sprintf("- %s: %s\n", tool.ID, desc)
-				if len(tool.InputSchema) > 0 {
-					toolInstructions += "  Parameters: "
-					params := []string{}
-					// Limit number of parameters shown
-					const maxParams = 10
-					paramCount := 0
-					for paramName, paramType := range tool.InputSchema {
-						if paramCount >= maxParams {
-							break
+				for _, tool := range toolsToInclude {
+					// Truncate tool description if too long
+					desc := tool.Description
+					const maxToolDescSize = 500
+					if len(desc) > maxToolDescSize {
+						desc = desc[:maxToolDescSize] + "..."
+					}
+					toolInstructions += fmt.Sprintf("- %s: %s\n", tool.ID, desc)
+					if len(tool.InputSchema) > 0 {
+						toolInstructions += "  Parameters: "
+						params := []string{}
+						// Limit number of parameters shown
+						const maxParams = 10
+						paramCount := 0
+						for paramName, paramType := range tool.InputSchema {
+							if paramCount >= maxParams {
+								break
+							}
+							params = append(params, fmt.Sprintf("%s (%s)", paramName, paramType))
+							paramCount++
 						}
-						params = append(params, fmt.Sprintf("%s (%s)", paramName, paramType))
-						paramCount++
+						toolInstructions += strings.Join(params, ", ")
+						if len(tool.InputSchema) > maxParams {
+							toolInstructions += fmt.Sprintf(" (and %d more)", len(tool.InputSchema)-maxParams)
+						}
+						toolInstructions += "\n"
 					}
-					toolInstructions += strings.Join(params, ", ")
-					if len(tool.InputSchema) > maxParams {
-						toolInstructions += fmt.Sprintf(" (and %d more)", len(tool.InputSchema)-maxParams)
-					}
-					toolInstructions += "\n"
 				}
-			}
-			toolInstructions += "\n🚨 CRITICAL: To use these tools, call them via HTTP API:\n"
+				toolInstructions += "\n🚨 CRITICAL: To use these tools, call them via HTTP API:\n"
 
-			// Language-specific tool usage instructions
-			if req.Language == "go" {
-				// Go-specific instructions
-				if req.ToolAPIURL != "" {
-					toolInstructions += fmt.Sprintf("- Base URL: %s\n", req.ToolAPIURL)
-					toolInstructions += fmt.Sprintf("- Use this URL directly OR get from environment: `hdnURL := os.Getenv(\"HDN_URL\"); if hdnURL == \"\" { hdnURL = \"%s\" }`\n", req.ToolAPIURL)
-				} else {
-					toolInstructions += "- Get HDN_URL from environment: `hdnURL := os.Getenv(\"HDN_URL\"); if hdnURL == \"\" { hdnURL = \"http://host.docker.internal:8081\" }`\n"
-				}
-				toolInstructions += "\n🚨 CRITICAL: NEVER use 'localhost' - always use 'host.docker.internal' or the HDN_URL environment variable!\n"
-				toolInstructions += "- Import required packages: `\"net/http\", \"bytes\", \"encoding/json\", \"os\"`\n"
-				toolInstructions += "- Call tool via POST request:\n"
-				toolInstructions += "  ```go\n"
-				toolInstructions += "  params := map[string]interface{}{\"url\": \"https://example.com\"}\n"
-				toolInstructions += "  jsonData, _ := json.Marshal(params)\n"
-				toolInstructions += "  req, _ := http.NewRequest(\"POST\", hdnURL+\"/api/v1/tools/tool_http_get/invoke\", bytes.NewBuffer(jsonData))\n"
-				toolInstructions += "  req.Header.Set(\"Content-Type\", \"application/json\")\n"
-				toolInstructions += "  client := &http.Client{}\n"
-				toolInstructions += "  resp, _ := client.Do(req)\n"
-				toolInstructions += "  defer resp.Body.Close()\n"
-				toolInstructions += "  ```\n"
-				toolInstructions += "- PREFER using available tools over writing custom code when a tool can accomplish the task!\n"
-			} else if req.Language == "python" || req.Language == "py" {
-				// Python-specific instructions
-				if req.ToolAPIURL != "" {
-					toolInstructions += fmt.Sprintf("- Base URL: %s\n", req.ToolAPIURL)
-					toolInstructions += fmt.Sprintf("- ALWAYS use this URL: `hdn_url = os.getenv('HDN_URL', '%s')`\n", req.ToolAPIURL)
-					toolInstructions += fmt.Sprintf("- CRITICAL: Use the exact URL '%s' - do NOT use 'host.docker.internal' or 'localhost' unless this URL contains them!\n", req.ToolAPIURL)
-				} else {
-					// Default based on execution method - check if Docker or SSH
-					defaultURL := "http://localhost:8080"
-					execMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
-					if execMethod == "docker" || (execMethod == "" && runtime.GOARCH != "arm64" && runtime.GOARCH != "aarch64") {
-						defaultURL = "http://host.docker.internal:8080"
+				// Language-specific tool usage instructions
+				if req.Language == "go" {
+					// Go-specific instructions
+					if req.ToolAPIURL != "" {
+						toolInstructions += fmt.Sprintf("- Base URL: %s\n", req.ToolAPIURL)
+						toolInstructions += fmt.Sprintf("- Use this URL directly OR get from environment: `hdnURL := os.Getenv(\"HDN_URL\"); if hdnURL == \"\" { hdnURL = \"%s\" }`\n", req.ToolAPIURL)
+					} else {
+						toolInstructions += "- Get HDN_URL from environment: `hdnURL := os.Getenv(\"HDN_URL\"); if hdnURL == \"\" { hdnURL = \"http://host.docker.internal:8081\" }`\n"
 					}
-					toolInstructions += fmt.Sprintf("- Get HDN_URL from environment: `hdn_url = os.getenv('HDN_URL', '%s')`\n", defaultURL)
-					toolInstructions += fmt.Sprintf("- CRITICAL: Use the exact default '%s' - do NOT change it!\n", defaultURL)
-				}
-				toolInstructions += "\n🚨 CRITICAL: Always use the HDN_URL environment variable with the provided default URL!\n"
-				toolInstructions += "- Call tool via POST request: `requests.post(f'{hdn_url}/api/v1/tools/{tool_id}/invoke', json={params})`\n"
-				toolInstructions += "- Example for tool_http_get: `requests.post(f'{hdn_url}/api/v1/tools/tool_http_get/invoke', json={'url': 'https://example.com'})`\n"
-				toolInstructions += "- Make sure to import `requests` and `os` modules, and handle the response JSON properly.\n"
-				toolInstructions += "- PREFER using available tools over writing custom code when a tool can accomplish the task!\n"
-			} else {
-				// Generic instructions (fallback)
-				if req.ToolAPIURL != "" {
-					toolInstructions += fmt.Sprintf("- Base URL: %s\n", req.ToolAPIURL)
+					toolInstructions += "\n🚨 CRITICAL: NEVER use 'localhost' - always use 'host.docker.internal' or the HDN_URL environment variable!\n"
+					toolInstructions += "- Import required packages: `\"net/http\", \"bytes\", \"encoding/json\", \"os\"`\n"
+					toolInstructions += "- Call tool via POST request:\n"
+					toolInstructions += "  ```go\n"
+					toolInstructions += "  params := map[string]interface{}{\"url\": \"https://example.com\"}\n"
+					toolInstructions += "  jsonData, _ := json.Marshal(params)\n"
+					toolInstructions += "  req, _ := http.NewRequest(\"POST\", hdnURL+\"/api/v1/tools/tool_http_get/invoke\", bytes.NewBuffer(jsonData))\n"
+					toolInstructions += "  req.Header.Set(\"Content-Type\", \"application/json\")\n"
+					toolInstructions += "  client := &http.Client{}\n"
+					toolInstructions += "  resp, _ := client.Do(req)\n"
+					toolInstructions += "  defer resp.Body.Close()\n"
+					toolInstructions += "  ```\n"
+					toolInstructions += "- PREFER using available tools over writing custom code when a tool can accomplish the task!\n"
+				} else if req.Language == "python" || req.Language == "py" {
+					// Python-specific instructions
+					if req.ToolAPIURL != "" {
+						toolInstructions += fmt.Sprintf("- Base URL: %s\n", req.ToolAPIURL)
+						toolInstructions += fmt.Sprintf("- ALWAYS use this URL: `hdn_url = os.getenv('HDN_URL', '%s')`\n", req.ToolAPIURL)
+						toolInstructions += fmt.Sprintf("- CRITICAL: Use the exact URL '%s' - do NOT use 'host.docker.internal' or 'localhost' unless this URL contains them!\n", req.ToolAPIURL)
+					} else {
+						// Default based on execution method - check if Docker or SSH
+						defaultURL := "http://localhost:8080"
+						execMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
+						if execMethod == "docker" || (execMethod == "" && runtime.GOARCH != "arm64" && runtime.GOARCH != "aarch64") {
+							defaultURL = "http://host.docker.internal:8080"
+						}
+						toolInstructions += fmt.Sprintf("- Get HDN_URL from environment: `hdn_url = os.getenv('HDN_URL', '%s')`\n", defaultURL)
+						toolInstructions += fmt.Sprintf("- CRITICAL: Use the exact default '%s' - do NOT change it!\n", defaultURL)
+					}
+					toolInstructions += "\n🚨 CRITICAL: Always use the HDN_URL environment variable with the provided default URL!\n"
+					toolInstructions += "- Call tool via POST request: `requests.post(f'{hdn_url}/api/v1/tools/{tool_id}/invoke', json={params})`\n"
+					toolInstructions += "- Example for tool_http_get: `requests.post(f'{hdn_url}/api/v1/tools/tool_http_get/invoke', json={'url': 'https://example.com'})`\n"
+					toolInstructions += "- Make sure to import `requests` and `os` modules, and handle the response JSON properly.\n"
+					toolInstructions += "🚨 CRITICAL: Python uses `None`, NOT `null`. If you see `null` in context, use `None` in your code!\n"
+					toolInstructions += "- PREFER using available tools over writing custom code when a tool can accomplish the task!\n"
 				} else {
-					toolInstructions += "- Get HDN_URL from environment variable HDN_URL (default: http://host.docker.internal:8081)\n"
+					// Generic instructions (fallback)
+					if req.ToolAPIURL != "" {
+						toolInstructions += fmt.Sprintf("- Base URL: %s\n", req.ToolAPIURL)
+					} else {
+						toolInstructions += "- Get HDN_URL from environment variable HDN_URL (default: http://host.docker.internal:8081)\n"
+					}
+					toolInstructions += "- Call tool via POST request to {hdn_url}/api/v1/tools/{tool_id}/invoke with JSON body containing parameters\n"
+					toolInstructions += "- PREFER using available tools over writing custom code when a tool can accomplish the task!\n"
 				}
-				toolInstructions += "- Call tool via POST request to {hdn_url}/api/v1/tools/{tool_id}/invoke with JSON body containing parameters\n"
-				toolInstructions += "- PREFER using available tools over writing custom code when a tool can accomplish the task!\n"
-			}
 			}
 		} else {
 			// Fallback: add instructions if task mentions tools but no tools provided
@@ -797,9 +798,8 @@ Code:`
 	isHypothesisTaskForKB := strings.HasPrefix(taskLower, "test hypothesis:") ||
 		strings.HasPrefix(descLowerForTools, "test hypothesis:") ||
 		strings.Contains(descLowerForTools, "🚨🚨🚨 critical: do not use tools")
-	
-	isKnowledgeBaseQuery := !isHypothesisTaskForKB && (
-		strings.Contains(taskLower, "query_knowledge_base") ||
+
+	isKnowledgeBaseQuery := !isHypothesisTaskForKB && (strings.Contains(taskLower, "query_knowledge_base") ||
 		strings.Contains(descLowerForTools, "query knowledge base") ||
 		strings.Contains(descLowerForTools, "query neo4j") ||
 		strings.Contains(taskLower, "query_knowledge_base") ||
@@ -860,12 +860,12 @@ Code:`
 	}
 
 	// Check if this is a Wikipedia scraping/fetching task
-	isWikipediaScrape := strings.Contains(descLowerForTools, "wikipedia") && 
-		(strings.Contains(descLowerForTools, "scrape") || 
-		 strings.Contains(descLowerForTools, "fetch") || 
-		 strings.Contains(descLowerForTools, "extract") ||
-		 strings.Contains(descLowerForTools, "article"))
-	
+	isWikipediaScrape := strings.Contains(descLowerForTools, "wikipedia") &&
+		(strings.Contains(descLowerForTools, "scrape") ||
+			strings.Contains(descLowerForTools, "fetch") ||
+			strings.Contains(descLowerForTools, "extract") ||
+			strings.Contains(descLowerForTools, "article"))
+
 	wikipediaInstructions := ""
 	if isWikipediaScrape {
 		if req.Language == "python" || req.Language == "py" {

@@ -37,6 +37,7 @@ type HDNClientInterface interface {
 	PlanTask(ctx context.Context, task string, context map[string]string) (*PlanResult, error)
 	LearnFromLLM(ctx context.Context, input string, context map[string]string) (*LearnResult, error)
 	InterpretNaturalLanguage(ctx context.Context, input string, context map[string]string) (*InterpretResult, error)
+	SearchWeaviate(ctx context.Context, query string, collection string, limit int) (*InterpretResult, error)
 }
 
 // ConversationRequest represents a user's conversational input
@@ -227,7 +228,7 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		conversationResponse.ThinkingSummary = thoughtExpression.Summary
 		conversationResponse.Metadata["thought_count"] = len(thoughtExpression.Thoughts)
 		conversationResponse.Metadata["thinking_confidence"] = thoughtExpression.Confidence
-		
+
 		// Store thoughts as ThoughtEvents in Redis for later retrieval
 		for _, thought := range thoughtExpression.Thoughts {
 			thoughtEvent := ThoughtEvent{
@@ -377,7 +378,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 	for k, v := range action.Parameters {
 		hdnContext[k] = fmt.Sprintf("%v", v)
 	}
-	
+
 	// Add original message if available in context for knowledge query extraction
 	if origMsg, ok := context["original_message"].(string); ok {
 		hdnContext["original_message"] = origMsg
@@ -434,7 +435,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		} else if origMsg, ok := context["original_message"].(string); ok {
 			originalMessage = origMsg
 		}
-		
+
 		// Extract concept name from "What is X?" pattern
 		coreQuery := ""
 		searchText := originalMessage
@@ -444,7 +445,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		} else {
 			log.Printf("✅ [CONVERSATIONAL] Using original message for extraction: %s", originalMessage)
 		}
-		
+
 		// Look for "What is X?", "What are X?", "Who is X?", "Who are X?" patterns
 		lowerText := strings.ToLower(searchText)
 		extractPattern := func(pattern string) string {
@@ -465,28 +466,56 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			}
 			return ""
 		}
-		
+
+		// Helper function to filter skip words from extracted text
+		filterSkipWords := func(text string) string {
+			words := strings.Fields(strings.ToLower(text))
+			skipWords := map[string]bool{
+				"the": true, "a": true, "an": true, "and": true, "or": true, "but": true,
+				"in": true, "on": true, "at": true, "to": true, "for": true, "of": true,
+				"with": true, "by": true, "is": true, "are": true, "was": true, "were": true,
+				"who": true, "what": true, "where": true, "when": true, "why": true, "how": true,
+				"tell": true, "me": true, "about": true, "search": true, "find": true,
+				"news": true, "latest": true, "current": true, "recent": true,
+			}
+			filtered := make([]string, 0)
+			for _, word := range words {
+				word = strings.Trim(word, ".,!?;:()[]{}'\"")
+				if !skipWords[word] && len(word) > 2 {
+					filtered = append(filtered, word)
+				}
+			}
+			if len(filtered) > 0 {
+				return strings.Join(filtered, " ")
+			}
+			return text // Return original if all words filtered
+		}
+
 		// Try different patterns in order of specificity
 		coreQuery = extractPattern("who is ")
 		if coreQuery != "" {
+			coreQuery = filterSkipWords(coreQuery)
 			log.Printf("✅ [CONVERSATIONAL] Extracted concept name from 'Who is' pattern: '%s'", coreQuery)
 		} else {
 			coreQuery = extractPattern("who are ")
 			if coreQuery != "" {
+				coreQuery = filterSkipWords(coreQuery)
 				log.Printf("✅ [CONVERSATIONAL] Extracted concept name from 'Who are' pattern: '%s'", coreQuery)
 			} else {
 				coreQuery = extractPattern("what is ")
 				if coreQuery != "" {
+					coreQuery = filterSkipWords(coreQuery)
 					log.Printf("✅ [CONVERSATIONAL] Extracted concept name from 'What is' pattern: '%s'", coreQuery)
 				} else {
 					coreQuery = extractPattern("what are ")
 					if coreQuery != "" {
+						coreQuery = filterSkipWords(coreQuery)
 						log.Printf("✅ [CONVERSATIONAL] Extracted concept name from 'What are' pattern: '%s'", coreQuery)
 					}
 				}
 			}
 		}
-		
+
 		// If we couldn't extract from patterns, try to get meaningful phrase from searchText (original message)
 		if coreQuery == "" {
 			// Remove common question words and extract the main subject
@@ -494,8 +523,10 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			// Skip common question words at the start (including "tell", "me", "about")
 			skipWords := map[string]bool{
 				"who": true, "what": true, "where": true, "when": true, "why": true, "how": true,
-				"is": true, "are": true, "the": true, "a": true, "an": true,
-				"tell": true, "me": true, "about": true, // Add these for "tell me about X" queries
+				"is": true, "are": true, "the": true, "a": true, "an": true, "in": true, "of": true,
+				"tell": true, "me": true, "about": true, "current": true, "latest": true, "situation": true,
+				"update": true, "summary": true, "search": true, "for": true, "news": true, "find": true,
+				"get": true, "show": true, "give": true,
 			}
 			startIdx := 0
 			for i, word := range words {
@@ -504,24 +535,30 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 					break
 				}
 			}
-			// Take up to 3 words (for names like "Lindsay Foreman" or "John Smith")
+			// Take up to 2 words for the core subject (more likely to match a concept)
 			if startIdx < len(words) {
-				endIdx := startIdx + 3
-				if endIdx > len(words) {
-					endIdx = len(words)
+				count := 0
+				var subjectWords []string
+				for i := startIdx; i < len(words) && count < 2; i++ {
+					// Clean word from punctuation
+					word := strings.Trim(words[i], ".,?!'\"")
+					if word != "" {
+						subjectWords = append(subjectWords, word)
+						count++
+					}
 				}
-				coreQuery = strings.Join(words[startIdx:endIdx], " ")
+				coreQuery = strings.Join(subjectWords, " ")
 				// Capitalize first letter
 				if len(coreQuery) > 0 {
 					coreQuery = strings.ToUpper(coreQuery[:1]) + coreQuery[1:]
 				}
-				log.Printf("✅ [CONVERSATIONAL] Extracted concept name from fallback: '%s' (from: '%s')", coreQuery, searchText)
+				log.Printf("✅ [CONVERSATIONAL] Extracted core subject: '%s' (from: '%s')", coreQuery, searchText)
 			} else {
-				coreQuery = "Unknown"
-				log.Printf("⚠️ [CONVERSATIONAL] Could not extract concept name, using 'Unknown'")
+				coreQuery = "General"
+				log.Printf("⚠️ [CONVERSATIONAL] Could not extract core subject, using 'General'")
 			}
 		}
-		
+
 		// Create a very direct tool call instruction for Neo4j
 		directQuery := fmt.Sprintf("Query your knowledge base about '%s'. Use the mcp_get_concept tool with name='%s' and domain='General' to retrieve information.", coreQuery, coreQuery)
 		log.Printf("🔍 [CONVERSATIONAL] Simplified knowledge query: %s (extracted from: %s)", directQuery, searchText)
@@ -529,7 +566,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		if err != nil {
 			return nil, fmt.Errorf("knowledge query failed: %w", err)
 		}
-		
+
 		// Track tool usage if present in the result
 		if interpretResult != nil && interpretResult.Metadata != nil {
 			if toolID, ok := interpretResult.Metadata["tool_used"].(string); ok && toolID != "" {
@@ -537,7 +574,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				log.Printf("🔧 [CONVERSATIONAL] Tracked tool invocation: %s", toolID)
 			}
 		}
-		
+
 		// Check if Neo4j returned any results
 		hasNeo4jResults := false
 		if interpretResult != nil {
@@ -546,26 +583,24 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				if toolSuccess, ok := interpretResult.Metadata["tool_success"].(bool); ok && toolSuccess {
 					// Check if tool_result is in metadata (if available)
 					if toolResult, ok := interpretResult.Metadata["tool_result"].(map[string]interface{}); ok {
-						if count, ok := toolResult["count"].(float64); ok && count > 0 {
-							hasNeo4jResults = true
-						} else if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
+						if hasResultsInToolResult(toolResult) {
 							hasNeo4jResults = true
 						}
 					}
 				}
 			}
-			
+
 			// If not found in metadata, check the interpreted text for result patterns
 			// Tool results are appended to interpreted text as "Tool result: map[count:0 results:[]]"
 			if !hasNeo4jResults {
 				if interpreted, ok := interpretResult.Interpreted.(string); ok {
 					lowerInterpreted := strings.ToLower(interpreted)
 					// Check for patterns indicating NO results
-					if strings.Contains(lowerInterpreted, "count:0") || 
-					   strings.Contains(lowerInterpreted, "results:[]") ||
-					   strings.Contains(lowerInterpreted, "count: 0") ||
-					   strings.Contains(lowerInterpreted, "no results") ||
-					   strings.Contains(lowerInterpreted, "returned 0 rows") {
+					if strings.Contains(lowerInterpreted, "count:0") ||
+						strings.Contains(lowerInterpreted, "results:[]") ||
+						strings.Contains(lowerInterpreted, "count: 0") ||
+						strings.Contains(lowerInterpreted, "no results") ||
+						strings.Contains(lowerInterpreted, "returned 0 rows") {
 						hasNeo4jResults = false
 					} else if strings.Contains(lowerInterpreted, "count:") {
 						// If count is mentioned and not 0, we likely have results
@@ -573,11 +608,11 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 						if idx := strings.Index(lowerInterpreted, "count:"); idx >= 0 {
 							remainder := lowerInterpreted[idx+6:]
 							// Look for a number > 0
-							if strings.Contains(remainder, "1") || strings.Contains(remainder, "2") || 
-							   strings.Contains(remainder, "3") || strings.Contains(remainder, "4") ||
-							   strings.Contains(remainder, "5") || strings.Contains(remainder, "6") ||
-							   strings.Contains(remainder, "7") || strings.Contains(remainder, "8") ||
-							   strings.Contains(remainder, "9") {
+							if strings.Contains(remainder, "1") || strings.Contains(remainder, "2") ||
+								strings.Contains(remainder, "3") || strings.Contains(remainder, "4") ||
+								strings.Contains(remainder, "5") || strings.Contains(remainder, "6") ||
+								strings.Contains(remainder, "7") || strings.Contains(remainder, "8") ||
+								strings.Contains(remainder, "9") {
 								hasNeo4jResults = true
 							}
 						}
@@ -585,11 +620,11 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				}
 			}
 		}
-		
+
 		// Regardless of Neo4j results, also try RAG search on Weaviate for episodic memory and news.
 		// This ensures we can combine structured knowledge (Neo4j) with episodic/news evidence.
 		log.Printf("🔍 [CONVERSATIONAL] Attempting RAG search on Weaviate for: %s (hasNeo4jResults=%v)", coreQuery, hasNeo4jResults)
-		
+
 		// Use the extracted core query directly for better precision
 		// This ensures we search for the specific term (e.g., "bondi") rather than the full question
 		ragQueryText := strings.ToLower(strings.TrimSpace(coreQuery))
@@ -600,7 +635,9 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			words := strings.Fields(ragQueryText)
 			filtered := make([]string, 0)
 			skipWords := map[string]bool{"who": true, "what": true, "where": true, "when": true, "why": true, "how": true,
-				"is": true, "are": true, "the": true, "a": true, "an": true, "tell": true, "me": true, "about": true}
+				"is": true, "are": true, "the": true, "a": true, "an": true, "tell": true, "me": true, "about": true,
+				"latest": true, "situation": true, "current": true, "update": true, "in": true, "of": true,
+				"search": true, "for": true, "news": true, "find": true, "get": true, "show": true, "give": true}
 			for _, word := range words {
 				if !skipWords[word] && len(word) > 2 {
 					filtered = append(filtered, word)
@@ -610,7 +647,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				ragQueryText = strings.Join(filtered, " ")
 			}
 		}
-		
+
 		if ragQueryText == "" {
 			log.Printf("⚠️ [CONVERSATIONAL] Could not extract query for RAG search, returning Neo4j-only results")
 			// Return Neo4j results (if any)
@@ -620,87 +657,72 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				Data:    map[string]interface{}{"neo4j_result": interpretResult, "source": "neo4j_only"},
 			}, nil
 		}
-		
+
 		log.Printf("🔍 [CONVERSATIONAL] RAG search query: '%s' (extracted from: '%s')", ragQueryText, searchText)
-		
-		// Try searching episodic memory (AgiEpisodes) and news (WikipediaArticle)
-		// Use very small limit (3) to get only the most relevant results
-		ragQuery := fmt.Sprintf("Search episodic memory and news articles about '%s'. Use the mcp_search_weaviate tool with query='%s', collection='AgiEpisodes', and limit=3 to find relevant information.", ragQueryText, ragQueryText)
-		ragResult, ragErr := cl.hdnClient.InterpretNaturalLanguage(ctx, ragQuery, hdnContext)
-		if ragErr == nil && ragResult != nil {
-				// Check if RAG search found results
-				hasRAGResults := false
-				if ragResult.Metadata != nil {
-					if toolSuccess, ok := ragResult.Metadata["tool_success"].(bool); ok && toolSuccess {
-						if toolResult, ok := ragResult.Metadata["tool_result"].(map[string]interface{}); ok {
-							if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
-								hasRAGResults = true
-								log.Printf("✅ [CONVERSATIONAL] RAG search found %d results in episodic memory", len(results))
-							}
-						}
+
+		// 1. Try searching episodic memory (AgiEpisodes) DIRECTLY
+		log.Printf("🔍 [CONVERSATIONAL] Calling SearchWeaviate for episodic memory: %s", ragQueryText)
+		ragResult, ragErr := cl.hdnClient.SearchWeaviate(ctx, ragQueryText, "AgiEpisodes", 3)
+
+		hasRAGResults := false
+		if ragErr != nil {
+			log.Printf("⚠️ [CONVERSATIONAL] Episodic RAG search failed: %v", ragErr)
+		} else if ragResult != nil && ragResult.Metadata != nil {
+			if toolSuccess, ok := ragResult.Metadata["tool_success"].(bool); ok && toolSuccess {
+				if toolResult, ok := ragResult.Metadata["tool_result"].(map[string]interface{}); ok {
+					if hasResultsInToolResult(toolResult) {
+						hasRAGResults = true
+						log.Printf("✅ [CONVERSATIONAL] RAG search found results in episodic memory")
 					}
 				}
-				
-				// Always try WikipediaArticle collection for news items, even if episodic memory has no results
-				// Use the same improved query text for consistency
-				// Use very small limit (3) to get only the most relevant results
-				newsQuery := fmt.Sprintf("Search news articles about '%s'. Use the mcp_search_weaviate tool with query='%s', collection='WikipediaArticle', and limit=3 to find relevant information.", ragQueryText, ragQueryText)
-				newsResult, newsErr := cl.hdnClient.InterpretNaturalLanguage(ctx, newsQuery, hdnContext)
-
-				// Determine if news search returned any results
-				hasNewsResults := false
-				if newsErr == nil && newsResult != nil && newsResult.Metadata != nil {
-					if toolSuccess, ok := newsResult.Metadata["tool_success"].(bool); ok && toolSuccess {
-						if toolResult, ok := newsResult.Metadata["tool_result"].(map[string]interface{}); ok {
-							if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
-								hasNewsResults = true
-								log.Printf("✅ [CONVERSATIONAL] RAG search found %d results in news articles (WikipediaArticle)", len(results))
-							}
-						}
-					}
-				}
-
-				// If either episodic memory or news search found results, combine with Neo4j (even if Neo4j was empty)
-			if hasRAGResults || hasNewsResults {
-					combinedData := map[string]interface{}{
-						"neo4j_result": interpretResult,
-						"source":       "neo4j_and_rag",
-					}
-					if hasRAGResults {
-						combinedData["episodic_memory"] = ragResult
-					}
-					if hasNewsResults {
-						combinedData["news_articles"] = newsResult
-					}
-
-					// Track RAG tool usage
-					if ragResult != nil && ragResult.Metadata != nil {
-						if toolID, ok := ragResult.Metadata["tool_used"].(string); ok && toolID != "" {
-							cl.reasoningTrace.AddToolInvoked(toolID)
-						}
-					}
-					if newsResult != nil && newsResult.Metadata != nil {
-						if toolID, ok := newsResult.Metadata["tool_used"].(string); ok && toolID != "" {
-							cl.reasoningTrace.AddToolInvoked(toolID)
-						}
-					}
-
-					return &ActionResult{
-						Type:    "knowledge_result",
-						Success: true,
-						Data:    combinedData,
-					}, nil
-				}
-		} else {
-			log.Printf("⚠️ [CONVERSATIONAL] RAG search failed: %v", ragErr)
+			}
 		}
-		
+
+		// 2. Try searching news (WikipediaArticle) INDEPENDENTLY and DIRECTLY
+		log.Printf("🔍 [CONVERSATIONAL] Calling SearchWeaviate for news articles: %s", ragQueryText)
+		newsResult, newsErr := cl.hdnClient.SearchWeaviate(ctx, ragQueryText, "WikipediaArticle", 3)
+
+		hasNewsResults := false
+		if newsErr != nil {
+			log.Printf("⚠️ [CONVERSATIONAL] News RAG search failed: %v", newsErr)
+		} else if newsResult != nil && newsResult.Metadata != nil {
+			if toolSuccess, ok := newsResult.Metadata["tool_success"].(bool); ok && toolSuccess {
+				if toolResult, ok := newsResult.Metadata["tool_result"].(map[string]interface{}); ok {
+					if hasResultsInToolResult(toolResult) {
+						hasNewsResults = true
+						log.Printf("✅ [CONVERSATIONAL] RAG search found results in news articles (WikipediaArticle)")
+					}
+				}
+			}
+		}
+
+		// 3. Combine results
+		if hasRAGResults || hasNewsResults {
+			combinedData := map[string]interface{}{
+				"neo4j_result": interpretResult,
+				"source":       "neo4j_and_rag",
+			}
+			if hasRAGResults {
+				combinedData["episodic_memory"] = ragResult
+			}
+			if hasNewsResults {
+				combinedData["news_articles"] = newsResult
+			}
+
+			return &ActionResult{
+				Type:    "knowledge_result",
+				Success: true,
+				Data:    combinedData,
+			}, nil
+		}
+
+		log.Printf("🔍 [CONVERSATIONAL] RAG yielded no new info, using Neo4j-only results")
 		return &ActionResult{
 			Type:    "knowledge_result",
 			Success: true,
 			Data: map[string]interface{}{
-				"result": interpretResult,
-				"source": "neo4j",
+				"neo4j_result": interpretResult,
+				"source":       "neo4j_only",
 			},
 		}, nil
 
@@ -740,7 +762,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		if err != nil {
 			return nil, fmt.Errorf("learning failed: %w", err)
 		}
-		
+
 		// Track tool usage if present in the result
 		if interpretResult != nil && interpretResult.Metadata != nil {
 			if toolID, ok := interpretResult.Metadata["tool_used"].(string); ok && toolID != "" {
@@ -748,7 +770,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				log.Printf("🔧 [CONVERSATIONAL] Tracked tool invocation: %s", toolID)
 			}
 		}
-		
+
 		return &ActionResult{
 			Type:    "learning_result",
 			Success: true,
@@ -764,7 +786,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		if err != nil {
 			return nil, fmt.Errorf("explanation failed: %w", err)
 		}
-		
+
 		// Track tool usage if present in the result
 		if interpretResult != nil && interpretResult.Metadata != nil {
 			if toolID, ok := interpretResult.Metadata["tool_used"].(string); ok && toolID != "" {
@@ -772,7 +794,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				log.Printf("🔧 [CONVERSATIONAL] Tracked tool invocation: %s", toolID)
 			}
 		}
-		
+
 		return &ActionResult{
 			Type:    "explanation_result",
 			Success: true,
@@ -788,7 +810,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		if err != nil {
 			return nil, fmt.Errorf("general conversation failed: %w", err)
 		}
-		
+
 		// Track tool usage if present in the result
 		if interpretResult != nil && interpretResult.Metadata != nil {
 			if toolID, ok := interpretResult.Metadata["tool_used"].(string); ok && toolID != "" {
@@ -796,7 +818,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				log.Printf("🔧 [CONVERSATIONAL] Tracked tool invocation: %s", toolID)
 			}
 		}
-		
+
 		return &ActionResult{
 			Type:    "conversation_result",
 			Success: true,
@@ -839,4 +861,33 @@ func (cl *ConversationalLayer) GetConversationHistory(ctx context.Context, sessi
 // GetCurrentThinking returns the current reasoning process
 func (cl *ConversationalLayer) GetCurrentThinking(ctx context.Context, sessionID string) (*ReasoningTraceData, error) {
 	return cl.reasoningTrace.GetTrace(sessionID), nil
+}
+
+// hasResultsInToolResult checks if a tool result map contains actual results
+func hasResultsInToolResult(toolResult map[string]interface{}) bool {
+	if toolResult == nil {
+		return false
+	}
+
+	// Check count first
+	if val, ok := toolResult["count"]; ok {
+		if count, ok := val.(float64); ok && count > 0 {
+			return true
+		}
+		if count, ok := val.(int); ok && count > 0 {
+			return true
+		}
+	}
+
+	// Check results slice (handle both interface types)
+	if val, ok := toolResult["results"]; ok {
+		if results, ok := val.([]interface{}); ok && len(results) > 0 {
+			return true
+		}
+		if results, ok := val.([]map[string]interface{}); ok && len(results) > 0 {
+			return true
+		}
+	}
+
+	return false
 }

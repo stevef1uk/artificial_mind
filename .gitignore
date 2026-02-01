@@ -29,6 +29,7 @@ principles/principles-server
 fsm/fsm-server
 monitor/monitor-ui
 self/goal-manager
+telegram-bot/telegram-bot
 
 # Test binaries
 test_fsm
@@ -55,6 +56,14 @@ temp/
 *.swp
 *.swo
 *~
+# Test result files
+hdn/output.*
+hdn/fetched_data.*
+hdn/response.*
+hdn/result.txt
+hdn/test_file.txt
+hdn/Biology_definition.txt
+t.out
 
 # =============================================================================
 # DATA DIRECTORIES
@@ -65,6 +74,13 @@ data/neo4j/
 data/qdrant/
 data/redis/
 data/weaviate/
+
+# =============================================================================
+# PACKAGE FILES
+# =============================================================================
+*.deb
+*.rpm
+*.apk
 
 # =============================================================================
 # ENVIRONMENT AND CONFIGURATION

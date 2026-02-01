@@ -161,16 +161,21 @@ func (kge *KnowledgeGrowthEngine) GrowKnowledgeBase(episodes []map[string]interf
 			continue
 		}
 
-		// Check if concept already exists
-		alreadyExists, err := kge.conceptAlreadyExists(discovery.Name, domain)
+		// Check if concept already exists and if it's a stub (needs definition)
+		existingConcept, err := kge.getExistingConcept(discovery.Name, domain)
 		if err != nil {
 			log.Printf("⚠️ Failed to check if concept exists, defaulting to create: %v", err)
-			alreadyExists = false
 		}
-		if alreadyExists {
-			log.Printf("⏭️ Skipping concept %s: already exists in knowledge base", discovery.Name)
-			skippedCount++
-			continue
+
+		if existingConcept != nil {
+			// If it exists but has a definition, skip it
+			existingDef, _ := existingConcept["definition"].(string)
+			if len(strings.TrimSpace(existingDef)) > 20 {
+				log.Printf("⏭️ Skipping concept %s: already exists with detailed definition", discovery.Name)
+				skippedCount++
+				continue
+			}
+			log.Printf("📥 Concept %s exists as a stub; will attempt to update with detailed definition", discovery.Name)
 		}
 
 		// Assess if concept is novel and worth learning
@@ -1168,10 +1173,10 @@ func (kge *KnowledgeGrowthEngine) callMCPTool(toolName string, arguments map[str
 	return mcpResponse.Result, nil
 }
 
-// conceptAlreadyExists checks if a concept already exists in the knowledge base using MCP
-func (kge *KnowledgeGrowthEngine) conceptAlreadyExists(conceptName string, domain string) (bool, error) {
+// getExistingConcept checks if a concept already exists and returns it
+func (kge *KnowledgeGrowthEngine) getExistingConcept(conceptName string, domain string) (map[string]interface{}, error) {
 	if len(strings.TrimSpace(conceptName)) == 0 {
-		return false, nil
+		return nil, nil
 	}
 
 	// Try using MCP get_concept tool first
@@ -1181,18 +1186,18 @@ func (kge *KnowledgeGrowthEngine) conceptAlreadyExists(conceptName string, domai
 	})
 	if err != nil {
 		log.Printf("⚠️ MCP get_concept failed, falling back to direct API: %v", err)
-		return kge.conceptAlreadyExistsDirect(conceptName, domain)
+		return kge.getExistingConceptDirect(conceptName, domain)
 	}
 
 	// Parse MCP result
 	resultMap, ok := result.(map[string]interface{})
 	if !ok {
-		return kge.conceptAlreadyExistsDirect(conceptName, domain)
+		return kge.getExistingConceptDirect(conceptName, domain)
 	}
 
 	results, ok := resultMap["results"].([]interface{})
 	if !ok {
-		return kge.conceptAlreadyExistsDirect(conceptName, domain)
+		return kge.getExistingConceptDirect(conceptName, domain)
 	}
 
 	// Check if any existing concept matches (case-insensitive)
@@ -1213,18 +1218,29 @@ func (kge *KnowledgeGrowthEngine) conceptAlreadyExists(conceptName string, domai
 			concept = row
 		}
 
-		existingName, _ := concept["name"].(string)
-		if strings.ToLower(existingName) == conceptNameLower {
-			log.Printf("🔍 Found existing concept via MCP: %s", existingName)
-			return true, nil
+		// Row in Cypher result usually has Props if it's a node
+		props, _ := concept["Props"].(map[string]interface{})
+		name := ""
+		if props != nil {
+			name, _ = props["name"].(string)
+		} else {
+			name, _ = concept["name"].(string)
+		}
+
+		if strings.ToLower(name) == conceptNameLower {
+			log.Printf("🔍 Found existing concept via MCP: %s", name)
+			if props != nil {
+				return props, nil
+			}
+			return concept, nil
 		}
 	}
 
-	return false, nil
+	return nil, nil
 }
 
-// conceptAlreadyExistsDirect checks if a concept exists via direct API (fallback)
-func (kge *KnowledgeGrowthEngine) conceptAlreadyExistsDirect(conceptName string, domain string) (bool, error) {
+// getExistingConceptDirect checks if a concept exists via direct API (fallback)
+func (kge *KnowledgeGrowthEngine) getExistingConceptDirect(conceptName string, domain string) (map[string]interface{}, error) {
 	hdnURL := strings.TrimSuffix(kge.hdnURL, "/")
 	if hdnURL == "" {
 		hdnURL = "http://localhost:8081"
@@ -1234,12 +1250,12 @@ func (kge *KnowledgeGrowthEngine) conceptAlreadyExistsDirect(conceptName string,
 	searchURL := fmt.Sprintf("%s/api/v1/knowledge/search?name=%s&limit=10", hdnURL, encodedConceptName)
 	resp, err := kge.httpClient.Get(searchURL)
 	if err != nil {
-		return false, fmt.Errorf("failed to search concepts: %w", err)
+		return nil, fmt.Errorf("failed to search concepts: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return false, nil
+		return nil, nil
 	}
 
 	var searchResult struct {
@@ -1248,18 +1264,18 @@ func (kge *KnowledgeGrowthEngine) conceptAlreadyExistsDirect(conceptName string,
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&searchResult); err != nil {
-		return false, nil
+		return nil, nil
 	}
 
 	conceptNameLower := strings.ToLower(conceptName)
 	for _, concept := range searchResult.Concepts {
 		existingName, _ := concept["name"].(string)
 		if strings.ToLower(existingName) == conceptNameLower {
-			return true, nil
+			return concept, nil
 		}
 	}
 
-	return false, nil
+	return nil, nil
 }
 
 func (kge *KnowledgeGrowthEngine) storeValidationMetrics(domain string, contradictions, missingRelations int) {

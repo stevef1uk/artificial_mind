@@ -848,6 +848,35 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 	}, nil
 }
 
+func (h *SimpleChatHDN) SearchWeaviate(ctx context.Context, query string, collection string, limit int) (*conversational.InterpretResult, error) {
+	log.Printf("🔍 [SIMPLE-CHAT-HDN] SearchWeaviate called for query='%s', collection='%s'", query, collection)
+	if h.server == nil || h.server.mcpKnowledgeServer == nil {
+		log.Printf("⚠️ [SIMPLE-CHAT-HDN] SearchWeaviate failed: server or mcpKnowledgeServer is nil")
+		return nil, fmt.Errorf("knowledge server not available")
+	}
+
+	args := map[string]interface{}{
+		"query":      query,
+		"collection": collection,
+		"limit":      float64(limit),
+	}
+
+	result, err := h.server.mcpKnowledgeServer.searchWeaviate(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+
+	return &conversational.InterpretResult{
+		Success:     true,
+		Interpreted: fmt.Sprintf("Search results for %s in %s", query, collection),
+		Metadata: map[string]interface{}{
+			"tool_success": true,
+			"tool_result":  result,
+			"tool_used":    "mcp_search_weaviate",
+		},
+	}, nil
+}
+
 // SimpleChatLLM provides basic LLM interface for chat
 type SimpleChatLLM struct{}
 
@@ -3384,13 +3413,13 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 	isUI := isUIRequest(r)
 	activeWorkflowCount, err := s.redis.SCard(ctx, "active_workflows").Result()
 	if err == nil {
-		// UI requests: allow up to 4 active workflows (leaves 1 slot free)
-		// Non-UI requests: allow up to 2 active workflows (leaves 2 slots free for UI)
+		// UI requests: allow up to 15 active workflows
+		// Non-UI requests: allow up to 15 active workflows
 		var maxActiveWorkflows int64
 		if isUI {
-			maxActiveWorkflows = 4
+			maxActiveWorkflows = 15
 		} else {
-			maxActiveWorkflows = 2
+			maxActiveWorkflows = 15
 		}
 
 		if activeWorkflowCount >= maxActiveWorkflows {
@@ -5998,16 +6027,17 @@ func getMaxConcurrentExecutions() int {
 			return max
 		}
 	}
-	// Default to 5 to handle multiple concurrent goal executions
-	// (1 UI slot + 4 general slots = 5 total)
+	// Default to 20 to handle multiple concurrent goal executions
+	// (1 UI slot + 19 general slots = 20 total)
 	// This prevents timeouts when multiple goals are being processed
-	return 5
+	return 20
 }
 
 // isUIRequest checks if the request is from the UI based on headers or context
 func isUIRequest(r *http.Request) bool {
-	// Check for UI-specific header
-	if r.Header.Get("X-Request-Source") == "ui" {
+	// Check for UI-specific header or Telegram bot header
+	source := r.Header.Get("X-Request-Source")
+	if source == "ui" || source == "telegram" {
 		return true
 	}
 	// Check for UI context in query params (for backward compatibility)

@@ -41,6 +41,7 @@ The Artificial Mind system consists of several interconnected components that wo
 
 - **Real-time Thought Expression** - See inside the AI's reasoning process with Chain of Thought UI
 - **MCP Knowledge Integration** - Knowledge bases (Neo4j, Weaviate) exposed as MCP tools for LLM access
+- **Telegram Bot Integration** - Chat with the AGI, run tools, and see thoughts directly from Telegram
 - **Database-First Queries** - LLM can query knowledge bases before generating responses
 - **Ethical Safeguards** - Built-in principles checking for all actions
 - **Hierarchical Planning** - Multi-level task decomposition and execution
@@ -88,6 +89,7 @@ The Artificial Mind system consists of several interconnected components that wo
 
 ### 💬 Interfaces & Communication
 - [**Conversational AI Summary**](docs/CONVERSATIONAL_AI_SUMMARY.md) - Natural language interface
+- [**Telegram Bot Integration**](docs/TELEGRAM_BOT_README.md) - Using the Telegram bot interface
 - [**Natural Language Interface**](docs/NATURAL_LANGUAGE_INTERFACE.md) - Language processing capabilities
 - [**MCP Knowledge Integration**](docs/MCP_KNOWLEDGE_INTEGRATION.md) - MCP server for knowledge base access
 - [**MCP Initialization Check**](docs/MCP_INITIALIZATION_CHECK.md) - Startup verification of MCP connectivity
@@ -188,6 +190,7 @@ docker compose up -d
    - **Database Configuration** (Neo4j credentials, Qdrant URL)
    - **Docker Resource Limits** (Memory, CPU, PIDs)
    - **Performance Tuning** (Concurrent executions, timeouts)
+   - **Telegram Configuration** (Bot token, allowed users)
 
 ### 🐳 Docker Setup (Development)
 
@@ -453,6 +456,7 @@ See [Activity Log Documentation](docs/ACTIVITY_LOG.md) for complete details.
 - **Intent recognition** - Understands user goals and context
 - **Multi-modal communication** - Text, structured data, and visual interfaces
 - **Session management** - Persistent conversation context
+- **Telegram Integration** - Secure, whitelist-based chat interface with rich formatting and tools
 
 ### 💻 Multi-Language Code Generation & Execution
 The system supports intelligent code generation and execution in multiple programming languages:
@@ -504,6 +508,7 @@ The system will automatically:
 | **HDN Server** | 8081 | AI planning and execution |
 | **Monitor UI** | 8082 | Real-time visualization |
 | **FSM Server** | 8083 | Cognitive state management |
+| **Telegram Bot** | - | Chat interface (polls Telegram API) |
 
 ### Key Endpoints
 

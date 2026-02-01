@@ -294,15 +294,32 @@ func (tes *ThoughtExpressionService) generateSummary(thoughts []ExpressedThought
 	}
 
 	var summaryParts []string
-	for thoughtType, count := range typeCounts {
-		switch thoughtType {
-		case "thinking":
-			summaryParts = append(summaryParts, fmt.Sprintf("%d reasoning steps", count))
-		case "decision":
-			summaryParts = append(summaryParts, fmt.Sprintf("%d decisions", count))
-		case "action":
-			summaryParts = append(summaryParts, fmt.Sprintf("%d actions", count))
+	toolsUsed := make(map[string]bool)
+	for _, thought := range thoughts {
+		if thought.ToolUsed != "" {
+			toolsUsed[thought.ToolUsed] = true
 		}
+	}
+
+	for _, thoughtType := range []string{"thinking", "decision", "action"} {
+		if count, ok := typeCounts[thoughtType]; ok {
+			switch thoughtType {
+			case "thinking":
+				summaryParts = append(summaryParts, fmt.Sprintf("%d reasoning steps", count))
+			case "decision":
+				summaryParts = append(summaryParts, fmt.Sprintf("%d decisions", count))
+			case "action":
+				summaryParts = append(summaryParts, fmt.Sprintf("%d actions", count))
+			}
+		}
+	}
+
+	if len(toolsUsed) > 0 {
+		var toolNames []string
+		for name := range toolsUsed {
+			toolNames = append(toolNames, name)
+		}
+		summaryParts = append(summaryParts, fmt.Sprintf("consulted tools: %s", strings.Join(toolNames, ", ")))
 	}
 
 	switch style {

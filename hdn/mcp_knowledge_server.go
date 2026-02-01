@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -66,7 +68,46 @@ func NewMCPKnowledgeServer(domainKnowledge mempkg.DomainKnowledgeClient, vectorD
 }
 
 // HandleRequest handles an MCP JSON-RPC request
+// HandleRequest handles an MCP JSON-RPC request and supports SSE handshake
 func (s *MCPKnowledgeServer) HandleRequest(w http.ResponseWriter, r *http.Request) {
+	// Enable CORS for all requests
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept")
+
+	// Handle preflight requests
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Check if this is an SSE connection request
+	// MCP spec: connection initialization often happens via SSE
+	if r.Header.Get("Accept") == "text/event-stream" || r.URL.Query().Get("sse") == "true" || strings.HasSuffix(r.URL.Path, "/sse") {
+		s.handleSSESession(w, r)
+		return
+	}
+
+	// Allow GET for simple probing/discovery (returns tool list)
+	if r.Method == http.MethodGet {
+		result, err := s.listTools()
+		if err != nil {
+			s.sendError(w, nil, -32603, "Internal error", err)
+			return
+		}
+		// Wrap in JSON-RPC response for consistency
+		// Use "0" as ID for probe
+		response := MCPKnowledgeResponse{
+			JSONRPC: "2.0",
+			ID:      0,
+			Result:  result,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -82,6 +123,21 @@ func (s *MCPKnowledgeServer) HandleRequest(w http.ResponseWriter, r *http.Reques
 	var err error
 
 	switch req.Method {
+	case "initialize":
+		// Handle MCP initialization handshake
+		result = map[string]interface{}{
+			"protocolVersion": "2024-11-05",
+			"capabilities": map[string]interface{}{
+				"tools": map[string]interface{}{}, // Advertise tool support
+			},
+			"serverInfo": map[string]string{
+				"name":    "hdn-server",
+				"version": "1.0.0",
+			},
+		}
+	case "notifications/initialized":
+		// Client acknowledgment, nothing to return but success
+		result = map[string]interface{}{}
 	case "tools/list":
 		result, err = s.listTools()
 	case "tools/call":
@@ -105,6 +161,51 @@ func (s *MCPKnowledgeServer) HandleRequest(w http.ResponseWriter, r *http.Reques
 	}
 
 	s.sendResponse(w, req.ID, result)
+}
+
+// handleSSESession establishes an MCP SSE session
+// It sends the endpoint URL for subsequent POST requests
+func (s *MCPKnowledgeServer) handleSSESession(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	// Add CORS headers for SSE
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept")
+	w.WriteHeader(http.StatusOK)
+
+	// Construct the POST endpoint URL
+	// We use the request host to ensure reachability from the client's perspective
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	// For MCP, the endpoint provided in the SSE 'endpoint' event is where the client should send JSON-RPC messages
+	// We point it back to the same /mcp path which handles POST
+	postEndpoint := fmt.Sprintf("%s://%s/mcp", scheme, r.Host)
+	if strings.Contains(r.URL.Path, "/api/v1/mcp") {
+		postEndpoint = fmt.Sprintf("%s://%s/api/v1/mcp", scheme, r.Host)
+	}
+
+	// Send the initial 'endpoint' event as per MCP spec
+	// usage: event: endpoint\ndata: <url>\n\n
+	fmt.Fprintf(w, "event: endpoint\n")
+	fmt.Fprintf(w, "data: %s\n\n", postEndpoint)
+	flusher.Flush()
+
+	// Keep the connection open until client disconnects
+	// This is a requirement for SSE transport typically
+	// We can monitor context cancellation
+	notify := r.Context().Done()
+	<-notify
+	log.Printf("SSE connection closed by client")
 }
 
 // listTools returns available knowledge base tools
@@ -191,6 +292,44 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 		},
 	}
 
+	// Add standard HDN tools
+	tools = append(tools, MCPKnowledgeTool{
+		Name:        "scrape_url",
+		Description: "Scrape content from a URL safely. Useful for reading documentation or checking external sites.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"url": map[string]interface{}{"type": "string"},
+			},
+			"required": []string{"url"},
+		},
+	})
+
+	tools = append(tools, MCPKnowledgeTool{
+		Name:        "execute_code",
+		Description: "Execute Python or Go code in a secure sandbox. Use for calculation, data processing, or simple scripts.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"code":     map[string]interface{}{"type": "string", "description": "The source code to execute"},
+				"language": map[string]interface{}{"type": "string", "enum": []string{"python", "go"}, "default": "python"},
+			},
+			"required": []string{"code"},
+		},
+	})
+
+	tools = append(tools, MCPKnowledgeTool{
+		Name:        "read_file",
+		Description: "Read a local file from the system (read-only access).",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"path": map[string]interface{}{"type": "string"},
+			},
+			"required": []string{"path"},
+		},
+	})
+
 	return map[string]interface{}{
 		"tools": tools,
 	}, nil
@@ -207,6 +346,9 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		return s.getConcept(ctx, arguments)
 	case "find_related_concepts":
 		return s.findRelatedConcepts(ctx, arguments)
+	case "scrape_url", "execute_code", "read_file":
+		// Route to the new wrapper
+		return s.executeToolWrapper(ctx, toolName, arguments)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
@@ -230,7 +372,8 @@ func (s *MCPKnowledgeServer) queryNeo4j(ctx context.Context, args map[string]int
 			// Escape single quotes to prevent Cypher injection
 			escapedConcept := strings.ReplaceAll(concept, "'", "\\'")
 			// Use direct string matching since queryViaHDN doesn't support parameters
-			query = fmt.Sprintf("MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('%s') RETURN c LIMIT 10", escapedConcept)
+			// SEARCH BOTH NAME AND DEFINITION
+			query = fmt.Sprintf("MATCH (c:Concept) WHERE toLower(c.name) CONTAINS toLower('%s') OR toLower(c.definition) CONTAINS toLower('%s') RETURN c LIMIT 10", escapedConcept, escapedConcept)
 			log.Printf("🧠 [MCP-KNOWLEDGE] Translated to Cypher: %s", query)
 		}
 	}
@@ -248,6 +391,185 @@ func (s *MCPKnowledgeServer) queryNeo4j(ctx context.Context, args map[string]int
 	}
 
 	return nil, fmt.Errorf("Neo4j not available")
+}
+
+// executeToolWrapper routes MCP tool calls to the wrapped internal HDN tools
+func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName string, args map[string]interface{}) (interface{}, error) {
+	// Map MCP tool names to HDN tool IDs (remove the "mcp_" prefix if present, as it was added by client for namespacing)
+	// But actually, we are *serving* tools here.
+	// If we exposed "scrape_url", the client sees "scrape_url".
+	// The client might wrap it as "mcp_scrape_url".
+
+	// We'll trust that toolName matches what we exported in listTools.
+
+	switch toolName {
+	case "scrape_url":
+		url, ok := args["url"].(string)
+		if !ok {
+			return nil, fmt.Errorf("url parameter required")
+		}
+
+		// Use the html-scraper binary tool for better content extraction
+		projectRoot := os.Getenv("AGI_PROJECT_ROOT")
+		if projectRoot == "" {
+			// Try to get current working directory
+			if wd, err := os.Getwd(); err == nil {
+				projectRoot = wd
+			}
+		}
+
+		// Find the html-scraper binary
+		candidates := []string{
+			filepath.Join(projectRoot, "bin", "html-scraper"),
+			filepath.Join(projectRoot, "bin", "tools", "html_scraper"),
+			"bin/html-scraper",
+			"../bin/html-scraper",
+		}
+
+		scraperBin := ""
+		for _, candidate := range candidates {
+			if _, err := os.Stat(candidate); err == nil {
+				if abs, err := filepath.Abs(candidate); err == nil {
+					scraperBin = abs
+				} else {
+					scraperBin = candidate
+				}
+				break
+			}
+		}
+
+		if scraperBin == "" {
+			// Fallback to raw HTTP client if scraper not found
+			client := NewSafeHTTPClient()
+			content, err := client.SafeGetWithContentCheck(ctx, url)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]interface{}{
+				"content": []map[string]interface{}{
+					{
+						"type": "text",
+						"text": content,
+					},
+				},
+			}, nil
+		}
+
+		// Run the html-scraper binary
+		cmd := exec.CommandContext(ctx, scraperBin, "-url", url)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return nil, fmt.Errorf("scraper failed: %v - %s", err, string(output))
+		}
+
+		// Parse the JSON output from html-scraper
+		var scraperResult map[string]interface{}
+		if err := json.Unmarshal(output, &scraperResult); err != nil {
+			// If not JSON, return raw output
+			return map[string]interface{}{
+				"content": []map[string]interface{}{
+					{
+						"type": "text",
+						"text": string(output),
+					},
+				},
+			}, nil
+		}
+
+		// Format the scraped content nicely
+		var contentText strings.Builder
+
+		// Add title if present
+		if title, ok := scraperResult["title"].(string); ok && title != "" {
+			contentText.WriteString("# ")
+			contentText.WriteString(title)
+			contentText.WriteString("\n\n")
+		}
+
+		// Add items (paragraphs, headings, etc.)
+		if items, ok := scraperResult["items"].([]interface{}); ok {
+			for _, item := range items {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					if text, ok := itemMap["text"].(string); ok && text != "" {
+						itemType, _ := itemMap["type"].(string)
+						switch itemType {
+						case "heading":
+							contentText.WriteString("## ")
+							contentText.WriteString(text)
+							contentText.WriteString("\n\n")
+						case "paragraph":
+							contentText.WriteString(text)
+							contentText.WriteString("\n\n")
+						default:
+							contentText.WriteString(text)
+							contentText.WriteString("\n\n")
+						}
+					}
+				}
+			}
+		}
+
+		// Return in MCP content format
+		return map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": contentText.String(),
+				},
+			},
+		}, nil
+
+	case "execute_code":
+		code, _ := args["code"].(string)
+		language, _ := args["language"].(string)
+
+		if code == "" {
+			return nil, fmt.Errorf("code parameter required")
+		}
+		if language == "" {
+			language = "python" // Default
+		}
+
+		// Use the Simple Docker Executor
+		executor := NewSimpleDockerExecutor() // No storage for ephemeral MCP calls
+		req := &DockerExecutionRequest{
+			Language: language,
+			Code:     code,
+			Timeout:  60, // 60s timeout for MCP calls
+		}
+
+		result, err := executor.ExecuteCode(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+
+		return map[string]interface{}{
+			"success": result.Success,
+			"output":  result.Output,
+			"error":   result.Error,
+			"files":   result.Files,
+		}, nil
+
+	case "read_file":
+		path, ok := args["path"].(string)
+		if !ok {
+			return nil, fmt.Errorf("path parameter required")
+		}
+
+		// Simple security check (prevent traversing up too far)
+		if strings.Contains(path, "..") {
+			return nil, fmt.Errorf("invalid path: traversal not allowed")
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file: %v", err)
+		}
+		return string(content), nil
+
+	default:
+		return nil, fmt.Errorf("unknown internal tool: %s", toolName)
+	}
 }
 
 // queryViaHDN queries Neo4j via HDN's knowledge query endpoint
@@ -308,7 +630,7 @@ func (s *MCPKnowledgeServer) searchWeaviate(ctx context.Context, args map[string
 	if !ok || query == "" {
 		return nil, fmt.Errorf("query parameter is required")
 	}
-	
+
 	log.Printf("🔍 [MCP-KNOWLEDGE] searchWeaviate called with query: '%s'", query)
 
 	limit := 10
@@ -344,19 +666,19 @@ func (s *MCPKnowledgeServer) searchWeaviate(ctx context.Context, args map[string
 		var resultMaps []map[string]interface{}
 		for _, r := range results {
 			resultMaps = append(resultMaps, map[string]interface{}{
-				"text":      r.Text,
-				"timestamp": r.Timestamp,
-				"metadata":  r.Metadata,
+				"text":       r.Text,
+				"timestamp":  r.Timestamp,
+				"metadata":   r.Metadata,
 				"session_id": r.SessionID,
-				"outcome":   r.Outcome,
-				"tags":      r.Tags,
+				"outcome":    r.Outcome,
+				"tags":       r.Tags,
 			})
 		}
 
 		return map[string]interface{}{
-			"results": resultMaps,
-			"count":   len(resultMaps),
-			"query":   query,
+			"results":    resultMaps,
+			"count":      len(resultMaps),
+			"query":      query,
 			"collection": collection,
 		}, nil
 	} else {
@@ -385,7 +707,7 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 	// We need to construct the GraphQL query directly
 	// For now, we'll need to access the baseURL from the adapter
 	// This is a simplified version - in practice you'd want to expose baseURL from the adapter
-	
+
 	// Convert vector to string format for GraphQL
 	vectorStr := "["
 	for i, v := range vec {
@@ -402,12 +724,12 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 	// For cosine distance: lower is better (0 = identical, 1 = completely different)
 	// We request more results than needed, then filter by distance threshold
 	requestLimit := limit * 2 // Request more to account for filtering
-	
+
 	var queryStr string
-	if collection == "WikipediaArticle" {
+	if collection == "AgiWiki" {
 		queryStr = fmt.Sprintf(`{
 			Get {
-				WikipediaArticle(nearVector: {vector: %s}, limit: %d) {
+				AgiWiki(nearVector: {vector: %s}, limit: %d) {
 					_additional {
 						id
 						distance
@@ -421,8 +743,39 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 				}
 			}
 		}`, vectorStr, requestLimit)
+	} else if collection == "WikipediaArticle" {
+		// FIXED: Use Like filter for WikipediaArticle to ensure better keyword matching than BM25
+		// This handles cases like 'Ukraine' matching 'Ukrainians' and avoids BM25 tokenization issues.
+		searchTerm := query
+		// Apply the same stemming as in keyword extraction for consistency
+		if strings.HasSuffix(strings.ToLower(searchTerm), "e") && len(searchTerm) > 5 {
+			searchTerm = searchTerm[:len(searchTerm)-1]
+		}
+
+		queryStr = fmt.Sprintf(`{
+			Get {
+				WikipediaArticle(where: {
+					operator: Or,
+					operands: [
+						{ path: ["title"], operator: Like, valueString: "*%s*" },
+						{ path: ["text"], operator: Like, valueString: "*%s*" }
+					]
+				}, limit: %d) {
+					_additional {
+						id
+						score
+					}
+					title
+					text
+					source
+					timestamp
+					url
+					metadata
+				}
+			}
+		}`, searchTerm, searchTerm, requestLimit)
 	} else {
-		// Generic collection query
+		// Generic collection query using vector search fallback
 		queryStr = fmt.Sprintf(`{
 			Get {
 				%s(nearVector: {vector: %s}, limit: %d) {
@@ -449,6 +802,7 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 	queryData := map[string]interface{}{
 		"query": queryStr,
 	}
+	log.Printf("🔍 [MCP-KNOWLEDGE] Sending GraphQL query to Weaviate: %s", queryStr)
 
 	jsonData, err := json.Marshal(queryData)
 	if err != nil {
@@ -469,10 +823,11 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 300 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("weaviate returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+	log.Printf("🔍 [MCP-KNOWLEDGE] Weaviate raw response: %s", string(bodyBytes))
 
 	var result struct {
 		Data struct {
@@ -483,7 +838,7 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 		} `json:"errors"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -493,18 +848,18 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 
 	// Extract results from the collection and filter by distance
 	var results []map[string]interface{}
-		if collectionData, ok := result.Data.Get[collection]; ok {
+	if collectionData, ok := result.Data.Get[collection]; ok {
 		// STRICT BUT LENIENT filtering: keyword matching is primary, distance is secondary
 		// We still prefer high-precision matches but avoid filtering everything out.
 		// Distance threshold is more relaxed (0.6) to account for hash-based embeddings.
 		maxDistance := 0.60
-		
+
 		// Extract keywords from query for MANDATORY filtering
 		// First, try to extract the actual search term from tool call instructions
 		// The LLM might pass something like "Search... about 'bondi'. Use mcp_search_weaviate with query='bondi'"
 		// We want to extract just "bondi"
 		actualQuery := query
-		
+
 		// Try multiple patterns to extract the actual search term
 		// Pattern 1: query='...' or query="..."
 		if idx := strings.Index(query, "query='"); idx >= 0 {
@@ -573,7 +928,7 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 				actualQuery = "" // This will cause all results to be filtered out
 			}
 		}
-		
+
 		// If extraction failed completely, we can't search - return empty results
 		if actualQuery == "" {
 			log.Printf("⚠️ [MCP-KNOWLEDGE] Query extraction failed completely, returning empty results")
@@ -584,7 +939,7 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 				"collection": collection,
 			}, nil
 		}
-		
+
 		queryLower := strings.ToLower(strings.TrimSpace(actualQuery))
 		queryWords := strings.Fields(queryLower)
 		// Remove common stop words
@@ -600,10 +955,15 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 		for _, word := range queryWords {
 			word = strings.Trim(word, ".,!?;:()[]{}'\"")
 			if !stopWords[word] && len(word) > 2 {
+				// Simple stemming: if word ends in 'e' and is long, remove it to match variations
+				// e.g. 'ukraine' -> 'ukrain' matches 'ukrainians'
+				if strings.HasSuffix(word, "e") && len(word) > 5 {
+					word = strings.TrimSuffix(word, "e")
+				}
 				keywords = append(keywords, word)
 			}
 		}
-		
+
 		// If no keywords extracted, try to extract from the whole query
 		// But be careful - if the whole query is just stop words, we can't search
 		if len(keywords) == 0 {
@@ -633,32 +993,35 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 			}
 			// If still no keywords, we'll filter everything out (which is correct)
 		}
-		
+
 		log.Printf("🔍 [MCP-KNOWLEDGE] Extracted keywords: %v from query: '%s'", keywords, actualQuery)
-		
+
 		log.Printf("🔍 [MCP-KNOWLEDGE] Filtering with distance <= %.2f and keywords: %v", maxDistance, keywords)
-		
+
 		for _, item := range collectionData {
-			// Step 1: Check distance threshold (MANDATORY)
-			var distance float64
-			hasDistance := false
-			if additional, ok := item["_additional"].(map[string]interface{}); ok {
-				if d, ok := additional["distance"].(float64); ok {
-					distance = d
-					hasDistance = true
+			distance := 0.0
+			// Step 1: Check distance threshold (MANDATORY for vector search, skip for BM25)
+			// BM25 (WikipediaArticle) uses 'score' not 'distance', so skip this check
+			if collection != "WikipediaArticle" {
+				hasDistance := false
+				if additional, ok := item["_additional"].(map[string]interface{}); ok {
+					if d, ok := additional["distance"].(float64); ok {
+						distance = d
+						hasDistance = true
+					}
+				}
+
+				if !hasDistance {
+					log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (no distance): %v", item["title"])
+					continue
+				}
+
+				if distance > maxDistance {
+					log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (distance %.3f > %.2f): %v", distance, maxDistance, item["title"])
+					continue
 				}
 			}
-			
-			if !hasDistance {
-				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (no distance): %v", item["title"])
-				continue
-			}
-			
-			if distance > maxDistance {
-				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (distance %.3f > %.2f): %v", distance, maxDistance, item["title"])
-				continue
-			}
-			
+
 			// Step 2: Keyword matching (PRIMARY)
 			// Since hash-based embeddings are unreliable, keyword matching remains primary,
 			// but we relax some of the earlier ultra-strict constraints so that relevant
@@ -667,21 +1030,21 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (no keywords to match): %v", item["title"])
 				continue
 			}
-			
+
 			// Get title and text for matching
 			title, hasTitle := item["title"].(string)
 			text, hasText := item["text"].(string)
-			
+
 			if !hasTitle && !hasText {
 				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (no title or text): %v", item)
 				continue
 			}
-			
+
 			titleLower := ""
 			if hasTitle {
 				titleLower = strings.ToLower(title)
 			}
-			
+
 			// Relaxed rule: primary keyword MUST be in title OR text (for collections with titles),
 			// so good matches in the article body are not discarded.
 			primaryKeyword := keywords[0]
@@ -698,14 +1061,22 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 			}
 
 			if !primaryInTitle && !primaryInText {
-				log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (primary keyword '%s' not in title or text preview, distance=%.3f): %v", primaryKeyword, distance, title)
+				if collection == "WikipediaArticle" {
+					log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (primary keyword '%s' not in title or text preview): %v", primaryKeyword, title)
+				} else {
+					log.Printf("🔍 [MCP-KNOWLEDGE] Filtered out result (primary keyword '%s' not in title or text preview, distance=%.3f): %v", primaryKeyword, distance, title)
+				}
 				continue
 			}
-			
+
 			// Passed all filters
-			log.Printf("✅ [MCP-KNOWLEDGE] Including result (distance=%.3f, primary keyword '%s' matched in title/text): %v", distance, primaryKeyword, title)
+			if collection == "WikipediaArticle" {
+				log.Printf("✅ [MCP-KNOWLEDGE] Including result (BM25, primary keyword '%s' matched in title/text): %v", primaryKeyword, title)
+			} else {
+				log.Printf("✅ [MCP-KNOWLEDGE] Including result (distance=%.3f, primary keyword '%s' matched in title/text): %v", distance, primaryKeyword, title)
+			}
 			results = append(results, item)
-			
+
 			// Limit results to requested limit
 			if len(results) >= limit {
 				break
@@ -736,12 +1107,13 @@ func (s *MCPKnowledgeServer) getConcept(ctx context.Context, args map[string]int
 	escapedName := strings.ReplaceAll(name, "'", "\\'")
 
 	// Build query with embedded parameters (safer than parameterized queries for this endpoint)
-	cypher := fmt.Sprintf("MATCH (c:Concept {name: '%s'", escapedName)
+	// Build query searching both name and definition
+	cypher := fmt.Sprintf("MATCH (c:Concept) WHERE (toLower(c.name) CONTAINS toLower('%s') OR toLower(c.definition) CONTAINS toLower('%s'))", escapedName, escapedName)
 	if domain != "" {
 		escapedDomain := strings.ReplaceAll(domain, "'", "\\'")
-		cypher += fmt.Sprintf(", domain: '%s'", escapedDomain)
+		cypher += fmt.Sprintf(" AND c.domain = '%s'", escapedDomain)
 	}
-	cypher += "}) RETURN c"
+	cypher += " RETURN c LIMIT 5"
 
 	return s.queryViaHDN(ctx, cypher)
 }
@@ -819,17 +1191,20 @@ func (s *APIServer) RegisterMCPKnowledgeServerRoutes() {
 	}
 
 	// Register MCP endpoint
-	s.router.HandleFunc("/mcp", s.mcpKnowledgeServer.HandleRequest).Methods("POST")
-	s.router.HandleFunc("/api/v1/mcp", s.mcpKnowledgeServer.HandleRequest).Methods("POST")
+	s.router.HandleFunc("/mcp", s.mcpKnowledgeServer.HandleRequest).Methods("POST", "GET", "OPTIONS")
+	s.router.HandleFunc("/api/v1/mcp", s.mcpKnowledgeServer.HandleRequest).Methods("POST", "GET", "OPTIONS")
+	// Register explicit /sse endpoint for clients that expect it
+	s.router.HandleFunc("/sse", s.mcpKnowledgeServer.HandleRequest).Methods("GET", "OPTIONS")
+	s.router.HandleFunc("/api/v1/sse", s.mcpKnowledgeServer.HandleRequest).Methods("GET", "OPTIONS")
 
-	log.Printf("✅ [MCP-KNOWLEDGE] MCP knowledge server registered at /mcp and /api/v1/mcp")
+	log.Printf("✅ [MCP-KNOWLEDGE] MCP knowledge server registered at /mcp, /sse and /api/v1/mcp")
 }
 
 // isSelfConnectionHDN checks if the endpoint is pointing to the same server (self-connection)
 // This detects Kubernetes service DNS patterns and localhost patterns
 func isSelfConnectionHDN(endpoint string) bool {
 	lower := strings.ToLower(endpoint)
-	
+
 	// Check for Kubernetes service DNS patterns (e.g., hdn-server-*.svc.cluster.local)
 	if strings.Contains(lower, ".svc.cluster.local") {
 		// Extract service name and check if it matches HDN service pattern
@@ -837,11 +1212,11 @@ func isSelfConnectionHDN(endpoint string) bool {
 			return true
 		}
 	}
-	
+
 	// Check if it's already localhost
 	if strings.Contains(lower, "localhost") || strings.Contains(lower, "127.0.0.1") {
 		return true
 	}
-	
+
 	return false
 }

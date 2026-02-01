@@ -33,19 +33,25 @@ type Goal struct {
 }
 
 type Capability struct {
-	ID          string                 `json:"id"`
-	TaskName    string                 `json:"task_name"`
-	Entrypoint  string                 `json:"entrypoint"`
-	Language    string                 `json:"language"`
-	InputSig    map[string]string      `json:"input_signature"`
-	Outputs     []string               `json:"outputs"`
-	Preconds    []string               `json:"preconditions"`
-	Effects     map[string]interface{} `json:"effects"`
-	Score       float64                `json:"score"`
-	CreatedAt   time.Time              `json:"created_at"`
-	LastUsed    time.Time              `json:"last_used"`
-	Validation  map[string]interface{} `json:"validation"`
-	Permissions []string               `json:"permissions"`
+	ID           string                 `json:"id"`
+	TaskName     string                 `json:"task_name"`
+	Description  string                 `json:"description,omitempty"`
+	Entrypoint   string                 `json:"entrypoint"`
+	Language     string                 `json:"language"`
+	InputSig     map[string]string      `json:"input_signature"`
+	Outputs      []string               `json:"outputs"`
+	Preconds     []string               `json:"preconditions"`
+	Effects      map[string]interface{} `json:"effects"`
+	Score        float64                `json:"score"`
+	CreatedAt    time.Time              `json:"created_at"`
+	LastUsed     time.Time              `json:"last_used"`
+	Validation   map[string]interface{} `json:"validation"`
+	Permissions  []string               `json:"permissions"`
+	Risk         string                 `json:"risk"`
+	Tags         []string               `json:"tags"`
+	Type         string                 `json:"type"`          // "code", "tool", "workflow"
+	ContextCheck string                 `json:"context_check"` // Logic for applicability
+	Code         string                 `json:"code,omitempty"`
 }
 
 type PlanStep struct {
@@ -232,7 +238,7 @@ func (p *Planner) FindMatchingCapabilities(ctx context.Context, goal Goal) ([]Ca
 			out = append(out, c)
 		}
 	}
-	
+
 	// 🧠 INTELLIGENCE: Sort by learned success rate to prefer capabilities that work well
 	if len(out) > 1 {
 		// Enhance each capability with learned success rate
@@ -248,19 +254,19 @@ func (p *Planner) FindMatchingCapabilities(ctx context.Context, goal Goal) ([]Ca
 			totalScore := cap.Score + (successRate * 2.0)
 			scored[i] = scoredCap{cap: cap, score: totalScore}
 		}
-		
+
 		// Sort by total score (descending)
 		sort.Slice(scored, func(i, j int) bool {
 			return scored[i].score > scored[j].score
 		})
-		
+
 		// Extract sorted capabilities
 		out = make([]Capability, len(scored))
 		for i, sc := range scored {
 			out[i] = sc.cap
 		}
 	}
-	
+
 	return out, nil
 }
 
@@ -269,7 +275,7 @@ func (p *Planner) getCapabilitySuccessRate(ctx context.Context, capabilityID, ta
 	if p.redis == nil {
 		return 0.0
 	}
-	
+
 	// Try capability-specific success rate first
 	key := fmt.Sprintf("capability_success_rate:%s", capabilityID)
 	rateStr, err := p.redis.Get(ctx, key).Result()
@@ -278,7 +284,7 @@ func (p *Planner) getCapabilitySuccessRate(ctx context.Context, capabilityID, ta
 			return rate
 		}
 	}
-	
+
 	// Fallback to task-name-based success rate
 	if taskName != "" {
 		taskKey := fmt.Sprintf("task_success_rate:%s", taskName)
@@ -289,7 +295,7 @@ func (p *Planner) getCapabilitySuccessRate(ctx context.Context, capabilityID, ta
 			}
 		}
 	}
-	
+
 	return 0.0 // No data available
 }
 
