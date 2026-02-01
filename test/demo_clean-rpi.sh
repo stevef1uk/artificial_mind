@@ -52,6 +52,33 @@ setup_port_forward() {
         return 1
     fi
     
+    # Check if HDN pod is running and ready
+    local hdn_pod=$(kubectl get pods -n agi -l app=hdn-server-rpi58 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [ -z "$hdn_pod" ]; then
+        print_error "❌ HDN pod not found in namespace 'agi'"
+        print_info "ℹ️  Available pods in agi namespace:"
+        kubectl get pods -n agi 2>/dev/null || echo "  (none found)"
+        return 1
+    fi
+    
+    local pod_phase=$(kubectl get pod -n agi "$hdn_pod" -o jsonpath='{.status.phase}' 2>/dev/null)
+    if [ "$pod_phase" != "Running" ]; then
+        print_error "❌ HDN pod '$hdn_pod' is not running (phase: $pod_phase)"
+        print_info "ℹ️  Check pod status: kubectl get pod -n agi $hdn_pod"
+        print_info "ℹ️  Check pod logs: kubectl logs -n agi $hdn_pod --tail=50"
+        return 1
+    fi
+    
+    # Verify the pod is actually responding (from within the cluster)
+    print_info "ℹ️  Verifying HDN pod is healthy..."
+    if ! kubectl exec -n agi "$hdn_pod" -- wget -qO- --timeout=3 http://localhost:8080/health >/dev/null 2>&1; then
+        print_warning "⚠️  HDN pod is running but not responding to health checks"
+        print_info "ℹ️  This might indicate the server is still starting up"
+        print_info "ℹ️  Will attempt port-forward anyway..."
+    else
+        print_success "✅ HDN pod is healthy and responding"
+    fi
+    
     # Check if port-forward is already running
     EXISTING_PF=$(pgrep -f "kubectl.*port-forward.*hdn-server-rpi58.*8081" | head -1)
     if [ -n "$EXISTING_PF" ]; then
@@ -117,29 +144,82 @@ setup_port_forward() {
     if ! kill -0 $PORT_FORWARD_PID 2>/dev/null; then
         print_error "❌ Port-forward process died immediately"
         print_info "ℹ️  Check logs: cat /tmp/hdn-port-forward.log"
+        if [ -f /tmp/hdn-port-forward.log ]; then
+            print_info "ℹ️  Port-forward error output:"
+            cat /tmp/hdn-port-forward.log | head -10
+        fi
         PORT_FORWARD_PID=""
         return 1
     fi
     
-    # Test connectivity
+    # Verify port-forward is actually listening on the port
+    if ! (lsof -i :$LOCAL_PORT >/dev/null 2>&1 || ss -tuln 2>/dev/null | grep -q ":$LOCAL_PORT " || netstat -tuln 2>/dev/null | grep -q ":$LOCAL_PORT "); then
+        print_warning "⚠️  Port-forward process is running but port $LOCAL_PORT is not listening"
+        print_info "ℹ️  Waiting a bit longer for port-forward to establish..."
+        sleep 2
+    fi
+    
+    # Test connectivity with better error reporting
     print_info "Testing connectivity to HDN service..."
-    local max_attempts=5
+    local max_attempts=10
     local attempt=1
+    local last_error=""
     while [ $attempt -le $max_attempts ]; do
-        if curl -s -f "$API_URL/health" >/dev/null 2>&1 || curl -s -f "$API_URL/api/v1/health" >/dev/null 2>&1 || curl -s -f "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1; then
+        # Check if port-forward process is still alive
+        if ! kill -0 $PORT_FORWARD_PID 2>/dev/null; then
+            print_error "❌ Port-forward process died during verification (attempt $attempt)"
+            if [ -f /tmp/hdn-port-forward.log ]; then
+                print_info "ℹ️  Port-forward error output:"
+                cat /tmp/hdn-port-forward.log | tail -10
+            fi
+            PORT_FORWARD_PID=""
+            return 1
+        fi
+        
+        # Try to connect with verbose error output for debugging
+        local curl_output
+        curl_output=$(curl -s -w "\n%{http_code}" -m 5 "$API_URL/health" 2>&1)
+        local curl_exit=$?
+        local http_code=$(echo "$curl_output" | tail -n1)
+        local response=$(echo "$curl_output" | sed '$d')
+        
+        if [ $curl_exit -eq 0 ] && [ "$http_code" = "200" ]; then
             print_success "✅ Port-forward established and verified (PID: $PORT_FORWARD_PID)"
             return 0
         fi
+        
+        # Try alternative endpoints
+        if curl -s -f -m 5 "$API_URL/api/v1/health" >/dev/null 2>&1; then
+            print_success "✅ Port-forward established and verified via /api/v1/health (PID: $PORT_FORWARD_PID)"
+            return 0
+        fi
+        
+        if curl -s -f -m 5 "$API_URL/api/v1/intelligent/capabilities" >/dev/null 2>&1; then
+            print_success "✅ Port-forward established and verified via /api/v1/intelligent/capabilities (PID: $PORT_FORWARD_PID)"
+            return 0
+        fi
+        
+        # Store error for final report
+        if [ -n "$curl_output" ]; then
+            last_error=$(echo "$curl_output" | head -3 | tr '\n' ' ')
+        fi
+        
         sleep 1
         attempt=$((attempt + 1))
     done
     
     # If we get here, port-forward is running but not responding
-    print_error "❌ Port-forward is running but service is not responding"
+    print_error "❌ Port-forward is running but service is not responding after $max_attempts attempts"
     print_info "ℹ️  Port-forward PID: $PORT_FORWARD_PID"
+    print_info "ℹ️  Last curl error: ${last_error:0:200}"
     print_info "ℹ️  Check if HDN pod is running: kubectl get pods -n agi -l app=hdn-server-rpi58"
-    print_info "ℹ️  Port-forward logs: cat /tmp/hdn-port-forward.log"
+    print_info "ℹ️  Check pod logs: kubectl logs -n agi -l app=hdn-server-rpi58 --tail=20"
+    if [ -f /tmp/hdn-port-forward.log ]; then
+        print_info "ℹ️  Port-forward logs:"
+        cat /tmp/hdn-port-forward.log | tail -20
+    fi
     kill $PORT_FORWARD_PID 2>/dev/null
+    wait $PORT_FORWARD_PID 2>/dev/null
     PORT_FORWARD_PID=""
     return 1
 }
@@ -198,23 +278,69 @@ api_request() {
     
     local http_code
     local response
+    local curl_exit=0
+    local curl_stderr_file="/tmp/curl_stderr_$$"
     
+    # Capture both stdout and stderr from curl
     if [ -n "$data" ]; then
         response=$(curl -s -w "\n%{http_code}" -X "$method" \
             -H "Content-Type: application/json" \
             -H "X-Request-Source: ui" \
             -d "$data" \
-            "$API_URL$endpoint" 2>/dev/null)
+            -m 30 \
+            "$API_URL$endpoint" 2>"$curl_stderr_file")
+        curl_exit=$?
     else
         response=$(curl -s -w "\n%{http_code}" -X "$method" \
             -H "Content-Type: application/json" \
             -H "X-Request-Source: ui" \
-            "$API_URL$endpoint" 2>/dev/null)
+            -m 30 \
+            "$API_URL$endpoint" 2>"$curl_stderr_file")
+        curl_exit=$?
     fi
     
     # Extract HTTP code (last line)
     http_code=$(echo "$response" | tail -n1)
     response=$(echo "$response" | sed '$d')
+    
+    # Check for connection failures (HTTP 000 or curl exit code != 0)
+    if [ "$http_code" = "000" ] || [ $curl_exit -ne 0 ]; then
+        print_error "Connection failed: Could not reach HDN service"
+        if [ "$http_code" = "000" ]; then
+            print_error "HTTP 000: Connection refused or timeout"
+        fi
+        if [ $curl_exit -ne 0 ]; then
+            case $curl_exit in
+                7) print_error "Curl error 7: Failed to connect to host" ;;
+                28) print_error "Curl error 28: Connection timeout" ;;
+                *) print_error "Curl error $curl_exit: Connection failed" ;;
+            esac
+        fi
+        print_info "ℹ️  URL attempted: $API_URL$endpoint"
+        # Show curl error details if available
+        if [ -f "$curl_stderr_file" ] && [ -s "$curl_stderr_file" ]; then
+            local curl_error=$(cat "$curl_stderr_file" | head -3)
+            if [ -n "$curl_error" ]; then
+                print_info "ℹ️  Curl error: ${curl_error:0:200}"
+            fi
+            rm -f "$curl_stderr_file"
+        fi
+        # Check if port-forward is still running
+        if [ -n "$PORT_FORWARD_PID" ]; then
+            if kill -0 $PORT_FORWARD_PID 2>/dev/null; then
+                print_info "ℹ️  Port-forward process is still running (PID: $PORT_FORWARD_PID)"
+            else
+                print_error "❌ Port-forward process is not running (PID: $PORT_FORWARD_PID)"
+                print_info "ℹ️  Port-forward may have died. Check logs: cat /tmp/hdn-port-forward.log"
+            fi
+        fi
+        echo
+        rm -f "$curl_stderr_file"
+        return 1
+    fi
+    
+    # Clean up stderr file on success
+    rm -f "$curl_stderr_file"
     
     # Check HTTP status code
     if [ "$http_code" != "200" ] && [ "$http_code" != "201" ]; then
@@ -296,18 +422,42 @@ api_request() {
 show_capabilities() {
     local response
     local http_code
+    local curl_exit=0
+    local curl_stderr_file="/tmp/curl_stderr_cap_$$"
     
     response=$(curl -s -w "\n%{http_code}" -X GET \
         -H "X-Request-Source: ui" \
-        "$API_URL/api/v1/intelligent/capabilities" 2>/dev/null)
+        -m 30 \
+        "$API_URL/api/v1/intelligent/capabilities" 2>"$curl_stderr_file")
+    curl_exit=$?
     http_code=$(echo "$response" | tail -n1)
     response=$(echo "$response" | sed '$d')
+    
+    # Check for connection failures
+    if [ "$http_code" = "000" ] || [ $curl_exit -ne 0 ]; then
+        print_error "Failed to get capabilities: Connection failed"
+        if [ "$http_code" = "000" ]; then
+            print_error "HTTP 000: Connection refused or timeout"
+        fi
+        if [ -f "$curl_stderr_file" ] && [ -s "$curl_stderr_file" ]; then
+            local curl_error=$(cat "$curl_stderr_file" | head -3)
+            if [ -n "$curl_error" ]; then
+                print_info "ℹ️  Error: ${curl_error:0:200}"
+            fi
+        fi
+        rm -f "$curl_stderr_file"
+        echo "📊 Total capabilities: Unknown"
+        return 1
+    fi
     
     if [ "$http_code" != "200" ]; then
         print_error "Failed to get capabilities (HTTP $http_code)"
         echo "📊 Total capabilities: Unknown"
+        rm -f "$curl_stderr_file"
         return 1
     fi
+    
+    rm -f "$curl_stderr_file"
     
     if ! is_valid_json "$response"; then
         print_error "Invalid JSON response"
