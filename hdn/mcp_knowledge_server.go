@@ -1754,8 +1754,11 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// n8n service URL in cluster
-	n8nURL := "http://n8n.n8n.svc.cluster.local:5678/webhook/google-workspace"
+	// n8n service URL in cluster (configurable)
+	n8nURL := os.Getenv("N8N_WEBHOOK_URL")
+	if n8nURL == "" {
+		n8nURL = "http://n8n.n8n.svc.cluster.local:5678/webhook/google-workspace"
+	}
 
 	// Create request
 	req, err := http.NewRequestWithContext(ctx, "POST", n8nURL, bytes.NewReader(jsonData))
@@ -1763,6 +1766,11 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+
+	// Add authentication header if secret is configured
+	if secret := os.Getenv("N8N_WEBHOOK_SECRET"); secret != "" {
+		req.Header.Set("X-Webhook-Secret", secret)
+	}
 
 	// Execute
 	client := &http.Client{Timeout: 30 * time.Second}
