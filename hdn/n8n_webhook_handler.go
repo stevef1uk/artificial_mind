@@ -26,6 +26,13 @@ func NewN8NWebhookHandler(config *SkillConfig) *N8NWebhookHandler {
 
 // Execute executes the n8n webhook skill with the given arguments
 func (h *N8NWebhookHandler) Execute(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	log.Printf("🔧 [N8N-WEBHOOK] Execute called for skill: %s, endpoint: %s, args: %+v", h.config.ID, h.config.Endpoint, args)
+	
+	// Check if endpoint is set
+	if h.config.Endpoint == "" {
+		return nil, fmt.Errorf("endpoint is empty for skill %s - check N8N_WEBHOOK_URL environment variable", h.config.ID)
+	}
+	
 	// Build request payload from template
 	payload, err := h.buildPayload(args)
 	if err != nil {

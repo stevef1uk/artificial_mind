@@ -52,7 +52,7 @@ func (r *DynamicSkillRegistry) LoadSkillsFromConfig(configPath string) error {
 
 		r.skills[skill.ID] = skill
 		r.handlers[skill.ID] = handler
-		log.Printf("✅ [SKILL-REGISTRY] Registered skill: %s (%s)", skill.ID, skill.Type)
+		log.Printf("✅ [SKILL-REGISTRY] Registered skill: %s (%s), endpoint: %s", skill.ID, skill.Type, skill.Endpoint)
 	}
 
 	log.Printf("✅ [SKILL-REGISTRY] Loaded %d skill(s) from configuration", len(r.skills))
