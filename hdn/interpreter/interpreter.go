@@ -227,7 +227,17 @@ func (i *Interpreter) convertFlexibleToLegacy(flexibleResult *FlexibleInterpreta
 		
 		result.Metadata["tool_result"] = toolResult
 		result.Metadata["tool_used"] = flexibleResult.ToolCall.ToolID
-		log.Printf("🔧 [INTERPRETER] Added tool_result to metadata for tool: %s", flexibleResult.ToolCall.ToolID)
+		
+		// Log the structure for debugging
+		if results, ok := toolResult["results"]; ok {
+			if resultsArray, ok := results.([]interface{}); ok {
+				log.Printf("🔧 [INTERPRETER] Added tool_result to metadata for tool: %s (with %d results)", flexibleResult.ToolCall.ToolID, len(resultsArray))
+			} else {
+				log.Printf("🔧 [INTERPRETER] Added tool_result to metadata for tool: %s (results type: %T)", flexibleResult.ToolCall.ToolID, results)
+			}
+		} else {
+			log.Printf("⚠️ [INTERPRETER] Added tool_result to metadata for tool: %s (NO RESULTS KEY!)", flexibleResult.ToolCall.ToolID)
+		}
 	}
 
 	// Preserve text_response field for text responses

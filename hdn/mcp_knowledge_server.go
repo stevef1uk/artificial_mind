@@ -1790,11 +1790,40 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 	var result interface{}
 	if err := json.Unmarshal(bodyBytes, &result); err != nil {
 		// If not JSON, return string
+		log.Printf("⚠️ [MCP-KNOWLEDGE] n8n response is not JSON, returning as string. Length: %d", len(bodyBytes))
 		return map[string]interface{}{
 			"result": string(bodyBytes),
 		}, nil
 	}
 
-	log.Printf("✅ [MCP-KNOWLEDGE] Successfully retrieved Google Workspace data")
+	// Log the structure of the result for debugging
+	resultType := "unknown"
+	resultLen := 0
+	if resultArray, ok := result.([]interface{}); ok {
+		resultType = "array"
+		resultLen = len(resultArray)
+		log.Printf("📧 [MCP-KNOWLEDGE] n8n returned array with %d items", resultLen)
+		if resultLen > 0 {
+			// Log first item structure
+			if firstItem, ok := resultArray[0].(map[string]interface{}); ok {
+				var keys []string
+				for k := range firstItem {
+					keys = append(keys, k)
+				}
+				log.Printf("📧 [MCP-KNOWLEDGE] First email item has keys: %v", keys)
+			}
+		}
+	} else if resultMap, ok := result.(map[string]interface{}); ok {
+		resultType = "map"
+		var keys []string
+		for k := range resultMap {
+			keys = append(keys, k)
+		}
+		log.Printf("📧 [MCP-KNOWLEDGE] n8n returned map with keys: %v", keys)
+	} else {
+		log.Printf("⚠️ [MCP-KNOWLEDGE] n8n returned unexpected type: %T", result)
+	}
+
+	log.Printf("✅ [MCP-KNOWLEDGE] Successfully retrieved Google Workspace data (type: %s, size: %d)", resultType, resultLen)
 	return result, nil
 }
