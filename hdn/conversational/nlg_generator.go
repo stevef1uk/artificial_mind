@@ -220,6 +220,13 @@ User Question: "%s"
 Intent: %s
 Goal: %s
 
+🚨 CRITICAL RULES:
+1. You MUST use ONLY the information provided in the "Retrieved Information" section below.
+2. DO NOT invent, make up, or hallucinate any data that is not explicitly shown.
+3. If the "Retrieved Information" contains email data (with Subject, From, To fields), you MUST present ONLY those exact emails - do NOT create fake emails.
+4. If no information is retrieved, say so clearly - do NOT invent fake data to fill the gap.
+5. If you see email data formatted as "[1] Subject: ... From: ...", present those emails exactly as shown.
+
 Please provide a clear, informative answer. 
 
 IMPORTANT: If the 'Retrieved Personal Context' section below contains information about the user (Steven Fisher), use it to answer as if you already know this information. Do not say 'I don't have access to personal information' if the answer is present in that section.
@@ -253,12 +260,15 @@ Please incorporate this reasoning context into your response.`,
 
 	// Add result data if available
 	if req.Result != nil && req.Result.Success {
+		formattedData := nlg.formatResultData(req.Result.Data)
 		basePrompt += fmt.Sprintf(`
 
 Retrieved Information:
 %s
 
-Use this information to answer the user's question comprehensively.`, nlg.formatResultData(req.Result.Data))
+🚨 CRITICAL: You MUST use ONLY the information provided above. DO NOT make up, invent, or hallucinate any data. 
+If the information shows email data (Subject, From, To fields), present ONLY those emails exactly as shown.
+If no information is provided, say so clearly - do NOT invent fake emails or data.`, formattedData)
 	}
 
 	return fmt.Sprintf(basePrompt, req.UserMessage, req.Intent.Type, req.Action.Goal)
