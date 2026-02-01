@@ -652,5 +652,29 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 		}
 	}
 
+	// 3. Add wiki/news context if available
+	if wikiData, ok := req.Context["wiki_context"].(*InterpretResult); ok && wikiData != nil {
+		if toolResult, ok := wikiData.Metadata["tool_result"].(map[string]interface{}); ok {
+			var items []interface{}
+			if i, ok := toolResult["results"].([]interface{}); ok {
+				items = i
+			}
+
+			if len(items) > 0 {
+				basePrompt += "\n\nRetrieved News/Knowledge (AgiWiki):\n"
+				for _, res := range items {
+					if item, ok := res.(map[string]interface{}); ok {
+						if content, ok := item["content"].(string); ok {
+							basePrompt += fmt.Sprintf("--- ARTICLE ---\n%s\n", content)
+						} else if text, ok := item["text"].(string); ok {
+							basePrompt += fmt.Sprintf("--- ARTICLE ---\n%s\n", text)
+						}
+					}
+				}
+				basePrompt += "\nUse this information to provide the latest news or factual details requested by the user."
+			}
+		}
+	}
+
 	return basePrompt
 }

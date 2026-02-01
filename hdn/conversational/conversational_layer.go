@@ -151,6 +151,24 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		}
 	}
 
+	// Step 2c: If it's a query, also search the general knowledge base (AgiWiki/News)
+	if intent.Type == "query" {
+		wikiResult, wikiErr := cl.hdnClient.SearchWeaviate(ctx, req.Message, "AgiWiki", 5)
+		if wikiErr != nil {
+			log.Printf("⚠️ [CONVERSATIONAL] Wiki context search failed: %v", wikiErr)
+		} else if wikiResult != nil && wikiResult.Metadata != nil {
+			if toolSuccess, ok := wikiResult.Metadata["tool_success"].(bool); ok && toolSuccess {
+				if toolResult, ok := wikiResult.Metadata["tool_result"].(map[string]interface{}); ok {
+					if items, ok := toolResult["results"].([]interface{}); ok && len(items) > 0 {
+						conversationContext["wiki_context"] = wikiResult
+						log.Printf("✅ [CONVERSATIONAL] Found %d relevant news/wiki articles", len(items))
+						cl.reasoningTrace.AddKnowledgeUsed("agi_wiki")
+					}
+				}
+			}
+		}
+	}
+
 	// Step 3: Determine the appropriate action based on intent
 	action, err := cl.determineAction(ctx, intent, conversationContext)
 	if err != nil {
