@@ -914,7 +914,41 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		}, nil
 
 	case "task_execution":
-		// Use HDN's task execution
+		// CRITICAL: Check if this is an email/calendar request BEFORE executing task
+		// If so, pass the original message directly to preserve email keywords
+		originalMessage := ""
+		if origMsg, ok := context["original_message"].(string); ok {
+			originalMessage = origMsg
+		} else if origMsg, ok := hdnContext["original_message"]; ok {
+			originalMessage = origMsg
+		}
+		
+		// Check if original message contains email/calendar keywords
+		if originalMessage != "" {
+			originalLower := strings.ToLower(originalMessage)
+			isEmailRequest := strings.Contains(originalLower, "email") || strings.Contains(originalLower, "emails") ||
+				strings.Contains(originalLower, "calendar") || strings.Contains(originalLower, "inbox") ||
+				strings.Contains(originalLower, "gmail") || strings.Contains(originalLower, "check my")
+			
+			if isEmailRequest {
+				log.Printf("📧 [CONVERSATIONAL] Detected email/calendar request in task_execution - using InterpretNaturalLanguage: %s", originalMessage)
+				// Pass original message directly to preserve email keywords for tool detection
+				interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, originalMessage, hdnContext)
+				if err != nil {
+					return nil, fmt.Errorf("email request interpretation failed: %w", err)
+				}
+				return &ActionResult{
+					Type:    "conversation_result",
+					Success: true,
+					Data: map[string]interface{}{
+						"result": interpretResult,
+						"source": "hdn_natural_language",
+					},
+				}, nil
+			}
+		}
+		
+		// Use HDN's task execution for non-email tasks
 		result, err := cl.hdnClient.ExecuteTask(ctx, action.Goal, hdnContext)
 		if err != nil {
 			return nil, fmt.Errorf("task execution failed: %w", err)
