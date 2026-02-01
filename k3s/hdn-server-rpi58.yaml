@@ -99,6 +99,8 @@ spec:
                 secretKeyRef:
                   name: secure-vendor
                   key: token
+            - name: N8N_WEBHOOK_URL
+              value: "http://n8n.n8n.svc.cluster.local:5678/webhook/google-workspace"
             - name: UNPACK_WORK_DIR
               value: "/tmp/unpack"
             # Docker resource limits for Raspberry Pi (increased for code validation)
