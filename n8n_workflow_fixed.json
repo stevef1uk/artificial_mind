@@ -1,0 +1,161 @@
+{
+  "name": "WebHook for AGI",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "6f632b61-6b01-4910-991d-3a378b1e653a",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0da42f09-b0ec-4330-ae11-dda937cd94c3",
+      "name": "Webhook",
+      "webhookId": "6f632b61-6b01-4910-991d-3a378b1e653a",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "parPXi96qM8dfFZ3",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract query, type, and limit from webhook body\nconst body = $input.first().json.body || $input.first().json;\nconst query = body.query || '';\nconst dataType = body.type || 'email';\nconst limit = Math.min(Math.max(parseInt(body.limit) || 10, 1), 50); // Clamp between 1-50\n\n// Build filters based on query\nconst filters = {};\nif (query.toLowerCase() === 'unread') {\n  filters.readStatus = 'unread';\n} else if (query.toLowerCase() === 'read') {\n  filters.readStatus = 'read';\n}\n\nreturn {\n  json: {\n    query: query,\n    type: dataType,\n    limit: limit,\n    filters: filters\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "parse-request-params",
+      "name": "Parse Request"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "simple": false,
+        "filters": {
+          "readStatus": "={{ $json.filters.readStatus || 'unread' }}"
+        },
+        "options": {
+          "maxResults": "={{ $json.limit || 10 }}"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "18850b87-54d4-452b-83f3-0d295209ad3b",
+      "name": "Get many messages",
+      "webhookId": "742144ad-3f9e-4f22-a9c5-80f954ce3e44",
+      "alwaysOutputData": true,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "qhaHjbqnkSoXXRqu",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ensure we always return an array of emails\nconst items = $input.all();\n\n// If no items, return empty array\nif (!items || items.length === 0) {\n  return [{ json: [] }];\n}\n\n// Extract email data from items\nconst emails = items.map(item => {\n  // If item already has email structure, use it\n  if (item.json.id && (item.json.subject || item.json.Subject)) {\n    return item.json;\n  }\n  // If item has nested structure, extract it\n  if (item.json.json) {\n    return item.json.json;\n  }\n  // Otherwise use the item as-is\n  return item.json;\n});\n\n// Return as array\nreturn [{ json: emails }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "format-response",
+      "name": "Format as Array"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        896,
+        0
+      ],
+      "id": "f1f39ae0-a4f2-4a91-96b9-dbcdc90eb5ff",
+      "name": "Respond to Webhook",
+      "alwaysOutputData": true
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Request": {
+      "main": [
+        [
+          {
+            "node": "Get many messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many messages": {
+      "main": [
+        [
+          {
+            "node": "Format as Array",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format as Array": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "4f0e9438-12de-49e1-9dbe-6f20e4c8facb",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9be2b924607c6f8a618f5ff6a9d6870856c7e57c3c08d3e81bbf70906a76a754"
+  },
+  "id": "u_pAyuIWwPDc3ahW-RF_y",
+  "tags": []
+}
+
