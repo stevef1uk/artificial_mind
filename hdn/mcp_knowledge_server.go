@@ -1772,8 +1772,8 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 		req.Header.Set("X-Webhook-Secret", secret)
 	}
 
-	// Execute
-	client := &http.Client{Timeout: 30 * time.Second}
+	// Execute with increased timeout for n8n webhooks (can take 10-30 seconds)
+	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call n8n webhook: %w", err)

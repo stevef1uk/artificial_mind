@@ -99,7 +99,8 @@ func (api *InterpreterAPI) HandleInterpretRequest(w http.ResponseWriter, r *http
 	}
 
 	// Process simple requests synchronously with timeout
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	// Increased to 90s to allow for tool execution (n8n webhooks can take 10-30s)
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
 
 	result, err := api.interpreter.InterpretWithPriority(ctx, &req, !isBackgroundTask)

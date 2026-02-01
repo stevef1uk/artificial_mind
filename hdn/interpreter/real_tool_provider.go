@@ -22,7 +22,8 @@ func NewRealToolProvider(hdnBaseURL string) *RealToolProvider {
 	return &RealToolProvider{
 		hdnBaseURL: hdnBaseURL,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			// Increased to 60s to allow for slow tool execution (e.g., n8n webhooks taking 10-30s)
+			Timeout: 60 * time.Second,
 		},
 	}
 }

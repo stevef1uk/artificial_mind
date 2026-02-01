@@ -22,7 +22,10 @@ func NewMCPToolProvider(mcpEndpoint string) *MCPToolProvider {
 	}
 	return &MCPToolProvider{
 		mcpEndpoint: mcpEndpoint,
-		httpClient:  &http.Client{},
+		httpClient: &http.Client{
+			// Increased to 60s to allow for slow tool execution (e.g., n8n webhooks taking 10-30s)
+			Timeout: 60 * time.Second,
+		},
 	}
 }
 
@@ -156,6 +159,7 @@ func (m *MCPToolProvider) ExecuteTool(ctx context.Context, toolID string, parame
 	log.Printf("✅ [MCP-TOOL-PROVIDER] Executed tool %s successfully", toolName)
 	return mcpResponse.Result, nil
 }
+
 
 
 

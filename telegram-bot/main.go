@@ -218,7 +218,11 @@ func (bot *TelegramBot) callChatAPI(chatID int, message string) (string, error) 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("X-Request-Source", "telegram")
 
-	resp, err := http.DefaultClient.Do(httpReq)
+	// Use a client with timeout to prevent hanging (3.5 minutes to allow for chat processing + tool execution)
+	client := &http.Client{
+		Timeout: 210 * time.Second, // 3.5 minutes
+	}
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return "", fmt.Errorf("Chat service error: %v", err)
 	}
