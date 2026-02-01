@@ -41,6 +41,35 @@ func NewIntentParser(llmClient LLMClientInterface) *IntentParser {
 func (ip *IntentParser) ParseIntent(ctx context.Context, message string, context map[string]string) (*Intent, error) {
 	log.Printf("🧠 [INTENT-PARSER] Analyzing message: %s", message)
 
+	// Step 0: Check for hardcoded personal patterns first (highest priority)
+	personalPatterns := []string{
+		"remember",
+		"my name is",
+		"i prefer",
+		"i live in",
+		"call me",
+		"i'm known as",
+		"i am known as",
+		"born in",
+		"i work at",
+		"my birthday",
+		"my children",
+		"my favorite",
+		"is my name",
+		"are my children",
+	}
+	for _, p := range personalPatterns {
+		if strings.Contains(strings.ToLower(message), p) {
+			return &Intent{
+				Type:            "personal_update",
+				Confidence:      0.99,
+				Goal:            "Save the following personal information to long-term memory: " + message,
+				OriginalMessage: message,
+				Entities:        map[string]string{"content": message},
+			}, nil
+		}
+	}
+
 	// Step 1: Classify the type of intent
 	intentType, confidence, err := ip.classifyIntent(ctx, message)
 	if err != nil {
@@ -379,6 +408,13 @@ func (ip *IntentParser) applyRuleBasedRefinements(message string, intentType str
 		`^what does `,
 		`^how does `,
 		`^how do `,
+		`^was my `,
+		`^did i `,
+		`^do i `,
+		`^am i `,
+		`^what was my `,
+		`^where did i `,
+		`^who did i `,
 	}
 	for _, pattern := range queryOverridePatterns {
 		if matched, _ := regexp.MatchString(pattern, message); matched {

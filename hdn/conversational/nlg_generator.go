@@ -246,16 +246,8 @@ Please incorporate this reasoning context into your response.`,
 		)
 	}
 
-	// Add conversation summaries if available
-	if req.Context != nil {
-		if summaries, ok := req.Context["conversation_summaries"].([]string); ok && len(summaries) > 0 {
-			basePrompt += "\n\nRelevant Past Conversation Context (Summarized):\n"
-			for _, summary := range summaries {
-				basePrompt += fmt.Sprintf("--- SUMMARY ---\n%s\n", summary)
-			}
-			basePrompt += "\nUse these summaries to maintain continuity with what you've discussed with the user previously."
-		}
-	}
+	// Add memory context (summaries and personal facts)
+	basePrompt = nlg.addMemoryContext(basePrompt, req)
 
 	// Add result data if available
 	if req.Result != nil && req.Result.Success {
@@ -367,22 +359,32 @@ Present this explanation in a clear and educational way.`, nlg.formatResultData(
 
 // buildConversationPrompt builds a prompt for general conversation
 func (nlg *NLGGenerator) buildConversationPrompt(req *NLGRequest) string {
-	return fmt.Sprintf(`You are a helpful AI assistant. Respond to the user's message in a friendly and helpful way.
+	basePrompt := `You are a helpful AI assistant. Respond to the user's message in a friendly and helpful way.
 
 User Message: "%s"
 
-Please provide a helpful and engaging response.`, req.UserMessage)
+Please provide a helpful and engaging response.`
+
+	// Add memory context
+	basePrompt = nlg.addMemoryContext(basePrompt, req)
+
+	return fmt.Sprintf(basePrompt, req.UserMessage)
 }
 
 // buildGenericPrompt builds a generic prompt
 func (nlg *NLGGenerator) buildGenericPrompt(req *NLGRequest) string {
-	return fmt.Sprintf(`You are a helpful AI assistant. Respond to the user's message appropriately.
+	basePrompt := `You are a helpful AI assistant. Respond to the user's message appropriately.
 
 User Message: "%s"
 Intent: %s
 Goal: %s
 
-Please provide a helpful response.`, req.UserMessage, req.Intent.Type, req.Action.Goal)
+Please provide a helpful response.`
+
+	// Add memory context
+	basePrompt = nlg.addMemoryContext(basePrompt, req)
+
+	return fmt.Sprintf(basePrompt, req.UserMessage, req.Intent.Type, req.Action.Goal)
 }
 
 // generateFallbackResponse generates a fallback response when LLM fails
@@ -605,4 +607,50 @@ func getStringFromMap(m map[string]interface{}, key string) string {
 	}
 
 	return ""
+}
+
+// addMemoryContext adds conversation summaries and personal context to a prompt
+func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) string {
+	if req.Context == nil {
+		return basePrompt
+	}
+
+	// 1. Add conversation summaries if available for continuity
+	if summaries, ok := req.Context["conversation_summaries"].([]string); ok && len(summaries) > 0 {
+		basePrompt += "\n\nRelevant Past Conversation Context (Summarized):\n"
+		for _, summary := range summaries {
+			basePrompt += fmt.Sprintf("--- SUMMARY ---\n%s\n", summary)
+		}
+		basePrompt += "\nUse these summaries to maintain continuity with what you've discussed with the user previously."
+	}
+
+	// 2. Add avatar context (personal info) if available
+	if avatarData, ok := req.Context["avatar_context"].(*InterpretResult); ok && avatarData != nil {
+		if toolResult, ok := avatarData.Metadata["tool_result"].(map[string]interface{}); ok {
+			var items []interface{}
+			if i, ok := toolResult["results"].([]interface{}); ok {
+				items = i
+			} else if i, ok := toolResult["results"].([]map[string]interface{}); ok {
+				for _, item := range i {
+					items = append(items, item)
+				}
+			}
+
+			if len(items) > 0 {
+				basePrompt += "\n\nRetrieved Personal Context (About Steven Fisher / User):\n"
+				for _, res := range items {
+					if item, ok := res.(map[string]interface{}); ok {
+						if content, ok := item["content"].(string); ok {
+							basePrompt += fmt.Sprintf("- %s\n", content)
+						} else if text, ok := item["text"].(string); ok {
+							basePrompt += fmt.Sprintf("- %s\n", text)
+						}
+					}
+				}
+				basePrompt += "\nUse this personal context to correctly answer questions about the user's background or preferences."
+			}
+		}
+	}
+
+	return basePrompt
 }

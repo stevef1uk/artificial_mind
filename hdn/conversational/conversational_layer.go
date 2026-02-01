@@ -124,15 +124,31 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		"context_keys": len(conversationContext),
 	})
 
-	// Step 2b: Load relevant conversation summaries (RAG)
+	// Step 2b: Load relevant conversation summaries and personal context (RAG)
 	summaries, err := cl.summarizer.GetRelevantSummaries(ctx, req.SessionID, req.Message)
 	if err != nil {
 		log.Printf("⚠️ [CONVERSATIONAL] Failed to load conversation summaries: %v", err)
 	} else if len(summaries) > 0 {
 		conversationContext["conversation_summaries"] = summaries
 		cl.reasoningTrace.AddStep("summary_retrieval", fmt.Sprintf("Retrieved %d relevant conversation summaries", len(summaries)), map[string]interface{}{
-			"summary_count": len(summaries),
+			"summary_count": len(summaries) + 1, // +1 for personal context
 		})
+	}
+
+	// ALWAYS search personal context (AvatarContext) to ensure persona consistency
+	avatarResult, avatarErr := cl.hdnClient.SearchWeaviate(ctx, req.Message, "AvatarContext", 3)
+	if avatarErr != nil {
+		log.Printf("⚠️ [CONVERSATIONAL] Avatar context search failed: %v", avatarErr)
+	} else if avatarResult != nil && avatarResult.Metadata != nil {
+		if toolSuccess, ok := avatarResult.Metadata["tool_success"].(bool); ok && toolSuccess {
+			if toolResult, ok := avatarResult.Metadata["tool_result"].(map[string]interface{}); ok {
+				if items, ok := toolResult["results"].([]interface{}); ok && len(items) > 0 {
+					conversationContext["avatar_context"] = avatarResult
+					log.Printf("✅ [CONVERSATIONAL] Found %d relevant personal facts", len(items))
+					cl.reasoningTrace.AddKnowledgeUsed("avatar_context")
+				}
+			}
+		}
 	}
 
 	// Step 3: Determine the appropriate action based on intent
@@ -888,7 +904,8 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 	case "personal_update":
 		log.Printf("📥 [CONVERSATIONAL] Processing personal information update")
 		// Use InterpretNaturalLanguage to handle the storage via tool_save_avatar_context
-		interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, "Save the following personal information: "+action.Goal, hdnContext)
+		// The goal already contains the "Save the following..." instruction
+		interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, action.Goal, hdnContext)
 		if err != nil {
 			return nil, fmt.Errorf("personal update failed: %w", err)
 		}
