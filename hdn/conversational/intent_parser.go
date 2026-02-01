@@ -41,7 +41,28 @@ func NewIntentParser(llmClient LLMClientInterface) *IntentParser {
 func (ip *IntentParser) ParseIntent(ctx context.Context, message string, context map[string]string) (*Intent, error) {
 	log.Printf("🧠 [INTENT-PARSER] Analyzing message: %s", message)
 
-	// Step 0: Check for hardcoded personal patterns first (highest priority)
+	// Step 0: Check for hardcoded Query Overrides (highest priority for questions)
+	queryOverridePatterns := []string{
+		`^what is `, `^what are `, `^what's `, `^what was `, `^what were `,
+		`^tell me about `, `^explain `, `^describe `, `^define `,
+		`^what does `, `^how does `, `^how do `,
+		`^was my `, `^did i `, `^do i `, `^am i `,
+		`^what was my `, `^where did i `, `^who did i `,
+		`^who is `, `^who are `, `^who am i`, `^what's my name`,
+	}
+	for _, pattern := range queryOverridePatterns {
+		if matched, _ := regexp.MatchString(strings.ToLower(message), pattern); matched {
+			return &Intent{
+				Type:            "query",
+				Confidence:      0.99,
+				Goal:            "Answer the user's question using internal and external knowledge: " + message,
+				OriginalMessage: message,
+				Entities:        map[string]string{"query": message},
+			}, nil
+		}
+	}
+
+	// Step 1: Check for hardcoded personal patterns (statements)
 	personalPatterns := []string{
 		"remember",
 		"my name is",
@@ -55,8 +76,6 @@ func (ip *IntentParser) ParseIntent(ctx context.Context, message string, context
 		"my birthday",
 		"my children",
 		"my favorite",
-		"is my name",
-		"are my children",
 	}
 	for _, p := range personalPatterns {
 		if strings.Contains(strings.ToLower(message), p) {
@@ -70,7 +89,7 @@ func (ip *IntentParser) ParseIntent(ctx context.Context, message string, context
 		}
 	}
 
-	// Step 1: Classify the type of intent
+	// Step 2: Classify the type of intent
 	intentType, confidence, err := ip.classifyIntent(ctx, message)
 	if err != nil {
 		log.Printf("⚠️ [INTENT-PARSER] Intent classification failed, using fallback: %v", err)
