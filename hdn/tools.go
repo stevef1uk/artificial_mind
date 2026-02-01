@@ -674,7 +674,7 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch id {
-	case "mcp_query_neo4j", "mcp_search_weaviate", "mcp_get_concept", "mcp_find_related_concepts", "mcp_search_avatar_context", "mcp_save_avatar_context", "mcp_scrape_url", "mcp_execute_code", "mcp_read_file":
+	case "mcp_query_neo4j", "mcp_search_weaviate", "mcp_get_concept", "mcp_find_related_concepts", "mcp_search_avatar_context", "mcp_save_avatar_context", "mcp_scrape_url", "mcp_execute_code", "mcp_read_file", "mcp_read_google_data":
 		if s.mcpKnowledgeServer == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "MCP knowledge server not available"})
