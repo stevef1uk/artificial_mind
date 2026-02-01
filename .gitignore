@@ -172,4 +172,4 @@ report.pdf
 *.p12
 secure/
 secure/*
-!secure/README.txt
+!secure/README.txtk3s/MANUAL_RECOVERY_SECRETS.md
