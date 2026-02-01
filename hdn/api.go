@@ -883,6 +883,7 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 
 	// Track tool usage (tool_result and tool_used already added above if tool was executed)
 	if result.ToolCall != nil {
+		// tool_used and tool_result already added above if ToolExecutionResult exists
 		if _, exists := metadata["tool_used"]; !exists {
 			metadata["tool_used"] = result.ToolCall.ToolID
 		}

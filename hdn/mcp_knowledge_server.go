@@ -374,10 +374,11 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"query": map[string]interface{}{"type": "string", "description": "Search query for emails or calendar events"},
+				"query": map[string]interface{}{"type": "string", "description": "Search query for emails or calendar events (e.g., 'unread', 'recent', 'today')"},
 				"type":  map[string]interface{}{"type": "string", "enum": []string{"email", "calendar", "all"}, "description": "Type of data to retrieve", "default": "all"},
+				"limit": map[string]interface{}{"type": "integer", "description": "Maximum number of results to return (default: 10, max: 50)", "default": 10, "minimum": 1, "maximum": 50},
 			},
-			"required": []string{"query"},
+			"required": []string{},
 		},
 	})
 
@@ -1740,13 +1741,27 @@ func (s *MCPKnowledgeServer) saveEpisode(ctx context.Context, args map[string]in
 func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	query, _ := args["query"].(string)
 	dataType, _ := args["type"].(string)
+	
+	// Get limit parameter (default to 10, max 50 to prevent timeouts)
+	limit := 10
+	if l, ok := args["limit"].(float64); ok {
+		limit = int(l)
+		if limit <= 0 {
+			limit = 10
+		}
+		if limit > 50 {
+			limit = 50 // Cap at 50 to prevent timeouts
+			log.Printf("⚠️ [MCP-KNOWLEDGE] Limit capped at 50 to prevent timeouts")
+		}
+	}
 
-	log.Printf("📥 [MCP-KNOWLEDGE] readGoogleWorkspace called with query: '%s', type: '%s'", query, dataType)
+	log.Printf("📥 [MCP-KNOWLEDGE] readGoogleWorkspace called with query: '%s', type: '%s', limit: %d", query, dataType, limit)
 
 	// Construct request payload
 	payload := map[string]interface{}{
 		"query": query,
 		"type":  dataType,
+		"limit": limit,
 	}
 
 	jsonData, err := json.Marshal(payload)
@@ -1917,5 +1932,11 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 	}
 
 	log.Printf("✅ [MCP-KNOWLEDGE] Successfully retrieved Google Workspace data (type: %s, size: %d)", resultType, resultLen)
+	
+	// Log the actual count if it's an array
+	if resultArray, ok := finalResult.([]interface{}); ok {
+		log.Printf("📧 [MCP-KNOWLEDGE] Returning %d email(s) to caller", len(resultArray))
+	}
+	
 	return finalResult, nil
 }

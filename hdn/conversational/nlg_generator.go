@@ -496,9 +496,19 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 					// Check if this is email data (has Subject, From, To fields)
 					firstItem, isEmailData := resultsList[0].(map[string]interface{})
 					if isEmailData {
+						// Log the keys of the first item for debugging
+						var keys []string
+						for k := range firstItem {
+							keys = append(keys, k)
+						}
+						log.Printf("📧 [NLG] First item keys: %v", keys)
+						
 						_, hasSubject := firstItem["Subject"]
 						_, hasFrom := firstItem["From"]
+						log.Printf("📧 [NLG] Email detection: hasSubject=%v, hasFrom=%v", hasSubject, hasFrom)
 						if hasSubject || hasFrom {
+							// Log how many emails we're formatting
+							log.Printf("📧 [NLG] Formatting %d email(s) for display", len(resultsList))
 							// Format as email list (only sender and subject)
 							resultSb.WriteString(fmt.Sprintf("Found %d email(s):\n\n", len(resultsList)))
 							for i, res := range resultsList {
@@ -645,6 +655,8 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 					// Check if this is email data
 					if firstItem, ok := results[0].(map[string]interface{}); ok {
 						if _, hasSubject := firstItem["Subject"]; hasSubject {
+							// Log how many emails we're formatting
+							log.Printf("📧 [NLG] Formatting %d email(s) from tool_result metadata", len(results))
 							var emailSb strings.Builder
 							emailSb.WriteString(fmt.Sprintf("Found %d email(s):\n\n", len(results)))
 							for i, res := range results {

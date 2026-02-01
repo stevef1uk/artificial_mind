@@ -136,8 +136,9 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 					ToolCall: &ToolCall{
 						ToolID: "mcp_read_google_data",
 						Parameters: map[string]interface{}{
-							"query": "recent emails",
+							"query": "unread",
 							"type":  "email",
+							"limit": 10,
 						},
 						Description: "Reading emails as requested",
 					},
@@ -208,8 +209,9 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 					ToolCall: &ToolCall{
 						ToolID: "mcp_read_google_data",
 						Parameters: map[string]interface{}{
-							"query": "recent emails",
+							"query": "unread",
 							"type":  "email",
+							"limit": 10,
 						},
 						Description: "Reading emails as requested",
 					},
@@ -560,7 +562,7 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 	prompt.WriteString("- For mcp_get_concept: provide 'name' parameter with the concept name.\n")
 	prompt.WriteString("- For mcp_query_neo4j: provide 'query' parameter with a Cypher query.\n")
 	prompt.WriteString("- For mcp_find_related_concepts: provide 'concept_name' parameter.\n")
-	prompt.WriteString("- For mcp_read_google_data: use this for email or calendar requests. Provide 'query' parameter (e.g., 'recent emails', 'unread', 'today', or empty string for all). Optional 'type' parameter: 'email', 'calendar', or 'all' (default).\n")
+		prompt.WriteString("- For mcp_read_google_data: use this for email or calendar requests. Provide 'query' parameter (e.g., 'unread', 'recent', 'today', or empty string for all). Optional 'type' parameter: 'email', 'calendar', or 'all' (default). Optional 'limit' parameter: number of results (default: 10, max: 50). IMPORTANT: Always include limit=10 for email requests to prevent timeouts with large inboxes.\n")
 	prompt.WriteString("- For tool_http_get: always provide a valid URL in the 'url' parameter.\n")
 	prompt.WriteString("- For tool_file_read: always provide a valid file path in the 'path' parameter.\n")
 	prompt.WriteString("- For tool_ls: always provide a valid directory path in the 'path' parameter.\n")
