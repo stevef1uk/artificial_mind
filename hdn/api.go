@@ -346,6 +346,7 @@ type APIServer struct {
 	hdnBaseURL           string // For tool calling
 	mcpKnowledgeServer   *MCPKnowledgeServer
 	memoryConsolidator   *mempkg.MemoryConsolidator
+	agentRegistry        *AgentRegistry // Agent registry for autonomous agents
 }
 
 func NewAPIServer(domainPath string, redisAddr string) *APIServer {
@@ -830,13 +831,13 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 	metadata := map[string]interface{}{
 		"interpreted_at": time.Now(),
 	}
-	
+
 	// Convert ToolExecutionResult to tool_result metadata format for NLG
 	if result.ToolExecutionResult != nil && result.ToolExecutionResult.Success {
 		toolResult := map[string]interface{}{
 			"success": true,
 		}
-		
+
 		// Handle different result formats from tools
 		if result.ToolExecutionResult.Result != nil {
 			// Check if result is already in the expected format (map with "results" key)
@@ -862,10 +863,10 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 				toolResult["results"] = []interface{}{result.ToolExecutionResult.Result}
 			}
 		}
-		
+
 		metadata["tool_result"] = toolResult
 		metadata["tool_used"] = result.ToolCall.ToolID
-		
+
 		// Log the structure for debugging
 		if results, ok := toolResult["results"]; ok {
 			if resultsArray, ok := results.([]interface{}); ok {
@@ -877,7 +878,7 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 			log.Printf("⚠️ [SIMPLE-CHAT-HDN] Added tool_result to metadata for tool: %s (NO RESULTS KEY!)", result.ToolCall.ToolID)
 		}
 	}
-	
+
 	// Add response type to metadata
 	metadata["response_type"] = string(result.ResponseType)
 
@@ -1051,6 +1052,12 @@ func (s *APIServer) setupRoutes() {
 
 	// Register MCP knowledge server routes
 	s.RegisterMCPKnowledgeServerRoutes()
+
+	// Agent management routes (for testing)
+	s.router.HandleFunc("/api/v1/agents", s.handleListAgents).Methods("GET")
+	s.router.HandleFunc("/api/v1/agents/{id}", s.handleGetAgent).Methods("GET")
+	s.router.HandleFunc("/api/v1/agents/{id}/execute", s.handleExecuteAgent).Methods("POST")
+	s.router.HandleFunc("/api/v1/crews", s.handleListCrews).Methods("GET")
 
 	// Task execution
 	s.router.HandleFunc("/api/v1/task/execute", s.handleExecuteTask).Methods("POST")
@@ -1265,18 +1272,18 @@ func (s *APIServer) SetLLMClient(client *LLMClient) {
 		s.conversationalAPI.RegisterRoutes(s.router)
 		log.Printf("💬 [API] Conversational routes registered")
 	}
-	
+
 	// Register prompt hints from configured skills
 	if s.mcpKnowledgeServer != nil && s.mcpKnowledgeServer.skillRegistry != nil {
 		allHints := s.mcpKnowledgeServer.GetAllPromptHints()
 		for toolID, hints := range allHints {
 			// Convert PromptHintsConfig to interpreter.PromptHintsConfig
 			interpreterHints := &interpreter.PromptHintsConfig{
-				Keywords:          hints.Keywords,
-				PromptText:        hints.PromptText,
-				ForceToolCall:     hints.ForceToolCall,
-				AlwaysInclude:     hints.AlwaysInclude,
-				RejectText:        hints.RejectText,
+				Keywords:      hints.Keywords,
+				PromptText:    hints.PromptText,
+				ForceToolCall: hints.ForceToolCall,
+				AlwaysInclude: hints.AlwaysInclude,
+				RejectText:    hints.RejectText,
 			}
 			interpreter.SetPromptHints(toolID, interpreterHints)
 			log.Printf("📝 [API] Registered prompt hints for tool: %s", toolID)

@@ -372,6 +372,47 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 		log.Printf("⚠️ [HDN] Memory consolidation disabled (vectorDB or domainKnowledge not available)")
 	}
 
+	// Ensure MCP knowledge server is initialized (needed for agent tool adapters)
+	// It's normally created lazily in RegisterMCPKnowledgeServerRoutes, but we need it earlier for agents
+	if server.mcpKnowledgeServer == nil {
+		hdnURL := getenvTrim("HDN_URL")
+		if hdnURL == "" {
+			hdnURL = "http://localhost:8081"
+		}
+		server.mcpKnowledgeServer = NewMCPKnowledgeServer(
+			server.domainKnowledge,
+			server.vectorDB,
+			redisClient,
+			hdnURL,
+		)
+		log.Printf("✅ [HDN] MCP knowledge server initialized for agent registry")
+	}
+	
+	// Initialize agent registry
+	agentRegistry := NewAgentRegistry()
+	
+	// Wire up tool systems to agent registry
+	agentRegistry.SetMCPKnowledgeServer(server.mcpKnowledgeServer)
+	if server.mcpKnowledgeServer.skillRegistry != nil {
+		agentRegistry.SetSkillRegistry(server.mcpKnowledgeServer.skillRegistry)
+		log.Printf("✅ [AGENT-REGISTRY] Skill registry wired up (%d skills available)", len(server.mcpKnowledgeServer.skillRegistry.GetSkillIDs()))
+	} else {
+		log.Printf("⚠️ [AGENT-REGISTRY] Skill registry is nil")
+	}
+	agentRegistry.SetAPIServer(server)
+	
+	configPath := os.Getenv("AGENTS_CONFIG")
+	if configPath == "" {
+		configPath = "config/agents.yaml" // Default path
+	}
+	log.Printf("🔍 [AGENT-REGISTRY] Attempting to load agents from config: %s", configPath)
+	if err := agentRegistry.LoadAgentsFromConfig(configPath); err != nil {
+		log.Printf("⚠️ [AGENT-REGISTRY] Failed to load agents from configuration: %v (continuing without agents)", err)
+	} else {
+		log.Printf("✅ [AGENT-REGISTRY] Successfully loaded agents from configuration")
+	}
+	server.agentRegistry = agentRegistry
+
 	// Start server
 	log.Printf("🔧 [HDN] About to start HTTP server...")
 	fmt.Printf("Starting HTN API Server on %s:%d\n", config.Server.Host, config.Server.Port)
@@ -411,6 +452,10 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 	fmt.Println("  POST /api/v1/intelligent/execute - Execute any task intelligently using LLM")
 	fmt.Println("  POST /api/v1/intelligent/primes  - Calculate primes via intelligent execution")
 	fmt.Println("  GET  /api/v1/intelligent/capabilities - List learned capabilities")
+	fmt.Println("\nAgent Management:")
+	fmt.Println("  GET  /api/v1/agents                 - List all agents")
+	fmt.Println("  GET  /api/v1/agents/{id}             - Get agent by ID")
+	fmt.Println("  GET  /api/v1/crews                   - List all crews")
 	fmt.Println()
 
 	if err := server.Start(config.Server.Port); err != nil {

@@ -1,0 +1,150 @@
+# Configuration for Autonomous Agents using Google ADK (Agent Development Kit)
+# This file defines agents that can autonomously use tools and execute tasks
+# Based on Google ADK's agent configuration structure
+# Documentation: https://google.github.io/adk-docs/
+
+agents:
+  - id: email_monitor_agent
+    name: Email Monitor Agent
+    description: Monitors emails and takes actions based on content
+    role: Email Monitoring Specialist
+    goal: Monitor inbox for important emails and notify or take actions
+    backstory: |
+      You are an email monitoring specialist that watches for important messages,
+      categorizes them, and takes appropriate actions like flagging urgent items
+      or summarizing daily digests.
+    
+    # Tools this agent can use (references to MCP tools or configured skills)
+    tools:
+      - mcp_read_google_data
+      - mcp_save_episode
+      - tool_http_get
+    
+    # Agent capabilities and constraints
+    capabilities:
+      max_iterations: 10
+      allow_delegation: false
+      verbose: true
+    
+    # When to trigger this agent
+    triggers:
+      schedule:
+        - cron: "0 */6 * * *"  # Every 6 hours
+          action: check_emails
+      events:
+        - type: user_request
+          keywords:
+            - check emails
+            - monitor inbox
+            - email summary
+        - type: goal
+          goal_type: monitor_emails
+    
+    # Agent behavior configuration
+    behavior:
+      # How the agent should think/plan
+      thinking_mode: true
+      max_retries: 3
+      
+      # Response format preferences
+      response_format: structured
+      
+      # Memory/context management
+      use_memory: true
+      memory_window: 24h  # How far back to look in conversation history
+      
+      # Tool usage preferences
+      prefer_tools: true
+      tool_timeout: 60s
+    
+    # Task definitions for this agent
+    tasks:
+      - id: check_unread_emails
+        description: Check for unread emails and categorize them
+        expected_output: List of unread emails with categories
+        tools:
+          - mcp_read_google_data
+        parameters:
+          query: unread
+          type: email
+          limit: 50
+      
+      - id: summarize_daily_emails
+        description: Create a summary of emails received today
+        expected_output: Daily email summary
+        tools:
+          - mcp_read_google_data
+        parameters:
+          query: today
+          type: email
+          limit: 100
+
+  - id: research_agent
+    name: Research Agent
+    description: Conducts research using available knowledge tools
+    role: Research Specialist
+    goal: Research topics using knowledge base and web resources
+    backstory: |
+      You are a research specialist that uses knowledge bases, web search,
+      and other tools to gather and synthesize information on topics.
+    
+    tools:
+      - mcp_query_neo4j
+      - mcp_search_weaviate
+      - mcp_get_concept
+      - tool_http_get
+      - tool_html_scraper
+    
+    capabilities:
+      max_iterations: 15
+      allow_delegation: true
+      verbose: true
+    
+    triggers:
+      events:
+        - type: user_request
+          keywords:
+            - research
+            - find information
+            - what is
+            - tell me about
+        - type: goal
+          goal_type: research
+    
+    behavior:
+      thinking_mode: true
+      max_retries: 3
+      use_memory: true
+      memory_window: 48h
+      prefer_tools: true
+    
+    tasks:
+      - id: query_knowledge_base
+        description: Query the knowledge base for information
+        expected_output: Relevant information from knowledge base
+        tools:
+          - mcp_query_neo4j
+          - mcp_search_weaviate
+
+# Crews define groups of agents that work together
+crews:
+  - id: email_research_crew
+    name: Email Research Crew
+    description: Crew that monitors emails and researches topics mentioned
+    agents:
+      - email_monitor_agent
+      - research_agent
+    
+    # How agents in the crew coordinate
+    process:
+      type: sequential  # sequential, hierarchical, or consensual
+      # sequential: agents work one after another
+      # hierarchical: one agent delegates to others
+      # consensual: agents collaborate and reach consensus
+    
+    # Crew-level configuration
+    config:
+      verbose: true
+      max_iterations: 20
+      memory: true
+

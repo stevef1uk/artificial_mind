@@ -1,6 +1,6 @@
 module agi/self
 
-go 1.21
+go 1.23.0
 
 require (
 	github.com/nats-io/nats.go v1.46.0

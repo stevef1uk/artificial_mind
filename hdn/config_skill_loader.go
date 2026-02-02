@@ -25,27 +25,27 @@ type SkillConfig struct {
 	Request     *RequestConfig         `yaml:"request,omitempty" json:"request,omitempty"`
 	InputSchema map[string]interface{} `yaml:"input_schema" json:"input_schema"`
 	Response    *ResponseConfig        `yaml:"response,omitempty" json:"response,omitempty"`
-	Timeout     string                 `yaml:"timeout,omitempty" json:"timeout,omitempty"` // e.g., "60s"
-	PromptHints *PromptHintsConfig    `yaml:"prompt_hints,omitempty" json:"prompt_hints,omitempty"` // LLM prompt configuration
+	Timeout     string                 `yaml:"timeout,omitempty" json:"timeout,omitempty"`           // e.g., "60s"
+	PromptHints *PromptHintsConfig     `yaml:"prompt_hints,omitempty" json:"prompt_hints,omitempty"` // LLM prompt configuration
 }
 
 // PromptHintsConfig defines LLM prompt hints for a skill
 type PromptHintsConfig struct {
-	Keywords      []string `yaml:"keywords,omitempty" json:"keywords,omitempty"`           // Keywords that trigger this tool
-	PromptText    string   `yaml:"prompt_text,omitempty" json:"prompt_text,omitempty"`    // Custom prompt text for this tool
-	ForceToolCall bool     `yaml:"force_tool_call,omitempty" json:"force_tool_call,omitempty"` // Force tool call when keywords detected
+	Keywords      []string `yaml:"keywords,omitempty" json:"keywords,omitempty"`                               // Keywords that trigger this tool
+	PromptText    string   `yaml:"prompt_text,omitempty" json:"prompt_text,omitempty"`                         // Custom prompt text for this tool
+	ForceToolCall bool     `yaml:"force_tool_call,omitempty" json:"force_tool_call,omitempty"`                 // Force tool call when keywords detected
 	AlwaysInclude []string `yaml:"always_include_keywords,omitempty" json:"always_include_keywords,omitempty"` // Keywords that always include this tool
-	RejectText    bool     `yaml:"reject_text_response,omitempty" json:"reject_text_response,omitempty"` // Reject text responses when this tool is available
+	RejectText    bool     `yaml:"reject_text_response,omitempty" json:"reject_text_response,omitempty"`       // Reject text responses when this tool is available
 }
 
 // AuthConfig defines authentication for the skill
 type AuthConfig struct {
-	Type       string `yaml:"type" json:"type"` // "header", "bearer", "basic"
-	Header     string `yaml:"header,omitempty" json:"header,omitempty"`
-	SecretEnv  string `yaml:"secret_env,omitempty" json:"secret_env,omitempty"`
-	BearerEnv  string `yaml:"bearer_env,omitempty" json:"bearer_env,omitempty"`
-	BasicUser  string `yaml:"basic_user,omitempty" json:"basic_user,omitempty"`
-	BasicPass  string `yaml:"basic_pass,omitempty" json:"basic_pass,omitempty"`
+	Type      string `yaml:"type" json:"type"` // "header", "bearer", "basic"
+	Header    string `yaml:"header,omitempty" json:"header,omitempty"`
+	SecretEnv string `yaml:"secret_env,omitempty" json:"secret_env,omitempty"`
+	BearerEnv string `yaml:"bearer_env,omitempty" json:"bearer_env,omitempty"`
+	BasicUser string `yaml:"basic_user,omitempty" json:"basic_user,omitempty"`
+	BasicPass string `yaml:"basic_pass,omitempty" json:"basic_pass,omitempty"`
 }
 
 // TLSConfig defines TLS settings
@@ -63,7 +63,7 @@ type RequestConfig struct {
 type ResponseConfig struct {
 	Format     string                 `yaml:"format" json:"format"` // "json", "text", "xml"
 	Structure  map[string]interface{} `yaml:"structure,omitempty" json:"structure,omitempty"`
-	EmailsKey  string                 `yaml:"emails_key,omitempty" json:"emails_key,omitempty"` // Key to extract emails array
+	EmailsKey  string                 `yaml:"emails_key,omitempty" json:"emails_key,omitempty"`   // Key to extract emails array
 	ResultsKey string                 `yaml:"results_key,omitempty" json:"results_key,omitempty"` // Key to extract results array
 }
 
@@ -74,12 +74,15 @@ type SkillsConfig struct {
 
 // LoadSkillsConfig loads skill configurations from a file
 func LoadSkillsConfig(path string) (*SkillsConfig, error) {
-	// Try multiple paths
+	// Try multiple paths (handle both root and hdn/ subdirectory execution)
 	paths := []string{
 		path,
 		filepath.Join("config", path),
+		filepath.Join("..", "config", path), // When running from hdn/ subdirectory
 		filepath.Join("config", "n8n_mcp_skills.yaml"),
+		filepath.Join("..", "config", "n8n_mcp_skills.yaml"), // When running from hdn/ subdirectory
 		filepath.Join("config", "n8n_mcp_skills.json"),
+		filepath.Join("..", "config", "n8n_mcp_skills.json"), // When running from hdn/ subdirectory
 		"n8n_mcp_skills.yaml",
 		"n8n_mcp_skills.json",
 	}
@@ -153,4 +156,3 @@ func ValidateSkillConfig(skill *SkillConfig) error {
 	}
 	return nil
 }
-

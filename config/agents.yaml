@@ -1,0 +1,64 @@
+# Configuration for Autonomous Agents using Google ADK (Agent Development Kit)
+# This file defines agents that can autonomously use tools and execute tasks
+# Based on Google ADK's agent configuration structure
+# Documentation: https://google.github.io/adk-docs/
+
+agents:
+  - id: email_monitor_agent
+    name: Email Monitor Agent
+    description: Monitors emails and takes actions based on content
+    role: Email Monitoring Specialist
+    goal: Monitor inbox for important emails and notify or take actions
+    backstory: |
+      You are an email monitoring specialist that watches for important messages,
+      categorizes them, and takes appropriate actions like flagging urgent items
+      or summarizing daily digests.
+    
+    # Tools this agent can use (references to MCP tools or configured skills)
+    tools:
+      - mcp_read_google_data
+      - mcp_save_episode
+      - tool_http_get
+    
+    # Agent capabilities and constraints
+    capabilities:
+      max_iterations: 10
+      allow_delegation: false
+      verbose: true
+    
+    # When to trigger this agent
+    triggers:
+      schedule:
+        - cron: "*/30 * * * *"  # Every 30 minutes
+          action: check_emails
+      events:
+        - type: user_request
+          keywords:
+            - check emails
+            - monitor inbox
+            - email summary
+        - type: goal
+          goal_type: monitor_emails
+    
+    # Agent behavior configuration
+    behavior:
+      thinking_mode: true
+      max_retries: 3
+      response_format: structured
+      use_memory: true
+      memory_window: 24h
+      prefer_tools: true
+      tool_timeout: 60s
+    
+    # Task definitions for this agent
+    tasks:
+      - id: check_unread_emails
+        description: Check for unread emails and categorize them
+        expected_output: List of unread emails with categories
+        tools:
+          - mcp_read_google_data
+        parameters:
+          query: unread
+          type: email
+          limit: 50
+

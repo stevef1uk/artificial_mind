@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"regexp"
+	"strings"
 	"text/template"
 	"time"
 )
@@ -63,6 +66,7 @@ func (h *N8NWebhookHandler) Execute(ctx context.Context, args map[string]interfa
 
 	// Execute request
 	log.Printf("📤 [N8N-WEBHOOK] Calling %s webhook: %s", h.config.ID, h.config.Endpoint)
+	log.Printf("📤 [N8N-WEBHOOK] Request headers: %+v", req.Header)
 	startTime := time.Now()
 	resp, err := client.Do(req)
 	duration := time.Since(startTime)
@@ -72,6 +76,7 @@ func (h *N8NWebhookHandler) Execute(ctx context.Context, args map[string]interfa
 	defer resp.Body.Close()
 
 	log.Printf("✅ [N8N-WEBHOOK] Response received in %v (status: %d)", duration, resp.StatusCode)
+	log.Printf("📥 [N8N-WEBHOOK] Response headers: %+v", resp.Header)
 
 	// Read response body
 	bodyBytes, err := io.ReadAll(resp.Body)
@@ -183,7 +188,28 @@ func (h *N8NWebhookHandler) addAuth(req *http.Request) error {
 		if secret == "" {
 			return fmt.Errorf("secret environment variable %s is not set", h.config.Auth.SecretEnv)
 		}
-		req.Header.Set(h.config.Auth.Header, secret)
+		// Trim whitespace/newlines that might have been introduced when reading from .env
+		secret = strings.TrimSpace(secret)
+		
+		// Check if we need to base64 encode the secret
+		// In k8s, the secret is stored base64-encoded, and Kubernetes decodes it when injecting
+		// But n8n might expect the base64-encoded version
+		// Try base64 encoding if the secret doesn't look like it's already base64
+		secretToSend := secret
+		if !isBase64Like(secret) {
+			// Secret is plain text, base64 encode it to match what k8s stores
+			secretToSend = base64.StdEncoding.EncodeToString([]byte(secret))
+			log.Printf("🔐 [N8N-WEBHOOK] Base64 encoding plain text secret (original length: %d, encoded length: %d)", len(secret), len(secretToSend))
+		} else {
+			log.Printf("🔐 [N8N-WEBHOOK] Secret appears to be base64 already, using as-is (length: %d)", len(secret))
+		}
+		
+		secretPreview := secretToSend
+		if len(secretToSend) > 20 {
+			secretPreview = secretToSend[:20] + "..."
+		}
+		log.Printf("🔐 [N8N-WEBHOOK] Setting auth header %s with secret (length: %d, preview: %s)", h.config.Auth.Header, len(secretToSend), secretPreview)
+		req.Header.Set(h.config.Auth.Header, secretToSend)
 
 	case "bearer":
 		if h.config.Auth.BearerEnv == "" {
@@ -204,6 +230,16 @@ func (h *N8NWebhookHandler) addAuth(req *http.Request) error {
 	}
 
 	return nil
+}
+
+// isBase64Like checks if a string looks like it's already base64 encoded
+func isBase64Like(s string) bool {
+	// Base64 strings are typically longer and contain only base64 characters
+	if len(s) < 20 {
+		return false
+	}
+	base64Pattern := regexp.MustCompile(`^[A-Za-z0-9+/=_-]+$`)
+	return base64Pattern.MatchString(s) && len(s) > len(s)*3/4 // Base64 is ~33% longer than original
 }
 
 // createHTTPClient creates an HTTP client with appropriate TLS configuration

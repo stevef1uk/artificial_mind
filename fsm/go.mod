@@ -1,6 +1,6 @@
 module fsm
 
-go 1.23.0
+go 1.24.4
 
 require (
 	agi/hdn v0.0.0-00010101000000-000000000000
@@ -22,6 +22,6 @@ require (
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/neo4j/neo4j-go-driver/v5 v5.25.0 // indirect
-	golang.org/x/crypto v0.37.0 // indirect
-	golang.org/x/sys v0.32.0 // indirect
+	golang.org/x/crypto v0.45.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
 )
