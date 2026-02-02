@@ -63,7 +63,7 @@ skills:
       format: json
       structure:
         type: object
-        emails_key: emails  # Extract array from this key
+        results_key: results  # Standard key for results array (n8n workflow should return {"results": [...]})
     timeout: 60s
 
   - id: send_slack_message
@@ -125,6 +125,7 @@ skills:
    - Template-based request payload generation
    - Response parsing based on configuration
    - TLS configuration support
+   - **Standard Response Format**: All n8n webhooks should return `{"results": [...]}` for consistency
 
 3. **Dynamic Tool Registry** (`hdn/dynamic_skill_registry.go`)
    - Register skills from configuration

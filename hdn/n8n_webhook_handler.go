@@ -274,43 +274,62 @@ func (h *N8NWebhookHandler) parseResponse(bodyBytes []byte) (interface{}, error)
 }
 
 // extractResponseData extracts data from response based on configuration
+// Standard format: n8n webhooks should return {"results": [...]}
+// This function normalizes various response formats to the standard format
 func (h *N8NWebhookHandler) extractResponseData(data interface{}) interface{} {
-	if h.config.Response == nil {
-		return data
-	}
-
-	// If response is already an array, wrap it in a map with "results" key for MCP compatibility
+	// Standard format: always return {"results": [...]}
+	
+	// If response is already an array, wrap it in standard format
 	if resultArray, ok := data.([]interface{}); ok {
-		log.Printf("📧 [N8N-WEBHOOK] Response is already an array with %d items, wrapping in results map", len(resultArray))
+		log.Printf("📦 [N8N-WEBHOOK] Response is array with %d items, normalizing to standard format", len(resultArray))
 		return map[string]interface{}{
 			"results": resultArray,
 		}
 	}
 
-	// Extract emails array if configured
-	if h.config.Response.EmailsKey != "" {
-		if resultMap, ok := data.(map[string]interface{}); ok {
-			if emailsData, hasEmails := resultMap[h.config.Response.EmailsKey]; hasEmails {
-				if emailsArray, ok := emailsData.([]interface{}); ok {
-					log.Printf("📧 [N8N-WEBHOOK] Extracted %d emails from '%s' key", len(emailsArray), h.config.Response.EmailsKey)
-					return emailsArray
-				}
+	// If response is a map, check for results key or extract from configured key
+	if resultMap, ok := data.(map[string]interface{}); ok {
+		// First, check if it already has "results" key (standard format)
+		if resultsData, hasResults := resultMap["results"]; hasResults {
+			if resultsArray, ok := resultsData.([]interface{}); ok {
+				log.Printf("✅ [N8N-WEBHOOK] Response already in standard format with %d results", len(resultsArray))
+				return resultMap // Already in standard format
 			}
 		}
-	}
-
-	// Extract results array if configured
-	if h.config.Response.ResultsKey != "" {
-		if resultMap, ok := data.(map[string]interface{}); ok {
+		
+		// Check for configured results_key (for backward compatibility)
+		if h.config.Response != nil && h.config.Response.ResultsKey != "" && h.config.Response.ResultsKey != "results" {
 			if resultsData, hasResults := resultMap[h.config.Response.ResultsKey]; hasResults {
 				if resultsArray, ok := resultsData.([]interface{}); ok {
-					log.Printf("📧 [N8N-WEBHOOK] Extracted %d results from '%s' key", len(resultsArray), h.config.Response.ResultsKey)
-					return resultsArray
+					log.Printf("📦 [N8N-WEBHOOK] Extracted %d results from '%s' key, normalizing to standard format", len(resultsArray), h.config.Response.ResultsKey)
+					return map[string]interface{}{
+						"results": resultsArray,
+					}
 				}
 			}
 		}
+		
+		// Legacy support: check for emails_key (deprecated, use results_key instead)
+		if h.config.Response != nil && h.config.Response.EmailsKey != "" {
+			if emailsData, hasEmails := resultMap[h.config.Response.EmailsKey]; hasEmails {
+				if emailsArray, ok := emailsData.([]interface{}); ok {
+					log.Printf("⚠️ [N8N-WEBHOOK] Using deprecated emails_key, extracted %d items. Update workflow to use 'results' key.", len(emailsArray))
+					return map[string]interface{}{
+						"results": emailsArray,
+					}
+				}
+			}
+		}
+		
+		// If no results found, return as-is (might be error response or other format)
+		log.Printf("⚠️ [N8N-WEBHOOK] Response map doesn't contain 'results' key, returning as-is")
+		return resultMap
 	}
 
-	return data
+	// For other types, wrap in standard format
+	log.Printf("📦 [N8N-WEBHOOK] Wrapping response in standard format")
+	return map[string]interface{}{
+		"results": []interface{}{data},
+	}
 }
 

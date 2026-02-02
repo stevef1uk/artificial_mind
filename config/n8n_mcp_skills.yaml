@@ -41,7 +41,7 @@ skills:
       format: json
       structure:
         type: object
-      emails_key: emails  # Extract array from this key in response
+      results_key: results  # Standard key for results array (n8n workflow should return {"results": [...]})
     timeout: 60s
     prompt_hints:
       keywords:
