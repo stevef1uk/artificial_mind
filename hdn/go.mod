@@ -12,6 +12,7 @@ require (
 	github.com/nats-io/nats.go v1.46.0
 	github.com/neo4j/neo4j-go-driver/v5 v5.25.0
 	github.com/redis/go-redis/v9 v9.14.0
+	github.com/robfig/cron/v3 v3.0.1
 	google.golang.org/adk v0.4.0
 	gopkg.in/yaml.v3 v3.0.1
 	principles v0.0.0
