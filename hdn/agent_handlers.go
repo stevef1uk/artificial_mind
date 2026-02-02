@@ -26,14 +26,23 @@ func (s *APIServer) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			continue
 		}
-		agents = append(agents, map[string]interface{}{
+		agentData := map[string]interface{}{
 			"id":          agent.Config.ID,
 			"name":        agent.Config.Name,
 			"description": agent.Config.Description,
 			"role":        agent.Config.Role,
 			"goal":        agent.Config.Goal,
 			"tools":       agent.Config.Tools,
-		})
+		}
+		
+		// Add scheduled status if scheduler is available
+		if s.agentScheduler != nil {
+			agentData["scheduled"] = s.agentScheduler.IsScheduled(id)
+		} else {
+			agentData["scheduled"] = false
+		}
+		
+		agents = append(agents, agentData)
 	}
 
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
