@@ -45,6 +45,8 @@ fsm/*.log
 hdn/*.log
 principles/*.log
 monitor/*.log
+hdn_logs.txt
+*.logs.txt
 
 # =============================================================================
 # TEMPORARY FILES AND DIRECTORIES
