@@ -92,6 +92,9 @@ func (s *AgentScheduler) ScheduleAgent(agentID string, cronExpr string, action s
 		delete(s.runningJobs, agentID)
 	}
 	
+	// Normalize cron expression (convert 5-field to 6-field if needed)
+	normalizedCron := normalizeCronExpr(cronExpr)
+	
 	// Create a closure that captures agentID and action
 	job := func() {
 		log.Printf("⏰ [AGENT-SCHEDULER] Triggering scheduled execution: agent=%s, action=%s", agentID, action)
