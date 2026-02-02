@@ -86,7 +86,14 @@ func (h *N8NWebhookHandler) Execute(ctx context.Context, args map[string]interfa
 	}
 
 	// Parse response
-	return h.parseResponse(bodyBytes)
+	result, err := h.parseResponse(bodyBytes)
+	if err != nil {
+		log.Printf("❌ [N8N-WEBHOOK] Failed to parse response: %v", err)
+		return nil, err
+	}
+	
+	log.Printf("✅ [N8N-WEBHOOK] Successfully parsed response, returning result")
+	return result, nil
 }
 
 // buildPayload builds the request payload from template and arguments
@@ -272,10 +279,12 @@ func (h *N8NWebhookHandler) extractResponseData(data interface{}) interface{} {
 		return data
 	}
 
-	// If response is already an array, return it as-is
+	// If response is already an array, wrap it in a map with "results" key for MCP compatibility
 	if resultArray, ok := data.([]interface{}); ok {
-		log.Printf("📧 [N8N-WEBHOOK] Response is already an array with %d items", len(resultArray))
-		return resultArray
+		log.Printf("📧 [N8N-WEBHOOK] Response is already an array with %d items, wrapping in results map", len(resultArray))
+		return map[string]interface{}{
+			"results": resultArray,
+		}
 	}
 
 	// Extract emails array if configured
