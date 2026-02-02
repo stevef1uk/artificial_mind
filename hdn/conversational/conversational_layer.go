@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"hdn/interpreter"
+
 	"github.com/redis/go-redis/v9"
 )
 
@@ -506,19 +508,15 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			originalMessage = origMsg
 		}
 		
-		// Check if original message contains email/calendar keywords
+		// Check if original message matches configured tool keywords
 		if originalMessage != "" {
-			originalLower := strings.ToLower(originalMessage)
-			isEmailRequest := strings.Contains(originalLower, "email") || strings.Contains(originalLower, "emails") ||
-				strings.Contains(originalLower, "calendar") || strings.Contains(originalLower, "inbox") ||
-				strings.Contains(originalLower, "gmail") || strings.Contains(originalLower, "check my")
-			
-			if isEmailRequest {
-				log.Printf("📧 [CONVERSATIONAL] Detected email/calendar request - preserving original message: %s", originalMessage)
-				// Pass original message directly to preserve email keywords for tool detection
+			// Use configurable tool keyword matching instead of hardcoded email checks
+			if toolID := interpreter.MatchesConfiguredToolKeywords(originalMessage); toolID != "" {
+				log.Printf("🔧 [CONVERSATIONAL] Detected configured tool request (%s) - preserving original message: %s", toolID, originalMessage)
+				// Pass original message directly to preserve keywords for tool detection
 				interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, originalMessage, hdnContext)
 				if err != nil {
-					return nil, fmt.Errorf("email request interpretation failed: %w", err)
+					return nil, fmt.Errorf("tool request interpretation failed: %w", err)
 				}
 				return &ActionResult{
 					Type:    "conversation_result",
@@ -923,19 +921,15 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			originalMessage = origMsg
 		}
 		
-		// Check if original message contains email/calendar keywords
+		// Check if original message matches configured tool keywords
 		if originalMessage != "" {
-			originalLower := strings.ToLower(originalMessage)
-			isEmailRequest := strings.Contains(originalLower, "email") || strings.Contains(originalLower, "emails") ||
-				strings.Contains(originalLower, "calendar") || strings.Contains(originalLower, "inbox") ||
-				strings.Contains(originalLower, "gmail") || strings.Contains(originalLower, "check my")
-			
-			if isEmailRequest {
-				log.Printf("📧 [CONVERSATIONAL] Detected email/calendar request in task_execution - using InterpretNaturalLanguage: %s", originalMessage)
-				// Pass original message directly to preserve email keywords for tool detection
+			// Use configurable tool keyword matching instead of hardcoded email checks
+			if toolID := interpreter.MatchesConfiguredToolKeywords(originalMessage); toolID != "" {
+				log.Printf("🔧 [CONVERSATIONAL] Detected configured tool request (%s) in task_execution - using InterpretNaturalLanguage: %s", toolID, originalMessage)
+				// Pass original message directly to preserve keywords for tool detection
 				interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, originalMessage, hdnContext)
 				if err != nil {
-					return nil, fmt.Errorf("email request interpretation failed: %w", err)
+					return nil, fmt.Errorf("tool request interpretation failed: %w", err)
 				}
 				return &ActionResult{
 					Type:    "conversation_result",

@@ -26,6 +26,16 @@ type SkillConfig struct {
 	InputSchema map[string]interface{} `yaml:"input_schema" json:"input_schema"`
 	Response    *ResponseConfig        `yaml:"response,omitempty" json:"response,omitempty"`
 	Timeout     string                 `yaml:"timeout,omitempty" json:"timeout,omitempty"` // e.g., "60s"
+	PromptHints *PromptHintsConfig    `yaml:"prompt_hints,omitempty" json:"prompt_hints,omitempty"` // LLM prompt configuration
+}
+
+// PromptHintsConfig defines LLM prompt hints for a skill
+type PromptHintsConfig struct {
+	Keywords      []string `yaml:"keywords,omitempty" json:"keywords,omitempty"`           // Keywords that trigger this tool
+	PromptText    string   `yaml:"prompt_text,omitempty" json:"prompt_text,omitempty"`    // Custom prompt text for this tool
+	ForceToolCall bool     `yaml:"force_tool_call,omitempty" json:"force_tool_call,omitempty"` // Force tool call when keywords detected
+	AlwaysInclude []string `yaml:"always_include_keywords,omitempty" json:"always_include_keywords,omitempty"` // Keywords that always include this tool
+	RejectText    bool     `yaml:"reject_text_response,omitempty" json:"reject_text_response,omitempty"` // Reject text responses when this tool is available
 }
 
 // AuthConfig defines authentication for the skill

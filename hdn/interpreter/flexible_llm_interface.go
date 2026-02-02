@@ -6,7 +6,102 @@ import (
 	"log"
 	"regexp"
 	"strings"
+	"sync"
 )
+
+// Global registry for prompt hints from configured skills
+var (
+	promptHintsRegistry = make(map[string]*PromptHintsConfig)
+	promptHintsMutex    sync.RWMutex
+)
+
+// PromptHintsConfig defines LLM prompt hints for a skill (imported from main package)
+type PromptHintsConfig struct {
+	Keywords          []string `json:"keywords,omitempty"`
+	PromptText        string   `json:"prompt_text,omitempty"`
+	ForceToolCall     bool     `json:"force_tool_call,omitempty"`
+	AlwaysInclude     []string `json:"always_include_keywords,omitempty"`
+	RejectText        bool     `json:"reject_text_response,omitempty"`
+}
+
+// SetPromptHints sets prompt hints for a tool ID
+func SetPromptHints(toolID string, hints *PromptHintsConfig) {
+	promptHintsMutex.Lock()
+	defer promptHintsMutex.Unlock()
+	if hints != nil {
+		promptHintsRegistry[toolID] = hints
+		// Also store without mcp_ prefix
+		cleanID := strings.TrimPrefix(toolID, "mcp_")
+		if cleanID != toolID {
+			promptHintsRegistry[cleanID] = hints
+		}
+	}
+}
+
+// GetPromptHints returns prompt hints for a tool ID
+func GetPromptHints(toolID string) *PromptHintsConfig {
+	promptHintsMutex.RLock()
+	defer promptHintsMutex.RUnlock()
+	if hints, ok := promptHintsRegistry[toolID]; ok {
+		return hints
+	}
+	// Try with mcp_ prefix
+	if hints, ok := promptHintsRegistry["mcp_"+toolID]; ok {
+		return hints
+	}
+	// Try without prefix
+	cleanID := strings.TrimPrefix(toolID, "mcp_")
+	if hints, ok := promptHintsRegistry[cleanID]; ok {
+		return hints
+	}
+	return nil
+}
+
+// GetAllPromptHints returns all prompt hints
+func GetAllPromptHints() map[string]*PromptHintsConfig {
+	promptHintsMutex.RLock()
+	defer promptHintsMutex.RUnlock()
+	result := make(map[string]*PromptHintsConfig)
+	for k, v := range promptHintsRegistry {
+		result[k] = v
+	}
+	return result
+}
+
+// MatchesConfiguredToolKeywords checks if a message matches keywords for any configured tool
+// Returns the tool ID if a match is found, empty string otherwise
+func MatchesConfiguredToolKeywords(message string) string {
+	messageLower := strings.ToLower(message)
+	allHints := GetAllPromptHints()
+	
+	for toolID, hints := range allHints {
+		if hints == nil {
+			continue
+		}
+		
+		// Check keywords
+		for _, keyword := range hints.Keywords {
+			if strings.Contains(messageLower, strings.ToLower(keyword)) {
+				return toolID
+			}
+		}
+		
+		// Check always_include keywords
+		for _, keyword := range hints.AlwaysInclude {
+			if strings.Contains(messageLower, strings.ToLower(keyword)) {
+				return toolID
+			}
+		}
+	}
+	
+	return ""
+}
+
+// ShouldRouteToNaturalLanguage checks if a message should be routed to InterpretNaturalLanguage
+// based on configured tool keywords
+func ShouldRouteToNaturalLanguage(message string) bool {
+	return MatchesConfiguredToolKeywords(message) != ""
+}
 
 // ResponseType represents the type of response from the flexible LLM
 type ResponseType string
@@ -104,69 +199,90 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 		if err != nil {
 			return nil, fmt.Errorf("failed to call LLM: %v", err)
 		}
-	log.Printf("✅ [FLEXIBLE-LLM] Generated response length: %d", len(response))
-	parsedResponse, err := f.parseFlexibleResponse(response, len(filteredTools))
-	if err != nil {
-		return nil, err
-	}
-	
-	// Validation: Check for email/calendar requests and enforce correct tool usage
-	inputLower := strings.ToLower(input)
-	isEmailRequest := strings.Contains(inputLower, "email") || strings.Contains(inputLower, "emails") || 
-	                 strings.Contains(inputLower, "calendar") || strings.Contains(inputLower, "inbox") ||
-	                 strings.Contains(inputLower, "gmail") || strings.Contains(inputLower, "check my")
-	
-	if isEmailRequest {
-		// Check if email tool is available
-		hasEmailTool := false
-		for _, tool := range filteredTools {
-			if tool.ID == "mcp_read_google_data" {
-				hasEmailTool = true
-				break
-			}
+		log.Printf("✅ [FLEXIBLE-LLM] Generated response length: %d", len(response))
+		parsedResponse, err := f.parseFlexibleResponse(response, len(filteredTools))
+		if err != nil {
+			return nil, err
 		}
+
+		// Validation: Check configured prompt hints and enforce tool usage
+		inputLower := strings.ToLower(input)
+		allHints := GetAllPromptHints()
 		
-		if hasEmailTool {
-			// Reject text responses
-			if parsedResponse.Type == ResponseTypeText {
-				log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response for email request when mcp_read_google_data tool is available. Forcing tool call.")
-				// Force tool call instead
-				return &FlexibleLLMResponse{
-					Type: ResponseTypeToolCall,
-					ToolCall: &ToolCall{
-						ToolID: "mcp_read_google_data",
-						Parameters: map[string]interface{}{
-							"query": "unread",
-							"type":  "email",
-							"limit": 5,
-						},
-						Description: "Reading emails as requested",
-					},
-				}, nil
+		// Check each tool with prompt hints
+		for toolID, hints := range allHints {
+			if hints == nil {
+				continue
 			}
 			
-			// Reject wrong tool calls (must use mcp_read_google_data)
-			if parsedResponse.Type == ResponseTypeToolCall && parsedResponse.ToolCall != nil {
-				if parsedResponse.ToolCall.ToolID != "mcp_read_google_data" {
-					log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s' for email request. Forcing mcp_read_google_data.", parsedResponse.ToolCall.ToolID)
-					// Force correct tool call
+			// Check if input matches keywords
+			matchesKeywords := false
+			for _, keyword := range hints.Keywords {
+				if strings.Contains(inputLower, strings.ToLower(keyword)) {
+					matchesKeywords = true
+					break
+				}
+			}
+			
+			// Check always_include keywords
+			matchesAlwaysInclude := false
+			for _, keyword := range hints.AlwaysInclude {
+				if strings.Contains(inputLower, strings.ToLower(keyword)) {
+					matchesAlwaysInclude = true
+					break
+				}
+			}
+			
+			if !matchesKeywords && !matchesAlwaysInclude {
+				continue
+			}
+			
+			// Check if tool is available
+			hasTool := false
+			actualToolID := toolID
+			for _, tool := range filteredTools {
+				if tool.ID == toolID || tool.ID == "mcp_"+toolID || strings.TrimPrefix(tool.ID, "mcp_") == toolID {
+					hasTool = true
+					actualToolID = tool.ID // Use the actual tool ID from the tool list
+					break
+				}
+			}
+			
+			if hasTool && hints.ForceToolCall {
+				// Reject text responses if configured
+				if hints.RejectText && parsedResponse.Type == ResponseTypeText {
+					log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response when %s tool is available. Forcing tool call.", actualToolID)
+					// Force tool call with default parameters
 					return &FlexibleLLMResponse{
 						Type: ResponseTypeToolCall,
 						ToolCall: &ToolCall{
-							ToolID: "mcp_read_google_data",
-							Parameters: map[string]interface{}{
-								"query": "recent emails",
-								"type":  "email",
-							},
-							Description: "Reading emails as requested",
+							ToolID:      actualToolID,
+							Parameters:  map[string]interface{}{},
+							Description: fmt.Sprintf("Using %s as requested", actualToolID),
 						},
 					}, nil
 				}
+				
+				// Reject wrong tool calls if configured
+				if parsedResponse.Type == ResponseTypeToolCall && parsedResponse.ToolCall != nil {
+					responseToolID := parsedResponse.ToolCall.ToolID
+					if responseToolID != actualToolID && strings.TrimPrefix(responseToolID, "mcp_") != strings.TrimPrefix(actualToolID, "mcp_") {
+						log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s'. Forcing %s.", responseToolID, actualToolID)
+						// Force correct tool call
+						return &FlexibleLLMResponse{
+							Type: ResponseTypeToolCall,
+							ToolCall: &ToolCall{
+								ToolID:      actualToolID,
+								Parameters:  map[string]interface{}{},
+								Description: fmt.Sprintf("Using %s as requested", actualToolID),
+							},
+						}, nil
+					}
+				}
 			}
 		}
-	}
-	
-	return parsedResponse, nil
+
+		return parsedResponse, nil
 	}
 
 	// Fallback to standard method (low priority)
@@ -182,63 +298,84 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 	if err != nil {
 		return nil, err
 	}
-	
-	// Validation: Check for email/calendar requests and enforce correct tool usage
+
+	// Validation: Check configured prompt hints and enforce tool usage
 	inputLower := strings.ToLower(input)
-	isEmailRequest := strings.Contains(inputLower, "email") || strings.Contains(inputLower, "emails") || 
-	                 strings.Contains(inputLower, "calendar") || strings.Contains(inputLower, "inbox") ||
-	                 strings.Contains(inputLower, "gmail") || strings.Contains(inputLower, "check my")
+	allHints := GetAllPromptHints()
 	
-	if isEmailRequest {
-		// Check if email tool is available
-		hasEmailTool := false
-		for _, tool := range filteredTools {
-			if tool.ID == "mcp_read_google_data" {
-				hasEmailTool = true
+	// Check each tool with prompt hints
+	for toolID, hints := range allHints {
+		if hints == nil {
+			continue
+		}
+		
+		// Check if input matches keywords
+		matchesKeywords := false
+		for _, keyword := range hints.Keywords {
+			if strings.Contains(inputLower, strings.ToLower(keyword)) {
+				matchesKeywords = true
 				break
 			}
 		}
 		
-		if hasEmailTool {
-			// Reject text responses
-			if parsedResponse.Type == ResponseTypeText {
-				log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response for email request when mcp_read_google_data tool is available. Forcing tool call.")
-				// Force tool call instead
+		// Check always_include keywords
+		matchesAlwaysInclude := false
+		for _, keyword := range hints.AlwaysInclude {
+			if strings.Contains(inputLower, strings.ToLower(keyword)) {
+				matchesAlwaysInclude = true
+				break
+			}
+		}
+		
+		if !matchesKeywords && !matchesAlwaysInclude {
+			continue
+		}
+		
+		// Check if tool is available
+		hasTool := false
+		actualToolID := toolID
+		for _, tool := range filteredTools {
+			if tool.ID == toolID || tool.ID == "mcp_"+toolID || strings.TrimPrefix(tool.ID, "mcp_") == toolID {
+				hasTool = true
+				actualToolID = tool.ID // Use the actual tool ID from the tool list
+				break
+			}
+		}
+		
+		if hasTool && hints.ForceToolCall {
+			// Reject text responses if configured
+				if hints.RejectText && parsedResponse.Type == ResponseTypeText {
+					log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response when %s tool is available. Forcing tool call.", actualToolID)
+				// Force tool call with default parameters
 				return &FlexibleLLMResponse{
 					Type: ResponseTypeToolCall,
 					ToolCall: &ToolCall{
-						ToolID: "mcp_read_google_data",
-						Parameters: map[string]interface{}{
-							"query": "unread",
-							"type":  "email",
-							"limit": 5,
-						},
-						Description: "Reading emails as requested",
+						ToolID:      actualToolID,
+						Parameters:  map[string]interface{}{},
+						Description: fmt.Sprintf("Using %s as requested", actualToolID),
 					},
 				}, nil
 			}
 			
-			// Reject wrong tool calls (must use mcp_read_google_data)
+			// Reject wrong tool calls if configured
 			if parsedResponse.Type == ResponseTypeToolCall && parsedResponse.ToolCall != nil {
-				if parsedResponse.ToolCall.ToolID != "mcp_read_google_data" {
-					log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s' for email request. Forcing mcp_read_google_data.", parsedResponse.ToolCall.ToolID)
+				responseToolID := parsedResponse.ToolCall.ToolID
+				if responseToolID != actualToolID && strings.TrimPrefix(responseToolID, "mcp_") != strings.TrimPrefix(actualToolID, "mcp_") {
+					log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s'. Forcing %s.", responseToolID, actualToolID)
 					// Force correct tool call
 					return &FlexibleLLMResponse{
 						Type: ResponseTypeToolCall,
 						ToolCall: &ToolCall{
-							ToolID: "mcp_read_google_data",
-							Parameters: map[string]interface{}{
-								"query": "recent emails",
-								"type":  "email",
-							},
-							Description: "Reading emails as requested",
+							ToolID:      actualToolID,
+							Parameters:  map[string]interface{}{},
+							Description: fmt.Sprintf("Using %s as requested", actualToolID),
 						},
 					}, nil
 				}
 			}
 		}
 	}
-	
+
 	return parsedResponse, nil
 }
 
@@ -260,7 +397,7 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		"mcp_get_concept":           {"concept", "get concept", "retrieve concept", "knowledge"},
 		"mcp_find_related_concepts": {"related", "related concepts", "find related", "connections"},
 		"mcp_search_weaviate":       {"weaviate", "search", "vector", "semantic", "similar", "episodes", "memories"},
-		"mcp_read_google_data":      {"email", "emails", "check email", "check emails", "read email", "read emails", "gmail", "google workspace", "calendar", "calendar events", "inbox"},
+		// Note: mcp_read_google_data keywords are now loaded from configuration
 		"tool_http_get":             {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
 		"tool_html_scraper":         {"scrape", "html", "web", "website", "article", "news", "page", "parse html"},
 		"tool_file_read":            {"read", "file", "load", "open", "readfile", "read file", "content", "text"},
@@ -329,12 +466,35 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		"tool_file_write", // Common for saving results
 		"tool_exec",       // Common for system operations
 	}
+
+	// Check configured prompt hints for always_include keywords
+	allHints := GetAllPromptHints()
+	for toolID, hints := range allHints {
+		if hints == nil || len(hints.AlwaysInclude) == 0 {
+			continue
+		}
+		for _, keyword := range hints.AlwaysInclude {
+			if strings.Contains(inputLower, strings.ToLower(keyword)) {
+				alwaysInclude = append(alwaysInclude, toolID)
+				break
+			}
+		}
+	}
 	
-	// Special case: Always include email tool if input mentions email/calendar
-	if strings.Contains(inputLower, "email") || strings.Contains(inputLower, "emails") || 
-	   strings.Contains(inputLower, "calendar") || strings.Contains(inputLower, "inbox") ||
-	   strings.Contains(inputLower, "gmail") || strings.Contains(inputLower, "check my") {
-		alwaysInclude = append(alwaysInclude, "mcp_read_google_data")
+	// Also check keywords for tool matching
+	for toolID, hints := range allHints {
+		if hints == nil || len(hints.Keywords) == 0 {
+			continue
+		}
+		for _, keyword := range hints.Keywords {
+			if strings.Contains(inputLower, strings.ToLower(keyword)) {
+				// Add to toolKeywords map for filtering
+				if toolKeywords[toolID] == nil {
+					toolKeywords[toolID] = []string{}
+				}
+				toolKeywords[toolID] = append(toolKeywords[toolID], keyword)
+			}
+		}
 	}
 
 	for _, toolID := range alwaysInclude {
@@ -537,7 +697,18 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 	}
 
 	prompt.WriteString("🚨 CRITICAL: You MUST respond with ONLY a valid JSON object. NO explanatory text before or after the JSON.\n\n")
-	prompt.WriteString("⚠️ FOR EMAIL/CALENDAR REQUESTS: You MUST use mcp_read_google_data tool. DO NOT generate fake email content. DO NOT hallucinate emails.\n\n")
+	
+	// Add configured prompt hints
+	allHints := GetAllPromptHints()
+	for toolID, hints := range allHints {
+		if hints != nil && hints.PromptText != "" {
+			// Replace tool ID placeholder if present
+			promptText := strings.ReplaceAll(hints.PromptText, "mcp_read_google_data", toolID)
+			promptText = strings.ReplaceAll(promptText, "read_google_data", toolID)
+			prompt.WriteString(promptText)
+			prompt.WriteString("\n\n")
+		}
+	}
 	prompt.WriteString("Respond using EXACTLY ONE of these JSON formats (no extra text, no markdown, no code blocks):\n")
 	prompt.WriteString("1. STRONGLY PREFER (use this if ANY tool can help): {\"type\": \"tool_call\", \"tool_call\": {\"tool_id\": \"tool_name\", \"parameters\": {...}, \"description\": \"...\"}}\n")
 	prompt.WriteString("2. Or: {\"type\": \"structured_task\", \"structured_task\": {\"task_name\": \"...\", \"description\": \"...\", \"subtasks\": [...]}}\n")
@@ -551,7 +722,16 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 	prompt.WriteString("- 🚫 NEVER generate fake or hallucinated content. If you need data, use a tool to get it.\n")
 	prompt.WriteString("- If the request is vague or generic, infer the most likely tool needed and use it with reasonable default parameters.\n")
 	prompt.WriteString("- For knowledge queries: use mcp_query_neo4j, mcp_get_concept, or mcp_find_related_concepts to query the knowledge base.\n")
-	prompt.WriteString("- ⚠️ FOR EMAIL/CALENDAR REQUESTS: You MUST use mcp_read_google_data tool. NEVER generate fake email content. If the user asks about emails, you MUST call mcp_read_google_data with appropriate parameters.\n")
+	
+	// Add configured tool-specific guidance from prompt hints (reuse allHints from above)
+	for toolID, hints := range allHints {
+		if hints != nil && hints.PromptText != "" {
+			// Add tool-specific guidance
+			promptText := strings.ReplaceAll(hints.PromptText, "mcp_read_google_data", toolID)
+			promptText = strings.ReplaceAll(promptText, "read_google_data", toolID)
+			prompt.WriteString(fmt.Sprintf("- For %s: %s\n", toolID, promptText))
+		}
+	}
 	prompt.WriteString("- For HTTP requests: use tool_http_get with a valid URL.\n")
 	prompt.WriteString("- For file operations: use tool_file_read, tool_file_write, or tool_ls.\n")
 	prompt.WriteString("- For system operations: use tool_exec with appropriate commands.\n")
@@ -562,7 +742,7 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 	prompt.WriteString("- For mcp_get_concept: provide 'name' parameter with the concept name.\n")
 	prompt.WriteString("- For mcp_query_neo4j: provide 'query' parameter with a Cypher query.\n")
 	prompt.WriteString("- For mcp_find_related_concepts: provide 'concept_name' parameter.\n")
-		prompt.WriteString("- For mcp_read_google_data: use this for email or calendar requests. Provide 'query' parameter (e.g., 'unread', 'recent', 'today', or empty string for all). Optional 'type' parameter: 'email', 'calendar', or 'all' (default). Optional 'limit' parameter: number of results (default: 5, max: 50). IMPORTANT: Always include limit=5 for email requests to prevent timeouts with large inboxes.\n")
+	prompt.WriteString("- For mcp_read_google_data: use this for email or calendar requests. Provide 'query' parameter (e.g., 'unread', 'recent', 'today', or empty string for all). Optional 'type' parameter: 'email', 'calendar', or 'all' (default). Optional 'limit' parameter: number of results (default: 5, max: 50). IMPORTANT: Always include limit=5 for email requests to prevent timeouts with large inboxes.\n")
 	prompt.WriteString("- For tool_http_get: always provide a valid URL in the 'url' parameter.\n")
 	prompt.WriteString("- For tool_file_read: always provide a valid file path in the 'path' parameter.\n")
 	prompt.WriteString("- For tool_ls: always provide a valid directory path in the 'path' parameter.\n")

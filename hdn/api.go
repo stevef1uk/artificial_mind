@@ -1265,6 +1265,23 @@ func (s *APIServer) SetLLMClient(client *LLMClient) {
 		s.conversationalAPI.RegisterRoutes(s.router)
 		log.Printf("💬 [API] Conversational routes registered")
 	}
+	
+	// Register prompt hints from configured skills
+	if s.mcpKnowledgeServer != nil && s.mcpKnowledgeServer.skillRegistry != nil {
+		allHints := s.mcpKnowledgeServer.GetAllPromptHints()
+		for toolID, hints := range allHints {
+			// Convert PromptHintsConfig to interpreter.PromptHintsConfig
+			interpreterHints := &interpreter.PromptHintsConfig{
+				Keywords:          hints.Keywords,
+				PromptText:        hints.PromptText,
+				ForceToolCall:     hints.ForceToolCall,
+				AlwaysInclude:     hints.AlwaysInclude,
+				RejectText:        hints.RejectText,
+			}
+			interpreter.SetPromptHints(toolID, interpreterHints)
+			log.Printf("📝 [API] Registered prompt hints for tool: %s", toolID)
+		}
+	}
 }
 
 func (s *APIServer) convertLegacyDomain(legacy *Domain) EnhancedDomain {

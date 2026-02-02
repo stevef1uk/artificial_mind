@@ -84,6 +84,22 @@ func NewMCPKnowledgeServer(domainKnowledge mempkg.DomainKnowledgeClient, vectorD
 	return server
 }
 
+// GetPromptHints returns prompt hints for a tool by ID
+func (s *MCPKnowledgeServer) GetPromptHints(toolID string) *PromptHintsConfig {
+	if s.skillRegistry == nil {
+		return nil
+	}
+	return s.skillRegistry.GetPromptHints(toolID)
+}
+
+// GetAllPromptHints returns all prompt hints from configured skills
+func (s *MCPKnowledgeServer) GetAllPromptHints() map[string]*PromptHintsConfig {
+	if s.skillRegistry == nil {
+		return make(map[string]*PromptHintsConfig)
+	}
+	return s.skillRegistry.GetAllPromptHints()
+}
+
 // HandleRequest handles an MCP JSON-RPC request
 // HandleRequest handles an MCP JSON-RPC request and supports SSE handshake
 func (s *MCPKnowledgeServer) HandleRequest(w http.ResponseWriter, r *http.Request) {
@@ -1587,6 +1603,9 @@ func (s *APIServer) RegisterMCPKnowledgeServerRoutes() {
 			s.redis,
 			hdnURL,
 		)
+		
+		// Register prompt hints from configured skills with interpreter
+		// This is done after interpreter initialization in SetLLMClient
 	}
 
 	// Register MCP endpoint

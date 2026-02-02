@@ -170,3 +170,30 @@ func ConvertSkillIDToToolName(skillID string) string {
 	return skillID
 }
 
+// GetPromptHints returns prompt hints for a skill by tool ID (with or without mcp_ prefix)
+func (r *DynamicSkillRegistry) GetPromptHints(toolID string) *PromptHintsConfig {
+	// Try with mcp_ prefix
+	skillID := strings.TrimPrefix(toolID, "mcp_")
+	if skill, ok := r.skills[skillID]; ok && skill.PromptHints != nil {
+		return skill.PromptHints
+	}
+	// Try without prefix
+	if skill, ok := r.skills[toolID]; ok && skill.PromptHints != nil {
+		return skill.PromptHints
+	}
+	return nil
+}
+
+// GetAllPromptHints returns a map of tool ID to prompt hints for all configured skills
+func (r *DynamicSkillRegistry) GetAllPromptHints() map[string]*PromptHintsConfig {
+	hints := make(map[string]*PromptHintsConfig)
+	for id, skill := range r.skills {
+		if skill.PromptHints != nil {
+			// Store with both mcp_ prefix and without
+			hints["mcp_"+id] = skill.PromptHints
+			hints[id] = skill.PromptHints
+		}
+	}
+	return hints
+}
+

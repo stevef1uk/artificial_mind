@@ -43,4 +43,27 @@ skills:
         type: object
       emails_key: emails  # Extract array from this key in response
     timeout: 60s
+    prompt_hints:
+      keywords:
+        - email
+        - emails
+        - check email
+        - check emails
+        - read email
+        - read emails
+        - gmail
+        - google workspace
+        - calendar
+        - calendar events
+        - inbox
+      prompt_text: "⚠️ FOR EMAIL/CALENDAR REQUESTS: You MUST use mcp_read_google_data tool. DO NOT generate fake email content. DO NOT hallucinate emails."
+      force_tool_call: true
+      always_include_keywords:
+        - email
+        - emails
+        - calendar
+        - inbox
+        - gmail
+        - check my
+      reject_text_response: true
 
