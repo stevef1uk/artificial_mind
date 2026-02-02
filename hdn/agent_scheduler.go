@@ -9,6 +9,18 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
+// normalizeCronExpr converts 5-field cron (standard) to 6-field cron (with seconds)
+// If already 6 fields, returns as-is
+func normalizeCronExpr(cronExpr string) string {
+	fields := strings.Fields(cronExpr)
+	if len(fields) == 5 {
+		// Standard cron (minute hour day month weekday) -> add seconds at start
+		return "0 " + cronExpr
+	}
+	// Already 6 fields or invalid, return as-is
+	return cronExpr
+}
+
 // AgentScheduler manages scheduled execution of agents
 type AgentScheduler struct {
 	registry    *AgentRegistry
@@ -107,7 +119,7 @@ func (s *AgentScheduler) ScheduleAgent(agentID string, cronExpr string, action s
 	}
 	
 	// Add cron job
-	entryID, err := s.cron.AddFunc(cronExpr, job)
+	entryID, err := s.cron.AddFunc(normalizedCron, job)
 	if err != nil {
 		return err
 	}
