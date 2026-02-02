@@ -497,6 +497,14 @@ func main() {
 	// Create goal from NL input
 	r.POST("/api/goals/create_from_nl", monitor.createGoalFromNL)
 
+	// Agent Management APIs (proxy to HDN server)
+	r.GET("/api/agents", monitor.getAgents)
+	r.GET("/api/agents/:id", monitor.getAgent)
+	r.GET("/api/agents/:id/status", monitor.getAgentStatus)
+	r.GET("/api/agents/:id/executions", monitor.getAgentExecutions)
+	r.GET("/api/agents/:id/executions/:execution_id", monitor.getAgentExecution)
+	r.POST("/api/agents/:id/execute", monitor.executeAgent)
+
 	// Reasoning Layer APIs
 	r.GET("/api/reasoning/traces/:domain", monitor.getReasoningTraces)
 	r.GET("/api/reasoning/beliefs/:domain", monitor.getBeliefs)
@@ -7369,4 +7377,172 @@ func (m *MonitorService) exposeExecutionMethod(c *gin.Context) {
 		method = "docker"
 	}
 	c.JSON(http.StatusOK, gin.H{"execution_method": strings.ToLower(method)})
+}
+
+// Agent Management Handlers (proxy to HDN server)
+
+// getAgents: GET /api/agents
+func (m *MonitorService) getAgents(c *gin.Context) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(m.hdnURL + "/api/v1/agents")
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch agents", "details": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to read agents response", "details": err.Error()})
+		return
+	}
+
+	c.Data(resp.StatusCode, "application/json", body)
+}
+
+// getAgent: GET /api/agents/:id
+func (m *MonitorService) getAgent(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing agent id"})
+		return
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(m.hdnURL + "/api/v1/agents/" + url.QueryEscape(id))
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch agent", "details": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to read agent response", "details": err.Error()})
+		return
+	}
+
+	c.Data(resp.StatusCode, "application/json", body)
+}
+
+// getAgentStatus: GET /api/agents/:id/status
+func (m *MonitorService) getAgentStatus(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing agent id"})
+		return
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(m.hdnURL + "/api/v1/agents/" + url.QueryEscape(id) + "/status")
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch agent status", "details": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to read agent status response", "details": err.Error()})
+		return
+	}
+
+	c.Data(resp.StatusCode, "application/json", body)
+}
+
+// getAgentExecutions: GET /api/agents/:id/executions
+func (m *MonitorService) getAgentExecutions(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing agent id"})
+		return
+	}
+
+	limit := c.Query("limit")
+	url := m.hdnURL + "/api/v1/agents/" + url.QueryEscape(id) + "/executions"
+	if limit != "" {
+		url += "?limit=" + limit
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch agent executions", "details": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to read agent executions response", "details": err.Error()})
+		return
+	}
+
+	c.Data(resp.StatusCode, "application/json", body)
+}
+
+// getAgentExecution: GET /api/agents/:id/executions/:execution_id
+func (m *MonitorService) getAgentExecution(c *gin.Context) {
+	id := c.Param("id")
+	executionID := c.Param("execution_id")
+	if id == "" || executionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing agent id or execution id"})
+		return
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(m.hdnURL + "/api/v1/agents/" + url.QueryEscape(id) + "/executions/" + url.QueryEscape(executionID))
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch agent execution", "details": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to read agent execution response", "details": err.Error()})
+		return
+	}
+
+	c.Data(resp.StatusCode, "application/json", body)
+}
+
+// executeAgent: POST /api/agents/:id/execute
+func (m *MonitorService) executeAgent(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing agent id"})
+		return
+	}
+
+	// Read request body
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body", "details": err.Error()})
+		return
+	}
+
+	// Forward to HDN server
+	client := &http.Client{Timeout: 2 * time.Minute} // 2 minute timeout for agent execution
+	req, err := http.NewRequest("POST", m.hdnURL+"/api/v1/agents/"+url.QueryEscape(id)+"/execute", bytes.NewReader(body))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request", "details": err.Error()})
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to execute agent", "details": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to read execution response", "details": err.Error()})
+		return
+	}
+
+	c.Data(resp.StatusCode, "application/json", respBody)
 }

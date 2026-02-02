@@ -105,6 +105,17 @@ spec:
                   name: llm-config
                   key: N8N_WEBHOOK_URL
                   optional: true
+            # Telegram configuration for agent notifications
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: telegram-bot-secret
+                  key: TELEGRAM_BOT_TOKEN
+            - name: TELEGRAM_CHAT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: telegram-bot-secret
+                  key: TELEGRAM_CHAT_ID
             - name: UNPACK_WORK_DIR
               value: "/tmp/unpack"
             # Docker resource limits for Raspberry Pi (increased for code validation)
@@ -196,6 +207,8 @@ spec:
                 path: config.json
               - key: domain.json
                 path: domain.json
+              - key: agents.yaml
+                path: agents.yaml
         - name: ssh-keys
           secret:
             secretName: ssh-keys

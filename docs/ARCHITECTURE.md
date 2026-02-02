@@ -163,6 +163,7 @@ graph TB
 - **Multi-Modal Memory System**: Unified working memory (Redis), episodic memory (Qdrant), and semantic/domain knowledge (Neo4j) integrated into HDN, FSM, and Planner flows.
 - **Daily Summary Pipeline**: Nightly FSM-triggered HDN execution that generates and persists daily summaries, exposed through dedicated Monitor API endpoints and UI panel.
 - **Cross-System Consistency Checking**: Global coherence monitor that detects inconsistencies across FSM, HDN, and Self-Model systems, generating self-reflection tasks to resolve contradictions, policy conflicts, goal drift, and behavior loops (see Coherence Monitor section below).
+- **Agentic AI System** (Feb 2026): YAML-configured autonomous agents with scheduled execution, tool integration (MCP, n8n, HDN tools), execution history tracking, and Telegram notifications. Agents can monitor services, check websites, and perform automated tasks autonomously (see Agentic AI section below).
 
 ## 🧩 Core Components
 
@@ -243,6 +244,149 @@ graph TB
   - Context-aware safety checks
 
 ### 2. **HDN (Hierarchical Decision Network)** (`hdn/`)
+
+#### Agentic AI System (Feb 2026)
+
+The HDN server includes a comprehensive **Agentic AI capability** that enables autonomous agents to be configured via YAML and execute tasks on schedules or on-demand.
+
+**Architecture Components:**
+
+- **Agent Registry** (`hdn/agent_registry.go`):
+  - Loads agent configurations from YAML files (`config/agents.yaml`)
+  - Creates tool adapters for each agent's configured tools
+  - Manages agent lifecycle and provides access to agent instances
+  - Supports three types of tool adapters:
+    - **MCP Tools**: Tools exposed via MCP Knowledge Server (e.g., `mcp_query_neo4j`, `mcp_read_google_data`)
+    - **n8n Webhooks**: Skills configured via `n8n_mcp_skills.yaml` (e.g., `mcp_read_google_data` → n8n webhook)
+    - **HDN Internal Tools**: Built-in tools like `tool_http_get`, `tool_telegram_send`
+
+- **Agent Executor** (`hdn/agent_executor.go`):
+  - Executes agent tasks sequentially
+  - Handles special cases (e.g., website monitoring with automatic Telegram notifications)
+  - Records execution history for tracking and debugging
+  - Integrates with Agent History for persistence
+
+- **Agent Scheduler** (`hdn/agent_scheduler.go`):
+  - Cron-based scheduling for autonomous agent execution
+  - Supports multiple schedules per agent
+  - Automatically starts scheduled agents on server startup
+  - Thread-safe agent execution
+
+- **Agent History** (`hdn/agent_history.go`):
+  - Tracks all agent executions in Redis
+  - Stores execution status, duration, tool calls, results, and errors
+  - Provides execution history API endpoints
+  - Calculates agent statistics (success rate, average duration)
+
+- **Agent Configuration** (`config/agents.yaml`):
+  - YAML-based agent definitions
+  - Supports agents and crews (groups of agents)
+  - Configurable roles, goals, tools, triggers, and tasks
+  - Environment variable expansion (`${VAR_NAME}`)
+
+**Key Features:**
+
+- **YAML Configuration**: Define agents without code changes
+- **Scheduled Execution**: Cron-based scheduling (e.g., `*/15 * * * *` for every 15 minutes)
+- **Tool Integration**: Access MCP tools, n8n webhooks, and HDN internal tools seamlessly
+- **Execution History**: All executions tracked with detailed results
+- **Telegram Notifications**: Automatic notifications for agent results
+- **Monitor UI Integration**: View and manage agents via web interface
+
+**API Endpoints:**
+
+- `GET /api/v1/agents` - List all configured agents
+- `GET /api/v1/agents/{id}` - Get agent details
+- `POST /api/v1/agents/{id}/execute` - Execute an agent manually
+- `GET /api/v1/agents/{id}/status` - Get agent execution status
+- `GET /api/v1/agents/{id}/executions` - Get agent execution history
+- `GET /api/v1/agents/{id}/executions/{execution_id}` - Get specific execution details
+
+**Example Agent Configuration:**
+
+```yaml
+agents:
+  - id: website_status_monitor
+    name: Website Status Monitor
+    description: Monitors website health and reports status
+    role: Website Health Monitor
+    goal: Monitor websites and report their status via Telegram
+    tools:
+      - tool_http_get
+      - tool_telegram_send
+    triggers:
+      schedule:
+        - cron: "*/15 * * * *"  # Every 15 minutes
+          action: execute
+    tasks:
+      - id: monitor_task
+        description: Check website status
+        tools:
+          - tool_http_get
+        parameters:
+          websites:
+            - "https://example.com"
+            - "https://another-site.com"
+```
+
+**Integration Points:**
+
+- **MCP Knowledge Server**: Agents can use MCP tools for knowledge queries
+- **n8n Skills**: Agents can invoke n8n webhook-based skills
+- **HDN Tools**: Agents can use internal HDN tools (HTTP GET, Telegram send, etc.)
+- **Telegram Bot**: Agents can send notifications via Telegram
+- **Monitor UI**: Agents tab provides web-based management interface
+- **Redis**: Execution history stored in Redis for persistence
+
+**Tool Adapter System:**
+
+The agent system uses a flexible tool adapter pattern to bridge agent tool requirements with different backend systems:
+
+1. **MCP Tool Adapter**: Routes `mcp_*` tools to MCP Knowledge Server
+2. **n8n Tool Adapter**: Routes configured skills to n8n webhook endpoints
+3. **HDN Tool Adapter**: Routes `tool_*` tools to HDN's internal tool execution system
+
+This allows agents to seamlessly use tools from different systems without knowing the underlying implementation details.
+
+**Scheduling:**
+
+Agents can be configured with cron-based schedules for autonomous execution:
+- `*/15 * * * *` - Every 15 minutes
+- `0 */6 * * *` - Every 6 hours
+- `0 0 * * *` - Daily at midnight
+
+The scheduler automatically starts on HDN server startup and executes agents according to their schedules.
+
+**Execution History:**
+
+All agent executions are tracked with:
+- Execution ID (unique identifier)
+- Status (success, error, running)
+- Duration
+- Tool calls (with parameters and results)
+- Task results
+- Error messages (if any)
+
+History is stored in Redis and accessible via API endpoints for monitoring and debugging.
+
+**Telegram Notifications:**
+
+Agents can automatically send Telegram notifications after task execution. The system:
+- Formats results into readable messages
+- Sends notifications to configured Telegram channels
+- Supports Markdown formatting
+- Handles errors gracefully
+
+**Monitor UI Integration:**
+
+The Monitor UI includes an "Agents" tab that provides:
+- List of all configured agents
+- Agent wizard for creating new agents
+- Execution history viewer
+- Status monitoring
+- Manual execution triggers
+
+See the main README for usage examples and API documentation.
 - **Purpose**: AI planning and execution system with ethical safeguards
 - **Port**: 8081
 - **Key Components**:
@@ -895,6 +1039,15 @@ make help
 - `GET /rules` - List current rules
 
 ### HDN API (Port 8081)
+
+#### Agents (NEW - Feb 2026)
+- `GET /api/v1/agents` — List all configured agents
+- `GET /api/v1/agents/{id}` — Get agent details
+- `POST /api/v1/agents/{id}/execute` — Execute an agent manually
+- `GET /api/v1/agents/{id}/status` — Get agent execution status
+- `GET /api/v1/agents/{id}/executions` — Get agent execution history
+- `GET /api/v1/agents/{id}/executions/{execution_id}` — Get specific execution details
+- `GET /api/v1/crews` — List all configured crews (groups of agents)
 
 - Task & Planning
   - `POST /api/v1/task/execute` — Execute a task

@@ -379,6 +379,20 @@ func (s *APIServer) handleDiscoverTools(w http.ResponseWriter, r *http.Request) 
 	_ = s.registerTool(ctx, httpTool)
 	found = append(found, httpTool)
 
+	// Telegram send tool
+	telegramTool := Tool{
+		ID:          "tool_telegram_send",
+		Name:        "Telegram Send",
+		Description: "Send message via Telegram Bot API",
+		InputSchema: map[string]string{"message": "string", "chat_id": "string", "parse_mode": "string"},
+		OutputSchema: map[string]string{"success": "bool", "message_id": "int"},
+		Permissions: []string{"net:read"},
+		SafetyLevel: "low",
+		CreatedBy:   "system",
+	}
+	_ = s.registerTool(ctx, telegramTool)
+	found = append(found, telegramTool)
+
 	// Wiki Bootstrapper (host-exec of bin/wiki-bootstrapper)
 	wikiTool := Tool{
 		ID:          "tool_wiki_bootstrapper",
@@ -550,6 +564,7 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 	// Fallback: register a minimal nucleus set
 	defaults := []Tool{
 		{ID: "tool_http_get", Name: "HTTP GET", Description: "Fetch URL", InputSchema: map[string]string{"url": "string"}, OutputSchema: map[string]string{"status": "int", "body": "string"}, Permissions: []string{"net:read"}, SafetyLevel: "low", CreatedBy: "system"},
+		{ID: "tool_telegram_send", Name: "Telegram Send", Description: "Send message via Telegram Bot API", InputSchema: map[string]string{"message": "string", "chat_id": "string", "parse_mode": "string"}, OutputSchema: map[string]string{"success": "bool", "message_id": "int"}, Permissions: []string{"net:read"}, SafetyLevel: "low", CreatedBy: "system"},
 		// Register html_scraper without Docker exec; we will run a host binary in handleInvokeTool
 		{ID: "tool_html_scraper", Name: "HTML Scraper", Description: "Parse HTML and extract title/headings/paragraphs/links", InputSchema: map[string]string{"url": "string"}, OutputSchema: map[string]string{"items": "array"}, Permissions: []string{"net:read"}, SafetyLevel: "low", CreatedBy: "system"},
 		{ID: "tool_file_read", Name: "File Reader", Description: "Read file", InputSchema: map[string]string{"path": "string"}, OutputSchema: map[string]string{"content": "string"}, Permissions: []string{"fs:read"}, SafetyLevel: "medium", CreatedBy: "system"},
@@ -716,6 +731,16 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 		}
 
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "body": content})
+		return
+	case "tool_telegram_send":
+		// Use executeToolDirect for Telegram send
+		result, err := s.executeToolDirect(ctx, id, params)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(result)
 		return
 	case "tool_file_read":
 		path, _ := getString(params, "path")

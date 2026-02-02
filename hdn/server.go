@@ -412,6 +412,24 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 		log.Printf("✅ [AGENT-REGISTRY] Successfully loaded agents from configuration")
 	}
 	server.agentRegistry = agentRegistry
+	
+	// Initialize agent executor
+	agentExecutor := NewAgentExecutor(agentRegistry)
+	
+	// Initialize agent history (requires Redis)
+	agentHistory := NewAgentHistory(redisClient)
+	agentExecutor.SetHistory(agentHistory)
+	server.agentExecutor = agentExecutor
+	server.agentHistory = agentHistory
+	
+	// Initialize and start agent scheduler
+	agentScheduler := NewAgentScheduler(agentRegistry, agentExecutor)
+	if err := agentScheduler.Start(); err != nil {
+		log.Printf("⚠️ [AGENT-SCHEDULER] Failed to start scheduler: %v", err)
+	} else {
+		log.Printf("✅ [AGENT-SCHEDULER] Agent scheduler started successfully")
+	}
+	server.agentScheduler = agentScheduler
 
 	// Start server
 	log.Printf("🔧 [HDN] About to start HTTP server...")
@@ -453,9 +471,13 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 	fmt.Println("  POST /api/v1/intelligent/primes  - Calculate primes via intelligent execution")
 	fmt.Println("  GET  /api/v1/intelligent/capabilities - List learned capabilities")
 	fmt.Println("\nAgent Management:")
-	fmt.Println("  GET  /api/v1/agents                 - List all agents")
-	fmt.Println("  GET  /api/v1/agents/{id}             - Get agent by ID")
-	fmt.Println("  GET  /api/v1/crews                   - List all crews")
+	fmt.Println("  GET  /api/v1/agents                      - List all agents")
+	fmt.Println("  GET  /api/v1/agents/{id}                 - Get agent by ID")
+	fmt.Println("  GET  /api/v1/agents/{id}/status          - Get agent status and stats")
+	fmt.Println("  GET  /api/v1/agents/{id}/executions      - Get agent execution history")
+	fmt.Println("  GET  /api/v1/agents/{id}/executions/{id} - Get specific execution")
+	fmt.Println("  POST /api/v1/agents/{id}/execute         - Execute agent manually")
+	fmt.Println("  GET  /api/v1/crews                        - List all crews")
 	fmt.Println()
 
 	if err := server.Start(config.Server.Port); err != nil {

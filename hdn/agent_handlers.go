@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/mux"
 )
@@ -147,9 +148,14 @@ func (s *APIServer) handleExecuteAgent(w http.ResponseWriter, r *http.Request) {
 		req.Input = "Execute agent tasks" // Default input
 	}
 
-	// Create executor and execute agent
-	executor := NewAgentExecutor(s.agentRegistry)
-	result, err := executor.ExecuteAgent(r.Context(), agentID, req.Input)
+	// Use the shared executor (which has history tracking)
+	if s.agentExecutor == nil {
+		s.agentExecutor = NewAgentExecutor(s.agentRegistry)
+		if s.agentHistory != nil {
+			s.agentExecutor.SetHistory(s.agentHistory)
+		}
+	}
+	result, err := s.agentExecutor.ExecuteAgent(r.Context(), agentID, req.Input)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -159,5 +165,134 @@ func (s *APIServer) handleExecuteAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = json.NewEncoder(w).Encode(result)
+}
+
+// handleGetAgentExecutions: GET /api/v1/agents/{id}/executions
+func (s *APIServer) handleGetAgentExecutions(w http.ResponseWriter, r *http.Request) {
+	if s.agentRegistry == nil || s.agentHistory == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "agent history not available",
+		})
+		return
+	}
+
+	vars := mux.Vars(r)
+	agentID := vars["id"]
+
+	// Check if agent exists
+	_, ok := s.agentRegistry.GetAgent(agentID)
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "agent not found",
+		})
+		return
+	}
+
+	// Get limit from query parameter
+	limit := 50 // default
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+
+	executions, err := s.agentHistory.GetExecutions(agentID, limit)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"agent_id":  agentID,
+		"executions": executions,
+		"count":     len(executions),
+	})
+}
+
+// handleGetAgentExecution: GET /api/v1/agents/{id}/executions/{execution_id}
+func (s *APIServer) handleGetAgentExecution(w http.ResponseWriter, r *http.Request) {
+	if s.agentRegistry == nil || s.agentHistory == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "agent history not available",
+		})
+		return
+	}
+
+	vars := mux.Vars(r)
+	agentID := vars["id"]
+	executionID := vars["execution_id"]
+
+	// Check if agent exists
+	_, ok := s.agentRegistry.GetAgent(agentID)
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "agent not found",
+		})
+		return
+	}
+
+	execution, err := s.agentHistory.GetExecution(agentID, executionID)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(execution)
+}
+
+// handleGetAgentStatus: GET /api/v1/agents/{id}/status
+func (s *APIServer) handleGetAgentStatus(w http.ResponseWriter, r *http.Request) {
+	if s.agentRegistry == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "agent registry not available",
+		})
+		return
+	}
+
+	vars := mux.Vars(r)
+	agentID := vars["id"]
+
+	agent, ok := s.agentRegistry.GetAgent(agentID)
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "agent not found",
+		})
+		return
+	}
+
+	status := map[string]interface{}{
+		"agent_id":    agentID,
+		"name":        agent.Config.Name,
+		"status":      "active",
+		"tools_count": len(agent.Tools),
+		"tasks_count": len(agent.Config.Tasks),
+	}
+
+	// Add execution stats if history is available
+	if s.agentHistory != nil {
+		stats, err := s.agentHistory.GetAgentStats(agentID)
+		if err == nil {
+			status["stats"] = stats
+		}
+	}
+
+	// Add schedule info if scheduler is available
+	if s.agentScheduler != nil {
+		status["scheduled"] = s.agentScheduler.IsScheduled(agentID)
+	}
+
+	_ = json.NewEncoder(w).Encode(status)
 }
 

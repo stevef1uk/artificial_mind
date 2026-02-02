@@ -346,7 +346,10 @@ type APIServer struct {
 	hdnBaseURL           string // For tool calling
 	mcpKnowledgeServer   *MCPKnowledgeServer
 	memoryConsolidator   *mempkg.MemoryConsolidator
-	agentRegistry        *AgentRegistry // Agent registry for autonomous agents
+	agentRegistry        *AgentRegistry   // Agent registry for autonomous agents
+	agentExecutor        *AgentExecutor   // Agent executor
+	agentHistory         *AgentHistory    // Agent execution history
+	agentScheduler       *AgentScheduler  // Agent scheduler for cron triggers
 }
 
 func NewAPIServer(domainPath string, redisAddr string) *APIServer {
@@ -1057,6 +1060,9 @@ func (s *APIServer) setupRoutes() {
 	s.router.HandleFunc("/api/v1/agents", s.handleListAgents).Methods("GET")
 	s.router.HandleFunc("/api/v1/agents/{id}", s.handleGetAgent).Methods("GET")
 	s.router.HandleFunc("/api/v1/agents/{id}/execute", s.handleExecuteAgent).Methods("POST")
+	s.router.HandleFunc("/api/v1/agents/{id}/executions", s.handleGetAgentExecutions).Methods("GET")
+	s.router.HandleFunc("/api/v1/agents/{id}/executions/{execution_id}", s.handleGetAgentExecution).Methods("GET")
+	s.router.HandleFunc("/api/v1/agents/{id}/status", s.handleGetAgentStatus).Methods("GET")
 	s.router.HandleFunc("/api/v1/crews", s.handleListCrews).Methods("GET")
 
 	// Task execution

@@ -37,6 +37,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - **🔌 MCP Knowledge Server** - Exposes knowledge bases (Neo4j, Weaviate) as MCP tools for LLM access
 - **⚙️ Configuration-Based Skills** - Add n8n/MCP skills via YAML configuration without code changes
 - **🔍 Coherence Monitor** - Cross-system consistency checking and cognitive integrity system
+- **🤖 Agentic AI System** - Autonomous agents with YAML-based configuration, scheduled execution, and Telegram notifications
 
 ### Advanced Features
 
@@ -105,6 +106,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - [**Setup Guide**](docs/SETUP_GUIDE.md) - Complete setup instructions for new users
 - [**Configuration Guide**](docs/CONFIGURATION_GUIDE.md) - Docker, LLM, and deployment configuration
 - [**Configuration-Based Skills**](docs/CONFIG_BASED_N8N_MCP_SKILLS.md) - Add n8n/MCP skills via YAML configuration
+- [**Agent Configuration**](config/agents.yaml.example) - YAML-based agent configuration examples
 - [**Secure Packaging Guide**](docs/SECURE_PACKAGING_GUIDE.md) - Binary encryption and security
 - [**Implementation Summary**](docs/IMPLEMENTATION_SUMMARY.md) - Development overview
 - [**Integration Guide**](docs/INTEGRATION_GUIDE.md) - System integration instructions
@@ -528,6 +530,14 @@ The system will automatically:
 - `GET /api/v1/tools` - List available tools
 - `POST /api/v1/tools/execute` - Execute specific tools
 - `GET /api/v1/intelligent/capabilities` - AI capabilities
+
+#### 🤖 Agents (NEW!)
+- `GET /api/v1/agents` - List all configured agents
+- `GET /api/v1/agents/{id}` - Get agent details
+- `POST /api/v1/agents/{id}/execute` - Execute an agent manually
+- `GET /api/v1/agents/{id}/status` - Get agent execution status
+- `GET /api/v1/agents/{id}/executions` - Get agent execution history
+- `GET /api/v1/agents/{id}/executions/{execution_id}` - Get specific execution details
 
 #### 📊 FSM Monitoring & Activity Log
 - `GET /health` - FSM server health check
