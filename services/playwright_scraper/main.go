@@ -290,6 +290,16 @@ func parseOperation(line string) PlaywrightOperation {
 		return PlaywrightOperation{Type: "wait", Timeout: timeout / 1000}
 	}
 
+	// keyboard.press
+	if matches := regexp.MustCompile(`await\s+page\.keyboard\.press\(['"]([^'"]+)['"]\)`).FindStringSubmatch(line); len(matches) > 1 {
+		return PlaywrightOperation{Type: "keyboardPress", Value: matches[1]}
+	}
+
+	// keyboard.type
+	if matches := regexp.MustCompile(`await\s+page\.keyboard\.type\(['"]([^'"]+)['"]\)`).FindStringSubmatch(line); len(matches) > 1 {
+		return PlaywrightOperation{Type: "keyboardType", Value: matches[1]}
+	}
+
 	return PlaywrightOperation{}
 }
 
@@ -404,6 +414,18 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation) (
 			} else {
 				time.Sleep(500 * time.Millisecond)
 			}
+
+		case "keyboardPress":
+			if err := page.Keyboard().Press(op.Value); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(300 * time.Millisecond)
+
+		case "keyboardType":
+			if err := page.Keyboard().Type(op.Value); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(300 * time.Millisecond)
 		}
 	}
 

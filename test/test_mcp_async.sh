@@ -1,10 +1,11 @@
 #!/bin/bash
 # test/test_mcp_async.sh
 
-echo "🚀 Starting Async Plane Scrape Test..."
+echo "🚀 Starting Async Plane Scrape Test (Type + Text Click)..."
 
-# 1. Start the job
-RESPONSE=$(curl -s http://localhost:8081/mcp -X POST -H "Content-Type: application/json" -d '{
+# Construct JSON payload safely
+cat <<EOF > /tmp/payload.json
+{
   "jsonrpc": "2.0",
   "id": 1,
   "method": "tools/call",
@@ -13,10 +14,14 @@ RESPONSE=$(curl -s http://localhost:8081/mcp -X POST -H "Content-Type: applicati
     "arguments": {
       "url": "https://ecotree.green/en/calculate-flight-co2",
       "async": true,
-      "typescript_config": "await page.goto('\''https://ecotree.green/en/calculate-flight-co2'\'')\nawait page.waitForTimeout(2000)\nawait page.locator('\''#airportName'\'').first().fill('\''Southampton'\'')\nawait page.waitForTimeout(3000)\nawait page.locator('\''text=/Southampton/i'\'').first().click()\nawait page.waitForTimeout(1000)\nawait page.locator('\''input[name=\"To\"]'\'').fill('\''Newcastle'\'')\nawait page.waitForTimeout(3000)\nawait page.locator('\''text=/Newcastle/i'\'').first().click()\nawait page.waitForTimeout(1000)\nawait page.locator('\''a.btn-primary.hover-arrow'\'').click()"
+      "typescript_config": "await page.goto('https://ecotree.green/en/calculate-flight-co2')\nawait page.waitForTimeout(3000)\nawait page.locator('#airportName').first().click()\nawait page.keyboard.type('Southampton')\nawait page.waitForTimeout(4000)\nawait page.locator('text=/Southampton/i').first().click()\nawait page.waitForTimeout(1000)\nawait page.locator('input[name=\"To\"]').click()\nawait page.keyboard.type('Newcastle')\nawait page.waitForTimeout(4000)\nawait page.locator('text=/Newcastle/i').first().click()\nawait page.waitForTimeout(1000)\nawait page.locator('a.btn-primary.hover-arrow').click()\nawait page.waitForTimeout(10000)"
     }
   }
-}')
+}
+EOF
+
+# 1. Start the job
+RESPONSE=$(curl -s http://localhost:8081/mcp -X POST -H "Content-Type: application/json" -d @/tmp/payload.json)
 
 JOB_ID=$(echo $RESPONSE | jq -r '.result.job_id')
 
@@ -27,8 +32,8 @@ if [ "$JOB_ID" == "null" ] || [ -z "$JOB_ID" ]; then
 fi
 
 echo "✅ Job started successfully! Job ID: $JOB_ID"
-echo "⏳ Waiting 25 seconds for scraper to finish..."
-sleep 25
+echo "⏳ Waiting 40 seconds for scraper to finish..."
+sleep 40
 
 # 2. Check status and get results
 echo "🔍 Polling for results..."
@@ -50,6 +55,10 @@ CO2=$(echo $RESULT | jq -r '.result.result.co2_kg')
 echo "📊 Final Status: $STATUS"
 if [ "$STATUS" == "completed" ]; then
     echo "✅ Success! CO2 Result: $CO2 kg"
+    if [ "$CO2" == "null" ]; then
+        echo "⚠️  CO2 is null. Full result:"
+        echo $RESULT | jq .
+    fi
 else
     echo "⚠️ Job not completed yet or failed. Full response:"
     echo $RESULT | jq .
