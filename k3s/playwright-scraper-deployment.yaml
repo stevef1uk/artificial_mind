@@ -72,4 +72,26 @@ spec:
         env:
         - name: TZ
           value: "UTC"
-
+        - name: SECURE_CUSTOMER_PRIVATE_PATH
+          value: "/keys/customer_private.pem"
+        - name: SECURE_VENDOR_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: secure-vendor
+              key: token
+        - name: UNPACK_WORK_DIR
+          value: "/tmp/unpack"
+        
+        volumeMounts:
+        - name: customer-key
+          mountPath: /keys
+          readOnly: true
+      
+      volumes:
+      - name: customer-key
+        secret:
+          secretName: secure-customer-private
+      
+      securityContext:
+        runAsNonRoot: false
+        runAsUser: 0

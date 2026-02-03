@@ -497,25 +497,40 @@ restart-nats: stop-nats start-nats
 # Build scraper Docker image
 .PHONY: build-scraper-image
 build-scraper-image:
-	@echo "🐳 Building Playwright scraper Docker image..."
-	@docker build -t playwright-scraper:latest -f $(SCRAPER_DIR)/Dockerfile $(SCRAPER_DIR)/
+	@echo "🐳 Building Playwright scraper Docker image (with secure packaging)..."
+	@docker build \
+		--build-arg CUSTOMER_PUBLIC_KEY=../../secure/customer_public.pem \
+		--build-arg VENDOR_PUBLIC_KEY=../../secure/vendor_public.pem \
+		-t playwright-scraper:latest \
+		-f $(SCRAPER_DIR)/Dockerfile \
+		$(SCRAPER_DIR)/
 	@echo "✅ Scraper image built: playwright-scraper:latest"
 
 # Build scraper Docker image for testing
 .PHONY: build-scraper-test
 build-scraper-test:
-	@echo "🐳 Building Playwright scraper test image..."
-	@docker build -t playwright-scraper:test -f $(SCRAPER_DIR)/Dockerfile $(SCRAPER_DIR)/
+	@echo "🐳 Building Playwright scraper test image (with secure packaging)..."
+	@docker build \
+		--build-arg CUSTOMER_PUBLIC_KEY=../../secure/customer_public.pem \
+		--build-arg VENDOR_PUBLIC_KEY=../../secure/vendor_public.pem \
+		-t playwright-scraper:test \
+		-f $(SCRAPER_DIR)/Dockerfile \
+		$(SCRAPER_DIR)/
 	@echo "✅ Scraper test image built: playwright-scraper:test"
 
 # Start scraper service locally
 .PHONY: start-scraper
 start-scraper:
-	@echo "🚀 Starting Playwright scraper service..."
-	@docker run -d --name scraper-test -p 8080:8080 playwright-scraper:test
+	@echo "🚀 Starting Playwright scraper service (secure mode)..."
+	@docker run -d --name scraper-test -p 8080:8080 \
+		-v $(PWD)/secure/customer_private.pem:/keys/customer_private.pem:ro \
+		-e SECURE_CUSTOMER_PRIVATE_PATH=/keys/customer_private.pem \
+		-e SECURE_VENDOR_TOKEN=$$(cat secure/vendor_token.txt 2>/dev/null || echo "test-token") \
+		-e UNPACK_WORK_DIR=/tmp/unpack \
+		playwright-scraper:test
 	@echo "⏳ Waiting for service to start..."
-	@sleep 3
-	@curl -sf http://localhost:8080/health > /dev/null && echo "✅ Scraper service started" || echo "❌ Failed to start scraper"
+	@sleep 5
+	@curl -sf http://localhost:8080/health > /dev/null && echo "✅ Scraper service started" || (echo "❌ Failed to start scraper"; docker logs scraper-test --tail 20; exit 1)
 
 # Stop scraper service
 .PHONY: stop-scraper

@@ -7,13 +7,50 @@ RUN go mod download
 COPY main.go ./
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o scraper main.go
 
-# Stage 2: Runtime image with Chromium
+# Stage 2: Secure packaging stage
+FROM alpine:latest AS secure-build
+
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /app
+
+# Copy packager tools from secure-packager image
+COPY --from=stevef1uk/secure-packager:latest /app/packager /usr/local/bin/packager
+COPY --from=stevef1uk/secure-packager:latest /app/unpack /usr/local/bin/unpack
+COPY --from=stevef1uk/secure-packager:latest /app/issue-token /usr/local/bin/issue-token
+
+RUN chmod +x /usr/local/bin/packager /usr/local/bin/unpack /usr/local/bin/issue-token
+
+# Copy binary from builder
+COPY --from=builder /app/scraper /app/scraper
+
+# Copy public keys (build args)
+ARG CUSTOMER_PUBLIC_KEY
+ARG VENDOR_PUBLIC_KEY
+COPY ${CUSTOMER_PUBLIC_KEY} /keys/customer_public.pem
+COPY ${VENDOR_PUBLIC_KEY} /keys/vendor_public.pem
+
+# Verify keys exist
+RUN test -f /keys/customer_public.pem && test -f /keys/vendor_public.pem
+
+# Package the binary
+RUN install -d /payload /out && \
+    mv /app/scraper /payload/ && \
+    /usr/local/bin/packager \
+        /payload \
+        /out/encrypted_files.zip \
+        /keys/customer_public.pem \
+        /keys/vendor_public.pem
+
+# Stage 3: Runtime image with Chromium
 FROM debian:bookworm-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     tzdata \
+    bash \
+    gosu \
     chromium \
     chromium-driver \
     fonts-liberation \
@@ -37,16 +74,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy binary and entrypoint from builder
-COPY --from=builder /app/scraper /app/scraper
-COPY entrypoint.sh /app/entrypoint.sh
+# Copy unpack utility from secure-build stage
+COPY --from=secure-build /usr/local/bin/unpack /usr/local/bin/unpack
 
-# Make entrypoint executable
-RUN chmod +x /app/entrypoint.sh /app/scraper
+# Copy encrypted package
+COPY --from=secure-build /out/encrypted_files.zip ./scraper.enc
 
-# Create user for security
-RUN useradd -m -u 1000 scraper && chown -R scraper:scraper /app
-USER scraper
+# Copy secure entrypoint
+COPY secure_entrypoint.sh /app/entrypoint.sh
+
+# Make scripts executable
+RUN chmod +x /app/entrypoint.sh /usr/local/bin/unpack
+
+# Create user for security (but run as root for unpack access)
+RUN useradd -m -u 1000 scraper
 
 EXPOSE 8080
 
@@ -54,4 +95,3 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD ["/app/entrypoint.sh", "-health-check"] || exit 1
 
 ENTRYPOINT ["/app/entrypoint.sh"]
-

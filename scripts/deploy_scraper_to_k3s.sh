@@ -15,9 +15,12 @@ SCRAPER_IMAGE="stevef1uk/playwright-scraper:latest"
 HDN_IMAGE="stevef1uk/hdn-server:secure"
 NAMESPACE="agi"
 
-echo -e "${YELLOW}Step 1: Building Playwright Scraper Docker image${NC}"
+echo -e "${YELLOW}Step 1: Building Playwright Scraper Docker image (with secure packaging)${NC}"
 cd services/playwright_scraper
-docker build -t ${SCRAPER_IMAGE} .
+docker build \
+  --build-arg CUSTOMER_PUBLIC_KEY=../../secure/customer_public.pem \
+  --build-arg VENDOR_PUBLIC_KEY=../../secure/vendor_public.pem \
+  -t ${SCRAPER_IMAGE} .
 cd ../..
 
 echo -e "${GREEN}✅ Scraper image built${NC}"

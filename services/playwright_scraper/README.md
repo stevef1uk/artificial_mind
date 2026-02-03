@@ -111,12 +111,38 @@ Health check endpoint.
 
 ## Building
 
-```bash
-# Build Docker image
-docker build -t playwright-scraper:latest services/playwright_scraper/
+### Secure Build (Production)
 
-# Run locally
-docker run -p 8080:8080 playwright-scraper:latest
+The scraper service uses the same secure packaging as the HDN server:
+
+```bash
+# Build with secure packaging
+cd services/playwright_scraper
+docker build \
+  --build-arg CUSTOMER_PUBLIC_KEY=../../secure/customer_public.pem \
+  --build-arg VENDOR_PUBLIC_KEY=../../secure/vendor_public.pem \
+  -t stevef1uk/playwright-scraper:latest .
+
+# Push to registry
+docker push stevef1uk/playwright-scraper:latest
+```
+
+### Local Testing
+
+```bash
+# Build test image
+make build-scraper-test
+
+# Start with required secrets
+docker run -p 8080:8080 \
+  -v $(pwd)/secure/customer_private.pem:/keys/customer_private.pem:ro \
+  -e SECURE_CUSTOMER_PRIVATE_PATH=/keys/customer_private.pem \
+  -e SECURE_VENDOR_TOKEN=$(cat secure/vendor_token.txt) \
+  -e UNPACK_WORK_DIR=/tmp/unpack \
+  playwright-scraper:test
+
+# Or use make targets
+make start-scraper
 ```
 
 ## Testing
