@@ -55,25 +55,22 @@ RUN install -d /payload /out \
       -license \
       -vendor-pub /keys/vendor_public.pem
 
-# Final runtime image
-FROM alpine:latest
-RUN apk add --no-cache ca-certificates tzdata openssh-client \
-    # Playwright-go uses system chromium
-    chromium chromium-chromedriver nss freetype harfbuzz ttf-freefont \
-    libstdc++ libc6-compat curl
+# Final runtime image - using Debian for glibc compatibility (playwright-go requirement)
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    openssh-client \
+    chromium \
+    fonts-liberation \
+    libnss3 \
+    libxss1 \
+    libxtst6 \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
-# Download playwright-go driver v1.52.0 for ARM64
-RUN mkdir -p /ms-playwright && \
-    cd /ms-playwright && \
-    curl -L https://playwright.azureedge.net/builds/driver/playwright-1.52.0-linux-arm64.zip -o playwright.zip && \
-    unzip playwright.zip && \
-    rm playwright.zip && \
-    chmod +x /ms-playwright/package/bin/playwright.sh || true
-
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/usr/lib/chromium \
-    PLAYWRIGHT_DRIVER_PATH=/ms-playwright/package
+# playwright-go will auto-install its driver on first use via pw.Install()
+# It will use system Chromium (specified in Go code)
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 # runtime unpack tool and encrypted payload
 COPY --from=secure-build /usr/local/bin/unpack /usr/local/bin/unpack
 COPY --from=secure-build /out/encrypted_files.zip ./hdn-server.enc

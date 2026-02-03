@@ -27,6 +27,11 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+var (
+	playwrightOnce     sync.Once
+	playwrightInitErr  error
+)
+
 // MCPKnowledgeServer exposes knowledge bases (Neo4j, Weaviate, Qdrant) as MCP tools
 type MCPKnowledgeServer struct {
 	domainKnowledge mempkg.DomainKnowledgeClient
@@ -869,6 +874,22 @@ func parsePlaywrightTypeScript(tsConfig, defaultURL string) ([]PlaywrightOperati
 func (s *MCPKnowledgeServer) executePlaywrightOperations(ctx context.Context, url string, operations []PlaywrightOperation) (interface{}, error) {
 	log.Printf("🚀 [MCP-SCRAPE] Executing %d Playwright operations directly", len(operations))
 
+	// Install Playwright driver if not already installed (one-time operation)
+	playwrightOnce.Do(func() {
+		log.Println("🔧 [MCP-SCRAPE] Installing Playwright driver (one-time setup)...")
+		// Install driver only, skip browsers since we use system Chromium
+		if err := pw.Install(&pw.RunOptions{SkipInstallBrowsers: true}); err != nil {
+			playwrightInitErr = fmt.Errorf("failed to install Playwright driver: %v", err)
+			log.Printf("❌ [MCP-SCRAPE] Driver installation failed: %v", err)
+		} else {
+			log.Println("✅ [MCP-SCRAPE] Playwright driver installed successfully")
+		}
+	})
+
+	if playwrightInitErr != nil {
+		return nil, playwrightInitErr
+	}
+
 	// Initialize Playwright
 	pwInstance, err := pw.Run()
 	if err != nil {
@@ -879,10 +900,12 @@ func (s *MCPKnowledgeServer) executePlaywrightOperations(ctx context.Context, ur
 		_ = pwInstance.Stop()
 	}()
 
-	// Launch browser
+	// Launch browser using system Chromium
 	log.Println("🌐 [MCP-SCRAPE] Launching Chromium browser...")
+	executablePath := "/usr/bin/chromium"
 	browser, err := pwInstance.Chromium.Launch(pw.BrowserTypeLaunchOptions{
-		Headless: pw.Bool(true),
+		Headless:       pw.Bool(true),
+		ExecutablePath: &executablePath,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to launch browser: %v", err)
