@@ -23,6 +23,7 @@ import (
 	mempkg "hdn/memory"
 	"hdn/playwright"
 
+	pw "github.com/playwright-community/playwright-go"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -864,114 +865,244 @@ func parsePlaywrightTypeScript(tsConfig, defaultURL string) ([]PlaywrightOperati
 	*/
 }
 
-// executePlaywrightOperations executes parsed operations using Go Playwright
+// executePlaywrightOperations executes parsed operations using Go Playwright directly
 func (s *MCPKnowledgeServer) executePlaywrightOperations(ctx context.Context, url string, operations []PlaywrightOperation) (interface{}, error) {
-	// We need to use the headless browser binary or import Playwright directly
-	// For now, let's use the headless browser binary approach by converting operations to actions
+	log.Printf("🚀 [MCP-SCRAPE] Executing %d Playwright operations directly", len(operations))
 
-	log.Printf("🔄 [MCP-SCRAPE] Converting %d parsed operations to browser actions", len(operations))
+	// Initialize Playwright
+	pwInstance, err := pw.Run()
+	if err != nil {
+		return nil, fmt.Errorf("failed to start Playwright: %v", err)
+	}
+	defer func() {
+		// Note: Stop() can hang, so we just let it exit naturally
+		_ = pwInstance.Stop()
+	}()
 
-	// Convert operations to actions format that headless-browser understands
-	actions := []map[string]interface{}{}
+	// Launch browser
+	log.Println("🌐 [MCP-SCRAPE] Launching Chromium browser...")
+	browser, err := pwInstance.Chromium.Launch(pw.BrowserTypeLaunchOptions{
+		Headless: pw.Bool(true),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to launch browser: %v", err)
+	}
+	defer browser.Close()
 
+	// Create new page
+	page, err := browser.NewPage()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create page: %v", err)
+	}
+	defer page.Close()
+
+	// Set timeout
+	page.SetDefaultTimeout(30000) // 30 seconds
+
+	// Navigate to URL
+	log.Printf("📍 [MCP-SCRAPE] Navigating to %s", url)
+	if _, err := page.Goto(url, pw.PageGotoOptions{
+		WaitUntil: pw.WaitUntilStateNetworkidle,
+	}); err != nil {
+		return nil, fmt.Errorf("failed to navigate: %v", err)
+	}
+	log.Printf("✅ [MCP-SCRAPE] Page loaded: %s", page.URL())
+
+	// Execute each operation
 	for i, op := range operations {
-		log.Printf("  [%d] Operation type=%s, role=%s, roleName=%s, text=%s, selector=%s, value=%s",
-			i+1, op.Type, op.Role, op.RoleName, op.Text, op.Selector, op.Value)
+		log.Printf("  [%d/%d] Operation: type=%s, role=%s, roleName=%s, text=%s, selector=%s, value=%s",
+			i+1, len(operations), op.Type, op.Role, op.RoleName, op.Text, op.Selector, op.Value)
 
 		switch op.Type {
 		case "goto":
-			// URL is handled separately
+			// Navigate to new URL
 			if op.Selector != "" {
-				url = op.Selector
+				if _, err := page.Goto(op.Selector, pw.PageGotoOptions{
+					WaitUntil: pw.WaitUntilStateNetworkidle,
+				}); err != nil {
+					log.Printf("   ⚠️ Failed to navigate: %v", err)
+				}
 			}
+
 		case "getByRole":
-			// Convert getByRole to click action
-			// For role-based selection, we'll use a text-based selector
+			// Use Playwright's GetByRole
 			if op.Role == "link" && op.RoleName != "" {
-				// Use text selector which works better in Playwright
-				actions = append(actions, map[string]interface{}{
-					"type":     "click",
-					"selector": fmt.Sprintf("text='%s'", op.RoleName),
+				locator := page.GetByRole(pw.AriaRole("link"), pw.PageGetByRoleOptions{
+					Name: op.RoleName,
 				})
-				// Add a short wait after clicking links to let page load
-				actions = append(actions, map[string]interface{}{
-					"type":  "wait",
-					"value": "2",
-				})
+				if err := locator.Click(); err != nil {
+					log.Printf("   ⚠️ Failed to click link '%s': %v", op.RoleName, err)
+				} else {
+					log.Printf("   ✅ Clicked link: %s", op.RoleName)
+					time.Sleep(1 * time.Second) // Wait for navigation
+				}
 			} else if op.Role == "textbox" && op.RoleName != "" {
-				// For textbox, skip the click - just use fill which auto-clicks
-				// Don't add a click action here
+				// Just click the textbox to focus it
+				locator := page.GetByRole(pw.AriaRole("textbox"), pw.PageGetByRoleOptions{
+					Name: op.RoleName,
+				})
+				if err := locator.Click(); err != nil {
+					log.Printf("   ⚠️ Failed to click textbox '%s': %v", op.RoleName, err)
+				} else {
+					log.Printf("   ✅ Clicked textbox: %s", op.RoleName)
+				}
 			}
+
 		case "getByRoleFill":
 			// Fill after finding by role
 			if op.Role == "textbox" && op.RoleName != "" {
-				// Use a more generic selector - just target visible text inputs
-				// The order in the TypeScript determines which input gets filled
-				actions = append(actions, map[string]interface{}{
-					"type":     "fill",
-					"selector": "input[type='text']:visible",
-					"value":    op.Value,
+				locator := page.GetByRole(pw.AriaRole("textbox"), pw.PageGetByRoleOptions{
+					Name: op.RoleName,
 				})
+				if err := locator.Fill(op.Value); err != nil {
+					log.Printf("   ⚠️ Failed to fill textbox '%s': %v", op.RoleName, err)
+				} else {
+					log.Printf("   ✅ Filled textbox '%s' with '%s'", op.RoleName, op.Value)
+					time.Sleep(1 * time.Second) // Wait for autocomplete
+				}
 			}
+
 		case "getByText":
-			// Click on text
-			actions = append(actions, map[string]interface{}{
-				"type":     "click",
-				"selector": fmt.Sprintf("text='%s'", op.Text),
-			})
-		case "locator":
-			// Click on locator
-			actions = append(actions, map[string]interface{}{
-				"type":     "click",
-				"selector": op.Selector,
-			})
-		case "locatorFill":
-			// Fill locator
-			actions = append(actions, map[string]interface{}{
-				"type":     "fill",
-				"selector": op.Selector,
-				"value":    op.Value,
-			})
-		}
-	}
-
-	// Smart extraction: If the last operation is clicking on text that looks like a result (contains numbers/units),
-	// convert it to a generic content extraction instead
-	if len(operations) > 0 {
-		lastOp := operations[len(operations)-1]
-		if lastOp.Type == "getByText" && lastOp.Text != "" &&
-			(strings.Contains(lastOp.Text, "kg") || strings.Contains(lastOp.Text, "CO2") ||
-				strings.Contains(lastOp.Text, "0") || strings.Contains(lastOp.Text, "1") ||
-				strings.Contains(lastOp.Text, "2") || strings.Contains(lastOp.Text, "3") ||
-				strings.Contains(lastOp.Text, "4") || strings.Contains(lastOp.Text, "5") ||
-				strings.Contains(lastOp.Text, "6") || strings.Contains(lastOp.Text, "7") ||
-				strings.Contains(lastOp.Text, "8") || strings.Contains(lastOp.Text, "9")) {
-			// Remove the last click action
-			if len(actions) > 0 && actions[len(actions)-1]["type"] == "click" {
-				actions = actions[:len(actions)-1]
+			// Click on element containing text
+			locator := page.GetByText(op.Text)
+			if err := locator.First().Click(); err != nil {
+				log.Printf("   ⚠️ Failed to click text '%s': %v", op.Text, err)
+			} else {
+				log.Printf("   ✅ Clicked text: %s", op.Text)
+				time.Sleep(1 * time.Second)
 			}
-			// Add a wait for results to load, then extract body text
-			actions = append(actions, map[string]interface{}{
-				"type":  "wait",
-				"value": "3",
-			})
-			actions = append(actions, map[string]interface{}{
-				"type": "extract",
-				"extract": map[string]string{
-					"pageText": "body",
-				},
-			})
-			log.Printf("🔍 [MCP-SCRAPE] Converted last getByText('%s') to generic page text extraction", lastOp.Text)
+
+		case "locator":
+			// Click using CSS selector
+			if err := page.Locator(op.Selector).Click(); err != nil {
+				log.Printf("   ⚠️ Failed to click selector '%s': %v", op.Selector, err)
+			} else {
+				log.Printf("   ✅ Clicked selector: %s", op.Selector)
+				time.Sleep(1 * time.Second)
+			}
+
+		case "locatorFill":
+			// Fill using CSS selector
+			if err := page.Locator(op.Selector).Fill(op.Value); err != nil {
+				log.Printf("   ⚠️ Failed to fill selector '%s': %v", op.Selector, err)
+			} else {
+				log.Printf("   ✅ Filled selector '%s' with '%s'", op.Selector, op.Value)
+				time.Sleep(1 * time.Second)
+			}
+
+		case "wait":
+			// Wait for selector or time
+			if op.Selector != "" {
+				timeout := 5000.0
+				if op.Timeout > 0 {
+					timeout = float64(op.Timeout) * 1000
+				}
+				_, err := page.WaitForSelector(op.Selector, pw.PageWaitForSelectorOptions{
+					Timeout: pw.Float(timeout),
+				})
+				if err != nil {
+					log.Printf("   ⚠️ Wait for selector '%s' failed: %v", op.Selector, err)
+				}
+			} else {
+				time.Sleep(2 * time.Second)
+			}
 		}
 	}
 
-	log.Printf("✅ [MCP-SCRAPE] Converted to %d browser actions", len(actions))
-	for i, action := range actions {
-		log.Printf("  Action [%d]: type=%v, selector=%v, value=%v, extract=%v", i+1, action["type"], action["selector"], action["value"], action["extract"])
+	// Wait for final page state
+	log.Println("⏳ [MCP-SCRAPE] Waiting for final page state...")
+	if err := page.WaitForLoadState(pw.PageWaitForLoadStateOptions{
+		State: pw.LoadStateNetworkidle,
+	}); err != nil {
+		log.Printf("   ⚠️ Wait for load state error: %v", err)
+	}
+	time.Sleep(2 * time.Second) // Extra wait for any animations
+
+	// Extract results
+	log.Println("📊 [MCP-SCRAPE] Extracting results...")
+
+	// Get page text content
+	textContent, err := page.Evaluate("() => document.body.innerText")
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract page text: %v", err)
 	}
 
-	// Use the browse_web functionality to execute
-	return s.browseWebWithActions(ctx, url, actions)
+	textStr, ok := textContent.(string)
+	if !ok {
+		return nil, fmt.Errorf("failed to convert page text to string")
+	}
+
+	// Parse CO2 values and other data
+	co2Data := make(map[string]interface{})
+
+	// Look for CO2 emission patterns
+	co2Regex := regexp.MustCompile(`(?i)([\d,.]+)\s*(kg|tons?|tonnes?)\s*(?:of\s+)?CO2`)
+	matches := co2Regex.FindAllStringSubmatch(textStr, -1)
+
+	if len(matches) > 0 {
+		var emissions [][]string
+		for _, match := range matches {
+			if len(match) >= 3 {
+				emissions = append(emissions, []string{match[1], match[2]})
+			}
+		}
+		co2Data["co2_emissions"] = emissions
+		log.Printf("   ✅ Found CO2 values: %v", emissions)
+	}
+
+	// Look for distance
+	distanceRegex := regexp.MustCompile(`(?i)Kilometers\s*([\d,]+)\s*km`)
+	if distMatch := distanceRegex.FindStringSubmatch(textStr); len(distMatch) >= 2 {
+		co2Data["distance_km"] = distMatch[1]
+		log.Printf("   ✅ Distance: %s km", distMatch[1])
+	}
+
+	// Look for specific CO2 value in results section
+	emissionsRegex := regexp.MustCompile(`(?i)CO2\s*([\d,]+)\s*kg`)
+	if emMatch := emissionsRegex.FindStringSubmatch(textStr); len(emMatch) >= 2 {
+		co2Data["co2_kg"] = emMatch[1]
+		log.Printf("   ✅ Your carbon emissions: %s kg CO2", emMatch[1])
+	}
+
+	// Store page text (truncated for debugging)
+	if len(textStr) > 1000 {
+		co2Data["page_text"] = textStr[:1000]
+	} else {
+		co2Data["page_text"] = textStr
+	}
+
+	// Get page title and URL
+	title, _ := page.Title()
+	finalURL := page.URL()
+
+	// Format response in MCP format
+	contentText := fmt.Sprintf("Scraped data from %s\n\n", finalURL)
+	contentText += fmt.Sprintf("Title: %s\n\n", title)
+
+	if co2kg, ok := co2Data["co2_kg"].(string); ok {
+		contentText += fmt.Sprintf("✈️  CO2 Emissions: %s kg\n", co2kg)
+	}
+	if distance, ok := co2Data["distance_km"].(string); ok {
+		contentText += fmt.Sprintf("📏 Distance: %s km\n", distance)
+	}
+	if emissions, ok := co2Data["co2_emissions"].([][]string); ok && len(emissions) > 0 {
+		contentText += "\nAll CO2 values found:\n"
+		for _, em := range emissions {
+			contentText += fmt.Sprintf("  - %s %s\n", em[0], em[1])
+		}
+	}
+
+	log.Printf("✅ [MCP-SCRAPE] Extraction complete!")
+
+	return map[string]interface{}{
+		"content": []map[string]interface{}{
+			{
+				"type": "text",
+				"text": contentText,
+			},
+		},
+		"data": co2Data,
+	}, nil
 }
 
 // browseWebWithActions executes browser actions directly
