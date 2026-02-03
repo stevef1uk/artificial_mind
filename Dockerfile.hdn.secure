@@ -14,7 +14,11 @@ RUN set -e; \
         if [ "$name" = "html_scraper" ]; then go get golang.org/x/net/html@latest >/dev/null 2>&1 || true; fi; \
         if [ "$name" = "headless_browser" ]; then go get github.com/playwright-community/playwright-go@latest >/dev/null 2>&1 || true; fi; \
         go mod tidy >/dev/null 2>&1 || true; \
-        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o ../../bin/tools/$name . \
+        if [ "$name" = "headless_browser" ]; then \
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o ../../bin/tools/$name main.go; \
+        else \
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o ../../bin/tools/$name .; \
+        fi \
       ); \
     done
 
