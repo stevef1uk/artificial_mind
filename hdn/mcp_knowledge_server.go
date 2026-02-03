@@ -394,8 +394,27 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 					"type":        "string",
 					"description": "Optional: TypeScript/Playwright code (as string) that will be converted to Go code via LLM for custom scraping logic",
 				},
+				"async": map[string]interface{}{
+					"type":        "boolean",
+					"description": "If true, returns a job_id immediately instead of waiting for results. Default: false.",
+				},
 			},
 			"required": []string{"url"},
+		},
+	})
+
+	tools = append(tools, MCPKnowledgeTool{
+		Name:        "get_scrape_status",
+		Description: "Check the status and retrieve results of a previously started scrape job.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"job_id": map[string]interface{}{
+					"type":        "string",
+					"description": "The ID of the scrape job to check",
+				},
+			},
+			"required": []string{"job_id"},
 		},
 	})
 
@@ -503,7 +522,15 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		return s.saveAvatarContext(ctx, arguments)
 	case "save_episode":
 		return s.saveEpisode(ctx, arguments)
-	case "scrape_url", "execute_code", "read_file":
+	case "scrape_url":
+		url, _ := arguments["url"].(string)
+		tsConfig, _ := arguments["typescript_config"].(string)
+		isAsync, _ := arguments["async"].(bool)
+		return s.scrapeWithConfig(ctx, url, tsConfig, isAsync)
+	case "get_scrape_status":
+		jobID, _ := arguments["job_id"].(string)
+		return s.getScrapeStatus(ctx, jobID)
+	case "execute_code", "read_file":
 		// Route to the new wrapper
 		return s.executeToolWrapper(ctx, toolName, arguments)
 	case "browse_web":
@@ -553,7 +580,7 @@ func (s *MCPKnowledgeServer) queryNeo4j(ctx context.Context, args map[string]int
 }
 
 // scrapeWithConfig delegates to the external Playwright scraper service with async job queue
-func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig string) (interface{}, error) {
+func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig string, isAsync bool) (interface{}, error) {
 	log.Printf("📝 [MCP-SCRAPE] Received TypeScript config (%d bytes)", len(tsConfig))
 
 	// Call external scraper service with async job queue
@@ -594,9 +621,22 @@ func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig
 		return nil, fmt.Errorf("failed to decode start response: %v", err)
 	}
 
-	log.Printf("⏳ [MCP-SCRAPE] Job %s started, polling for results...", startResp.JobID)
+	log.Printf("⏳ [MCP-SCRAPE] Job %s started", startResp.JobID)
 
-	// Poll for results (with timeout)
+	if isAsync {
+		return map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": fmt.Sprintf("Scrape job started. Job ID: %s. Use get_scrape_status to check results.", startResp.JobID),
+				},
+			},
+			"job_id": startResp.JobID,
+			"status": "pending",
+		}, nil
+	}
+
+	log.Printf("⏳ [MCP-SCRAPE] Polling for results...")
 	pollTimeout := 90 * time.Second
 	pollInterval := 2 * time.Second
 	startTime := time.Now()
@@ -1067,7 +1107,8 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 
 		// Check if typescript_config is provided - if so, parse and execute directly
 		if tsConfig, ok := args["typescript_config"].(string); ok && tsConfig != "" {
-			return s.scrapeWithConfig(ctx, url, tsConfig)
+			// In executeToolWrapper, we default async to false
+			return s.scrapeWithConfig(ctx, url, tsConfig, false)
 		}
 
 		// Use the html-scraper binary tool for better content extraction
@@ -3482,4 +3523,61 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 	}
 
 	return finalResult, nil
+}
+
+// getScrapeStatus checks the status of a previously started scrape job
+func (s *MCPKnowledgeServer) getScrapeStatus(ctx context.Context, jobID string) (interface{}, error) {
+	if jobID == "" {
+		return nil, fmt.Errorf("job_id parameter is required")
+	}
+
+	scraperURL := os.Getenv("PLAYWRIGHT_SCRAPER_URL")
+	if scraperURL == "" {
+		scraperURL = "http://playwright-scraper.agi.svc.cluster.local:8080"
+	}
+
+	jobURL := fmt.Sprintf("%s/scrape/job?job_id=%s", scraperURL, jobID)
+	resp, err := http.Get(jobURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get job status: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("scraper service returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var job map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&job); err != nil {
+		return nil, fmt.Errorf("failed to decode job response: %v", err)
+	}
+
+	status, _ := job["status"].(string)
+
+	// Format for MCP
+	var text string
+	switch status {
+	case "completed":
+		text = fmt.Sprintf("Scrape Results for %s:\n%v", jobID, job["result"])
+	case "failed":
+		text = fmt.Sprintf("Scrape job %s failed: %v", jobID, job["error"])
+	case "running", "pending":
+		text = fmt.Sprintf("Scrape job %s is still %s.", jobID, status)
+	default:
+		text = fmt.Sprintf("Scrape job %s has status: %s", jobID, status)
+	}
+
+	return map[string]interface{}{
+		"content": []map[string]interface{}{
+			{
+				"type": "text",
+				"text": text,
+			},
+		},
+		"job_id": jobID,
+		"status": status,
+		"result": job["result"],
+		"error":  job["error"],
+	}, nil
 }
