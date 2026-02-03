@@ -526,7 +526,12 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		// Route to the new wrapper which handles all these
 		return s.executeToolWrapper(ctx, toolName, arguments)
 	case "get_scrape_status":
-		jobID, _ := arguments["job_id"].(string)
+		// Handle nested arguments from n8n
+		args := arguments
+		if inner, ok := arguments["arguments"].(map[string]interface{}); ok {
+			args = inner
+		}
+		jobID, _ := args["job_id"].(string)
 		return s.getScrapeStatus(ctx, jobID)
 	case "browse_web":
 		return s.browseWeb(ctx, arguments)
@@ -1096,7 +1101,13 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 	switch toolName {
 	case "scrape_url":
 		// Log arguments for debugging
-		log.Printf("🔍 [MCP-SCRAPE] Tool: %s, Args: %v", toolName, args)
+		log.Printf("🔍 [MCP-SCRAPE] Tool: %s, Raw Args: %v", toolName, args)
+
+		// Handle nested arguments from n8n (where params.arguments contains another "arguments" key)
+		if inner, ok := args["arguments"].(map[string]interface{}); ok {
+			log.Printf("ℹ️ [MCP-SCRAPE] Flattening nested n8n arguments")
+			args = inner
+		}
 
 		// Try different casing for URL
 		url, ok := args["url"].(string)
