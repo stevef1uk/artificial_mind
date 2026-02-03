@@ -382,8 +382,9 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 		server.mcpKnowledgeServer = NewMCPKnowledgeServer(
 			server.domainKnowledge,
 			server.vectorDB,
-			redisClient,
+			server.redis,
 			hdnURL,
+			llmClient, // Pass LLM client
 		)
 		log.Printf("✅ [HDN] MCP knowledge server initialized for agent registry")
 	}
