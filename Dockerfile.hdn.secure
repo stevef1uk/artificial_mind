@@ -58,18 +58,22 @@ RUN install -d /payload /out \
 # Final runtime image
 FROM alpine:latest
 RUN apk add --no-cache ca-certificates tzdata openssh-client \
-    # Playwright dependencies for MCP server's embedded browser automation
+    # Playwright-go uses system chromium
     chromium chromium-chromedriver nss freetype harfbuzz ttf-freefont \
-    libstdc++ libc6-compat nodejs npm
+    libstdc++ libc6-compat curl
 WORKDIR /app
 
-# Install Playwright and setup browsers
-RUN npm install -g playwright@1.52.0 && \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright playwright install chromium --with-deps || true
+# Download playwright-go driver v1.52.0 for ARM64
+RUN mkdir -p /ms-playwright && \
+    cd /ms-playwright && \
+    curl -L https://playwright.azureedge.net/builds/driver/playwright-1.52.0-linux-arm64.zip -o playwright.zip && \
+    unzip playwright.zip && \
+    rm playwright.zip && \
+    chmod +x /ms-playwright/package/bin/playwright.sh || true
 
-# Configure Playwright environment
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0 \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/usr/lib/chromium \
+    PLAYWRIGHT_DRIVER_PATH=/ms-playwright/package
 # runtime unpack tool and encrypted payload
 COPY --from=secure-build /usr/local/bin/unpack /usr/local/bin/unpack
 COPY --from=secure-build /out/encrypted_files.zip ./hdn-server.enc
