@@ -5,9 +5,10 @@ RUN go mod download
 RUN cd hdn && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -tags neo4j -ldflags="-s -w" -o ../bin/hdn-server .
 
 # Build internal tools (from tools/*) into bin/tools for inclusion in runtime image
+# Exclude test tools like ecotree_test
 RUN set -e; \
     mkdir -p bin/tools; \
-    for d in $(find tools -maxdepth 1 -type d -not -path 'tools'); do \
+    for d in $(find tools -maxdepth 1 -type d -not -path 'tools' -not -path 'tools/ecotree_test'); do \
       name=$(basename "$d"); \
       ( cd "$d"; \
         if [ ! -f go.mod ]; then go mod init agi/tools/$name >/dev/null 2>&1 || true; fi; \
@@ -57,12 +58,11 @@ RUN install -d /payload /out \
 # Final runtime image
 FROM alpine:latest
 RUN apk add --no-cache ca-certificates tzdata openssh-client \
-    # Playwright dependencies for headless browser
+    # Playwright dependencies for MCP server's embedded browser automation
     chromium chromium-chromedriver nss freetype harfbuzz ttf-freefont \
-    # Additional libs for Playwright on ARM64
     libstdc++ libc6-compat
 WORKDIR /app
-# Set Playwright to use system Chromium (avoid downloading x86 binaries)
+# Configure Playwright to use system Chromium
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
     PLAYWRIGHT_BROWSERS_PATH=/usr/bin
 # runtime unpack tool and encrypted payload
