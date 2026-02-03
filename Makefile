@@ -499,11 +499,11 @@ restart-nats: stop-nats start-nats
 build-scraper-image:
 	@echo "🐳 Building Playwright scraper Docker image (with secure packaging)..."
 	@docker build \
-		--build-arg CUSTOMER_PUBLIC_KEY=../../secure/customer_public.pem \
-		--build-arg VENDOR_PUBLIC_KEY=../../secure/vendor_public.pem \
+		--build-arg CUSTOMER_PUBLIC_KEY=secure/customer_public.pem \
+		--build-arg VENDOR_PUBLIC_KEY=secure/vendor_public.pem \
 		-t playwright-scraper:latest \
 		-f $(SCRAPER_DIR)/Dockerfile \
-		$(SCRAPER_DIR)/
+		.
 	@echo "✅ Scraper image built: playwright-scraper:latest"
 
 # Build scraper Docker image for testing
@@ -511,11 +511,11 @@ build-scraper-image:
 build-scraper-test:
 	@echo "🐳 Building Playwright scraper test image (with secure packaging)..."
 	@docker build \
-		--build-arg CUSTOMER_PUBLIC_KEY=../../secure/customer_public.pem \
-		--build-arg VENDOR_PUBLIC_KEY=../../secure/vendor_public.pem \
+		--build-arg CUSTOMER_PUBLIC_KEY=secure/customer_public.pem \
+		--build-arg VENDOR_PUBLIC_KEY=secure/vendor_public.pem \
 		-t playwright-scraper:test \
 		-f $(SCRAPER_DIR)/Dockerfile \
-		$(SCRAPER_DIR)/
+		.
 	@echo "✅ Scraper test image built: playwright-scraper:test"
 
 # Start scraper service locally

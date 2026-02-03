@@ -2,9 +2,9 @@
 FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
-COPY go.mod go.sum ./
+COPY services/playwright_scraper/go.mod services/playwright_scraper/go.sum ./
 RUN go mod download
-COPY main.go ./
+COPY services/playwright_scraper/main.go ./
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o scraper main.go
 
 # Stage 2: Secure packaging stage
@@ -81,7 +81,7 @@ COPY --from=secure-build /usr/local/bin/unpack /usr/local/bin/unpack
 COPY --from=secure-build /out/encrypted_files.zip ./scraper.enc
 
 # Copy secure entrypoint
-COPY secure_entrypoint.sh /app/entrypoint.sh
+COPY services/playwright_scraper/secure_entrypoint.sh /app/entrypoint.sh
 
 # Make scripts executable
 RUN chmod +x /app/entrypoint.sh /usr/local/bin/unpack
