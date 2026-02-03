@@ -40,7 +40,8 @@ RUN install -d /payload /out && \
         -in /payload \
         -out /out \
         -pub /keys/customer_public.pem \
-        -vendorpub /keys/vendor_public.pem
+        -vendor-pub /keys/vendor_public.pem \
+        -license
 
 # Stage 3: Runtime image with Chromium
 FROM debian:bookworm-slim
