@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -13,10 +15,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	mempkg "hdn/memory"
+	"hdn/playwright"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -26,8 +31,9 @@ type MCPKnowledgeServer struct {
 	domainKnowledge mempkg.DomainKnowledgeClient
 	vectorDB        mempkg.VectorDBAdapter
 	redis           *redis.Client
-	hdnURL          string // For proxying queries
+	hdnURL          string                // For proxying queries
 	skillRegistry   *DynamicSkillRegistry // Dynamic skills from configuration
+	llmClient       *LLMClient            // LLM client for prompt-driven browser automation
 }
 
 // MCPKnowledgeRequest represents an MCP JSON-RPC request for knowledge server
@@ -60,13 +66,14 @@ type MCPKnowledgeTool struct {
 }
 
 // NewMCPKnowledgeServer creates a new MCP knowledge server
-func NewMCPKnowledgeServer(domainKnowledge mempkg.DomainKnowledgeClient, vectorDB mempkg.VectorDBAdapter, redis *redis.Client, hdnURL string) *MCPKnowledgeServer {
+func NewMCPKnowledgeServer(domainKnowledge mempkg.DomainKnowledgeClient, vectorDB mempkg.VectorDBAdapter, redis *redis.Client, hdnURL string, llmClient *LLMClient) *MCPKnowledgeServer {
 	server := &MCPKnowledgeServer{
 		domainKnowledge: domainKnowledge,
 		vectorDB:        vectorDB,
 		redis:           redis,
 		hdnURL:          hdnURL,
 		skillRegistry:   NewDynamicSkillRegistry(),
+		llmClient:       llmClient,
 	}
 
 	// Load skills from configuration
@@ -82,6 +89,16 @@ func NewMCPKnowledgeServer(domainKnowledge mempkg.DomainKnowledgeClient, vectorD
 	}
 
 	return server
+}
+
+// SetLLMClient sets or updates the LLM client on the MCP knowledge server
+func (s *MCPKnowledgeServer) SetLLMClient(llmClient *LLMClient) {
+	s.llmClient = llmClient
+	if llmClient != nil {
+		log.Printf("✅ [MCP-KNOWLEDGE] LLM client set on MCP knowledge server")
+	} else {
+		log.Printf("⚠️ [MCP-KNOWLEDGE] LLM client set to nil on MCP knowledge server")
+	}
 }
 
 // GetPromptHints returns prompt hints for a tool by ID
@@ -365,11 +382,18 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 	// Add standard HDN tools
 	tools = append(tools, MCPKnowledgeTool{
 		Name:        "scrape_url",
-		Description: "Scrape content from a URL safely. Useful for reading documentation or checking external sites.",
+		Description: "Scrape content from a URL safely. Useful for reading documentation or checking external sites. Can use a TypeScript/Playwright config (provided as string) to generate custom Go scraping code via LLM.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"url": map[string]interface{}{"type": "string"},
+				"url": map[string]interface{}{
+					"type":        "string",
+					"description": "URL to scrape",
+				},
+				"typescript_config": map[string]interface{}{
+					"type":        "string",
+					"description": "Optional: TypeScript/Playwright code (as string) that will be converted to Go code via LLM for custom scraping logic",
+				},
 			},
 			"required": []string{"url"},
 		},
@@ -398,6 +422,37 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 				"metadata": map[string]interface{}{"type": "object", "description": "Optional metadata as a JSON object"},
 			},
 			"required": []string{"text"},
+		},
+	})
+
+	tools = append(tools, MCPKnowledgeTool{
+		Name:        "browse_web",
+		Description: "Browse a website using a headless browser. Provide natural language instructions describing what to do (e.g., 'Fill the from field with Southampton, fill the to field with Newcastle, select plane transport type, click calculate, and extract the CO2 emissions result'). The LLM will automatically determine the correct selectors and actions. Returns extracted data as JSON.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"url": map[string]interface{}{
+					"type":        "string",
+					"description": "The URL to browse to",
+				},
+				"instructions": map[string]interface{}{
+					"type":        "string",
+					"description": "Natural language instructions describing what to do on the page (e.g., 'Fill from field with Southampton, to field with Newcastle, select plane, click calculate, extract CO2 result')",
+				},
+				"actions": map[string]interface{}{
+					"type":        "array",
+					"description": "Optional: Pre-defined actions array. If not provided, the LLM will generate actions from instructions. Each action has: type, selector, value, extract, wait_for, timeout",
+					"items": map[string]interface{}{
+						"type": "object",
+					},
+				},
+				"timeout": map[string]interface{}{
+					"type":        "integer",
+					"description": "Overall timeout in seconds (default: 60)",
+					"default":     60,
+				},
+			},
+			"required": []string{"url", "instructions"},
 		},
 	})
 
@@ -451,6 +506,8 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 	case "scrape_url", "execute_code", "read_file":
 		// Route to the new wrapper
 		return s.executeToolWrapper(ctx, toolName, arguments)
+	case "browse_web":
+		return s.browseWeb(ctx, arguments)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
@@ -495,6 +552,525 @@ func (s *MCPKnowledgeServer) queryNeo4j(ctx context.Context, args map[string]int
 	return nil, fmt.Errorf("Neo4j not available")
 }
 
+// scrapeWithConfig parses TypeScript/Playwright code and executes it directly using Go Playwright
+func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig string) (interface{}, error) {
+	log.Printf("📝 [MCP-SCRAPE] Received TypeScript config (%d bytes)", len(tsConfig))
+
+	// Parse TypeScript operations from the config
+	operations, err := parsePlaywrightTypeScript(tsConfig, url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse TypeScript config: %v", err)
+	}
+
+	log.Printf("✅ [MCP-SCRAPE] Parsed %d operations from TypeScript config", len(operations))
+
+	// Execute operations using Playwright
+	return s.executePlaywrightOperations(ctx, url, operations)
+}
+
+// PlaywrightOperation represents a parsed operation from TypeScript
+type PlaywrightOperation struct {
+	Type     string // "goto", "click", "fill", "getByRole", "getByText", "locator", "wait", "extract"
+	Selector string // CSS selector or locator
+	Value    string // For fill operations
+	Role     string // For getByRole
+	RoleName string // Name for getByRole
+	Text     string // For getByText
+	Timeout  int    // Timeout in seconds
+}
+
+// parsePlaywrightTypeScript extracts operations from TypeScript/Playwright test code
+// This wraps the shared parser and converts to internal types
+func parsePlaywrightTypeScript(tsConfig, defaultURL string) ([]PlaywrightOperation, error) {
+	// Use the shared parser
+	sharedOps, err := playwright.ParseTypeScript(tsConfig, defaultURL)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to internal types
+	var operations []PlaywrightOperation
+	for _, op := range sharedOps {
+		operations = append(operations, PlaywrightOperation{
+			Type:     op.Type,
+			Selector: op.Selector,
+			Value:    op.Value,
+			Role:     op.Role,
+			RoleName: op.RoleName,
+			Text:     op.Text,
+			Timeout:  op.Timeout,
+		})
+	}
+
+	return operations, nil
+
+	/* OLD PARSER CODE - replaced by shared parser
+	var operations []PlaywrightOperation
+
+	lines := strings.Split(tsConfig, "\n")
+
+	// Extract URL from page.goto if present, otherwise use defaultURL
+	currentURL := defaultURL
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Parse page.goto
+		if strings.Contains(line, "page.goto") {
+			// Extract URL from page.goto('url') or page.goto("url")
+			if idx := strings.Index(line, "goto("); idx != -1 {
+				urlStart := idx + 5
+				// Skip whitespace
+				for urlStart < len(line) && (line[urlStart] == ' ' || line[urlStart] == '\t') {
+					urlStart++
+				}
+				if urlStart < len(line) && (line[urlStart] == '\'' || line[urlStart] == '"') {
+					quote := line[urlStart]
+					urlStart++ // Skip opening quote
+					urlEnd := urlStart
+					// Find closing quote (same type as opening)
+					for urlEnd < len(line) && line[urlEnd] != quote {
+						urlEnd++
+					}
+					if urlStart <= urlEnd && urlEnd < len(line) {
+						currentURL = line[urlStart:urlEnd]
+					}
+				}
+			}
+			operations = append(operations, PlaywrightOperation{Type: "goto", Selector: currentURL})
+			continue
+		}
+
+		// Parse page.getByRole('link', { name: 'Plane' }).click()
+		if strings.Contains(line, "getByRole") && strings.Contains(line, "click()") {
+			// Extract role and name
+			role := ""
+			name := ""
+			if idx := strings.Index(line, "getByRole("); idx != -1 {
+				roleStart := idx + 10
+				if roleStart < len(line) {
+					// Find role (first string)
+					roleEnd := roleStart
+					for roleEnd < len(line) && line[roleEnd] != '\'' && line[roleEnd] != '"' && line[roleEnd] != ',' {
+						roleEnd++
+					}
+					if roleStart < roleEnd {
+						role = line[roleStart:roleEnd]
+					}
+					// Find name: 'value'
+					if nameIdx := strings.Index(line, "name:"); nameIdx != -1 {
+						nameStart := nameIdx + 5
+						for nameStart < len(line) && (line[nameStart] == ' ' || line[nameStart] == '\'' || line[nameStart] == '"') {
+							nameStart++
+						}
+						nameEnd := nameStart
+						for nameEnd < len(line) && line[nameEnd] != '\'' && line[nameEnd] != '"' && line[nameEnd] != ',' {
+							nameEnd++
+						}
+						if nameStart < nameEnd {
+							name = line[nameStart:nameEnd]
+						}
+					}
+				}
+			}
+			operations = append(operations, PlaywrightOperation{
+				Type:     "getByRole",
+				Role:     role,
+				RoleName: name,
+			})
+			continue
+		}
+
+		// Parse page.getByRole('textbox', { name: 'From To Via' }).click()
+		if strings.Contains(line, "getByRole") && strings.Contains(line, "click()") {
+			// Already handled above, but check for textbox
+			continue
+		}
+
+		// Parse page.getByRole('textbox', { name: 'From To Via' }).fill('southampton')
+		if strings.Contains(line, "getByRole") && strings.Contains(line, "fill(") {
+			role := ""
+			name := ""
+			value := ""
+			if idx := strings.Index(line, "getByRole("); idx != -1 {
+				roleStart := idx + 10
+				if roleStart < len(line) {
+					roleEnd := roleStart
+					for roleEnd < len(line) && line[roleEnd] != '\'' && line[roleEnd] != '"' && line[roleEnd] != ',' {
+						roleEnd++
+					}
+					if roleStart < roleEnd {
+						role = line[roleStart:roleEnd]
+					}
+					if nameIdx := strings.Index(line, "name:"); nameIdx != -1 {
+						nameStart := nameIdx + 5
+						for nameStart < len(line) && (line[nameStart] == ' ' || line[nameStart] == '\'' || line[nameStart] == '"') {
+							nameStart++
+						}
+						nameEnd := nameStart
+						for nameEnd < len(line) && line[nameEnd] != '\'' && line[nameEnd] != '"' && line[nameEnd] != ',' {
+							nameEnd++
+						}
+						if nameStart < nameEnd {
+							name = line[nameStart:nameEnd]
+						}
+					}
+				}
+			}
+			// Extract fill value
+			if fillIdx := strings.Index(line, "fill("); fillIdx != -1 {
+				valueStart := fillIdx + 5
+				for valueStart < len(line) && (line[valueStart] == ' ' || line[valueStart] == '\'' || line[valueStart] == '"') {
+					valueStart++
+				}
+				valueEnd := valueStart
+				for valueEnd < len(line) && line[valueEnd] != '\'' && line[valueEnd] != '"' && line[valueEnd] != ')' {
+					valueEnd++
+				}
+				if valueStart < valueEnd {
+					value = line[valueStart:valueEnd]
+				}
+			}
+			operations = append(operations, PlaywrightOperation{
+				Type:     "getByRoleFill",
+				Role:     role,
+				RoleName: name,
+				Value:    value,
+			})
+			continue
+		}
+
+		// Parse page.getByText('Southampton, United Kingdom').click()
+		if strings.Contains(line, "getByText") && strings.Contains(line, "click()") {
+			text := ""
+			if idx := strings.Index(line, "getByText("); idx != -1 {
+				textStart := idx + 10
+				for textStart < len(line) && (line[textStart] == ' ' || line[textStart] == '\'' || line[textStart] == '"') {
+					textStart++
+				}
+				textEnd := textStart
+				for textEnd < len(line) && line[textEnd] != '\'' && line[textEnd] != '"' && line[textEnd] != ')' {
+					textEnd++
+				}
+				if textStart < textEnd {
+					text = line[textStart:textEnd]
+				}
+			}
+			operations = append(operations, PlaywrightOperation{
+				Type: "getByText",
+				Text: text,
+			})
+			continue
+		}
+
+		// Parse page.locator('input[name="To"]').click()
+		if strings.Contains(line, "locator(") && strings.Contains(line, "click()") {
+			selector := ""
+			if idx := strings.Index(line, "locator("); idx != -1 {
+				selStart := idx + 8
+				// Skip whitespace
+				for selStart < len(line) && (line[selStart] == ' ' || line[selStart] == '\t') {
+					selStart++
+				}
+				// Find the opening quote
+				if selStart < len(line) && (line[selStart] == '\'' || line[selStart] == '"') {
+					quote := line[selStart]
+					selStart++ // Skip opening quote
+					selEnd := selStart
+					// Find closing quote, handling escaped quotes
+					for selEnd < len(line) {
+						if line[selEnd] == '\\' && selEnd+1 < len(line) {
+							selEnd += 2 // Skip escaped character
+							continue
+						}
+						if line[selEnd] == quote {
+							break
+						}
+						selEnd++
+					}
+					if selStart < selEnd {
+						selector = line[selStart:selEnd]
+					}
+				}
+			}
+			operations = append(operations, PlaywrightOperation{
+				Type:     "locator",
+				Selector: selector,
+			})
+			continue
+		}
+
+		// Parse page.locator('input[name="To"]').fill('newcastle')
+		if strings.Contains(line, "locator(") && strings.Contains(line, "fill(") {
+			selector := ""
+			value := ""
+			if idx := strings.Index(line, "locator("); idx != -1 {
+				selStart := idx + 8
+				// Skip whitespace
+				for selStart < len(line) && (line[selStart] == ' ' || line[selStart] == '\t') {
+					selStart++
+				}
+				// Find the opening quote
+				if selStart < len(line) && (line[selStart] == '\'' || line[selStart] == '"') {
+					quote := line[selStart]
+					selStart++ // Skip opening quote
+					selEnd := selStart
+					// Find closing quote, handling escaped quotes
+					for selEnd < len(line) {
+						if line[selEnd] == '\\' && selEnd+1 < len(line) {
+							selEnd += 2 // Skip escaped character
+							continue
+						}
+						if line[selEnd] == quote {
+							break
+						}
+						selEnd++
+					}
+					if selStart < selEnd {
+						selector = line[selStart:selEnd]
+					}
+				}
+			}
+			if fillIdx := strings.Index(line, "fill("); fillIdx != -1 {
+				valueStart := fillIdx + 5
+				// Skip whitespace
+				for valueStart < len(line) && (valueStart == ' ' || line[valueStart] == '\t') {
+					valueStart++
+				}
+				// Find the opening quote
+				if valueStart < len(line) && (line[valueStart] == '\'' || line[valueStart] == '"') {
+					quote := line[valueStart]
+					valueStart++ // Skip opening quote
+					valueEnd := valueStart
+					// Find closing quote
+					for valueEnd < len(line) && line[valueEnd] != quote {
+						valueEnd++
+					}
+					if valueStart < valueEnd {
+						value = line[valueStart:valueEnd]
+					}
+				}
+			}
+			operations = append(operations, PlaywrightOperation{
+				Type:     "locatorFill",
+				Selector: selector,
+				Value:    value,
+			})
+			continue
+		}
+	}
+
+	return operations, nil
+	*/
+}
+
+// executePlaywrightOperations executes parsed operations using Go Playwright
+func (s *MCPKnowledgeServer) executePlaywrightOperations(ctx context.Context, url string, operations []PlaywrightOperation) (interface{}, error) {
+	// We need to use the headless browser binary or import Playwright directly
+	// For now, let's use the headless browser binary approach by converting operations to actions
+
+	log.Printf("🔄 [MCP-SCRAPE] Converting %d parsed operations to browser actions", len(operations))
+
+	// Convert operations to actions format that headless-browser understands
+	actions := []map[string]interface{}{}
+
+	for i, op := range operations {
+		log.Printf("  [%d] Operation type=%s, role=%s, roleName=%s, text=%s, selector=%s, value=%s",
+			i+1, op.Type, op.Role, op.RoleName, op.Text, op.Selector, op.Value)
+
+		switch op.Type {
+		case "goto":
+			// URL is handled separately
+			if op.Selector != "" {
+				url = op.Selector
+			}
+		case "getByRole":
+			// Convert getByRole to click action
+			// For role-based selection, we'll use a text-based selector
+			if op.Role == "link" && op.RoleName != "" {
+				// Use text selector which works better in Playwright
+				actions = append(actions, map[string]interface{}{
+					"type":     "click",
+					"selector": fmt.Sprintf("text='%s'", op.RoleName),
+				})
+				// Add a short wait after clicking links to let page load
+				actions = append(actions, map[string]interface{}{
+					"type":  "wait",
+					"value": "2",
+				})
+			} else if op.Role == "textbox" && op.RoleName != "" {
+				// For textbox, skip the click - just use fill which auto-clicks
+				// Don't add a click action here
+			}
+		case "getByRoleFill":
+			// Fill after finding by role
+			if op.Role == "textbox" && op.RoleName != "" {
+				// Use a more generic selector - just target visible text inputs
+				// The order in the TypeScript determines which input gets filled
+				actions = append(actions, map[string]interface{}{
+					"type":     "fill",
+					"selector": "input[type='text']:visible",
+					"value":    op.Value,
+				})
+			}
+		case "getByText":
+			// Click on text
+			actions = append(actions, map[string]interface{}{
+				"type":     "click",
+				"selector": fmt.Sprintf("text='%s'", op.Text),
+			})
+		case "locator":
+			// Click on locator
+			actions = append(actions, map[string]interface{}{
+				"type":     "click",
+				"selector": op.Selector,
+			})
+		case "locatorFill":
+			// Fill locator
+			actions = append(actions, map[string]interface{}{
+				"type":     "fill",
+				"selector": op.Selector,
+				"value":    op.Value,
+			})
+		}
+	}
+
+	// Smart extraction: If the last operation is clicking on text that looks like a result (contains numbers/units),
+	// convert it to a generic content extraction instead
+	if len(operations) > 0 {
+		lastOp := operations[len(operations)-1]
+		if lastOp.Type == "getByText" && lastOp.Text != "" &&
+			(strings.Contains(lastOp.Text, "kg") || strings.Contains(lastOp.Text, "CO2") ||
+				strings.Contains(lastOp.Text, "0") || strings.Contains(lastOp.Text, "1") ||
+				strings.Contains(lastOp.Text, "2") || strings.Contains(lastOp.Text, "3") ||
+				strings.Contains(lastOp.Text, "4") || strings.Contains(lastOp.Text, "5") ||
+				strings.Contains(lastOp.Text, "6") || strings.Contains(lastOp.Text, "7") ||
+				strings.Contains(lastOp.Text, "8") || strings.Contains(lastOp.Text, "9")) {
+			// Remove the last click action
+			if len(actions) > 0 && actions[len(actions)-1]["type"] == "click" {
+				actions = actions[:len(actions)-1]
+			}
+			// Add a wait for results to load, then extract body text
+			actions = append(actions, map[string]interface{}{
+				"type":  "wait",
+				"value": "3",
+			})
+			actions = append(actions, map[string]interface{}{
+				"type": "extract",
+				"extract": map[string]string{
+					"pageText": "body",
+				},
+			})
+			log.Printf("🔍 [MCP-SCRAPE] Converted last getByText('%s') to generic page text extraction", lastOp.Text)
+		}
+	}
+
+	log.Printf("✅ [MCP-SCRAPE] Converted to %d browser actions", len(actions))
+	for i, action := range actions {
+		log.Printf("  Action [%d]: type=%v, selector=%v, value=%v, extract=%v", i+1, action["type"], action["selector"], action["value"], action["extract"])
+	}
+
+	// Use the browse_web functionality to execute
+	return s.browseWebWithActions(ctx, url, actions)
+}
+
+// browseWebWithActions executes browser actions directly
+func (s *MCPKnowledgeServer) browseWebWithActions(ctx context.Context, url string, actions []map[string]interface{}) (interface{}, error) {
+	log.Printf("🚀 [BROWSE-WEB] Starting browseWebWithActions for URL: %s with %d actions", url, len(actions))
+
+	// Find the headless_browser binary
+	projectRoot := os.Getenv("AGI_PROJECT_ROOT")
+	if projectRoot == "" {
+		if wd, err := os.Getwd(); err == nil {
+			projectRoot = wd
+		}
+	}
+
+	candidates := []string{
+		filepath.Join(projectRoot, "bin", "headless-browser"),
+		filepath.Join(projectRoot, "bin", "tools", "headless_browser"),
+		"bin/headless-browser",
+		"../bin/headless-browser",
+	}
+
+	browserBin := ""
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			if abs, err := filepath.Abs(candidate); err == nil {
+				browserBin = abs
+			} else {
+				browserBin = candidate
+			}
+			break
+		}
+	}
+
+	if browserBin == "" {
+		return nil, fmt.Errorf("headless-browser binary not found. Please build it first: cd tools/headless_browser && go build -o ../../bin/headless-browser")
+	}
+
+	// Convert actions to JSON
+	actionsJSON, err := json.Marshal(actions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal actions: %v", err)
+	}
+
+	// Run the browser tool
+	runCmd := exec.CommandContext(ctx, browserBin,
+		"-url", url,
+		"-actions", string(actionsJSON),
+		"-timeout", "60",
+	)
+
+	log.Printf("🔧 [BROWSE-WEB] Executing command: %s %v", browserBin, runCmd.Args[1:])
+	log.Printf("🔧 [BROWSE-WEB] Actions JSON: %s", string(actionsJSON))
+
+	output, err := runCmd.CombinedOutput()
+	log.Printf("✅ [BROWSE-WEB] Command completed, output length: %d bytes, err: %v", len(output), err)
+	if len(output) > 0 && len(output) < 500 {
+		log.Printf("🔍 [BROWSE-WEB] Output content: %s", string(output))
+	}
+	// If we have output, proceed even if there was an error (browser might have been killed after producing output)
+	if err != nil && len(output) == 0 {
+		return nil, fmt.Errorf("browser execution failed: %v\nOutput: %s", err, string(output))
+	}
+	if err != nil && len(output) > 0 {
+		log.Printf("⚠️ [BROWSE-WEB] Browser had error but produced output, proceeding: %v", err)
+	}
+
+	// Parse JSON result
+	var result map[string]interface{}
+	if err := json.Unmarshal(output, &result); err != nil {
+		return map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": string(output),
+				},
+			},
+		}, nil
+	}
+
+	// Format response
+	contentText := fmt.Sprintf("Scraped data from %s\n\n", url)
+	if extracted, ok := result["extracted"].(map[string]interface{}); ok && len(extracted) > 0 {
+		contentText += "Extracted data:\n"
+		for k, v := range extracted {
+			contentText += fmt.Sprintf("  %s: %v\n", k, v)
+		}
+	}
+
+	return map[string]interface{}{
+		"content": []map[string]interface{}{
+			{
+				"type": "text",
+				"text": contentText,
+			},
+		},
+		"data": result["extracted"],
+	}, nil
+}
+
 // executeToolWrapper routes MCP tool calls to the wrapped internal HDN tools
 func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName string, args map[string]interface{}) (interface{}, error) {
 	// Map MCP tool names to HDN tool IDs (remove the "mcp_" prefix if present, as it was added by client for namespacing)
@@ -509,6 +1085,11 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 		url, ok := args["url"].(string)
 		if !ok {
 			return nil, fmt.Errorf("url parameter required")
+		}
+
+		// Check if typescript_config is provided - if so, parse and execute directly
+		if tsConfig, ok := args["typescript_config"].(string); ok && tsConfig != "" {
+			return s.scrapeWithConfig(ctx, url, tsConfig)
 		}
 
 		// Use the html-scraper binary tool for better content extraction
@@ -672,6 +1253,890 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 	default:
 		return nil, fmt.Errorf("unknown internal tool: %s", toolName)
 	}
+}
+
+// browseWeb uses a headless browser to navigate, fill forms, click buttons, and extract data
+// It's prompt-driven: if instructions are provided, uses LLM to generate actions from page HTML
+func (s *MCPKnowledgeServer) browseWeb(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	url, ok := args["url"].(string)
+	if !ok || url == "" {
+		return nil, fmt.Errorf("url parameter required")
+	}
+
+	instructions, _ := args["instructions"].(string)
+	if instructions == "" {
+		return nil, fmt.Errorf("instructions parameter required - describe what to do on the page")
+	}
+
+	timeout := 60
+	if t, ok := args["timeout"].(float64); ok && t > 0 {
+		timeout = int(t)
+	}
+
+	// Parse actions if provided (optional - LLM will generate if not provided)
+	var actions []map[string]interface{}
+	if actionsRaw, ok := args["actions"].([]interface{}); ok && len(actionsRaw) > 0 {
+		for _, actionRaw := range actionsRaw {
+			if actionMap, ok := actionRaw.(map[string]interface{}); ok {
+				actions = append(actions, actionMap)
+			}
+		}
+		log.Printf("🌐 [BROWSE-WEB] Using %d pre-defined actions", len(actions))
+	} else {
+		log.Printf("🌐 [BROWSE-WEB] No actions provided, will use LLM to generate from instructions")
+	}
+
+	// Find the headless_browser binary
+	projectRoot := os.Getenv("AGI_PROJECT_ROOT")
+	if projectRoot == "" {
+		if wd, err := os.Getwd(); err == nil {
+			projectRoot = wd
+		}
+	}
+
+	candidates := []string{
+		filepath.Join(projectRoot, "bin", "headless-browser"),
+		filepath.Join(projectRoot, "bin", "tools", "headless_browser"),
+		"bin/headless-browser",
+		"../bin/headless-browser",
+	}
+
+	browserBin := ""
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			if abs, err := filepath.Abs(candidate); err == nil {
+				browserBin = abs
+			} else {
+				browserBin = candidate
+			}
+			break
+		}
+	}
+
+	if browserBin == "" {
+		return nil, fmt.Errorf("headless-browser binary not found. Please build it first: cd tools/headless_browser && go build -o ../../bin/headless-browser")
+	}
+
+	// If no actions provided, use LLM to generate them from instructions
+	if len(actions) == 0 {
+		if s.llmClient == nil {
+			log.Printf("⚠️ [BROWSE-WEB] LLM client not available, cannot generate actions from instructions")
+		} else {
+			log.Printf("🤖 [BROWSE-WEB] Generating actions from instructions using LLM...")
+
+			// First, get the page HTML to analyze
+			log.Printf("🌐 [BROWSE-WEB] Fetching page HTML for analysis...")
+			// Use shorter timeout for HTML fetch - we just need the HTML structure, not full rendering
+			htmlCtx, htmlCancel := context.WithTimeout(ctx, 20*time.Second)
+			defer htmlCancel()
+			getHTMLCmd := exec.CommandContext(htmlCtx, browserBin,
+				"-url", url,
+				"-actions", "[]", // Empty actions - just navigate
+				"-timeout", "15", // Reduced from 30 to 15 for faster HTML fetch
+				"-html", // Return HTML
+				"-fast", // Use fast mode for HTML-only operations
+			)
+
+			htmlOutputStr, stderrHTML, err := runCommandWithLiveOutput(htmlCtx, getHTMLCmd, "🔍 [BROWSE-WEB][HTML]")
+			if err != nil {
+				if errors.Is(htmlCtx.Err(), context.DeadlineExceeded) {
+					log.Printf("⚠️ [BROWSE-WEB] HTML fetch timed out after 20s")
+				} else {
+					log.Printf("⚠️ [BROWSE-WEB] Failed to get page HTML: %v, will proceed without it", err)
+				}
+				if stderrHTML != "" {
+					log.Printf("🔍 [BROWSE-WEB][HTML] stderr:\n%s", stderrHTML)
+				}
+			} else {
+				// Extract JSON from output - look for the browser result JSON object
+				// The browser tool outputs JSON with fields: success, url, title, extracted, html
+				outputStr := htmlOutputStr
+
+				// Try to find JSON that looks like our browser result (contains "success" and "html" fields)
+				// Look for the pattern: {"success":... which is the actual result
+				resultPattern := `{"success"`
+				resultStart := strings.LastIndex(outputStr, resultPattern)
+
+				if resultStart == -1 {
+					// Fallback: look for any JSON object at the end
+					resultStart = strings.LastIndex(outputStr, "{")
+				}
+
+				if resultStart == -1 {
+					log.Printf("⚠️ [BROWSE-WEB] Could not find JSON object in HTML output")
+				} else {
+					// Find matching closing brace by counting braces (respecting string boundaries)
+					braceCount := 0
+					jsonEnd := -1
+					inString := false
+					escapeNext := false
+
+					for i := resultStart; i < len(outputStr); i++ {
+						if escapeNext {
+							escapeNext = false
+							continue
+						}
+
+						if outputStr[i] == '\\' {
+							escapeNext = true
+							continue
+						}
+
+						if outputStr[i] == '"' && !escapeNext {
+							inString = !inString
+							continue
+						}
+
+						if !inString {
+							if outputStr[i] == '{' {
+								braceCount++
+							} else if outputStr[i] == '}' {
+								braceCount--
+								if braceCount == 0 {
+									jsonEnd = i
+									break
+								}
+							}
+						}
+					}
+
+					if jsonEnd != -1 {
+						jsonStr := outputStr[resultStart : jsonEnd+1]
+
+						// Try to parse JSON
+						var htmlResult map[string]interface{}
+						if err := json.Unmarshal([]byte(jsonStr), &htmlResult); err != nil {
+							log.Printf("⚠️ [BROWSE-WEB] Failed to parse HTML result JSON: %v", err)
+							log.Printf("📄 [BROWSE-WEB] JSON preview (first 200 chars): %s", jsonStr[:min(200, len(jsonStr))])
+						} else {
+							// Successfully parsed JSON - verify it's our result object
+							if _, hasSuccess := htmlResult["success"]; hasSuccess {
+								if html, ok := htmlResult["html"].(string); ok && html != "" {
+									log.Printf("📄 [BROWSE-WEB] Got page HTML: %d bytes", len(html))
+									// Use LLM to generate actions from HTML and instructions
+									actions, err = s.generateActionsFromInstructions(ctx, url, instructions, html)
+									if err != nil {
+										log.Printf("⚠️ [BROWSE-WEB] LLM action generation failed: %v, will try with empty actions", err)
+										actions = []map[string]interface{}{}
+									} else {
+										log.Printf("✅ [BROWSE-WEB] LLM generated %d actions", len(actions))
+									}
+								} else {
+									log.Printf("⚠️ [BROWSE-WEB] HTML field missing or empty in result")
+								}
+							} else {
+								log.Printf("⚠️ [BROWSE-WEB] Extracted JSON doesn't look like browser result (no 'success' field)")
+							}
+						}
+					} else {
+						log.Printf("⚠️ [BROWSE-WEB] Could not find complete JSON in HTML output")
+					}
+				}
+			}
+		}
+	}
+
+	// Convert actions to JSON
+	actionsJSON, err := json.Marshal(actions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal actions: %w", err)
+	}
+
+	// Execute command with live output and timeout
+	toolCtx, toolCancel := context.WithTimeout(ctx, time.Duration(timeout+15)*time.Second)
+	defer toolCancel()
+	runCmd := exec.CommandContext(toolCtx, browserBin,
+		"-url", url,
+		"-actions", string(actionsJSON),
+		"-timeout", fmt.Sprintf("%d", timeout),
+	)
+
+	stdoutStr, stderrStr, runErr := runCommandWithLiveOutput(toolCtx, runCmd, "🔍 [BROWSE-WEB][TOOL]")
+	if runErr != nil {
+		if errors.Is(toolCtx.Err(), context.DeadlineExceeded) {
+			return nil, fmt.Errorf("browser execution timed out after %ds", timeout+15)
+		}
+		// Include stderr in error message for debugging
+		return nil, fmt.Errorf("browser execution failed: %v - stdout: %s - stderr: %s", runErr, stdoutStr, stderrStr)
+	}
+
+	// Log stderr (contains debug output) in case anything was buffered
+	if stderrStr != "" {
+		log.Printf("🔍 [BROWSE-WEB] Browser tool debug output:\n%s", stderrStr)
+	}
+	// Extract JSON from output (may have log messages mixed in)
+	// Look for the last complete JSON object in the output
+	outputStr := stdoutStr
+
+	// Find the last opening brace
+	jsonStart := strings.LastIndex(outputStr, "{")
+	if jsonStart == -1 {
+		return nil, fmt.Errorf("failed to find JSON object in browser output")
+	}
+
+	// Find the matching closing brace by counting braces
+	braceCount := 0
+	jsonEnd := -1
+	for i := jsonStart; i < len(outputStr); i++ {
+		if outputStr[i] == '{' {
+			braceCount++
+		} else if outputStr[i] == '}' {
+			braceCount--
+			if braceCount == 0 {
+				jsonEnd = i
+				break
+			}
+		}
+	}
+
+	if jsonEnd == -1 {
+		return nil, fmt.Errorf("failed to find complete JSON object in browser output")
+	}
+
+	jsonStr := outputStr[jsonStart : jsonEnd+1]
+
+	// Parse JSON result
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
+		// Try cleaning the JSON string (remove any non-ASCII characters that might interfere)
+		cleaned := strings.Map(func(r rune) rune {
+			// Keep ASCII printable characters, newlines, tabs, and common JSON characters
+			if (r >= 32 && r <= 126) || r == '\n' || r == '\t' || r == '\r' {
+				return r
+			}
+			return -1
+		}, jsonStr)
+		if err2 := json.Unmarshal([]byte(cleaned), &result); err2 != nil {
+			return nil, fmt.Errorf("failed to parse browser result: %w (cleaned also failed: %v) - json preview: %s", err, err2, jsonStr[:min(200, len(jsonStr))])
+		}
+	}
+
+	// Check if execution was successful
+	if success, ok := result["success"].(bool); ok && !success {
+		if errMsg, ok := result["error"].(string); ok {
+			return nil, fmt.Errorf("browser execution failed: %s", errMsg)
+		}
+		return nil, fmt.Errorf("browser execution failed")
+	}
+
+	// Return extracted data in MCP content format
+	extracted := result["extracted"]
+	if extracted == nil {
+		extracted = make(map[string]interface{})
+	}
+
+	return map[string]interface{}{
+		"content": []map[string]interface{}{
+			{
+				"type": "text",
+				"text": fmt.Sprintf("Successfully browsed to %s\n\nExtracted data:\n%s", url, formatExtractedData(extracted)),
+			},
+		},
+		"extracted": extracted,
+		"url":       url,
+		"title":     result["title"],
+	}, nil
+}
+
+// formatExtractedData formats extracted data as a readable string
+func formatExtractedData(data interface{}) string {
+	if data == nil {
+		return "No data extracted"
+	}
+
+	if dataMap, ok := data.(map[string]interface{}); ok {
+		var builder strings.Builder
+		for k, v := range dataMap {
+			builder.WriteString(fmt.Sprintf("  %s: %v\n", k, v))
+		}
+		return builder.String()
+	}
+
+	return fmt.Sprintf("%v", data)
+}
+
+// extractFormStructure extracts key form elements from HTML to help LLM generate better selectors
+func extractFormStructure(html string) string {
+	var info strings.Builder
+
+	// Extract input fields with their attributes - be more specific
+	inputRe := regexp.MustCompile(`(?i)<input[^>]*>`)
+	inputs := inputRe.FindAllString(html, -1)
+	if len(inputs) > 0 {
+		info.WriteString("Input fields found (use these EXACT selectors):\n")
+		for i, input := range inputs {
+			if i < 15 { // Show more inputs
+				// Extract key attributes
+				var attrs []string
+				if idMatch := regexp.MustCompile(`(?i)id=["']([^"']+)["']`).FindStringSubmatch(input); len(idMatch) > 1 {
+					attrs = append(attrs, fmt.Sprintf("id='%s' → selector: #%s", idMatch[1], idMatch[1]))
+				}
+				if nameMatch := regexp.MustCompile(`(?i)name=["']([^"']+)["']`).FindStringSubmatch(input); len(nameMatch) > 1 {
+					attrs = append(attrs, fmt.Sprintf("name='%s' → selector: input[name='%s']", nameMatch[1], nameMatch[1]))
+				}
+				if placeholderMatch := regexp.MustCompile(`(?i)placeholder=["']([^"']+)["']`).FindStringSubmatch(input); len(placeholderMatch) > 1 {
+					attrs = append(attrs, fmt.Sprintf("placeholder='%s' → selector: input[placeholder='%s']", placeholderMatch[1], placeholderMatch[1]))
+				}
+				if dataMatch := regexp.MustCompile(`(?i)data-[^=]+=["']([^"']+)["']`).FindStringSubmatch(input); len(dataMatch) > 0 {
+					dataAttr := regexp.MustCompile(`(?i)(data-[^=]+)=`).FindStringSubmatch(input)
+					if len(dataAttr) > 1 {
+						attrs = append(attrs, fmt.Sprintf("%s → selector: input[%s]", dataAttr[1], dataAttr[1]))
+					}
+				}
+				if len(attrs) > 0 {
+					info.WriteString(fmt.Sprintf("  Input %d: %s\n", i+1, strings.Join(attrs, ", ")))
+				} else {
+					info.WriteString(fmt.Sprintf("  Input %d: %s (no clear identifiers)\n", i+1, input[:min(80, len(input))]))
+				}
+			}
+		}
+		if len(inputs) > 15 {
+			info.WriteString(fmt.Sprintf("  ... and %d more inputs\n", len(inputs)-15))
+		}
+	}
+
+	// Extract buttons (including React/Vue components that might render as divs with role="button")
+	buttonRe := regexp.MustCompile(`(?i)<button[^>]*>.*?</button>`)
+	buttons := buttonRe.FindAllString(html, -1)
+
+	// Also look for div/span/a elements with role="button" or button-like classes (simplified - no backreferences)
+	buttonLikeDivRe := regexp.MustCompile(`(?i)<div[^>]*(?:role=["']button["']|class=["'][^"']*button[^"']*["'])[^>]*>`)
+	buttonLikeSpanRe := regexp.MustCompile(`(?i)<span[^>]*(?:role=["']button["']|class=["'][^"']*button[^"']*["'])[^>]*>`)
+	buttonLikeARe := regexp.MustCompile(`(?i)<a[^>]*(?:role=["']button["']|class=["'][^"']*button[^"']*["'])[^>]*>`)
+	buttonLikeDiv := buttonLikeDivRe.FindAllString(html, -1)
+	buttonLikeSpan := buttonLikeSpanRe.FindAllString(html, -1)
+	buttonLikeA := buttonLikeARe.FindAllString(html, -1)
+	totalButtonLike := len(buttonLikeDiv) + len(buttonLikeSpan) + len(buttonLikeA)
+
+	if len(buttons) > 0 || totalButtonLike > 0 {
+		info.WriteString(fmt.Sprintf("\nButtons found: %d (plus %d button-like elements)\n", len(buttons), totalButtonLike))
+		for i, btn := range buttons {
+			if i < 10 { // Show more buttons
+				// Extract attributes
+				var attrs []string
+				if idMatch := regexp.MustCompile(`(?i)id=["']([^"']+)["']`).FindStringSubmatch(btn); len(idMatch) > 1 {
+					attrs = append(attrs, fmt.Sprintf("id='%s' → selector: #%s", idMatch[1], idMatch[1]))
+				}
+				if classMatch := regexp.MustCompile(`(?i)class=["']([^"']+)["']`).FindStringSubmatch(btn); len(classMatch) > 1 {
+					// Extract first meaningful class
+					classes := strings.Fields(classMatch[1])
+					if len(classes) > 0 {
+						attrs = append(attrs, fmt.Sprintf("class='%s' → selector: .%s", classes[0], classes[0]))
+					}
+				}
+				// Extract text content
+				textRe := regexp.MustCompile(`(?i)>([^<]+)<`)
+				if textMatch := textRe.FindStringSubmatch(btn); len(textMatch) > 1 {
+					text := strings.TrimSpace(textMatch[1])
+					if text != "" {
+						attrs = append(attrs, fmt.Sprintf("text='%s'", text))
+					}
+				}
+				if len(attrs) > 0 {
+					info.WriteString(fmt.Sprintf("  Button %d: %s\n", i+1, strings.Join(attrs, ", ")))
+				}
+			}
+		}
+	}
+
+	// Look for form-related IDs and classes
+	idRe := regexp.MustCompile(`(?i)id=["']([^"']*(?:from|to|origin|destination|calculate|submit|co2|result)[^"']*)["']`)
+	ids := idRe.FindAllStringSubmatch(html, -1)
+	if len(ids) > 0 {
+		info.WriteString("\nRelevant IDs found:\n")
+		for i, match := range ids {
+			if i < 10 {
+				info.WriteString(fmt.Sprintf("  - #%s\n", match[1]))
+			}
+		}
+	}
+
+	result := info.String()
+	if result == "" {
+		return "No clear form structure detected. Look for input fields, buttons, and form elements in the HTML."
+	}
+
+	return result
+}
+
+// extractSelectorsFromFormInfo extracts all valid selectors mentioned in the form info string
+func extractSelectorsFromFormInfo(formInfo string) []string {
+	var selectors []string
+	// Look for patterns like "selector: #id" or "selector: input[name='name']"
+	selectorRe := regexp.MustCompile(`selector:\s*([^\n,]+)`)
+	matches := selectorRe.FindAllStringSubmatch(formInfo, -1)
+	for _, match := range matches {
+		if len(match) > 1 {
+			selector := strings.TrimSpace(match[1])
+			if selector != "" {
+				selectors = append(selectors, selector)
+			}
+		}
+	}
+	// Also extract IDs directly (patterns like "id='xyz' → selector: #xyz")
+	idRe := regexp.MustCompile(`id=['"]([^'"]+)['"]`)
+	idMatches := idRe.FindAllStringSubmatch(formInfo, -1)
+	for _, match := range idMatches {
+		if len(match) > 1 {
+			selectors = append(selectors, "#"+match[1])
+		}
+	}
+	// Extract name attributes (patterns like "name='xyz' → selector: input[name='xyz']")
+	nameRe := regexp.MustCompile(`name=['"]([^'"]+)['"]`)
+	nameMatches := nameRe.FindAllStringSubmatch(formInfo, -1)
+	for _, match := range nameMatches {
+		if len(match) > 1 {
+			selectors = append(selectors, fmt.Sprintf("input[name='%s']", match[1]))
+		}
+	}
+	return selectors
+}
+
+// isSelectorValid checks if a selector matches any of the valid selectors or common patterns
+func isSelectorValid(selector string, validSelectors []string) bool {
+	// Always allow "body" selector
+	if selector == "body" {
+		return true
+	}
+	// Check if selector matches any valid selector exactly
+	for _, valid := range validSelectors {
+		if selector == valid {
+			return true
+		}
+		// Also check if selector contains the valid selector (for comma-separated selectors)
+		if strings.Contains(selector, valid) {
+			return true
+		}
+	}
+	// Check for common valid patterns
+	validPatterns := []string{
+		"input[",
+		"button[",
+		"select[",
+		"textarea[",
+		"[data-",
+		"#",
+		".",
+	}
+	for _, pattern := range validPatterns {
+		if strings.Contains(selector, pattern) {
+			return true // Might be valid, let it through
+		}
+	}
+	return false
+}
+
+func parseFromTo(instructions string) (string, string) {
+	// Extract "from" and "to" values from natural language instructions.
+	// Examples handled: "from Southampton to Newcastle", "from field with Southampton, to field with Newcastle"
+	fromRe := regexp.MustCompile(`(?i)\bfrom\b\s+(?:field\s+)?(?:with\s+)?([A-Za-z][A-Za-z\s\-'"]+)`)
+	toRe := regexp.MustCompile(`(?i)\bto\b\s+(?:field\s+)?(?:with\s+)?([A-Za-z][A-Za-z\s\-'"]+)`)
+
+	fromMatch := fromRe.FindStringSubmatch(instructions)
+	toMatch := toRe.FindStringSubmatch(instructions)
+
+	from := ""
+	to := ""
+	if len(fromMatch) > 1 {
+		from = strings.TrimSpace(strings.Trim(fromMatch[1], " ,.;\"'"))
+	}
+	if len(toMatch) > 1 {
+		to = strings.TrimSpace(strings.Trim(toMatch[1], " ,.;\"'"))
+	}
+	return from, to
+}
+
+func buildEcotreeActions(instructions string) ([]map[string]interface{}, error) {
+	from, to := parseFromTo(instructions)
+	if from == "" || to == "" {
+		return nil, fmt.Errorf("unable to parse from/to locations from instructions: %q", instructions)
+	}
+
+	// Use name-based selectors (multiple inputs share id=airportName, so name is more reliable)
+	fromSelector := "input[name='From']"
+	toSelector := "input[name='To']"
+	// Try multiple strategies to find calculate button - prioritize form submit buttons
+	// Look for buttons within forms first, then try the visible button
+	calcSelector := "form button[type='submit'], form button.btn-primary, button[type='submit']:visible, .btn.btn-primary.hover-arrow, button.btn-primary, text=/calculate.*emissions/i"
+	resultSelector := "text=/kg.*co2/i, text=/CO2.*emissions/i, .result, [data-testid*='result'], [class*='result']"
+
+	actions := []map[string]interface{}{
+		{"type": "wait", "selector": "body", "timeout": 5},
+		{"type": "wait", "wait_for": fromSelector, "timeout": 10},
+		{"type": "fill", "selector": fromSelector, "value": from},
+		{"type": "wait", "selector": "body", "timeout": 1},
+		{"type": "fill", "selector": toSelector, "value": to},
+		{"type": "wait", "selector": "body", "timeout": 1},
+		{"type": "click", "selector": calcSelector},
+		{"type": "wait", "selector": "body", "timeout": 3},          // Wait for calculation to start
+		{"type": "wait", "wait_for": resultSelector, "timeout": 20}, // Longer wait for result
+		{"type": "wait", "selector": "body", "timeout": 2},          // Additional wait to ensure result is fully rendered
+		{"type": "extract", "extract": map[string]string{
+			"co2_emissions": resultSelector,
+		}},
+	}
+	return actions, nil
+}
+
+func runCommandWithLiveOutput(ctx context.Context, cmd *exec.Cmd, logPrefix string) (string, string, error) {
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return "", "", err
+	}
+
+	var stdoutBuf bytes.Buffer
+	var stderrBuf bytes.Buffer
+	var wg sync.WaitGroup
+
+	readPipe := func(r io.Reader, buf *bytes.Buffer, logLines bool) {
+		defer wg.Done()
+		scanner := bufio.NewScanner(r)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			line := scanner.Text()
+			buf.WriteString(line)
+			buf.WriteByte('\n')
+			if logLines {
+				log.Printf("%s %s", logPrefix, line)
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			log.Printf("%s scanner error: %v", logPrefix, err)
+		}
+	}
+
+	wg.Add(2)
+	go readPipe(stdoutPipe, &stdoutBuf, false)
+	go readPipe(stderrPipe, &stderrBuf, true)
+
+	waitErr := cmd.Wait()
+	wg.Wait()
+
+	return stdoutBuf.String(), stderrBuf.String(), waitErr
+}
+
+// generateActionsFromInstructions uses LLM to generate browser actions from natural language instructions
+func (s *MCPKnowledgeServer) generateActionsFromInstructions(ctx context.Context, url, instructions, pageHTML string) ([]map[string]interface{}, error) {
+	// Extract key form elements from HTML to help LLM find the right selectors
+	// Look for input fields, buttons, and form structure
+	formInfo := extractFormStructure(pageHTML)
+
+	// Truncate HTML to avoid token limits, but try to keep form-related content
+	// Reduce to 30KB to speed up LLM processing
+	htmlPreview := pageHTML
+	if len(htmlPreview) > 30000 {
+		// Try to find form-related content first
+		formStart := strings.Index(strings.ToLower(htmlPreview), "<form")
+		if formStart != -1 && formStart < 30000 {
+			// Keep form content plus some context
+			start := max(0, formStart-3000)
+			end := min(len(htmlPreview), formStart+27000)
+			htmlPreview = htmlPreview[start:end]
+			if start > 0 {
+				htmlPreview = "... (earlier content truncated) ...\n" + htmlPreview
+			}
+			if end < len(pageHTML) {
+				htmlPreview = htmlPreview + "\n... (later content truncated) ..."
+			}
+		} else {
+			// Fallback: just truncate from start
+			htmlPreview = htmlPreview[:30000] + "\n... (truncated)"
+		}
+	}
+
+	// Create prompt for LLM to generate actions (optimized for size)
+	// Use very explicit instructions to force JSON output
+	// First, extract and list the actual selectors more prominently
+	selectorList := extractSelectorsFromFormInfo(formInfo)
+	selectorListStr := ""
+	if len(selectorList) > 0 {
+		selectorListStr = "\n\nAVAILABLE SELECTORS (copy these EXACTLY - do not invent new ones):\n"
+		for i, sel := range selectorList {
+			if i < 20 { // Limit to first 20
+				selectorListStr += fmt.Sprintf("- %s\n", sel)
+			}
+		}
+		if len(selectorList) > 20 {
+			selectorListStr += fmt.Sprintf("... and %d more\n", len(selectorList)-20)
+		}
+	} else {
+		selectorListStr = "\n\nWARNING: No clear selectors found. Look in the Form Elements section below for selectors.\n"
+	}
+
+	prompt := fmt.Sprintf(`You are a JSON generator. Your ONLY job is to return a valid JSON array. Nothing else.
+
+URL: %s
+User Task: %s
+%s
+Available Form Elements (for reference):
+%s
+
+Page HTML (for reference):
+%s
+
+INSTRUCTIONS:
+1. Look at "Available Form Elements" above
+2. Find selectors that match the user task
+3. Return ONLY a JSON array starting with [ and ending with ]
+4. Each action object must have: "type", "selector", optionally "value", "wait_for", "timeout"
+5. Action types: "wait", "fill", "click", "select", "extract"
+6. MUST start with: {"type":"wait","selector":"body","timeout":5}
+7. MUST use selectors from "Available Form Elements" list - copy them exactly
+8. DO NOT invent selectors - if not in the list, don't use it
+9. After each fill, add: {"type":"wait","selector":"body","timeout":1}
+10. After click, wait for results: {"type":"wait","wait_for":"SELECTOR","timeout":15}
+
+REQUIRED OUTPUT FORMAT (copy this structure, replace REAL_SELECTOR with actual selectors from list):
+[{"type":"wait","selector":"body","timeout":5},{"type":"wait","wait_for":"REAL_SELECTOR","timeout":10},{"type":"fill","selector":"REAL_SELECTOR","value":"Southampton"},{"type":"wait","selector":"body","timeout":1},{"type":"fill","selector":"REAL_SELECTOR","value":"Newcastle"},{"type":"wait","selector":"body","timeout":1},{"type":"click","selector":"REAL_SELECTOR"},{"type":"wait","wait_for":"REAL_SELECTOR","timeout":15},{"type":"extract","extract":{"co2_emissions":"REAL_SELECTOR"}}]
+
+CRITICAL: Return ONLY the JSON array. No text before. No text after. No explanations. No emojis. Just the JSON array starting with [ and ending with ].`, url, instructions, selectorListStr, formInfo, htmlPreview)
+
+	// Call LLM with timeout context (3 minutes for large HTML processing)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	log.Printf("📞 [BROWSE-WEB] Calling LLM with prompt size: %d bytes (HTML preview: %d bytes)", len(prompt), len(htmlPreview))
+	startTime := time.Now()
+
+	// Use callLLMWithContextAndPriority for better timeout handling and high priority
+	// Use PriorityHigh for user-facing browser automation
+	response, err := s.llmClient.callLLMWithContextAndPriority(ctx, prompt, PriorityHigh)
+
+	duration := time.Since(startTime)
+	log.Printf("⏱️ [BROWSE-WEB] LLM call completed in %v", duration)
+
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("LLM call timed out after %v (prompt size: %d bytes)", duration, len(prompt))
+		}
+		return nil, fmt.Errorf("LLM call failed (after %v): %w", duration, err)
+	}
+
+	// Log the raw response for debugging (show start and end)
+	log.Printf("📝 [BROWSE-WEB] LLM raw response length: %d bytes", len(response))
+	if len(response) > 1000 {
+		start := response[:500]
+		end := response[len(response)-500:]
+		log.Printf("📝 [BROWSE-WEB] LLM response START (first 500 chars): %s", start)
+		log.Printf("📝 [BROWSE-WEB] LLM response END (last 500 chars): %s", end)
+	} else {
+		log.Printf("📝 [BROWSE-WEB] LLM raw response: %s", response)
+	}
+
+	// Extract JSON from response (may be wrapped in markdown or have text before/after)
+	jsonStr := extractJSONFromResponse(response)
+	if jsonStr == "" {
+		log.Printf("⚠️ [BROWSE-WEB] Failed to extract JSON from LLM response. Full response length: %d", len(response))
+		// Save full response to file for debugging
+		if err := os.WriteFile("/tmp/llm_response_debug.txt", []byte(response), 0644); err == nil {
+			log.Printf("💾 [BROWSE-WEB] Saved full LLM response to /tmp/llm_response_debug.txt for debugging")
+		}
+		// Try to find any JSON-like patterns - look for array start
+		if strings.Contains(response, "[") {
+			log.Printf("🔍 [BROWSE-WEB] Response contains '[', attempting manual extraction...")
+			// Try to find the first [ and last ]
+			firstBracket := strings.Index(response, "[")
+			lastBracket := strings.LastIndex(response, "]")
+			if firstBracket != -1 && lastBracket != -1 && lastBracket > firstBracket {
+				potentialJSON := response[firstBracket : lastBracket+1]
+				log.Printf("🔍 [BROWSE-WEB] Found potential JSON (length: %d), first 200 chars: %s", len(potentialJSON), potentialJSON[:min(200, len(potentialJSON))])
+				// Try to parse it
+				var test []interface{}
+				if err := json.Unmarshal([]byte(potentialJSON), &test); err == nil {
+					log.Printf("✅ [BROWSE-WEB] Successfully parsed extracted JSON!")
+					jsonStr = potentialJSON
+				} else {
+					log.Printf("❌ [BROWSE-WEB] Extracted JSON failed to parse: %v", err)
+				}
+			}
+		}
+		if jsonStr == "" {
+			return nil, fmt.Errorf("no JSON found in LLM response")
+		}
+	}
+
+	log.Printf("✅ [BROWSE-WEB] Extracted JSON from LLM response (length: %d)", len(jsonStr))
+
+	// Parse actions
+	var actions []map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &actions); err != nil {
+		return nil, fmt.Errorf("failed to parse LLM-generated actions: %w", err)
+	}
+
+	// Validate actions - check if selectors are reasonable (not hallucinated)
+	// Extract all valid selectors from formInfo
+	validSelectors := extractSelectorsFromFormInfo(formInfo)
+	log.Printf("🔍 [BROWSE-WEB] Valid selectors from form structure: %v", validSelectors)
+
+	// Log generated actions for debugging
+	log.Printf("📋 [BROWSE-WEB] LLM generated %d actions:", len(actions))
+	for i, action := range actions {
+		actionType, _ := action["type"].(string)
+		selector, _ := action["selector"].(string)
+		waitFor, _ := action["wait_for"].(string)
+		value, _ := action["value"].(string)
+
+		// Warn if selector doesn't match any known pattern
+		if selector != "" && selector != "body" {
+			if !isSelectorValid(selector, validSelectors) {
+				log.Printf("⚠️ [BROWSE-WEB] Action [%d] uses potentially invalid selector: %s (not found in form structure)", i+1, selector)
+			}
+		}
+		log.Printf("  [%d] %s: selector=%s, wait_for=%s, value=%s", i+1, actionType, selector, waitFor, value)
+	}
+
+	return actions, nil
+}
+
+// extractJSONFromResponse extracts JSON array from LLM response (handles markdown code blocks)
+func extractJSONFromResponse(response string) string {
+	// Remove markdown code blocks if present
+	response = strings.TrimSpace(response)
+
+	// Remove common prefixes that LLM adds before JSON (case-insensitive)
+	prefixes := []string{"SOURCES:", "Here is", "Here's", "The JSON", "JSON:", "Actions:", "Here are", "Koffie:", "Koffie", "Coffee:", "Coffee"}
+	for _, prefix := range prefixes {
+		// Case-insensitive prefix check
+		responseLower := strings.ToLower(response)
+		prefixLower := strings.ToLower(prefix)
+		if strings.HasPrefix(responseLower, prefixLower) {
+			// Find the first [ after the prefix
+			afterPrefix := response[len(prefix):]
+			startIdx := strings.Index(afterPrefix, "[")
+			if startIdx != -1 {
+				response = afterPrefix[startIdx:]
+				break
+			}
+		}
+	}
+
+	// Also handle colon-separated prefixes (e.g., "Koffie: [")
+	if idx := strings.Index(response, ": ["); idx != -1 {
+		// Check if it's a known prefix pattern
+		beforeColon := strings.TrimSpace(response[:idx])
+		if len(beforeColon) < 20 { // Reasonable prefix length
+			response = response[idx+2:] // Skip ": "
+		}
+	}
+
+	// Remove markdown code fences (```json ... ``` or ``` ... ```)
+	if strings.Contains(response, "```") {
+		lines := strings.Split(response, "\n")
+		var jsonLines []string
+		inCodeBlock := false
+		for _, line := range lines {
+			if strings.HasPrefix(strings.TrimSpace(line), "```") {
+				inCodeBlock = !inCodeBlock
+				continue
+			}
+			if inCodeBlock {
+				jsonLines = append(jsonLines, line)
+			} else if !inCodeBlock && strings.TrimSpace(line) != "" {
+				// If not in code block but line is not empty, might be JSON
+				jsonLines = append(jsonLines, line)
+			}
+		}
+		if len(jsonLines) > 0 {
+			response = strings.Join(jsonLines, "\n")
+		}
+	}
+
+	// Remove any text before the first [
+	// LLM sometimes adds explanation before the JSON
+	startIdx := strings.Index(response, "[")
+	if startIdx == -1 {
+		// Try to find JSON object instead
+		startIdx = strings.Index(response, "{")
+		if startIdx == -1 {
+			return ""
+		}
+		// If we found {, wrap it in array
+		// But first, let's try to find [ anyway by looking for common patterns
+		// Look for "type" which is in our action objects
+		typeIdx := strings.Index(response, `"type"`)
+		if typeIdx != -1 {
+			// Look backwards for [
+			for i := typeIdx; i >= 0; i-- {
+				if response[i] == '[' {
+					startIdx = i
+					break
+				}
+			}
+		}
+		if startIdx == -1 {
+			return ""
+		}
+	}
+
+	// Remove everything before the JSON array
+	if startIdx > 0 {
+		response = response[startIdx:]
+	}
+
+	// Find matching closing bracket (respecting string boundaries)
+	depth := 0
+	endIdx := -1
+	inString := false
+	escapeNext := false
+
+	for i := 0; i < len(response); i++ {
+		char := response[i]
+
+		if escapeNext {
+			escapeNext = false
+			continue
+		}
+
+		if char == '\\' {
+			escapeNext = true
+			continue
+		}
+
+		if char == '"' {
+			inString = !inString
+			continue
+		}
+
+		if !inString {
+			if char == '[' {
+				depth++
+			} else if char == ']' {
+				depth--
+				if depth == 0 {
+					endIdx = i
+					break
+				}
+			}
+		}
+	}
+
+	if endIdx >= 0 && endIdx < len(response) {
+		jsonStr := response[0 : endIdx+1]
+		// Validate it's valid JSON by trying to parse it
+		var test []interface{}
+		err := json.Unmarshal([]byte(jsonStr), &test)
+		if err == nil {
+			return jsonStr
+		}
+		// If parsing failed, log the error and try to fix common issues
+		log.Printf("⚠️ [BROWSE-WEB] JSON parse error: %v, attempting to fix...", err)
+		// Try removing trailing text after ]
+		if endIdx+1 < len(response) {
+			// Maybe there's more text after the JSON
+			return jsonStr
+		}
+		return jsonStr
+	}
+
+	return ""
 }
 
 // queryViaHDN queries Neo4j via HDN's knowledge query endpoint
@@ -1602,8 +3067,9 @@ func (s *APIServer) RegisterMCPKnowledgeServerRoutes() {
 			s.vectorDB,
 			s.redis,
 			hdnURL,
+			s.llmClient, // Pass LLM client for prompt-driven browser automation
 		)
-		
+
 		// Register prompt hints from configured skills with interpreter
 		// This is done after interpreter initialization in SetLLMClient
 	}
@@ -1786,7 +3252,7 @@ func (s *MCPKnowledgeServer) saveEpisode(ctx context.Context, args map[string]in
 func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	query, _ := args["query"].(string)
 	dataType, _ := args["type"].(string)
-	
+
 	// Get limit parameter (default to 5, max 50 to prevent timeouts)
 	limit := 5
 	if l, ok := args["limit"].(float64); ok {
@@ -1885,12 +3351,12 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 	resultType := "unknown"
 	resultLen := 0
 	var finalResult interface{} = result
-	
+
 	if resultArray, ok := result.([]interface{}); ok {
 		resultType = "array"
 		resultLen = len(resultArray)
 		log.Printf("📧 [MCP-KNOWLEDGE] n8n returned array with %d items", resultLen)
-		
+
 		// n8n "allIncomingItems" mode returns array of objects with "json" key containing the actual data
 		// Extract the actual email data from the n8n structure
 		if resultLen > 0 {
@@ -1901,7 +3367,7 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 					keys = append(keys, k)
 				}
 				log.Printf("📧 [MCP-KNOWLEDGE] First item has keys: %v", keys)
-				
+
 				// If it has "json" key, extract the actual data
 				if _, hasJson := firstItem["json"]; hasJson {
 					log.Printf("📧 [MCP-KNOWLEDGE] Extracting data from 'json' key (n8n allIncomingItems format)")
@@ -1922,7 +3388,7 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 					finalResult = extractedItems
 					resultLen = len(extractedItems)
 					log.Printf("📧 [MCP-KNOWLEDGE] Extracted %d items from n8n json structure", resultLen)
-					
+
 					// Log first extracted item structure
 					if resultLen > 0 {
 						if firstExtracted, ok := extractedItems[0].(map[string]interface{}); ok {
@@ -1960,7 +3426,7 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 			keys = append(keys, k)
 		}
 		log.Printf("📧 [MCP-KNOWLEDGE] n8n returned map with keys: %v", keys)
-		
+
 		// Check if this is a single email object (has Subject/subject, From/from, To/to) - case insensitive
 		hasSubject := false
 		hasFrom := false
@@ -1973,7 +3439,7 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 				hasFrom = true
 			}
 		}
-		
+
 		if hasSubject || hasFrom {
 			log.Printf("📧 [MCP-KNOWLEDGE] Single email object detected (hasSubject=%v, hasFrom=%v), wrapping in array", hasSubject, hasFrom)
 			// Wrap single email in array for consistent handling
@@ -2031,11 +3497,11 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 	}
 
 	log.Printf("✅ [MCP-KNOWLEDGE] Successfully retrieved Google Workspace data (type: %s, size: %d)", resultType, resultLen)
-	
+
 	// Log the actual count if it's an array
 	if resultArray, ok := finalResult.([]interface{}); ok {
 		log.Printf("📧 [MCP-KNOWLEDGE] Returning %d email(s) to caller", len(resultArray))
 	}
-	
+
 	return finalResult, nil
 }

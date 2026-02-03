@@ -333,10 +333,19 @@ build-tools:
 		( cd $$d; \
 		  if [ ! -f go.mod ]; then go mod init agi/tools/$$name >/dev/null 2>&1 || true; fi; \
 		  if [ "$$name" = "html_scraper" ]; then go get golang.org/x/net/html@latest >/dev/null 2>&1 || true; fi; \
+		  if [ "$$name" = "headless_browser" ]; then go get github.com/playwright-community/playwright-go@latest >/dev/null 2>&1 || true; fi; \
 		  go mod tidy >/dev/null 2>&1 || true; \
-		  $(GO_ENV) GO111MODULE=on go build $(GO_BUILD_FLAGS) ../../$(BIN_DIR)/tools/$$name . \
+		  if [ "$$name" = "headless_browser" ]; then \
+		    $(GO_ENV) GO111MODULE=on go build $(GO_BUILD_FLAGS) ../../$(BIN_DIR)/tools/$$name main.go; \
+		  else \
+		    $(GO_ENV) GO111MODULE=on go build $(GO_BUILD_FLAGS) ../../$(BIN_DIR)/tools/$$name .; \
+		  fi \
 		); \
 	done
+	@# Create symlink for headless-browser in main bin directory
+	@if [ -f $(BIN_DIR)/tools/headless_browser ]; then \
+		ln -sf tools/headless_browser $(BIN_DIR)/headless-browser 2>/dev/null || true; \
+	fi
 	@echo "✅ Tools built in $(BIN_DIR)/tools"
 
 .PHONY: test-tools

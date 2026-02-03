@@ -207,13 +207,13 @@ func NewPlannerIntegration(
 		apiServer:               apiServer,
 	}
 
-	// Pre-load MCP tools as capabilities immediately
+	// Pre-load tools from registry as capabilities immediately
 	if apiServer != nil {
 		go func() {
 			// Give the server a moment to start up and register its own tools
 			time.Sleep(2 * time.Second)
 			if err := integration.LoadMCPToolsAsCapabilities(); err != nil {
-				log.Printf("⚠️ [PLANNER-INTEGRATION] Failed to load MCP tools: %v", err)
+				log.Printf("⚠️ [PLANNER-INTEGRATION] Failed to load tools from registry: %v", err)
 			}
 		}()
 	}
@@ -827,7 +827,7 @@ func (pi *PlannerIntegration) LoadMCPToolsAsCapabilities() error {
 		return fmt.Errorf("failed to list tools from API server: %v", err)
 	}
 
-	log.Printf("📥 [PLANNER-INTEGRATION] Loading %d MCP tools as capabilities...", len(tools))
+	log.Printf("📥 [PLANNER-INTEGRATION] Loading %d tools as capabilities...", len(tools))
 
 	count := 0
 	for _, tool := range tools {
@@ -856,7 +856,7 @@ func (pi *PlannerIntegration) LoadMCPToolsAsCapabilities() error {
 		}
 	}
 
-	log.Printf("✅ [PLANNER-INTEGRATION] Successfully loaded %d/%d MCP tools as capabilities", count, len(tools))
+	log.Printf("✅ [PLANNER-INTEGRATION] Successfully loaded %d/%d tools as capabilities from registry", count, len(tools))
 	return nil
 }
 
