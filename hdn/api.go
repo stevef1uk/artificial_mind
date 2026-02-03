@@ -1264,6 +1264,12 @@ func applyDomainEnvOverrides(cfg *DomainConfig) {
 // SetLLMClient sets the LLM client (called from server.go after environment overrides)
 func (s *APIServer) SetLLMClient(client *LLMClient) {
 	s.llmClient = client
+	
+	// Update MCP knowledge server with LLM client if it already exists
+	if s.mcpKnowledgeServer != nil {
+		s.mcpKnowledgeServer.SetLLMClient(client)
+	}
+	
 	// Initialize code generator now that LLM client is available
 	s.codeGenerator = NewCodeGenerator(s.llmClient, s.codeStorage)
 	// Initialize conversational layer now that LLM client is available

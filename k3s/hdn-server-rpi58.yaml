@@ -48,6 +48,12 @@ spec:
               value: "nats://nats.agi.svc.cluster.local:4222"
             - name: PRINCIPLES_URL
               value: "http://principles-server.agi.svc.cluster.local:8080"
+            - name: PLAYWRIGHT_SCRAPER_URL
+              value: "http://playwright-scraper.agi.svc.cluster.local:8080"
+            - name: SCRAPER_POLL_INTERVAL_MS
+              value: "1000"
+            - name: SCRAPER_JOB_TIMEOUT_SECONDS
+              value: "90"
             # LLM configuration from secret (can be updated without changing deployment)
             - name: LLM_PROVIDER
               valueFrom:

@@ -296,6 +296,11 @@ if ! wait_for_service "http://localhost:8084/action" "Principles Server"; then
 fi
 
 # Start HDN Server
+# Ensure tools (including headless-browser) are built first, then HDN binary
+echo "🔨 Building tools (including headless-browser)..."
+cd "$AGI_PROJECT_ROOT"
+make build-tools >/dev/null 2>&1 || { echo "❌ Failed to build tools"; exit 1; }
+
 # Ensure HDN binary is built with neo4j tag
 echo "🔨 Building HDN server (neo4j) binary..."
 cd "$AGI_PROJECT_ROOT"

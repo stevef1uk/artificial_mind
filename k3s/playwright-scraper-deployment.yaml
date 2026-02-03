@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: playwright-scraper
+  namespace: agi
+  labels:
+    app: playwright-scraper
+spec:
+  selector:
+    app: playwright-scraper
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: playwright-scraper
+  namespace: agi
+  labels:
+    app: playwright-scraper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: playwright-scraper
+  template:
+    metadata:
+      labels:
+        app: playwright-scraper
+    spec:
+      # Optional: Use node selector to place on specific node
+      # nodeSelector:
+      #   kubernetes.io/hostname: node-with-more-memory
+      
+      containers:
+      - name: scraper
+        image: stevef1uk/playwright-scraper:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+        
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        env:
+        - name: TZ
+          value: "UTC"
+

@@ -23,13 +23,7 @@ import (
 	mempkg "hdn/memory"
 	"hdn/playwright"
 
-	pw "github.com/playwright-community/playwright-go"
 	"github.com/redis/go-redis/v9"
-)
-
-var (
-	playwrightOnce     sync.Once
-	playwrightInitErr  error
 )
 
 // MCPKnowledgeServer exposes knowledge bases (Neo4j, Weaviate, Qdrant) as MCP tools
@@ -558,20 +552,108 @@ func (s *MCPKnowledgeServer) queryNeo4j(ctx context.Context, args map[string]int
 	return nil, fmt.Errorf("Neo4j not available")
 }
 
-// scrapeWithConfig parses TypeScript/Playwright code and executes it directly using Go Playwright
+// scrapeWithConfig delegates to the external Playwright scraper service with async job queue
 func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig string) (interface{}, error) {
 	log.Printf("📝 [MCP-SCRAPE] Received TypeScript config (%d bytes)", len(tsConfig))
 
-	// Parse TypeScript operations from the config
-	operations, err := parsePlaywrightTypeScript(tsConfig, url)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse TypeScript config: %v", err)
+	// Call external scraper service with async job queue
+	scraperURL := os.Getenv("PLAYWRIGHT_SCRAPER_URL")
+	if scraperURL == "" {
+		// Default to Kubernetes service in same namespace
+		scraperURL = "http://playwright-scraper.agi.svc.cluster.local:8080"
 	}
 
-	log.Printf("✅ [MCP-SCRAPE] Parsed %d operations from TypeScript config", len(operations))
+	// Start scrape job
+	startReq := map[string]interface{}{
+		"url":               url,
+		"typescript_config": tsConfig,
+	}
+	startReqJSON, err := json.Marshal(startReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %v", err)
+	}
 
-	// Execute operations using Playwright
-	return s.executePlaywrightOperations(ctx, url, operations)
+	log.Printf("🚀 [MCP-SCRAPE] Starting scrape job at %s/scrape/start", scraperURL)
+	resp, err := http.Post(scraperURL+"/scrape/start", "application/json", bytes.NewReader(startReqJSON))
+	if err != nil {
+		return nil, fmt.Errorf("failed to start scrape job: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("scraper service returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var startResp struct {
+		JobID     string    `json:"job_id"`
+		Status    string    `json:"status"`
+		CreatedAt time.Time `json:"created_at"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&startResp); err != nil {
+		return nil, fmt.Errorf("failed to decode start response: %v", err)
+	}
+
+	log.Printf("⏳ [MCP-SCRAPE] Job %s started, polling for results...", startResp.JobID)
+
+	// Poll for results (with timeout)
+	pollTimeout := 90 * time.Second
+	pollInterval := 2 * time.Second
+	startTime := time.Now()
+
+	for {
+		if time.Since(startTime) > pollTimeout {
+			return nil, fmt.Errorf("scrape job timed out after %v", pollTimeout)
+		}
+
+		// Get job status
+		jobURL := fmt.Sprintf("%s/scrape/job?job_id=%s", scraperURL, startResp.JobID)
+		jobResp, err := http.Get(jobURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get job status: %v", err)
+		}
+
+		var job struct {
+			ID          string                 `json:"id"`
+			Status      string                 `json:"status"`
+			Result      map[string]interface{} `json:"result,omitempty"`
+			Error       string                 `json:"error,omitempty"`
+			CompletedAt *time.Time             `json:"completed_at,omitempty"`
+		}
+		if err := json.NewDecoder(jobResp.Body).Decode(&job); err != nil {
+			jobResp.Body.Close()
+			return nil, fmt.Errorf("failed to decode job status: %v", err)
+		}
+		jobResp.Body.Close()
+
+		switch job.Status {
+		case "completed":
+			duration := time.Since(startTime)
+			log.Printf("✅ [MCP-SCRAPE] Job %s completed in %v", startResp.JobID, duration)
+
+			// Return result in MCP format
+			return map[string]interface{}{
+				"content": []map[string]interface{}{
+					{
+						"type": "text",
+						"text": fmt.Sprintf("Scrape Results:\n%v", job.Result),
+					},
+				},
+				"result": job.Result,
+			}, nil
+
+		case "failed":
+			return nil, fmt.Errorf("scrape job failed: %s", job.Error)
+
+		case "pending", "running":
+			// Continue polling
+			log.Printf("⏳ [MCP-SCRAPE] Job %s status: %s (elapsed: %v)", startResp.JobID, job.Status, time.Since(startTime))
+			time.Sleep(pollInterval)
+
+		default:
+			return nil, fmt.Errorf("unknown job status: %s", job.Status)
+		}
+	}
 }
 
 // PlaywrightOperation represents a parsed operation from TypeScript

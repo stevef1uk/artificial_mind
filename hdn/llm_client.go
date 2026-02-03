@@ -540,6 +540,9 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 				},
 			},
 			"stream": false,
+			"options": map[string]interface{}{
+				"num_predict": 4000, // Increased for complex JSON generation tasks
+			},
 		}
 		jsonData, err = json.Marshal(ollamaRequest)
 	} else {
@@ -553,7 +556,7 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 				},
 			},
 			Temperature: 0.7,
-			MaxTokens:   1000,
+			MaxTokens:   4000, // Increased for complex JSON generation tasks
 		}
 		jsonData, err = json.Marshal(request)
 	}
@@ -1476,6 +1479,9 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 				},
 			},
 			"stream": false,
+			"options": map[string]interface{}{
+				"num_predict": 4000, // Increased for complex JSON generation tasks
+			},
 		}
 		jsonData, err = json.Marshal(ollamaRequest)
 	} else {
@@ -1489,7 +1495,7 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 				},
 			},
 			Temperature: 0.7,
-			MaxTokens:   1000,
+			MaxTokens:   4000, // Increased for complex JSON generation tasks
 		}
 		jsonData, err = json.Marshal(request)
 	}

@@ -1,0 +1,6 @@
+module test_ecotree
+
+go 1.21
+
+require github.com/playwright-community/playwright-go v0.4501.1
+

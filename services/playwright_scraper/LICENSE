@@ -1,0 +1,100 @@
+Playwright Scraper Service License
+====================================
+
+Copyright (c) 2026 Steven Fisher
+
+This software is provided under a dual licensing model:
+
+NON-COMMERCIAL USE LICENSE
+--------------------------
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to use,
+copy, modify, merge, and distribute the Software for NON-COMMERCIAL purposes
+only, subject to the following conditions:
+
+1. The above copyright notice and this permission notice shall be included in
+   all copies or substantial portions of the Software.
+
+2. The Software, or any derivative works thereof, shall NOT be used for
+   commercial purposes without obtaining a separate commercial license.
+
+3. "Non-commercial purposes" means use that is not primarily intended for or
+   directed toward commercial advantage or monetary compensation.
+
+4. Attribution must be provided in any derivative works or distributions.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+COMMERCIAL USE LICENSE
+----------------------
+For commercial use of this Software, including but not limited to:
+- Use in a commercial product or service
+- Use by a for-profit organization
+- Use that generates revenue or commercial advantage
+
+You must obtain a separate commercial license from the copyright holder.
+
+To inquire about commercial licensing, please contact:
+  Email: [Your contact email]
+  
+Commercial licenses may include:
+- Support and maintenance
+- Custom features and integrations
+- Service level agreements (SLAs)
+- Indemnification
+
+
+DEFINITIONS
+-----------
+"Commercial purposes" includes:
+- Integration into a product or service that is sold or offered for a fee
+- Use by any for-profit entity or organization
+- Use in connection with revenue-generating activities
+- Providing the Software as a service (SaaS) for a fee
+- Use in production environments of commercial enterprises
+
+"Non-commercial purposes" includes:
+- Personal use
+- Educational use
+- Research use by non-profit institutions
+- Use by charitable organizations
+- Development and testing
+
+
+THIRD-PARTY COMPONENTS
+----------------------
+This Software depends on third-party components which are subject to their
+own licenses:
+- Playwright (Apache License 2.0)
+- Go standard library (BSD-style license)
+- Chromium (BSD-style license and others)
+
+Users must comply with all applicable third-party licenses.
+
+
+RESTRICTIONS
+------------
+You may NOT:
+1. Use the Software for commercial purposes without a commercial license
+2. Remove or alter any copyright notices or license terms
+3. Use the copyright holder's name for endorsement without permission
+4. Hold the copyright holder liable for any damages
+
+
+DISCLAIMER
+----------
+This Software is provided "as is" without warranty of any kind. The copyright
+holder shall not be liable for any damages arising from the use of this Software.
+
+
+For questions about this license, please contact the copyright holder.
+
+Last updated: February 3, 2026
+

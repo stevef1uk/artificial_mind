@@ -29,6 +29,7 @@ MONITOR_DIR := monitor
 FSM_DIR := fsm
 GOAL_DIR := cmd/goal-manager
 TELEGRAM_BOT_DIR := telegram-bot
+SCRAPER_DIR := services/playwright_scraper
 BIN_DIR := bin
 PRINCIPLES_BIN := $(BIN_DIR)/principles-server
 HDN_BIN := $(BIN_DIR)/hdn-server
@@ -489,6 +490,81 @@ stop-nats:
 restart-nats: stop-nats start-nats
 	@echo "✅ NATS restarted"
 
+########################################
+# Playwright Scraper Service
+########################################
+
+# Build scraper Docker image
+.PHONY: build-scraper-image
+build-scraper-image:
+	@echo "🐳 Building Playwright scraper Docker image..."
+	@docker build -t playwright-scraper:latest -f $(SCRAPER_DIR)/Dockerfile $(SCRAPER_DIR)/
+	@echo "✅ Scraper image built: playwright-scraper:latest"
+
+# Build scraper Docker image for testing
+.PHONY: build-scraper-test
+build-scraper-test:
+	@echo "🐳 Building Playwright scraper test image..."
+	@docker build -t playwright-scraper:test -f $(SCRAPER_DIR)/Dockerfile $(SCRAPER_DIR)/
+	@echo "✅ Scraper test image built: playwright-scraper:test"
+
+# Start scraper service locally
+.PHONY: start-scraper
+start-scraper:
+	@echo "🚀 Starting Playwright scraper service..."
+	@docker run -d --name scraper-test -p 8080:8080 playwright-scraper:test
+	@echo "⏳ Waiting for service to start..."
+	@sleep 3
+	@curl -sf http://localhost:8080/health > /dev/null && echo "✅ Scraper service started" || echo "❌ Failed to start scraper"
+
+# Stop scraper service
+.PHONY: stop-scraper
+stop-scraper:
+	@echo "🛑 Stopping Playwright scraper service..."
+	@docker stop scraper-test 2>/dev/null || echo "Scraper not running"
+	@docker rm scraper-test 2>/dev/null || echo "Scraper container not found"
+	@echo "✅ Scraper stopped"
+
+# Restart scraper service
+.PHONY: restart-scraper
+restart-scraper: stop-scraper build-scraper-test start-scraper
+	@echo "✅ Scraper restarted"
+
+# Test scraper service (all transport types)
+.PHONY: test-scraper
+test-scraper:
+	@echo "🧪 Testing Playwright scraper service..."
+	@chmod +x test/test_all_transports.sh
+	@test/test_all_transports.sh
+
+# Test scraper - Plane only
+.PHONY: test-scraper-plane
+test-scraper-plane:
+	@echo "✈️  Testing Playwright scraper - Plane..."
+	@chmod +x test/test_scraper_plane.sh
+	@test/test_scraper_plane.sh
+
+# Test scraper - Train only
+.PHONY: test-scraper-train
+test-scraper-train:
+	@echo "🚆 Testing Playwright scraper - Train..."
+	@chmod +x test/test_scraper_train.sh
+	@test/test_scraper_train.sh
+
+# Test scraper - Car only
+.PHONY: test-scraper-car
+test-scraper-car:
+	@echo "🚗 Testing Playwright scraper - Car..."
+	@chmod +x test/test_scraper_car.sh
+	@test/test_scraper_car.sh
+
+# Test complete HDN → Scraper flow
+.PHONY: test-hdn-scraper
+test-hdn-scraper:
+	@echo "🧪 Testing HDN → Scraper integration..."
+	@chmod +x test/test_hdn_to_scraper.sh
+	@test/test_hdn_to_scraper.sh
+
 # Clear Redis cache
 .PHONY: clear-redis
 clear-redis:
@@ -685,6 +761,19 @@ help:
 	@echo "  test-knowledge     - Test domain knowledge API"
 	@echo "  docker-build-push  - Build and push all Docker images to DockerHub"
 	@echo "  docker-check       - Check status of Docker images locally and remotely"
+	@echo ""
+	@echo "Playwright Scraper Service:"
+	@echo "  build-scraper-image - Build scraper Docker image (production)"
+	@echo "  build-scraper-test  - Build scraper Docker image (testing)"
+	@echo "  start-scraper       - Start scraper service locally (port 8080)"
+	@echo "  stop-scraper        - Stop scraper service"
+	@echo "  restart-scraper     - Rebuild and restart scraper service"
+	@echo "  test-scraper        - Test all transport types (Plane, Train, Car)"
+	@echo "  test-scraper-plane  - Test Plane transport only"
+	@echo "  test-scraper-train  - Test Train transport only"
+	@echo "  test-scraper-car    - Test Car transport only"
+	@echo "  test-hdn-scraper    - Test complete HDN → Scraper flow"
+	@echo ""
 	@echo "  help               - Show this help"
 	@echo ""
 	@echo "Safety switches:"

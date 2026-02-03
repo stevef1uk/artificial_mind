@@ -55,23 +55,14 @@ RUN install -d /payload /out \
       -license \
       -vendor-pub /keys/vendor_public.pem
 
-# Final runtime image - using Debian for glibc compatibility (playwright-go requirement)
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Final runtime image - lightweight Alpine (no Playwright dependencies)
+FROM alpine:latest
+RUN apk add --no-cache \
     ca-certificates \
     openssh-client \
     bash \
-    chromium \
-    fonts-liberation \
-    libnss3 \
-    libxss1 \
-    libxtst6 \
-    && rm -rf /var/lib/apt/lists/*
+    tzdata
 WORKDIR /app
-
-# playwright-go will auto-install its driver on first use via pw.Install()
-# It will use system Chromium (specified in Go code)
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 # runtime unpack tool and encrypted payload
 COPY --from=secure-build /usr/local/bin/unpack /usr/local/bin/unpack
 COPY --from=secure-build /out/encrypted_files.zip ./hdn-server.enc

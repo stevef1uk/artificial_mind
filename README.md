@@ -853,6 +853,14 @@ This project is licensed under the **MIT License with Attribution Requirement**.
 - 📝 **Must attribute** Steven Fisher as the original author
 - 📝 **Must include** this license file in derivative works
 
+### ⚠️ Exception: Playwright Scraper Service
+
+**The Playwright Scraper Service** (`services/playwright_scraper/`) is licensed separately under a **Non-Commercial License**:
+- ✅ **FREE** for personal, educational, and research use
+- ❌ **Requires paid commercial license** for commercial use, SaaS, or production in for-profit organizations
+
+See [`services/playwright_scraper/LICENSE`](services/playwright_scraper/LICENSE) for details.
+
 ### Attribution Requirements:
 When using this software, you must:
 1. Include the original copyright notice: "Copyright (c) 2025 Steven Fisher"
