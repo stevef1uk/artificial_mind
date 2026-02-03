@@ -1144,6 +1144,9 @@ make help
   - `POST /mcp` — MCP JSON-RPC endpoint for knowledge tools
   - `POST /api/v1/mcp` — Alternative MCP endpoint
   - Exposes knowledge bases as MCP tools: `query_neo4j`, `search_weaviate`, `get_concept`, `find_related_concepts`
+  - **Scraping Tools**:
+    - `scrape_url` — Advanced Playwright-based web scraper (Supports `async: true` mode for n8n)
+    - `get_scrape_status` — Tool to poll for the result of an asynchronous scrape job using `job_id`
   - **Configuration-Based Skills**: Loads skills from `config/n8n_mcp_skills.yaml` at startup
   - Supports n8n webhook-based skills with dynamic endpoint configuration
 
