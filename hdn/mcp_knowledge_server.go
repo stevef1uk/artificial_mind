@@ -3602,16 +3602,23 @@ func (s *MCPKnowledgeServer) getScrapeStatus(ctx context.Context, jobID string) 
 		text = fmt.Sprintf("Scrape job %s has status: %s", jobID, status)
 	}
 
+	// Serialize result to JSON string for the content array
+	resultJSON, _ := json.Marshal(job["result"])
+
 	return map[string]interface{}{
 		"content": []map[string]interface{}{
 			{
 				"type": "text",
 				"text": text,
 			},
+			{
+				"type": "text", // Using text type but content is JSON for n8n parsing
+				"text": fmt.Sprintf("ResultJSON: %s", string(resultJSON)),
+			},
 		},
 		"job_id": jobID,
 		"status": status,
-		"result": job["result"],
+		"result": job["result"], // Keep this for compliant clients
 		"error":  job["error"],
 	}, nil
 }
