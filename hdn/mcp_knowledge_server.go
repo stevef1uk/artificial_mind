@@ -625,6 +625,10 @@ func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig
 					"type": "text",
 					"text": fmt.Sprintf("Scrape job started. Job ID: %s. Use get_scrape_status to check results.", startResp.JobID),
 				},
+				{
+					"type": "text",
+					"text": fmt.Sprintf("JobID: %s", startResp.JobID),
+				},
 			},
 			"job_id": startResp.JobID,
 			"status": "pending",
