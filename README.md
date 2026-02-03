@@ -74,6 +74,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - [**Architecture Details**](docs/ARCHITECTURE.md) - Detailed technical architecture
 - [**Solution Architecture Diagram**](docs/SOLUTION_ARCHITECTURE_DIAGRAM.md) - Visual system design
 - [**HDN Architecture**](docs/hdn_architecture.md) - Hierarchical Decision Network design
+- [**Async Scraper Architecture**](ASYNC_SCRAPER_ARCHITECTURE.md) - Standalone Playwright scraper with job queue
 
 ### 🧠 AI & Reasoning
 - [**Thinking Mode**](docs/THINKING_MODE_README.md) - Real-time AI introspection and transparency
@@ -95,6 +96,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - [**Natural Language Interface**](docs/NATURAL_LANGUAGE_INTERFACE.md) - Language processing capabilities
 - [**MCP Knowledge Integration**](docs/MCP_KNOWLEDGE_INTEGRATION.md) - MCP server for knowledge base access
 - [**MCP Initialization Check**](docs/MCP_INITIALIZATION_CHECK.md) - Startup verification of MCP connectivity
+- [**Async Scraping Guide**](ASYNC_SCRAPER_ARCHITECTURE.md#usage-example) - How to use True Async mode in n8n
 - [**API Reference**](docs/API_REFERENCE.md) - Complete API documentation
 
 ### ⚖️ Ethics & Safety
