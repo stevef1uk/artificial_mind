@@ -175,3 +175,5 @@ report.pdf
 secure/
 secure/*
 !secure/README.txtk3s/MANUAL_RECOVERY_SECRETS.md
+scraper-local
+playwright_venv/
