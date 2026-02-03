@@ -40,6 +40,7 @@ RUN install -d /payload /out && \
         -in /payload \
         -out /out \
         -pub /keys/customer_public.pem \
+        -vendor-pub /keys/vendor_public.pem \
         -zip=true \
         -license
 
