@@ -53,12 +53,17 @@ mkdir -p "$WORK_DIR"
 
 echo "📦 Decrypting scraper binary..."
 
+# Write vendor token to file for unpack
+TOKEN_FILE="/tmp/vendor.token"
+printf "%s" "$VENDOR_TOKEN" > "$TOKEN_FILE"
+
 # Unpack the encrypted binary
 if ! /usr/local/bin/unpack \
-    ./scraper.enc \
-    "$WORK_DIR" \
-    "$CUSTOMER_KEY" \
-    "$VENDOR_TOKEN"; then
+    -zip ./scraper.enc \
+    -priv "$CUSTOMER_KEY" \
+    -work "$WORK_DIR" \
+    -out "$WORK_DIR" \
+    -license-token "$TOKEN_FILE"; then
     echo "❌ Failed to decrypt scraper binary"
     echo "   Check that the customer key and vendor token are correct"
     exit 1
