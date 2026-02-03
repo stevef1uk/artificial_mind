@@ -37,10 +37,10 @@ RUN test -f /keys/customer_public.pem && test -f /keys/vendor_public.pem
 RUN install -d /payload /out && \
     mv /app/scraper /payload/ && \
     /usr/local/bin/packager \
-        /payload \
-        /out/encrypted_files.zip \
-        /keys/customer_public.pem \
-        /keys/vendor_public.pem
+        -in /payload \
+        -out /out \
+        -pub /keys/customer_public.pem \
+        -vendorpub /keys/vendor_public.pem
 
 # Stage 3: Runtime image with Chromium
 FROM debian:bookworm-slim
