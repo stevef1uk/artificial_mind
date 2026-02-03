@@ -522,17 +522,12 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		return s.saveAvatarContext(ctx, arguments)
 	case "save_episode":
 		return s.saveEpisode(ctx, arguments)
-	case "scrape_url":
-		url, _ := arguments["url"].(string)
-		tsConfig, _ := arguments["typescript_config"].(string)
-		isAsync, _ := arguments["async"].(bool)
-		return s.scrapeWithConfig(ctx, url, tsConfig, isAsync)
+	case "scrape_url", "execute_code", "read_file":
+		// Route to the new wrapper which handles all these
+		return s.executeToolWrapper(ctx, toolName, arguments)
 	case "get_scrape_status":
 		jobID, _ := arguments["job_id"].(string)
 		return s.getScrapeStatus(ctx, jobID)
-	case "execute_code", "read_file":
-		// Route to the new wrapper
-		return s.executeToolWrapper(ctx, toolName, arguments)
 	case "browse_web":
 		return s.browseWeb(ctx, arguments)
 	default:
@@ -1100,18 +1095,42 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 
 	switch toolName {
 	case "scrape_url":
+		// Log arguments for debugging
+		log.Printf("🔍 [MCP-SCRAPE] Tool: %s, Args: %v", toolName, args)
+
+		// Try different casing for URL
 		url, ok := args["url"].(string)
 		if !ok {
+			url, ok = args["URL"].(string)
+		}
+		if !ok {
+			url, ok = args["Url"].(string)
+		}
+
+		if !ok || url == "" {
 			return nil, fmt.Errorf("url parameter required")
 		}
 
-		// Check if typescript_config is provided - if so, parse and execute directly
-		if tsConfig, ok := args["typescript_config"].(string); ok && tsConfig != "" {
-			// In executeToolWrapper, we default async to false
-			return s.scrapeWithConfig(ctx, url, tsConfig, false)
+		// Check for async flag
+		isAsync := false
+		if val, ok := args["async"].(bool); ok {
+			isAsync = val
+		} else if val, ok := args["async"].(string); ok {
+			isAsync = val == "true"
 		}
 
-		// Use the html-scraper binary tool for better content extraction
+		// Check if typescript_config is provided - if so, parse and execute directly
+		tsConfig, hasConfig := args["typescript_config"].(string)
+		if !hasConfig {
+			tsConfig, hasConfig = args["typescriptConfig"].(string)
+		}
+
+		if hasConfig && tsConfig != "" {
+			return s.scrapeWithConfig(ctx, url, tsConfig, isAsync)
+		}
+
+		// Fallback: use default scraper if no config provided
+		log.Printf("ℹ️ [MCP-SCRAPE] No typescript_config provided, using default html-scraper")
 		projectRoot := os.Getenv("AGI_PROJECT_ROOT")
 		if projectRoot == "" {
 			// Try to get current working directory
