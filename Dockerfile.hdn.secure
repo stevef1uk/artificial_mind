@@ -60,11 +60,16 @@ FROM alpine:latest
 RUN apk add --no-cache ca-certificates tzdata openssh-client \
     # Playwright dependencies for MCP server's embedded browser automation
     chromium chromium-chromedriver nss freetype harfbuzz ttf-freefont \
-    libstdc++ libc6-compat
+    libstdc++ libc6-compat nodejs npm
 WORKDIR /app
-# Configure Playwright to use system Chromium
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/usr/bin
+
+# Install Playwright and setup browsers
+RUN npm install -g playwright@1.52.0 && \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright playwright install chromium --with-deps || true
+
+# Configure Playwright environment
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 # runtime unpack tool and encrypted payload
 COPY --from=secure-build /usr/local/bin/unpack /usr/local/bin/unpack
 COPY --from=secure-build /out/encrypted_files.zip ./hdn-server.enc
