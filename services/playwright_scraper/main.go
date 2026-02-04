@@ -424,15 +424,30 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation) (
 	// Wait for operations to fully complete
 	time.Sleep(500 * time.Millisecond)
 
-	// Wait for URL to change to include #result
-	log.Println("⏳ Waiting for results URL...")
-	for i := 0; i < 20; i++ {
-		currentURL := page.URL()
-		if strings.Contains(currentURL, "#result") {
+	// Wait for URL to change to include #result OR for result content to appear
+	log.Println("⏳ Waiting for results...")
+	resultsFound := false
+	for i := 0; i < 30; i++ {
+		// Method 1: Check URL
+		if strings.Contains(page.URL(), "#result") {
 			log.Println("✅ Results URL detected")
+			resultsFound = true
 			break
 		}
-		time.Sleep(300 * time.Millisecond)
+
+		// Method 2: Check for specific result text (usually "Your carbon emissions")
+		content, _ := page.TextContent("body")
+		if strings.Contains(content, "carbon emissions") && strings.Contains(content, "kg") {
+			log.Println("✅ Result text detected in body")
+			resultsFound = true
+			break
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	if !resultsFound {
+		log.Println("⚠️ Warning: Result indicator not found after wait, attempting extraction anyway...")
 	}
 
 	// Additional wait for dynamic JavaScript to compute and render results
