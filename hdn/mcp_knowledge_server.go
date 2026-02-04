@@ -748,11 +748,12 @@ func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig
 			log.Printf("✅ [MCP-SCRAPE] Job %s completed in %v", startResp.JobID, duration)
 
 			// Return result in MCP format
+			resultJSON, _ := json.MarshalIndent(job.Result, "", "  ")
 			return map[string]interface{}{
 				"content": []map[string]interface{}{
 					{
 						"type": "text",
-						"text": fmt.Sprintf("Scrape Results:\n%v", job.Result),
+						"text": fmt.Sprintf("Scrape Results:\n%s", string(resultJSON)),
 					},
 				},
 				"result": job.Result,
