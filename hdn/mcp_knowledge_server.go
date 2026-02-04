@@ -399,6 +399,13 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 					"type":        "string",
 					"description": "Optional: TypeScript/Playwright code (as string) that will be converted to Go code via LLM for custom scraping logic",
 				},
+				"extractions": map[string]interface{}{
+					"type":        "object",
+					"description": "Optional: Map of extraction names to regex patterns. Example: {\"co2\": \"(\\\\d+) kg\"}. The regex will be applied to the page content.",
+					"additionalProperties": map[string]interface{}{
+						"type": "string",
+					},
+				},
 			},
 			"required": []string{"url"},
 		},
@@ -643,8 +650,8 @@ func (s *MCPKnowledgeServer) getScrapeStatus(ctx context.Context, jobID string) 
 }
 
 // scrapeWithConfig delegates to the external Playwright scraper service with async job queue
-func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig string, async bool) (interface{}, error) {
-	log.Printf("📝 [MCP-SCRAPE] Received TypeScript config (%d bytes)", len(tsConfig))
+func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig string, async bool, extractions map[string]string) (interface{}, error) {
+	log.Printf("📝 [MCP-SCRAPE] Received TypeScript config (%d bytes) and %d extractions", len(tsConfig), len(extractions))
 
 	// Call external scraper service with async job queue
 	scraperURL := os.Getenv("PLAYWRIGHT_SCRAPER_URL")
@@ -657,6 +664,7 @@ func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig
 	startReq := map[string]interface{}{
 		"url":               url,
 		"typescript_config": tsConfig,
+		"extractions":       extractions,
 	}
 	startReqJSON, err := json.Marshal(startReq)
 	if err != nil {
@@ -1176,7 +1184,18 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 		// Check if typescript_config is provided - if so, parse and execute directly
 		if tsConfig, ok := args["typescript_config"].(string); ok && tsConfig != "" {
 			isAsync, _ := args["async"].(bool)
-			return s.scrapeWithConfig(ctx, url, tsConfig, isAsync)
+
+			// Handle extractions parameter
+			extractions := make(map[string]string)
+			if ext, ok := args["extractions"].(map[string]interface{}); ok {
+				for k, v := range ext {
+					if vStr, ok := v.(string); ok {
+						extractions[k] = vStr
+					}
+				}
+			}
+
+			return s.scrapeWithConfig(ctx, url, tsConfig, isAsync, extractions)
 		}
 
 		// Use the html-scraper binary tool for better content extraction

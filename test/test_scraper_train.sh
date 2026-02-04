@@ -12,15 +12,20 @@ echo "=========================================================="
 TS_CONFIG='import { test } from '\''@playwright/test'\'';
 test('\''test'\'', async ({ page }) => {
   await page.goto('\''https://ecotree.green/en/calculate-train-co2'\'');
-  await page.waitForTimeout(200);
-  await page.locator('\''div.geosuggest:nth-of-type(1) #geosuggest__input'\'').fill('\''Petersfield'\'');
-  await page.waitForTimeout(200);
-  await page.getByText('\''Petersfield'\'').first().click();
-  await page.waitForTimeout(200);
-  await page.locator('\''div.geosuggest:nth-of-type(2) #geosuggest__input'\'').fill('\''London Waterloo'\'');
-  await page.waitForTimeout(200);
-  await page.getByText('\''London Waterloo'\'').first().click();
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(1000);
+  
+  // Fill From
+  await page.locator('\''#geosuggest__input'\'').first().fill('\''Petersfield'\'');
+  await page.waitForTimeout(2000);
+  await page.keyboard.press('\''Enter'\''); // Robust selection
+  await page.waitForTimeout(1000);
+  
+  // Fill To
+  await page.locator('\''#geosuggest__input'\'').nth(1).fill('\''London Waterloo'\'');
+  await page.waitForTimeout(2000);
+  await page.keyboard.press('\''Enter'\''); // Robust selection
+  await page.waitForTimeout(1000);
+  
   await page.getByRole('\''link'\'', { name: '\'' Calculate my emissions '\'' }).click();
 });'
 

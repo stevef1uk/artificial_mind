@@ -13,18 +13,12 @@ The web scraping functionality has been refactored into a standalone microservic
 │   ~200MB            │  ◀──────────────────────   │  (Chromium + Playwright) │
 │                     │   { job_id }               │  ~900MB                  │
 │                     │                             │                          │
-│   New Tools:        │         HTTP GET            │  Features:               │
-│   • scrape_url      │  ──────────────────────▶   │  • Async job queue       │
-│     (async: true)   │   /scrape/job?job_id=...   │  • 3 worker threads      │
-│   • get_scrape_      │  ◀──────────────────────   │  • Auto cleanup          │
-│     status          │   { status, result }       │  • 90s timeout           │
+│                     │         HTTP GET            │  Features:               │
+│                     │  ──────────────────────▶   │  • Async job queue       │
+│                     │   /scrape/job?job_id=...   │  • 3 worker threads      │
+│                     │  ◀──────────────────────   │  • Auto cleanup          │
+│                     │   { status, result }       │  • 90s timeout           │
 └─────────────────────┘                             └──────────────────────────┘
-
-### TRUE Async Mode (n8n Optimization)
-To solve the "Node Expired" or "HTTP Timeout" issues in n8n, the HDN server now supports a **True Async** flow:
-1. **Request Node**: Call `scrape_url` with `"async": true`. HDN returns a `job_id` immediately (milliseconds).
-2. **Wait Node**: n8n waits for 15-20 seconds.
-3. **Poll Node**: Call `get_scrape_status` with the `job_id` to retrieve the final result.
 ```
 
 ## Components
@@ -129,30 +123,22 @@ kubectl apply -f k8s/playwright-scraper-deployment.yaml
 - Job queue prevents overload
 - Automatic cleanup of old jobs
 
-**Step 1: Start Scrape Job (Immediate Return)**
+## Usage Example
+
+### From n8n Workflow:
+
+**Step 1: Start Scrape Job (MCP Tool Call)**
 ```json
 {
   "tool": "scrape_url",
   "arguments": {
     "url": "https://ecotree.green/en/calculate-car-co2",
-    "async": true,
-    "typescript_config": "..."
-  }
-}
-```
-**Response:** `{"job_id": "...", "status": "pending"}`
-
-**Step 2: Poll for Results (After 20s Wait)**
-```json
-{
-  "tool": "get_scrape_status",
-  "arguments": {
-    "job_id": "copied-from-step-1"
+    "typescript_config": "import { test } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://ecotree.green/en/calculate-car-co2');\n  await page.waitForTimeout(200);\n  await page.locator('div.geosuggest:nth-of-type(1) #geosuggest__input').fill('Portsmouth');\n  await page.waitForTimeout(200);\n  await page.getByText('Portsmouth').first().click();\n  await page.waitForTimeout(200);\n  await page.locator('div.geosuggest:nth-of-type(2) #geosuggest__input').fill('London');\n  await page.waitForTimeout(200);\n  await page.getByText('London').first().click();\n  await page.waitForTimeout(200);\n  await page.getByRole('link', { name: ' Calculate my emissions ' }).click();\n});"
   }
 }
 ```
 
-**Final Response:**
+**Response (after polling):**
 ```json
 {
   "content": [{
@@ -162,7 +148,8 @@ kubectl apply -f k8s/playwright-scraper-deployment.yaml
   "result": {
     "co2_kg": "12.5",
     "distance_km": "104",
-    "status": "completed"
+    "page_url": "https://ecotree.green/en/calculate-car-co2",
+    "page_title": "Calculate your car CO2 emissions"
   }
 }
 ```

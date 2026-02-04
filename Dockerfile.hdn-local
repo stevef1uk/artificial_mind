@@ -1,0 +1,56 @@
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apk add --no-cache git
+
+# Copy shared modules first (to allow go mod download to work if they are dependencies)
+# We need to preserve the directory structure for replace directives to work
+# "replace principles => ../principles" implies we need /app/principles if workdir is /app/hdn
+# But better to set workdir to /app and copy everything there
+
+COPY principles/ /app/principles/
+COPY self/ /app/self/
+COPY planner_evaluator/ /app/planner_evaluator/
+COPY eventbus/ /app/eventbus/
+
+# Copy HDN source
+COPY hdn/ /app/hdn/
+
+WORKDIR /app/hdn
+
+# Download dependencies
+RUN go mod download
+
+# Build the binary
+# -tags neo4j is crucial as per your earlier build
+RUN go build -tags neo4j -o hdn-server .
+
+# Create minimal runtime image
+FROM alpine:3.18
+
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates tzdata
+
+# Copy binary from builder
+COPY --from=builder /app/hdn/hdn-server /app/hdn-server
+COPY --from=builder /app/hdn/config.json /config/config.json
+COPY --from=builder /app/hdn/domain.json /config/domain.json
+
+# Create config directories
+RUN mkdir -p /config /keys
+
+# Set environment variables
+ENV PORT=8080
+ENV GIN_MODE=release
+# Point to local scraper container
+ENV PLAYWRIGHT_SCRAPER_URL=http://playwright-scraper-test:8080
+
+# Expose port
+EXPOSE 8080
+
+# Run the binary
+CMD ["/app/hdn-server", "--config", "/config/config.json", "--domain", "/config/domain.json"]

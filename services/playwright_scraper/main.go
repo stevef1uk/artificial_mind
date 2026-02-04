@@ -32,8 +32,9 @@ const (
 
 // ScrapeRequest represents an incoming scrape request
 type ScrapeRequest struct {
-	URL              string `json:"url"`
-	TypeScriptConfig string `json:"typescript_config"`
+	URL              string            `json:"url"`
+	TypeScriptConfig string            `json:"typescript_config"`
+	Extractions      map[string]string `json:"extractions,omitempty"`
 }
 
 // ScrapeJob represents a scrape job in the queue
@@ -41,6 +42,7 @@ type ScrapeJob struct {
 	ID               string                 `json:"id"`
 	URL              string                 `json:"url"`
 	TypeScriptConfig string                 `json:"typescript_config"`
+	Extractions      map[string]string      `json:"extractions,omitempty"`
 	Status           string                 `json:"status"`
 	CreatedAt        time.Time              `json:"created_at"`
 	StartedAt        *time.Time             `json:"started_at,omitempty"`
@@ -73,7 +75,7 @@ func NewJobStore() *JobStore {
 	}
 }
 
-func (s *JobStore) Create(url, tsConfig string) *ScrapeJob {
+func (s *JobStore) Create(url, tsConfig string, extractions map[string]string) *ScrapeJob {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -81,6 +83,7 @@ func (s *JobStore) Create(url, tsConfig string) *ScrapeJob {
 		ID:               uuid.New().String(),
 		URL:              url,
 		TypeScriptConfig: tsConfig,
+		Extractions:      extractions,
 		Status:           JobStatusPending,
 		CreatedAt:        time.Now(),
 	}
@@ -217,7 +220,7 @@ func (s *ScraperService) executeJob(job *ScrapeJob) (map[string]interface{}, err
 	log.Printf("📋 Parsed %d operations", len(operations))
 
 	// Execute Playwright operations
-	return executePlaywrightOperations(job.URL, operations)
+	return executePlaywrightOperations(job.URL, operations, job.Extractions)
 }
 
 func parseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
@@ -310,7 +313,7 @@ func parseOperation(line string) PlaywrightOperation {
 	return PlaywrightOperation{}
 }
 
-func executePlaywrightOperations(url string, operations []PlaywrightOperation) (map[string]interface{}, error) {
+func executePlaywrightOperations(url string, operations []PlaywrightOperation, extractions map[string]string) (map[string]interface{}, error) {
 	// Start Playwright
 	pwInstance, err := pw.Run()
 	if err != nil {
@@ -468,6 +471,11 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation) (
 
 	log.Printf("🔍 HTML content length: %d bytes", len(htmlContent))
 	log.Printf("🔍 Body text length: %d bytes", len(bodyContent))
+	if len(bodyContent) > 1000 {
+		log.Printf("🔍 Body text preview: %s", bodyContent[:1000])
+	} else {
+		log.Printf("🔍 Body text preview: %s", bodyContent)
+	}
 
 	// Extract CO2 using both HTML and text content
 	// CRITICAL FIX: Replace "CO2" with "Carbon" first, otherwise "CO261 kg" becomes "261 kg"!
@@ -550,6 +558,32 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation) (
 		results["distance_km"] = distanceValue
 	}
 
+	// Dynamic extractions (Pass in with other instructions)
+	if extractions != nil {
+		log.Printf("📊 Running %d dynamic extractions...", len(extractions))
+		for name, regexStr := range extractions {
+			re, err := regexp.Compile("(?i)" + regexStr)
+			if err != nil {
+				log.Printf("   ⚠️ Invalid regex for %s: %v", name, err)
+				continue
+			}
+
+			// Try matching against the combined search content
+			matches := re.FindStringSubmatch(searchContent)
+			if len(matches) > 1 {
+				// Use first capture group
+				results[name] = strings.TrimSpace(matches[1])
+				log.Printf("   ✅ Found %s: %s", name, results[name])
+			} else if len(matches) > 0 {
+				// Use full match
+				results[name] = strings.TrimSpace(matches[0])
+				log.Printf("   ✅ Found %s (full match): %s", name, results[name])
+			} else {
+				log.Printf("   ❌ No match for %s", name)
+			}
+		}
+	}
+
 	// Store raw text for debugging (Disabled to reduce payload size)
 	// results["raw_text"] = bodyContent
 
@@ -576,7 +610,7 @@ func (s *ScraperService) handleStartScrape(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Create job
-	job := s.store.Create(req.URL, req.TypeScriptConfig)
+	job := s.store.Create(req.URL, req.TypeScriptConfig, req.Extractions)
 
 	// Queue for processing
 	s.jobQueue <- job.ID

@@ -6,6 +6,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     tzdata \
+    chromium \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy module files
