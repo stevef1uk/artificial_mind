@@ -1,41 +1,27 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:1.23-bookworm
 
 WORKDIR /app
-COPY services/playwright_scraper/go.mod services/playwright_scraper/go.sum ./
-RUN go mod download
-COPY services/playwright_scraper/main.go ./
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o scraper main.go
 
-FROM debian:bookworm-slim
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install system dependencies for Playwright
+RUN apt-get update && apt-get install -y \
     ca-certificates \
     tzdata \
-    bash \
-    chromium \
-    chromium-driver \
-    fonts-liberation \
-    libnss3 \
-    libxss1 \
-    libappindicator3-1 \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libdrm2 \
-    libgbm1 \
-    libgtk-3-0 \
-    libnspr4 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-COPY --from=builder /app/scraper ./scraper
+# Copy module files
+COPY services/playwright_scraper/go.mod services/playwright_scraper/go.sum ./
+RUN go mod download
+
+# Copy source
+COPY services/playwright_scraper/main.go ./
+
+# Build binary
+RUN go build -o scraper main.go
+
+# Install Playwright browsers/deps via the binary/library
+# (The code does this at startup, but pre-installing deps is good)
+RUN go run github.com/playwright-community/playwright-go/cmd/playwright@latest install --with-deps
 
 EXPOSE 8080
+
 CMD ["./scraper"]

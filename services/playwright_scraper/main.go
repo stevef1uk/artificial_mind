@@ -263,11 +263,6 @@ func parseOperation(line string) PlaywrightOperation {
 		return PlaywrightOperation{Type: "getByTextClick", Text: matches[1]}
 	}
 
-	// locator with .first().fill()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.first\(\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
-		return PlaywrightOperation{Type: "locatorFillFirst", Selector: matches[1], Value: matches[2]}
-	}
-
 	// locator with .fill() - use .+? to match any characters including nested quotes
 	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "locatorFill", Selector: matches[1], Value: matches[2]}
@@ -288,16 +283,6 @@ func parseOperation(line string) PlaywrightOperation {
 		var timeout int
 		fmt.Sscanf(matches[1], "%d", &timeout)
 		return PlaywrightOperation{Type: "wait", Timeout: timeout / 1000}
-	}
-
-	// keyboard.press
-	if matches := regexp.MustCompile(`await\s+page\.keyboard\.press\(['"]([^'"]+)['"]\)`).FindStringSubmatch(line); len(matches) > 1 {
-		return PlaywrightOperation{Type: "keyboardPress", Value: matches[1]}
-	}
-
-	// keyboard.type
-	if matches := regexp.MustCompile(`await\s+page\.keyboard\.type\(['"]([^'"]+)['"]\)`).FindStringSubmatch(line); len(matches) > 1 {
-		return PlaywrightOperation{Type: "keyboardType", Value: matches[1]}
 	}
 
 	return PlaywrightOperation{}
@@ -402,30 +387,12 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation) (
 			}
 			time.Sleep(300 * time.Millisecond)
 
-		case "locatorFillFirst":
-			if err := page.Locator(op.Selector).First().Fill(op.Value); err != nil {
-				log.Printf("   ⚠️ Failed: %v", err)
-			}
-			time.Sleep(300 * time.Millisecond)
-
 		case "wait":
 			if op.Timeout > 0 {
 				time.Sleep(time.Duration(op.Timeout) * time.Second)
 			} else {
 				time.Sleep(500 * time.Millisecond)
 			}
-
-		case "keyboardPress":
-			if err := page.Keyboard().Press(op.Value); err != nil {
-				log.Printf("   ⚠️ Failed: %v", err)
-			}
-			time.Sleep(300 * time.Millisecond)
-
-		case "keyboardType":
-			if err := page.Keyboard().Type(op.Value); err != nil {
-				log.Printf("   ⚠️ Failed: %v", err)
-			}
-			time.Sleep(300 * time.Millisecond)
 		}
 	}
 
@@ -472,38 +439,49 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation) (
 	log.Printf("🔍 Body text length: %d bytes", len(bodyContent))
 
 	// Extract CO2 using both HTML and text content
-	// Flexible regex: just find numbers followed by kg
-	co2Regex := regexp.MustCompile(`(?i)(\d+(?:[.,]\d+)?)\s*kg`)
+	// Look for all numbers followed by "kg"
+	co2Regex := regexp.MustCompile(`(?i)(\d+(?:[,\s]\d+)*(?:[.,]\d+)?)\s*(?:kg|kilogram)`)
 	allCO2Matches := co2Regex.FindAllStringSubmatch(htmlContent+" "+bodyContent, -1)
 
 	log.Printf("🔍 Found %d kg matches", len(allCO2Matches))
 
+	// Debug: print all matches
+	for i, match := range allCO2Matches {
+		if len(match) > 1 && i < 10 {
+			log.Printf("   Match %d: '%s'", i, match[1])
+		}
+	}
+
+	// Find the largest CO2 value (the result is usually the biggest meaningful number)
+	// We want to ignore very small values (like 1 kg, 3.1 kg from explanation text)
 	maxCO2 := 0.0
 	var co2Value string
 
-	for i, match := range allCO2Matches {
+	for _, match := range allCO2Matches {
 		if len(match) > 1 {
 			valStr := strings.ReplaceAll(match[1], ",", "")
+			valStr = strings.ReplaceAll(valStr, " ", "")
+			// Handle both comma and period as decimal separator
+			valStr = strings.ReplaceAll(valStr, ".", ".")
 
 			if val, err := strconv.ParseFloat(valStr, 64); err == nil {
-				log.Printf("   Match %d: %s -> %.2f (maxCO2: %.2f)", i, match[1], val, maxCO2)
-				// Filter: Skip values like 1.0 (1 tree) or 3.1 (explanation text).
-				if val > 10 && val < 5000 {
-					if co2Value == "" || (val > maxCO2 && val < 1500) {
-						maxCO2 = val
-						co2Value = match[1]
-					}
+				log.Printf("   Parsed: %s -> %.2f (maxCO2: %.2f)", match[1], val, maxCO2)
+				// Only consider values > 10 to filter out explanation text (3.1 kg, 1 kg, etc)
+				if val > 10 && val > maxCO2 {
+					maxCO2 = val
+					co2Value = match[1]
+					log.Printf("   ✅ New max CO2: %.2f", maxCO2)
 				}
 			}
 		}
 	}
 
-	if co2Value == "" {
-		sampleLen := len(bodyContent)
-		if sampleLen > 500 {
-			sampleLen = 500
-		}
-		log.Printf("⚠️ No meaningful CO2 found. Sample text: %s", bodyContent[0:sampleLen])
+	// If we found a large number like 2292, it might need decimal conversion (e.g., 229.2)
+	// Check if it's unreasonably large and divide by 10
+	if maxCO2 > 1000 && maxCO2 < 10000 {
+		// Likely in format "2292" meaning "229.2 kg"
+		maxCO2 = maxCO2 / 10
+		co2Value = fmt.Sprintf("%.1f", maxCO2)
 	}
 
 	// Extract distance from HTML and text
