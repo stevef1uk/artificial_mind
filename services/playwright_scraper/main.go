@@ -424,40 +424,15 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation) (
 	// Wait for operations to fully complete
 	time.Sleep(500 * time.Millisecond)
 
-	// Wait for URL to change to include #result OR for result content to appear
-	log.Println("⏳ Waiting for results...")
-	resultsFound := false
-	for i := 0; i < 30; i++ {
-		// Method 1: Check URL
-		if strings.Contains(page.URL(), "#result") {
-			log.Println("✅ Results URL detected")
-			resultsFound = true
-			break
-		}
-
-		// Method 2: Check for specific result text (usually "Your carbon emissions")
-		content, _ := page.TextContent("body")
-		if strings.Contains(content, "carbon emissions") && strings.Contains(content, "kg") {
-			log.Println("✅ Result text detected in body")
-			resultsFound = true
-			break
-		}
-
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	if !resultsFound {
-		log.Println("⚠️ Warning: Result indicator not found after wait, attempting extraction anyway...")
-	}
-
-	// Additional wait for dynamic JavaScript to compute and render results
-	// The standalone test shows this needs at least 5 seconds AFTER all operations complete
-	// EcoTree's calculator does client-side computation which takes time
-	log.Println("⏳ Waiting for dynamic content to render (7 seconds)...")
-	time.Sleep(7000 * time.Millisecond)
-
-	// Force a reload of the page state to ensure we get fresh content
+	// Generic wait for page stability (network idle)
+	// This ensures dynamic content (like results) has loaded regardless of the domain
+	log.Println("⏳ Waiting for network idle...")
 	page.WaitForLoadState(pw.PageWaitForLoadStateOptions{State: pw.LoadStateNetworkidle})
+
+	// Add a fixed safety buffer for client-side rendering
+	// Complex SPAs often need a moment after network idle to render DOM
+	log.Println("⏳ Waiting for final render (3 seconds)...")
+	time.Sleep(3000 * time.Millisecond)
 
 	// Extract results
 	log.Println("📊 Extracting results...")
