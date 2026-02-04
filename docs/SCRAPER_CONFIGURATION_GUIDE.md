@@ -54,11 +54,13 @@ The extraction runs against the full page text. Common page layouts put labels a
 *   `(\\d+(?:[.,]\\d+)?)`: Captured group to handle integers and decimals (supporting both `.` and `,` separators).
 *   `\\s*units`: Matches the units (e.g., `kg`, `km`) with optional whitespace.
 
-**EcoTree Example:**
+**EcoTree Example (with Block Anchor):**
+The EcoTree results section is contained within a "Your footprint" block. In visible text flow, the values `292 kg` actually appear **above** their labels. To ensure we match the right numbers and avoid example data at the bottom of the page, we use a broad anchor:
+
 ```json
 "extractions": {
-  "co2_result": "carbon emissions[\\s\\S]*?(\\d+(?:[.,]\\d+)?)\\s*kg",
-  "distance_result": "travelled distance[\\s\\S]*?(\\d+(?:[.,]\\d+)?)\\s*km"
+  "co2_result": "Your footprint[\\s\\S]*?Carbon[\\s\\S]*?(\\d+(?:[.,]\\d+)?)\\s*kg",
+  "distance_result": "Your footprint[\\s\\S]*?Kilometers[\\s\\S]*?(\\d+(?:[.,]\\d+)?)\\s*km"
 }
 ```
 
@@ -79,6 +81,8 @@ The service automatically waits for `NetworkIdle` + **3 seconds** of rendering t
 ### ✅ Dynamic Extraction Tips
 *   **Capture Groups**: Always wrap the part you want in `()`. The scraper returns the FIRST capture group.
 *   **Content Cleaning**: The service automatically replaces "CO2" with "Carbon" in the search text. This prevents the "2" in "CO2" from being incorrectly captured as the result.
+*   **Block Anchors**: If a page has multiple sections (e.g., a "Results" section and an "Examples" section), use a unique header from the results section as your starting anchor.
+*   **Visual Order (InnerText)**: Remember that the scraper uses visible text. If the website design puts the number physically above the label, your regex should reflect that order (e.g., `"ParentHeader[\\s\\S]*?Value[\\s\\S]*?Label"`).
 *   **Case Insensitivity**: All extraction regexes are applied with the `(?i)` flag automatically.
 
 ---
