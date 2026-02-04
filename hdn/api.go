@@ -346,10 +346,10 @@ type APIServer struct {
 	hdnBaseURL           string // For tool calling
 	mcpKnowledgeServer   *MCPKnowledgeServer
 	memoryConsolidator   *mempkg.MemoryConsolidator
-	agentRegistry        *AgentRegistry   // Agent registry for autonomous agents
-	agentExecutor        *AgentExecutor   // Agent executor
-	agentHistory         *AgentHistory    // Agent execution history
-	agentScheduler       *AgentScheduler  // Agent scheduler for cron triggers
+	agentRegistry        *AgentRegistry  // Agent registry for autonomous agents
+	agentExecutor        *AgentExecutor  // Agent executor
+	agentHistory         *AgentHistory   // Agent execution history
+	agentScheduler       *AgentScheduler // Agent scheduler for cron triggers
 }
 
 func NewAPIServer(domainPath string, redisAddr string) *APIServer {
@@ -1264,12 +1264,12 @@ func applyDomainEnvOverrides(cfg *DomainConfig) {
 // SetLLMClient sets the LLM client (called from server.go after environment overrides)
 func (s *APIServer) SetLLMClient(client *LLMClient) {
 	s.llmClient = client
-	
+
 	// Update MCP knowledge server with LLM client if it already exists
 	if s.mcpKnowledgeServer != nil {
 		s.mcpKnowledgeServer.SetLLMClient(client)
 	}
-	
+
 	// Initialize code generator now that LLM client is available
 	s.codeGenerator = NewCodeGenerator(s.llmClient, s.codeStorage)
 	// Initialize conversational layer now that LLM client is available
@@ -5602,10 +5602,18 @@ func (s *APIServer) handleKnowledgeQuery(w http.ResponseWriter, r *http.Request)
 	}
 	log.Printf("[HDN] /knowledge/query returned %d rows", len(rows))
 
+	// Safety: Cap results to prevent OOM on small devices
+	const maxRows = 1000
+	if len(rows) > maxRows {
+		log.Printf("⚠️ [HDN] Truncating query results from %d to %d to prevent OOM", len(rows), maxRows)
+		rows = rows[:maxRows]
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"results": rows,
-		"count":   len(rows),
+		"count":   len(rows), // Return actual count (post-truncation)
+		"total":   len(rows), // Legacy field
 	})
 }
 

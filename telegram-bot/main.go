@@ -371,13 +371,15 @@ Available commands:
 /search <text> - Search Weaviate vector database
 /concept <name> - Get concept details
 /related <name> - Find related concepts
+/avatar <query> - Search personal context (Avatar)
 /thinking - Toggle thinking mode (show/hide reasoning)
 /help - Show this message
 
 Examples:
 /scrape https://bbc.co.uk
 /query MATCH (n:Concept) RETURN n.name LIMIT 5
-/search artificial intelligence`
+/search artificial intelligence
+/avatar what are my skills?`
 	} else if strings.HasPrefix(text, "/scrape ") {
 		url := strings.TrimSpace(strings.TrimPrefix(text, "/scrape"))
 		if url == "" {
@@ -424,6 +426,16 @@ Examples:
 			response = "❌ Please provide a concept name. Example: /related AI"
 		} else {
 			response, err = bot.callMCPTool("find_related_concepts", map[string]interface{}{"name": conceptName})
+			if err != nil {
+				response = fmt.Sprintf("❌ Error: %v", err)
+			}
+		}
+	} else if strings.HasPrefix(text, "/avatar ") {
+		query := strings.TrimSpace(strings.TrimPrefix(text, "/avatar"))
+		if query == "" {
+			response = "❌ Please provide a query. Example: /avatar what are my skills?"
+		} else {
+			response, err = bot.callMCPTool("search_avatar_context", map[string]interface{}{"query": query})
 			if err != nil {
 				response = fmt.Sprintf("❌ Error: %v", err)
 			}
