@@ -492,8 +492,8 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation) (
 
 			if val, err := strconv.ParseFloat(valStr, 64); err == nil {
 				log.Printf("   Parsed: %s -> %.2f (maxCO2: %.2f)", match[1], val, maxCO2)
-				// Only consider values > 0 (trains can be very efficient, e.g. 2kg)
-				if val > 0 && val > maxCO2 {
+				// Only consider values >= 0 (trains can be very efficient, even 0kg is a valid result)
+				if val >= 0 && val >= maxCO2 {
 					maxCO2 = val
 					co2Value = match[1]
 					log.Printf("   ✅ New max CO2: %.2f", maxCO2)
