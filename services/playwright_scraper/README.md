@@ -19,22 +19,35 @@ For commercial licensing inquiries, please contact the copyright holder.
 
 - ✅ **Async Job Queue** - Submit scraping jobs and poll for results
 - ✅ **Multiple Workers** - Concurrent scraping (3 workers by default)
-- ✅ **Auto Cleanup** - Old jobs cleaned up after 30 minutes
 - ✅ **TypeScript Config** - Same Playwright config format as MCP tool
+- ✅ **Dynamic Extractions** - Pass custom regex patterns to extract any data from the page
+- ✅ **Auto Layout Detection** - Generic wait logic (NetworkIdle + 3s) works with any single-page app
 - ✅ **REST API** - Simple HTTP endpoints
 
 ## API Endpoints
 
 ### `POST /scrape/start`
-Start a new scraping job.
+Start a new scraping job. All data extraction is now rules-based via the `extractions` field.
 
 **Request:**
 ```json
 {
   "url": "https://example.com",
-  "typescript_config": "import { test } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://example.com');\n});"
+  "typescript_config": "await page.locator('#input').fill('data'); await page.keyboard.press('Enter');",
+  "extractions": {
+    "result_value": "Result is: (\\d+) units",
+    "status_text": "Current status: (\\w+)"
+  }
 }
 ```
+
+- **url**: The base URL to navigate to.
+- **typescript_config**: A string containing Playwright commands. The service parses these and executes them in sequence.
+- **extractions**: (Optional) A map of field names to regex patterns.
+  - Regexes are case-insensitive.
+  - If a **capture group** `()` is present, only the first group is extracted.
+  - Otherwise, the full match is returned.
+  - Extraction runs *after* all TypeScript operations have completed and the page has reached `NetworkIdle`.
 
 **Response:**
 ```json
@@ -66,21 +79,17 @@ Get job status and results.
   "started_at": "2026-02-03T12:00:05Z"
 }
 ```
-
 **Response (Completed):**
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "status": "completed",
-  "created_at": "2026-02-03T12:00:00Z",
-  "started_at": "2026-02-03T12:00:05Z",
-  "completed_at": "2026-02-03T12:00:25Z",
+  ...
   "result": {
     "page_url": "https://example.com",
     "page_title": "Example Domain",
-    "co2_kg": "12.5",
-    "distance_km": "450",
-    "raw_text": "..."
+    "result_value": "125",
+    "status_text": "Success"
   }
 }
 ```
@@ -145,23 +154,43 @@ docker run -p 8080:8080 \
 make start-scraper
 ```
 
+### Supported Playwright Operations
+
+The Go service includes a TypeScript parser that supports a subset of Playwright commands:
+
+- `await page.goto(url)`
+- `await page.locator(selector).fill(text)`
+- `await page.locator(selector).first().fill(text)`
+- `await page.locator(selector).nth(index).fill(text)`
+- `await page.locator(selector).click()`
+- `await page.locator(selector).first().click()`
+- `await page.getByRole(role, { name: '...' }).click()`
+- `await page.getByRole(role, { name: '...' }).fill(text)`
+- `await page.getByText(text).click()`
+- `await page.getByText(text).first().click()`
+- `await page.keyboard.type(text)`
+- `await page.keyboard.press(key)` (e.g., 'Enter', 'ArrowDown')
+- `await page.waitForTimeout(milliseconds)`
+
 ## Testing
 
 ```bash
-# Start a scrape job
+# Start a complex scrape job with custom extractions
 curl -X POST http://localhost:8080/scrape/start \
   -H 'Content-Type: application/json' \
   -d '{
     "url": "https://ecotree.green/en/calculate-flight-co2",
-    "typescript_config": "import { test } from '\''@playwright/test'\'';\ntest('\''test'\'', async ({ page }) => {\n  await page.goto('\''https://ecotree.green/en/calculate-flight-co2'\'');\n  await page.getByRole('\''link'\'', { name: '\''Plane'\'' }).click();\n});"
+    "typescript_config": "await page.locator(\"#airportName\").first().fill(\"SOU\"); await page.keyboard.press(\"Enter\");",
+    "extractions": {
+      "co2": "carbon emissions[\\s\\S]*?(\\d+)\\s*kg"
+    }
   }'
-
+```
 # Get job status (replace JOB_ID with actual ID from above)
 curl http://localhost:8080/scrape/job?job_id=JOB_ID
 
 # Health check
 curl http://localhost:8080/health
-```
 
 ## Configuration
 

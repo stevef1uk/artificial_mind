@@ -881,12 +881,12 @@ The API supports CORS for web applications. All origins are currently allowed.
 
 ## Examples
 
-### Web Scraping
+### Web Scraping (Advanced)
 ```bash
 curl -X POST http://localhost:8081/api/v1/interpret/execute \
   -H "Content-Type: application/json" \
   -d '{
-    "input": "Can you scrape https://example.com and show me the content?"
+    "input": "Scrape https://ecotree.green/en/calculate-car-co2, fill in Portsmouth to London, and extract the co2 results using the regex carbon emissions[\\s\\S]*?(\\d+)\\s*kg"
   }'
 ```
 

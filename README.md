@@ -112,6 +112,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - [**Integration Guide**](docs/INTEGRATION_GUIDE.md) - System integration instructions
 - [**Refactoring Plan**](docs/REFACTORING_PLAN.md) - Code organization and refactoring
 - [**Tool Metrics**](docs/TOOL_METRICS_README.md) - Performance monitoring and metrics
+- [**Scraper Configuration Guide**](docs/SCRAPER_CONFIGURATION_GUIDE.md) - Best practices for dynamic data extraction
 
 ### 🐳 Infrastructure & Deployment
 - [**Docker Compose**](docker-compose.yml) - Local development deployment

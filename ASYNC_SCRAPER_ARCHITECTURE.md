@@ -13,11 +13,11 @@ The web scraping functionality has been refactored into a standalone microservic
 │   ~200MB            │  ◀──────────────────────   │  (Chromium + Playwright) │
 │                     │   { job_id }               │  ~900MB                  │
 │                     │                             │                          │
-│                     │         HTTP GET            │  Features:               │
-│                     │  ──────────────────────▶   │  • Async job queue       │
-│                     │   /scrape/job?job_id=...   │  • 3 worker threads      │
-│                     │  ◀──────────────────────   │  • Auto cleanup          │
-│                     │   { status, result }       │  • 90s timeout           │
+│                     │         HTTP GET            │  • Generic extraction    │
+│                     │  ──────────────────────▶   │  • rules-based regex     │
+│                     │   /scrape/job?job_id=...   │  • 90s timeout           │
+│                     │  ◀──────────────────────   │  • Layout agnostic       │
+│                     │   { status, result }       │                          │
 └─────────────────────┘                             └──────────────────────────┘
 ```
 
@@ -40,15 +40,17 @@ The web scraping functionality has been refactored into a standalone microservic
 - ✅ Auto cleanup of old jobs (30min retention)
 - ✅ 90-second timeout for scraping operations
 - ✅ Same TypeScript config format as MCP tool
+- ✅ **Dynamic Extractions** - Rules-based data retrieval via regex (no hardcoded logic)
+- ✅ **Chained Selectors** - Support for `.first()` and `.nth(n)` in TypeScript parser
 
 **API Endpoints:**
 ```
 POST /scrape/start
-  Request: { "url": "...", "typescript_config": "..." }
+  Request: { "url": "...", "typescript_config": "...", "extractions": {"key": "regex"} }
   Response: { "job_id": "uuid", "status": "pending", "created_at": "..." }
 
 GET /scrape/job?job_id=<uuid>
-  Response: { "id": "...", "status": "completed|pending|running|failed", "result": {...} }
+  Response: { "id": "...", "status": "completed|pending|running|failed", "result": {"page_url": "...", "key": "value"} }
 
 GET /health
   Response: { "status": "healthy", "service": "playwright-scraper", "time": "..." }
@@ -133,7 +135,11 @@ kubectl apply -f k8s/playwright-scraper-deployment.yaml
   "tool": "scrape_url",
   "arguments": {
     "url": "https://ecotree.green/en/calculate-car-co2",
-    "typescript_config": "import { test } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://ecotree.green/en/calculate-car-co2');\n  await page.waitForTimeout(200);\n  await page.locator('div.geosuggest:nth-of-type(1) #geosuggest__input').fill('Portsmouth');\n  await page.waitForTimeout(200);\n  await page.getByText('Portsmouth').first().click();\n  await page.waitForTimeout(200);\n  await page.locator('div.geosuggest:nth-of-type(2) #geosuggest__input').fill('London');\n  await page.waitForTimeout(200);\n  await page.getByText('London').first().click();\n  await page.waitForTimeout(200);\n  await page.getByRole('link', { name: ' Calculate my emissions ' }).click();\n});"
+    "typescript_config": "await page.locator('#geosuggest__input').first().fill('Portsmouth'); await page.getByText('Portsmouth').first().click(); await page.locator('#geosuggest__input').nth(1).fill('London'); await page.getByText('London').first().click(); await page.getByRole('link', { name: ' Calculate my emissions ' }).click();",
+    "extractions": {
+      "co2": "carbon emissions[\\s\\S]*?(\\d+)\\s*kg",
+      "distance": "travelled distance[\\s\\S]*?(\\d+)\\s*km"
+    }
   }
 }
 ```
@@ -143,11 +149,11 @@ kubectl apply -f k8s/playwright-scraper-deployment.yaml
 {
   "content": [{
     "type": "text",
-    "text": "Scrape Results:\n{\"co2_kg\": \"12.5\", \"distance_km\": \"104\", ...}"
+    "text": "Scrape Results:\n{\"co2\": \"12.5\", \"distance\": \"104\", ...}"
   }],
   "result": {
-    "co2_kg": "12.5",
-    "distance_km": "104",
+    "co2": "12.5",
+    "distance": "104",
     "page_url": "https://ecotree.green/en/calculate-car-co2",
     "page_title": "Calculate your car CO2 emissions"
   }

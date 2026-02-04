@@ -64,6 +64,9 @@ kubectl logs -n agi deployment/playwright-scraper --tail=50
 🎬 Starting scraper service...
 ✅ Started 3 scraper workers
 🚀 Playwright Scraper Service starting on :8080
+📊 Running 2 dynamic extractions...
+   ✅ Found co2: 12.5
+   ✅ Found distance: 104
 ```
 
 ---
@@ -179,7 +182,11 @@ kubectl logs -n agi deployment/hdn-server-rpi58 --tail=50 | grep MCP-SCRAPE
 ```json
 {
   "url": "https://ecotree.green/en/calculate-car-co2",
-  "typescript_config": "import { test } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://ecotree.green/en/calculate-car-co2');\n  await page.waitForTimeout(200);\n  await page.locator('div.geosuggest:nth-of-type(1) #geosuggest__input').fill('Portsmouth');\n  await page.waitForTimeout(200);\n  await page.getByText('Portsmouth').first().click();\n  await page.waitForTimeout(200);\n  await page.locator('div.geosuggest:nth-of-type(2) #geosuggest__input').fill('London');\n  await page.waitForTimeout(200);\n  await page.getByText('London').first().click();\n  await page.waitForTimeout(200);\n  await page.getByRole('link', { name: ' Calculate my emissions ' }).click();\n});"
+  "typescript_config": "await page.locator('#geosuggest__input').first().fill('Portsmouth'); await page.getByText('Portsmouth').first().click(); await page.locator('#geosuggest__input').nth(1).fill('London'); await page.getByText('London').first().click(); await page.getByRole('link', { name: ' Calculate my emissions ' }).click();",
+  "extractions": {
+    "co2": "carbon emissions[\\s\\S]*?(\\d+)\\s*kg",
+    "distance": "travelled distance[\\s\\S]*?(\\d+)\\s*km"
+  }
 }
 ```
 
