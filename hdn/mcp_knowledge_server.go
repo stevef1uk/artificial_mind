@@ -390,12 +390,32 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 					"type":        "string",
 					"description": "URL to scrape",
 				},
+				"async": map[string]interface{}{
+					"type":        "boolean",
+					"description": "If true, returns immediately with a job_id instead of waiting for results",
+					"default":     false,
+				},
 				"typescript_config": map[string]interface{}{
 					"type":        "string",
 					"description": "Optional: TypeScript/Playwright code (as string) that will be converted to Go code via LLM for custom scraping logic",
 				},
 			},
 			"required": []string{"url"},
+		},
+	})
+
+	tools = append(tools, MCPKnowledgeTool{
+		Name:        "get_scrape_status",
+		Description: "Check the status and results of an asynchronous scrape job using its job ID.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"job_id": map[string]interface{}{
+					"type":        "string",
+					"description": "The ID of the scrape job to check",
+				},
+			},
+			"required": []string{"job_id"},
 		},
 	})
 
@@ -508,6 +528,12 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		return s.executeToolWrapper(ctx, toolName, arguments)
 	case "browse_web":
 		return s.browseWeb(ctx, arguments)
+	case "get_scrape_status":
+		jobID, ok := arguments["job_id"].(string)
+		if !ok || jobID == "" {
+			return nil, fmt.Errorf("job_id parameter required")
+		}
+		return s.getScrapeStatus(ctx, jobID)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
@@ -552,8 +578,40 @@ func (s *MCPKnowledgeServer) queryNeo4j(ctx context.Context, args map[string]int
 	return nil, fmt.Errorf("Neo4j not available")
 }
 
+func (s *MCPKnowledgeServer) getScrapeStatus(ctx context.Context, jobID string) (interface{}, error) {
+	scraperURL := os.Getenv("PLAYWRIGHT_SCRAPER_URL")
+	if scraperURL == "" {
+		scraperURL = "http://playwright-scraper.agi.svc.cluster.local:8080"
+	}
+
+	jobURL := fmt.Sprintf("%s/scrape/job?job_id=%s", scraperURL, jobID)
+	req, err := http.NewRequestWithContext(ctx, "GET", jobURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var job struct {
+		ID          string                 `json:"id"`
+		Status      string                 `json:"status"`
+		Result      map[string]interface{} `json:"result,omitempty"`
+		Error       string                 `json:"error,omitempty"`
+		CompletedAt *time.Time             `json:"completed_at,omitempty"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&job); err != nil {
+		return nil, fmt.Errorf("failed to decode job status: %v", err)
+	}
+
+	return job, nil
+}
+
 // scrapeWithConfig delegates to the external Playwright scraper service with async job queue
-func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig string) (interface{}, error) {
+func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig string, async bool) (interface{}, error) {
 	log.Printf("📝 [MCP-SCRAPE] Received TypeScript config (%d bytes)", len(tsConfig))
 
 	// Call external scraper service with async job queue
@@ -592,6 +650,15 @@ func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&startResp); err != nil {
 		return nil, fmt.Errorf("failed to decode start response: %v", err)
+	}
+
+	if async {
+		log.Printf("🚀 [MCP-SCRAPE] Async requested, returning job ID %s immediately", startResp.JobID)
+		return map[string]interface{}{
+			"status":  "pending",
+			"job_id":  startResp.JobID,
+			"message": "Scrape job started asynchronously. Use get_scrape_status to check results.",
+		}, nil
 	}
 
 	log.Printf("⏳ [MCP-SCRAPE] Job %s started, polling for results...", startResp.JobID)
@@ -1067,7 +1134,8 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 
 		// Check if typescript_config is provided - if so, parse and execute directly
 		if tsConfig, ok := args["typescript_config"].(string); ok && tsConfig != "" {
-			return s.scrapeWithConfig(ctx, url, tsConfig)
+			isAsync, _ := args["async"].(bool)
+			return s.scrapeWithConfig(ctx, url, tsConfig, isAsync)
 		}
 
 		// Use the html-scraper binary tool for better content extraction
