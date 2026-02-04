@@ -227,8 +227,8 @@ func parseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
 	var operations []PlaywrightOperation
 
 	// Parse operations in order by finding all 'await page.' patterns
-	// This preserves the execution order from the TypeScript
-	awaitRegex := regexp.MustCompile(`await\s+page\.[^\n]+`)
+	// stop at semicolon, newline, or end of string
+	awaitRegex := regexp.MustCompile(`await\s+page\.[^;\n]+`)
 	matches := awaitRegex.FindAllString(tsConfig, -1)
 
 	for _, match := range matches {
