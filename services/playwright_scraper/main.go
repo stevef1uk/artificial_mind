@@ -477,86 +477,10 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 		log.Printf("🔍 Body text preview: %s", bodyContent)
 	}
 
-	// Extract CO2 using both HTML and text content
-	// CRITICAL FIX: Replace "CO2" with "Carbon" first, otherwise "CO261 kg" becomes "261 kg"!
+	// Prepare content for extraction
+	// CRITICAL: Replace "CO2" with "Carbon" to avoid issues with numbers immediately following "CO2"
 	searchContent := htmlContent + " " + bodyContent
 	searchContent = strings.ReplaceAll(searchContent, "CO2", "Carbon")
-
-	// Look for all numbers followed by "kg"
-	co2Regex := regexp.MustCompile(`(?i)(\d+(?:[,\s]\d+)*(?:[.,]\d+)?)\s*(?:kg|kilogram)`)
-	allCO2Matches := co2Regex.FindAllStringSubmatch(searchContent, -1)
-
-	log.Printf("🔍 Found %d kg matches", len(allCO2Matches))
-
-	// Debug: print all matches
-	for i, match := range allCO2Matches {
-		if len(match) > 1 && i < 10 {
-			log.Printf("   Match %d: '%s'", i, match[1])
-		}
-	}
-
-	// Find the largest CO2 value (the result is usually the biggest meaningful number)
-	// We want to ignore very small values (like 1 kg, 3.1 kg from explanation text)
-	maxCO2 := 0.0
-	var co2Value string
-
-	for _, match := range allCO2Matches {
-		if len(match) > 1 {
-			valStr := strings.ReplaceAll(match[1], ",", "")
-			valStr = strings.ReplaceAll(valStr, " ", "")
-			// Handle both comma and period as decimal separator
-			valStr = strings.ReplaceAll(valStr, ".", ".")
-
-			if val, err := strconv.ParseFloat(valStr, 64); err == nil {
-				log.Printf("   Parsed: %s -> %.2f (maxCO2: %.2f)", match[1], val, maxCO2)
-				// Only consider values >= 0 (trains can be very efficient, even 0kg is a valid result)
-				if val >= 0 && val >= maxCO2 {
-					maxCO2 = val
-					co2Value = match[1]
-					log.Printf("   ✅ New max CO2: %.2f", maxCO2)
-				}
-			}
-		}
-	}
-
-	// If we found a large number like 2292, it might need decimal conversion (e.g., 229.2)
-	// Check if it's unreasonably large and divide by 10
-	if maxCO2 > 1000 && maxCO2 < 10000 {
-		// Likely in format "2292" meaning "229.2 kg"
-		maxCO2 = maxCO2 / 10
-		co2Value = fmt.Sprintf("%.1f", maxCO2)
-	}
-
-	// Extract distance from HTML and text
-	distanceRegex := regexp.MustCompile(`(?i)(\d+(?:[,\s]\d+)*)\s*(?:km|kilometer)`)
-	allDistanceMatches := distanceRegex.FindAllStringSubmatch(htmlContent+" "+bodyContent, -1)
-
-	log.Printf("🔍 Found %d km matches", len(allDistanceMatches))
-
-	var distanceValue string
-	// Get the first significant distance value (usually > 50 km for real travel)
-	for _, match := range allDistanceMatches {
-		if len(match) > 1 {
-			valStr := strings.ReplaceAll(match[1], ",", "")
-			valStr = strings.ReplaceAll(valStr, " ", "")
-			if val, err := strconv.Atoi(valStr); err == nil && val > 50 {
-				distanceValue = valStr
-				break
-			}
-		}
-	}
-
-	// Store results
-	if co2Value != "" {
-		// Clean up the value
-		co2Value = strings.ReplaceAll(co2Value, ",", "")
-		co2Value = strings.ReplaceAll(co2Value, " ", "")
-		results["co2_kg"] = co2Value
-	}
-
-	if distanceValue != "" {
-		results["distance_km"] = distanceValue
-	}
 
 	// Dynamic extractions (Pass in with other instructions)
 	if extractions != nil {
