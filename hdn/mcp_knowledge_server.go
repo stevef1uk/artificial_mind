@@ -392,7 +392,7 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 				},
 				"async": map[string]interface{}{
 					"type":        "boolean",
-					"description": "If true, returns immediately with a job_id instead of waiting for results",
+					"description": "If true, returns immediately with a job_id instead of waiting for results. Default: false.",
 					"default":     false,
 				},
 				"typescript_config": map[string]interface{}{
@@ -406,7 +406,7 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 
 	tools = append(tools, MCPKnowledgeTool{
 		Name:        "get_scrape_status",
-		Description: "Check the status and results of an asynchronous scrape job using its job ID.",
+		Description: "Check the status and retrieve results of a previously started scrape job.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -529,8 +529,13 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 	case "browse_web":
 		return s.browseWeb(ctx, arguments)
 	case "get_scrape_status":
-		jobID, ok := arguments["job_id"].(string)
-		if !ok || jobID == "" {
+		// Handle nested arguments from n8n
+		args := arguments
+		if inner, ok := arguments["arguments"].(map[string]interface{}); ok {
+			args = inner
+		}
+		jobID, _ := args["job_id"].(string)
+		if jobID == "" {
 			return nil, fmt.Errorf("job_id parameter required")
 		}
 		return s.getScrapeStatus(ctx, jobID)
@@ -607,7 +612,29 @@ func (s *MCPKnowledgeServer) getScrapeStatus(ctx context.Context, jobID string) 
 		return nil, fmt.Errorf("failed to decode job status: %v", err)
 	}
 
-	return job, nil
+	// Format for MCP
+	var text string
+	switch job.Status {
+	case "completed":
+		text = fmt.Sprintf("Scrape Results for %s:\n%v", jobID, job.Result)
+	case "failed":
+		text = fmt.Sprintf("Scrape job %s failed: %v", jobID, job.Error)
+	case "running", "pending":
+		text = fmt.Sprintf("Scrape job %s is still %s.", jobID, job.Status)
+	default:
+		text = fmt.Sprintf("Scrape job %s has status: %s", jobID, job.Status)
+	}
+
+	return map[string]interface{}{
+		"content": []map[string]interface{}{
+			{
+				"type": "text",
+				"text": text,
+			},
+		},
+		"result": job.Result,
+		"status": job.Status,
+	}, nil
 }
 
 // scrapeWithConfig delegates to the external Playwright scraper service with async job queue
@@ -655,9 +682,18 @@ func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig
 	if async {
 		log.Printf("🚀 [MCP-SCRAPE] Async requested, returning job ID %s immediately", startResp.JobID)
 		return map[string]interface{}{
-			"status":  "pending",
-			"job_id":  startResp.JobID,
-			"message": "Scrape job started asynchronously. Use get_scrape_status to check results.",
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": fmt.Sprintf("Scrape job started. Job ID: %s. Use get_scrape_status to check results.", startResp.JobID),
+				},
+				{
+					"type": "text",
+					"text": fmt.Sprintf("JobID: %s", startResp.JobID),
+				},
+			},
+			"job_id": startResp.JobID,
+			"status": "pending",
 		}, nil
 	}
 
