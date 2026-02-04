@@ -757,6 +757,7 @@ func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig
 					},
 				},
 				"result": job.Result,
+				"job_id": startResp.JobID,
 			}, nil
 
 		case "failed":
