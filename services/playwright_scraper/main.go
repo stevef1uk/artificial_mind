@@ -278,6 +278,16 @@ func parseOperation(line string) PlaywrightOperation {
 		return PlaywrightOperation{Type: "locator", Selector: matches[1]}
 	}
 
+	// keyboard.press
+	if matches := regexp.MustCompile(`await\s+page\.keyboard\.press\(['"]([^'"]+)['"]\)`).FindStringSubmatch(line); len(matches) > 1 {
+		return PlaywrightOperation{Type: "keyboardPress", Value: matches[1]}
+	}
+
+	// keyboard.type
+	if matches := regexp.MustCompile(`await\s+page\.keyboard\.type\(['"]([^'"]+)['"]\)`).FindStringSubmatch(line); len(matches) > 1 {
+		return PlaywrightOperation{Type: "keyboardType", Value: matches[1]}
+	}
+
 	// waitForTimeout
 	if matches := regexp.MustCompile(`await\s+page\.waitForTimeout\((\d+)\)`).FindStringSubmatch(line); len(matches) > 1 {
 		var timeout int
@@ -393,6 +403,18 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation) (
 			} else {
 				time.Sleep(500 * time.Millisecond)
 			}
+
+		case "keyboardPress":
+			if err := page.Keyboard().Press(op.Value); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(300 * time.Millisecond)
+
+		case "keyboardType":
+			if err := page.Keyboard().Type(op.Value); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(300 * time.Millisecond)
 		}
 	}
 
@@ -439,9 +461,13 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation) (
 	log.Printf("🔍 Body text length: %d bytes", len(bodyContent))
 
 	// Extract CO2 using both HTML and text content
+	// CRITICAL FIX: Replace "CO2" with "Carbon" first, otherwise "CO261 kg" becomes "261 kg"!
+	searchContent := htmlContent + " " + bodyContent
+	searchContent = strings.ReplaceAll(searchContent, "CO2", "Carbon")
+
 	// Look for all numbers followed by "kg"
 	co2Regex := regexp.MustCompile(`(?i)(\d+(?:[,\s]\d+)*(?:[.,]\d+)?)\s*(?:kg|kilogram)`)
-	allCO2Matches := co2Regex.FindAllStringSubmatch(htmlContent+" "+bodyContent, -1)
+	allCO2Matches := co2Regex.FindAllStringSubmatch(searchContent, -1)
 
 	log.Printf("🔍 Found %d kg matches", len(allCO2Matches))
 
