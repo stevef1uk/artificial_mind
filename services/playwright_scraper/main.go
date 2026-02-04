@@ -466,21 +466,34 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 	// Get the full page HTML content (includes dynamically rendered elements)
 	htmlContent, _ := page.Content()
 
-	// Also get text content for backup
-	bodyContent, _ := page.TextContent("body")
+	// Use InnerText to get only visible text (excludes <script> and <style> tags)
+	bodyContent, _ := page.InnerText("body")
 
 	log.Printf("🔍 HTML content length: %d bytes", len(htmlContent))
 	log.Printf("🔍 Body text length: %d bytes", len(bodyContent))
-	if len(bodyContent) > 1000 {
-		log.Printf("🔍 Body text preview: %s", bodyContent[:1000])
+	if len(bodyContent) > 2000 {
+		log.Printf("🔍 Body text content (preview): %s", bodyContent[:2000])
 	} else {
-		log.Printf("🔍 Body text preview: %s", bodyContent)
+		log.Printf("🔍 Body text content: %s", bodyContent)
 	}
 
 	// Prepare content for extraction
-	// CRITICAL: Replace "CO2" with "Carbon" to avoid issues with numbers immediately following "CO2"
-	searchContent := htmlContent + " " + bodyContent
+	// We use ONLY visible body text to avoid matching hidden scripts/metadata in the HTML
+	searchContent := bodyContent
 	searchContent = strings.ReplaceAll(searchContent, "CO2", "Carbon")
+
+	// Debug snippets
+	if idx := strings.Index(strings.ToLower(searchContent), "emissions"); idx != -1 {
+		start := idx - 50
+		if start < 0 {
+			start = 0
+		}
+		end := idx + 150
+		if end > len(searchContent) {
+			end = len(searchContent)
+		}
+		log.Printf("🔍 Snippet around 'emissions': %s", searchContent[start:end])
+	}
 
 	// Dynamic extractions (Pass in with other instructions)
 	if extractions != nil {

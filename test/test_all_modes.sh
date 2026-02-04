@@ -56,7 +56,7 @@ test('test', async ({ page }) => {
     # Start job
     echo "🚀 Starting $MODE scrape job..."
     # Custom extractions (using [\s\S]*? to handle complex spacing/elements)
-    EXTRACTIONS='{"co2_dynamic": "carbon emissions[\\s\\S]*?(\\d+(?:[.,]\\d+)?)\\s*kg", "dist_dynamic": "travelled distance[\\s\\S]*?(\\d+(?:[.,]\\d+)?)\\s*km"}'
+    EXTRACTIONS='{"co2_dynamic": "Your footprint[\\s\\S]*?Carbon[\\s\\S]*?(\\d+(?:[.,]\\d+)?)\\s*kg", "dist_dynamic": "Your footprint[\\s\\S]*?Kilometers[\\s\\S]*?(\\d+(?:[.,]\\d+)?)\\s*km"}'
     
     START_RESP=$(curl -s -X POST "$SCRAPER_URL/scrape/start" \
         -H 'Content-Type: application/json' \
