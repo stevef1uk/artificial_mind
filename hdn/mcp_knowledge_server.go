@@ -616,7 +616,12 @@ func (s *MCPKnowledgeServer) getScrapeStatus(ctx context.Context, jobID string) 
 	var text string
 	switch job.Status {
 	case "completed":
-		text = fmt.Sprintf("Scrape Results for %s:\n%v", jobID, job.Result)
+		if job.Result != nil {
+			resultBytes, _ := json.MarshalIndent(job.Result, "", "  ")
+			text = fmt.Sprintf("Scrape Results for %s:\n%s", jobID, string(resultBytes))
+		} else {
+			text = fmt.Sprintf("Scrape Results for %s: (empty)", jobID)
+		}
 	case "failed":
 		text = fmt.Sprintf("Scrape job %s failed: %v", jobID, job.Error)
 	case "running", "pending":

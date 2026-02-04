@@ -541,8 +541,8 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation) (
 		results["distance_km"] = distanceValue
 	}
 
-	// Store raw text for debugging
-	results["raw_text"] = bodyContent
+	// Store raw text for debugging (Disabled to reduce payload size)
+	// results["raw_text"] = bodyContent
 
 	return results, nil
 }
