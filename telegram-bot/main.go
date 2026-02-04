@@ -372,13 +372,13 @@ Available commands:
 /concept <name> - Get concept details
 /related <name> - Find related concepts
 /avatar <query> - Search personal context (Avatar)
+/browse <url> <instructions> - Browse web with AI instructions
 /thinking - Toggle thinking mode (show/hide reasoning)
 /help - Show this message
 
 Examples:
 /scrape https://bbc.co.uk
-/query MATCH (n:Concept) RETURN n.name LIMIT 5
-/search artificial intelligence
+/browse https://ecotree.green calculate carbon for flight
 /avatar what are my skills?`
 	} else if strings.HasPrefix(text, "/scrape ") {
 		url := strings.TrimSpace(strings.TrimPrefix(text, "/scrape"))
@@ -386,6 +386,19 @@ Examples:
 			response = "❌ Please provide a URL. Example: /scrape https://bbc.co.uk"
 		} else {
 			response, err = bot.callMCPTool("scrape_url", map[string]interface{}{"url": url})
+			if err != nil {
+				response = fmt.Sprintf("❌ Error: %v", err)
+			}
+		}
+	} else if strings.HasPrefix(text, "/browse ") {
+		parts := strings.SplitN(strings.TrimSpace(strings.TrimPrefix(text, "/browse")), " ", 2)
+		if len(parts) < 2 {
+			response = "❌ Usage: /browse <url> <instructions>\nExample: /browse https://ecotree.green calculate carbon for flight"
+		} else {
+			response, err = bot.callMCPTool("browse_web", map[string]interface{}{
+				"url":          parts[0],
+				"instructions": parts[1],
+			})
 			if err != nil {
 				response = fmt.Sprintf("❌ Error: %v", err)
 			}
