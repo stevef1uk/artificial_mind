@@ -58,6 +58,7 @@ type PlaywrightOperation struct {
 	RoleName string
 	Text     string
 	Timeout  int
+	Index    int // For nth(n) selectors
 }
 
 // JobStore manages scrape jobs in memory
@@ -268,6 +269,17 @@ func parseOperation(line string) PlaywrightOperation {
 		return PlaywrightOperation{Type: "locatorFill", Selector: matches[1], Value: matches[2]}
 	}
 
+	// locator with .first().fill()
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.first\(\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
+		return PlaywrightOperation{Type: "locatorFillAtIndex", Selector: matches[1], Value: matches[2], Index: 0}
+	}
+
+	// locator with .nth(n).fill()
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.nth\((\d+)\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
+		index, _ := strconv.Atoi(matches[2])
+		return PlaywrightOperation{Type: "locatorFillAtIndex", Selector: matches[1], Value: matches[3], Index: index}
+	}
+
 	// locator with .first().click()
 	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.first\(\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "locatorFirst", Selector: matches[1]}
@@ -393,6 +405,13 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation) (
 
 		case "locatorFill":
 			if err := page.Locator(op.Selector).Fill(op.Value); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(300 * time.Millisecond)
+
+		case "locatorFillAtIndex":
+			// locator().nth(i).fill()
+			if err := page.Locator(op.Selector).Nth(op.Index).Fill(op.Value); err != nil {
 				log.Printf("   ⚠️ Failed: %v", err)
 			}
 			time.Sleep(300 * time.Millisecond)
