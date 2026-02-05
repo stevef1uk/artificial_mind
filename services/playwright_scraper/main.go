@@ -53,14 +53,15 @@ type ScrapeJob struct {
 
 // PlaywrightOperation represents a parsed operation from TypeScript config
 type PlaywrightOperation struct {
-	Type     string
-	Selector string
-	Value    string
-	Role     string
-	RoleName string
-	Text     string
-	Timeout  int
-	Index    int // For nth(n) selectors
+	Type          string
+	Selector      string
+	Value         string
+	Role          string
+	RoleName      string
+	Text          string
+	Timeout       int
+	Index         int    // For nth(n) selectors
+	ChildSelector string // For scoped selectors (e.g., locator().locator())
 }
 
 // JobStore manages scrape jobs in memory
@@ -267,29 +268,51 @@ func parseOperation(line string) PlaywrightOperation {
 		return PlaywrightOperation{Type: "getByTextClick", Text: matches[1]}
 	}
 
-	// locator with .fill() - use .+? to match any characters including nested quotes
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
+	// locator with .first().locator().fill()
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.first\(\)\.locator\(['"]([^'"]+)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
+		return PlaywrightOperation{Type: "scopedLocatorFillFirst", Selector: matches[1], ChildSelector: matches[2], Value: matches[3]}
+	}
+
+	// locator with .nth(n).locator().fill()
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.nth\((\d+)\)\.locator\(['"]([^'"]+)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 4 {
+		index, _ := strconv.Atoi(matches[2])
+		return PlaywrightOperation{Type: "scopedLocatorFillNth", Selector: matches[1], Index: index, ChildSelector: matches[3], Value: matches[4]}
+	}
+
+	// locator with .first().locator().first().click() or .click()
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.first\(\)\.locator\(['"]([^'"]+)['"]\)(?:\.first\(\)|\.nth\(\d+\))?\.click\(\)`).FindStringSubmatch(line); len(matches) > 2 {
+		return PlaywrightOperation{Type: "scopedLocatorClickFirst", Selector: matches[1], ChildSelector: matches[2]}
+	}
+
+	// locator with .nth(n).locator().first().click() or .click()
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.nth\((\d+)\)\.locator\(['"]([^'"]+)['"]\)(?:\.first\(\)|\.nth\(\d+\))?\.click\(\)`).FindStringSubmatch(line); len(matches) > 3 {
+		index, _ := strconv.Atoi(matches[2])
+		return PlaywrightOperation{Type: "scopedLocatorClickNth", Selector: matches[1], Index: index, ChildSelector: matches[3]}
+	}
+
+	// locator with .fill() - use [^'"]+ to match only the selector content
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "locatorFill", Selector: matches[1], Value: matches[2]}
 	}
 
 	// locator with .first().fill()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.first\(\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.first\(\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "locatorFillAtIndex", Selector: matches[1], Value: matches[2], Index: 0}
 	}
 
 	// locator with .nth(n).fill()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.nth\((\d+)\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.nth\((\d+)\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
 		index, _ := strconv.Atoi(matches[2])
 		return PlaywrightOperation{Type: "locatorFillAtIndex", Selector: matches[1], Value: matches[3], Index: index}
 	}
 
 	// locator with .first().click()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.first\(\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.first\(\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "locatorFirst", Selector: matches[1]}
 	}
 
 	// locator with .click() (no .first())
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "locator", Selector: matches[1]}
 	}
 
@@ -426,6 +449,34 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 				time.Sleep(500 * time.Millisecond)
 			}
 
+		case "scopedLocatorFillFirst":
+			// locator(s1).first().locator(s2).fill(v)
+			if err := page.Locator(op.Selector).First().Locator(op.ChildSelector).Fill(op.Value); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(300 * time.Millisecond)
+
+		case "scopedLocatorFillNth":
+			// locator(s1).nth(n).locator(s2).fill(v)
+			if err := page.Locator(op.Selector).Nth(op.Index).Locator(op.ChildSelector).Fill(op.Value); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(300 * time.Millisecond)
+
+		case "scopedLocatorClickFirst":
+			// locator(s1).first().locator(s2).first().click() or .click()
+			if err := page.Locator(op.Selector).First().Locator(op.ChildSelector).First().Click(); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(300 * time.Millisecond)
+
+		case "scopedLocatorClickNth":
+			// locator(s1).nth(n).locator(s2).first().click() or .click()
+			if err := page.Locator(op.Selector).Nth(op.Index).Locator(op.ChildSelector).First().Click(); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(300 * time.Millisecond)
+
 		case "keyboardPress":
 			if err := page.Keyboard().Press(op.Value); err != nil {
 				log.Printf("   ⚠️ Failed: %v", err)
@@ -499,6 +550,7 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 	if extractions != nil {
 		log.Printf("📊 Running %d dynamic extractions...", len(extractions))
 		for name, regexStr := range extractions {
+			log.Printf("   🔍 Pattern for %s: %s", name, regexStr)
 			re, err := regexp.Compile("(?i)" + regexStr)
 			if err != nil {
 				log.Printf("   ⚠️ Invalid regex for %s: %v", name, err)
