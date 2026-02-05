@@ -131,45 +131,27 @@ func (bot *TelegramBot) getUpdates() ([]Update, error) {
 }
 
 func (bot *TelegramBot) sendMessage(chatID int, text string) error {
-	url := fmt.Sprintf("%s%s/sendMessage", telegramAPIBase, bot.token)
+	// Standard Telegram maxLength is 4096, using 4000 for safety
+	const maxLength = 4000
 
-	// Telegram has a 4096 character limit
-	const maxLength = 4000 // Leave some margin
-
-	if len(text) > maxLength {
-		// Send first part
-		firstPart := text[:maxLength] + "\n\n... (truncated, message too long)"
-		payload := map[string]interface{}{
-			"chat_id":    chatID,
-			"text":       firstPart,
-			"parse_mode": "Markdown",
-		}
-
-		jsonData, err := json.Marshal(payload)
-		if err != nil {
-			return err
-		}
-
-		resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
-		if err != nil {
-			return err
-		}
-		resp.Body.Close()
-
-		// Send info about truncation
-		infoMsg := fmt.Sprintf("⚠️ *Response was %d characters* (limit is %d). Showing first %d characters only.", len(text), maxLength, maxLength)
-		payload = map[string]interface{}{
-			"chat_id":    chatID,
-			"text":       infoMsg,
-			"parse_mode": "Markdown",
-		}
-		jsonData, _ = json.Marshal(payload)
-		resp, _ = http.Post(url, "application/json", bytes.NewBuffer(jsonData))
-		if resp != nil {
-			resp.Body.Close()
-		}
-		return nil
+	if len(text) <= maxLength {
+		return bot.sendSingleMessage(chatID, text)
 	}
+
+	// Truncated message - send first part with truncated notice
+	log.Printf("⚠️ Message to %d is too long (%d chars), truncating to %d", chatID, len(text), maxLength)
+	truncated := text[:maxLength] + "\n\n... (truncated, message too long)"
+	if err := bot.sendSingleMessage(chatID, truncated); err != nil {
+		return err
+	}
+
+	// Notify about truncation
+	infoMsg := fmt.Sprintf("⚠️ *Response was %d characters* (limit is %d). Showing first %d characters only.", len(text), maxLength, maxLength)
+	return bot.sendSingleMessage(chatID, infoMsg)
+}
+
+func (bot *TelegramBot) sendSingleMessage(chatID int, text string) error {
+	url := fmt.Sprintf("%s%s/sendMessage", telegramAPIBase, bot.token)
 
 	payload := map[string]interface{}{
 		"chat_id":    chatID,
@@ -188,14 +170,30 @@ func (bot *TelegramBot) sendMessage(chatID int, text string) error {
 	}
 	defer resp.Body.Close()
 
-	// If Markdown failed, try sending as plain text
-	if resp.StatusCode == http.StatusBadRequest {
-		delete(payload, "parse_mode")
-		jsonData, _ = json.Marshal(payload)
-		http.Post(url, "application/json", bytes.NewBuffer(jsonData))
+	if resp.StatusCode == http.StatusOK {
+		return nil
 	}
 
-	return nil
+	// If Markdown failed, retry as plain text
+	if resp.StatusCode == http.StatusBadRequest {
+		log.Printf("⚠️ Telegram Markdown failed for chat %d, retrying as plain text", chatID)
+		delete(payload, "parse_mode")
+		jsonData, _ = json.Marshal(payload)
+		resp2, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
+		if err != nil {
+			return err
+		}
+		defer resp2.Body.Close()
+
+		if resp2.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp2.Body)
+			return fmt.Errorf("telegram API error (plain text retry): %d %s", resp2.StatusCode, string(body))
+		}
+		return nil
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("telegram API error: %d %s", resp.StatusCode, string(body))
 }
 
 func (bot *TelegramBot) callChatAPI(chatID int, message string) (string, error) {
@@ -263,6 +261,7 @@ func (bot *TelegramBot) callChatAPI(chatID int, message string) (string, error) 
 	}
 
 	response.WriteString(chatResp.Response)
+	log.Printf("✅ Chat API response received for chat %d (%d chars)", chatID, len(chatResp.Response))
 	return response.String(), nil
 }
 

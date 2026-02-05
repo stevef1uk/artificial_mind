@@ -7,7 +7,7 @@ RUN cd monitor && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w
 FROM stevef1uk/secure-packager:latest AS packager
 
 FROM alpine:latest AS secure-build
-RUN apk add --no-cache ca-certificates tzdata zip curl
+RUN apk add --no-cache ca-certificates tzdata zip curl bash
 # Install kubectl
 RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/arm64/kubectl" && \
     chmod +x kubectl && \
@@ -41,18 +41,18 @@ RUN mv /payload/monitor-ui-complete.tar.gz /payload/monitor-ui.tar.gz
 # Produce encrypted payload as zip with license manifest
 RUN test -f /keys/customer_public.pem && test -f /keys/vendor_public.pem
 RUN install -d /out \
- && echo "Running packager command:" \
- && echo "/usr/local/bin/packager -in /payload -out /out -pub /keys/customer_public.pem -license -vendor-pub /keys/vendor_public.pem" \
- && /usr/local/bin/packager \
-     -in /payload \
-     -out /out \
-     -pub /keys/customer_public.pem \
-     -license \
-     -vendor-pub /keys/vendor_public.pem \
-     -zip
+    && echo "Running packager command:" \
+    && echo "/usr/local/bin/packager -in /payload -out /out -pub /keys/customer_public.pem -license -vendor-pub /keys/vendor_public.pem" \
+    && /usr/local/bin/packager \
+    -in /payload \
+    -out /out \
+    -pub /keys/customer_public.pem \
+    -license \
+    -vendor-pub /keys/vendor_public.pem \
+    -zip
 
 FROM alpine:latest
-RUN apk add --no-cache ca-certificates tzdata curl
+RUN apk add --no-cache ca-certificates tzdata curl bash
 # Install kubectl
 RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/arm64/kubectl" && \
     chmod +x kubectl && \

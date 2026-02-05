@@ -8,7 +8,7 @@ RUN cd principles && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s
 FROM stevef1uk/secure-packager:latest AS packager
 
 FROM alpine:latest AS secure-build
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata bash
 WORKDIR /app
 # Copy packager tools
 COPY --from=packager /app/packager /usr/local/bin/packager
@@ -27,8 +27,8 @@ COPY ${VENDOR_PUBLIC_KEY} /keys/vendor_public.pem
 # Produce encrypted payload as zip with license manifest
 RUN test -f /keys/customer_public.pem && test -f /keys/vendor_public.pem
 RUN install -d /payload /out \
- && mv /app/principles-server /payload/ \
- && /usr/local/bin/packager \
+      && mv /app/principles-server /payload/ \
+      && /usr/local/bin/packager \
       -in /payload \
       -out /out \
       -pub /keys/customer_public.pem \
@@ -38,7 +38,7 @@ RUN install -d /payload /out \
 
 # Final runtime image
 FROM alpine:latest
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata bash
 WORKDIR /app
 # runtime unpack tool and encrypted payload
 COPY --from=secure-build /usr/local/bin/unpack /usr/local/bin/unpack
