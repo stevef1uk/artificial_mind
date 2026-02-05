@@ -1286,8 +1286,17 @@ func (s *APIServer) SetLLMClient(client *LLMClient) {
 	}
 
 	// Register prompt hints from configured skills
+	s.SyncPromptHints()
+}
+
+// SyncPromptHints synchronizes prompt hints from MCP skills to the interpreter registry
+func (s *APIServer) SyncPromptHints() {
 	if s.mcpKnowledgeServer != nil && s.mcpKnowledgeServer.skillRegistry != nil {
 		allHints := s.mcpKnowledgeServer.GetAllPromptHints()
+		if len(allHints) == 0 {
+			log.Printf("ℹ️ [API] No prompt hints found in skill registry")
+			return
+		}
 		for toolID, hints := range allHints {
 			// Convert PromptHintsConfig to interpreter.PromptHintsConfig
 			interpreterHints := &interpreter.PromptHintsConfig{
@@ -4929,6 +4938,13 @@ func escapePDFText(s string) string {
 	s = strings.ReplaceAll(s, ")", "\\)")
 	s = strings.ReplaceAll(s, "\\", "\\\\")
 	return s
+}
+
+// SetMCPKnowledgeServer sets the MCP knowledge server for the API
+func (s *APIServer) SetMCPKnowledgeServer(server *MCPKnowledgeServer) {
+	s.mcpKnowledgeServer = server
+	// Re-register prompt hints now that we have the server
+	s.SyncPromptHints()
 }
 
 // --------- Interpreter Handlers ---------

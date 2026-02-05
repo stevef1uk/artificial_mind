@@ -187,12 +187,14 @@ func (bot *TelegramBot) sendSingleMessage(chatID int, text string) error {
 
 		if resp2.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp2.Body)
+			log.Printf("❌ Telegram API Final Failure (chat %d): %d %s", chatID, resp2.StatusCode, string(body))
 			return fmt.Errorf("telegram API error (plain text retry): %d %s", resp2.StatusCode, string(body))
 		}
 		return nil
 	}
 
 	body, _ := io.ReadAll(resp.Body)
+	log.Printf("❌ Telegram API Initial Failure (chat %d): %d %s", chatID, resp.StatusCode, string(body))
 	return fmt.Errorf("telegram API error: %d %s", resp.StatusCode, string(body))
 }
 

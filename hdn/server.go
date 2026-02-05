@@ -379,19 +379,20 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 		if hdnURL == "" {
 			hdnURL = "http://localhost:8081"
 		}
-		server.mcpKnowledgeServer = NewMCPKnowledgeServer(
+		s := NewMCPKnowledgeServer(
 			server.domainKnowledge,
 			server.vectorDB,
 			server.redis,
-			hdnURL,
+			hdnBaseURL,
 			llmClient, // Pass LLM client
 		)
-		log.Printf("✅ [HDN] MCP knowledge server initialized for agent registry")
+		server.SetMCPKnowledgeServer(s)
+		log.Printf("✅ [HDN] MCP knowledge server initialized and hints synchronized")
 	}
-	
+
 	// Initialize agent registry
 	agentRegistry := NewAgentRegistry()
-	
+
 	// Wire up tool systems to agent registry
 	agentRegistry.SetMCPKnowledgeServer(server.mcpKnowledgeServer)
 	if server.mcpKnowledgeServer.skillRegistry != nil {
@@ -401,7 +402,7 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 		log.Printf("⚠️ [AGENT-REGISTRY] Skill registry is nil")
 	}
 	agentRegistry.SetAPIServer(server)
-	
+
 	configPath := os.Getenv("AGENTS_CONFIG")
 	if configPath == "" {
 		configPath = "config/agents.yaml" // Default path
@@ -413,16 +414,16 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 		log.Printf("✅ [AGENT-REGISTRY] Successfully loaded agents from configuration")
 	}
 	server.agentRegistry = agentRegistry
-	
+
 	// Initialize agent executor
 	agentExecutor := NewAgentExecutor(agentRegistry)
-	
+
 	// Initialize agent history (requires Redis)
 	agentHistory := NewAgentHistory(redisClient)
 	agentExecutor.SetHistory(agentHistory)
 	server.agentExecutor = agentExecutor
 	server.agentHistory = agentHistory
-	
+
 	// Initialize and start agent scheduler
 	agentScheduler := NewAgentScheduler(agentRegistry, agentExecutor)
 	if err := agentScheduler.Start(); err != nil {
