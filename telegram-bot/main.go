@@ -463,6 +463,7 @@ Examples:
 		// Default to Chat API
 		response, err = bot.callChatAPI(msg.Chat.ID, text)
 		if err != nil {
+			log.Printf("❌ Chat error for chat %d: %v", msg.Chat.ID, err)
 			response = fmt.Sprintf("❌ Chat error: %v", err)
 		}
 	}
