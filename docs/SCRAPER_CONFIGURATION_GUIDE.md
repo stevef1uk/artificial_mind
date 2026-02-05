@@ -8,6 +8,26 @@ The scraper is **rules-based**. It doesn't guess where data is; you must provide
 1.  **Interaction Logic** (`typescript_config`): How to move through the site (click, type, wait).
 2.  **Extraction Logic** (`extractions`): How to find the final data in the text results.
 
+## 🛠️ Tools for Generation
+The fastest and most reliable way to create your `typescript_config` is using the **Playwright Codegen** tool. It records your browser actions and converts them into the precise code the scraper needs.
+
+### 1. Run Codegen
+On your local machine (with Node.js installed), run:
+```bash
+npx playwright codegen https://ecotree.green/en/calculate-car-co2
+```
+
+### 2. Record Your Actions
+1.  Perform the clicks and typing just like a user would.
+2.  **Crucial**: When selecting from a dropdown/geosuggest, make sure you actually click the result with your mouse.
+3.  Stop recording once you reach the results page.
+
+### 3. Clean the Output
+Copy the generated code into your tool configuration, but **remove** the boilerplate:
+*   ❌ REMOVE: `import { test, expect } from '@playwright/test';`
+*   ❌ REMOVE: `test('test', async ({ page }) => { ... });`
+*   ✅ KEEP: Only the lines starting with `await page...`
+
 ---
 
 ## 🌟 Gold Standard Example: EcoTree Car Calculator
