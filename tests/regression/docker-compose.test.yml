@@ -1,0 +1,144 @@
+version: "3.9"
+
+services:
+  # --- Infrastructure ---
+  redis:
+    image: redis:7-alpine
+    container_name: reg-redis
+    ports:
+      - "16379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: reg-nats
+    command: [ "--jetstream" ]
+    ports:
+      - "14222:4222"
+      - "18222:8222"
+
+  # Minimal mocks for heavy DBs (or usage of real if needed)
+  # For regression, we use real images but ephemeral volume (no persistence)
+  weaviate:
+    image: semitechnologies/weaviate:1.23.0
+    container_name: reg-weaviate
+    ports:
+      - "18082:8080"
+    environment:
+      - AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true
+      - PERSISTENCE_DATA_PATH=/var/lib/weaviate
+      - DEFAULT_VECTORIZER_MODULE=none
+      - CLUSTER_HOSTNAME=node1
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: reg-neo4j
+    ports:
+      - "17474:7474"
+      - "17687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/test1234
+
+  # --- Mocks ---
+  mock-llm:
+    build:
+      context: mock_services/llm
+    container_name: reg-mock-llm
+    ports:
+      - "11444:11434"
+
+  mock-mcp:
+    build:
+      context: mock_services/mcp
+    container_name: reg-mock-mcp
+    ports:
+      - "13000:3000"
+
+  # --- Core Services ---
+  hdn:
+    build:
+      context: ../../
+      dockerfile: tests/regression/Dockerfile.hdn.test
+    container_name: reg-hdn
+    ports:
+      - "18080:8080"
+    environment:
+      - REDIS_URL=redis://reg-redis:6379
+      - PRINCIPLES_URL=http://mock-principles:8080
+      - OLLAMA_URL=http://mock-llm:11434/api/chat
+      - OPENAI_BASE_URL=http://mock-llm:11434
+      - LLM_PROVIDER=local
+      - MCP_ENDPOINT=http://mock-mcp:3000/mcp
+      - HDN_URL=http://hdn:8080
+      - DOCKER_SHARED_DIR=/tmp/agi_regression
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/agi_regression:/tmp/agi_regression
+      - ../../hdn/domain.json:/app/domain.json
+      - ../../hdn/config.json:/app/config.json
+    depends_on:
+      redis:
+        condition: service_healthy
+      mock-llm:
+        condition: service_started
+      mock-mcp:
+        condition: service_started
+      weaviate:
+        condition: service_started
+
+  fsm:
+    build:
+      context: ../../
+      dockerfile: tests/regression/Dockerfile.fsm.test
+    container_name: reg-fsm
+    ports:
+      - "18083:8083"
+    environment:
+      - HDN_URL=http://hdn:8080
+      - REDIS_URL=redis://reg-redis:6379
+      - NATS_URL=nats://reg-nats:4222
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASS=test1234
+      - WEAVIATE_URL=http://weaviate:8080
+      - OLLAMA_URL=http://mock-llm:11434/api/chat
+      - AGENT_ID=regression-agent
+      - GOAL_MANAGER_URL=http://mock-llm:11434
+    depends_on:
+      hdn:
+        condition: service_started
+      nats:
+        condition: service_started
+      neo4j:
+        condition: service_started
+
+  scraper:
+    build:
+      context: ../../
+      dockerfile: tests/regression/Dockerfile.scraper.test
+    container_name: reg-scraper
+    ports:
+      - "18081:8080"
+    depends_on:
+      - redis
+
+  # --- Runner ---
+  test-runner:
+    build:
+      context: ../../
+      dockerfile: tests/regression/Dockerfile.test_runner
+    container_name: reg-runner
+    depends_on:
+      - hdn
+      - fsm
+      - scraper
+      - mock-llm
+    environment:
+      - HDN_URL=http://hdn:8080
+      - SCRAPER_URL=http://scraper:8080
+      - FSM_URL=http://fsm:8083
+      - LLM_URL=http://mock-llm:11434

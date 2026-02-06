@@ -13,6 +13,15 @@ import (
 	"time"
 )
 
+// DockerSharedDir is the directory used for sharing files between the executor and sibling containers.
+// This path must be the same inside the container and on the host (or mapped identically).
+var DockerSharedDir = func() string {
+	if v := os.Getenv("DOCKER_SHARED_DIR"); v != "" {
+		return v
+	}
+	return "/tmp"
+}()
+
 // HostInputFilesDir is the host path that will be mounted read-only into the container at /app/input_files
 // Can be overridden via environment variable INPUT_FILES_DIR
 var HostInputFilesDir = func() string {
@@ -111,7 +120,7 @@ func (sde *SimpleDockerExecutor) ExecuteCode(ctx context.Context, req *DockerExe
 	}
 
 	// Create temporary file for code
-	tempFile := fmt.Sprintf("/tmp/code-%d.%s", time.Now().UnixNano(), sde.getFileExtension(req.Language))
+	tempFile := filepath.Join(DockerSharedDir, fmt.Sprintf("code-%d.%s", time.Now().UnixNano(), sde.getFileExtension(req.Language)))
 	if err := sde.writeCodeToFile(tempFile, req.Code); err != nil {
 		return &DockerExecutionResponse{
 			Success: false,
@@ -120,8 +129,8 @@ func (sde *SimpleDockerExecutor) ExecuteCode(ctx context.Context, req *DockerExe
 	}
 	defer sde.cleanupFile(tempFile)
 
-	// Create output directory for files
-	outputDir := fmt.Sprintf("/tmp/output-%d", time.Now().UnixNano())
+	// Create output directory for files (use DockerSharedDir so it's accessible to sibling)
+	outputDir := filepath.Join(DockerSharedDir, fmt.Sprintf("output-%d", time.Now().UnixNano()))
 	os.MkdirAll(outputDir, 0755)
 	// Ensure the host output directory is writable by the container
 	_ = os.Chmod(outputDir, 0777)
