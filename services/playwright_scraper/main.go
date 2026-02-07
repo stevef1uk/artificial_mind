@@ -608,8 +608,8 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 				}
 
 				if len(finalMatches) > 0 {
-					results[name] = finalMatches[0]
-					log.Printf("   ✅ Found %d matches for %s (using first)", len(finalMatches), name)
+					results[name] = strings.Join(finalMatches, "\n")
+					log.Printf("   ✅ Found %d matches for %s", len(finalMatches), name)
 				}
 			} else {
 				log.Printf("   ❌ No match for %s", name)

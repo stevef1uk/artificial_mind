@@ -805,7 +805,7 @@ func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig
 									}
 								}
 								if len(extracted) > 0 {
-									job.Result[key] = strings.Join(extracted, " | ")
+									job.Result[key] = strings.Join(extracted, "\n")
 									log.Printf("✅ [MCP-SCRAPE] Extracted '%s': found %d matches", key, len(extracted))
 								}
 							}
@@ -1385,7 +1385,27 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 		if url == "" || goal == "" {
 			return nil, fmt.Errorf("url and goal parameters required")
 		}
-		return s.executeSmartScrape(ctx, url, goal)
+
+		// Support optional hints
+		var userConfig *ScrapeConfig
+		if ts, ok := args["typescript_config"].(string); ok {
+			if userConfig == nil {
+				userConfig = &ScrapeConfig{Extractions: make(map[string]string)}
+			}
+			userConfig.TypeScriptConfig = ts
+		}
+		if ext, ok := args["extractions"].(map[string]interface{}); ok {
+			if userConfig == nil {
+				userConfig = &ScrapeConfig{Extractions: make(map[string]string)}
+			}
+			for k, v := range ext {
+				if vStr, ok := v.(string); ok {
+					userConfig.Extractions[k] = vStr
+				}
+			}
+		}
+
+		return s.executeSmartScrape(ctx, url, goal, userConfig)
 
 	case "execute_code":
 		code, _ := args["code"].(string)
@@ -3692,7 +3712,7 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 }
 
 // executeSmartScrape performs an AI-powered scrape by first fetching and then planning
-func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string, goal string) (interface{}, error) {
+func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string, goal string, userConfig *ScrapeConfig) (interface{}, error) {
 	log.Printf("🧠 [MCP-SMART-SCRAPE] Starting smart scrape for %s with goal: %s", url, goal)
 
 	// 1. Fetch page HTML using the scraper service (in get_html mode)
@@ -3720,9 +3740,19 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 
 	// 2. Plan the scrape using LLM
 	log.Printf("📋 [MCP-SMART-SCRAPE] Planning scrape config with LLM (%d chars of HTML)...", len(cleanedHTML))
-	config, err := s.planScrapeWithLLM(ctx, cleanedHTML, goal)
+	config, err := s.planScrapeWithLLM(ctx, cleanedHTML, goal, userConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to plan scrape with LLM: %v", err)
+	}
+
+	// Merge user results if provided
+	if userConfig != nil {
+		if config.TypeScriptConfig == "" {
+			config.TypeScriptConfig = userConfig.TypeScriptConfig
+		}
+		if len(config.Extractions) == 0 {
+			config.Extractions = userConfig.Extractions
+		}
 	}
 
 	log.Printf("🚀 [MCP-SMART-SCRAPE] Executing planned scrape with %d extraction patterns", len(config.Extractions))
@@ -3737,7 +3767,7 @@ type ScrapeConfig struct {
 	Extractions      map[string]string `json:"extractions"`
 }
 
-func (s *MCPKnowledgeServer) planScrapeWithLLM(ctx context.Context, html string, goal string) (*ScrapeConfig, error) {
+func (s *MCPKnowledgeServer) planScrapeWithLLM(ctx context.Context, html string, goal string, hint *ScrapeConfig) (*ScrapeConfig, error) {
 	if s.llmClient == nil {
 		return nil, fmt.Errorf("LLM client not configured on knowledge server")
 	}
@@ -3748,24 +3778,52 @@ func (s *MCPKnowledgeServer) planScrapeWithLLM(ctx context.Context, html string,
 		html = html[:125000] + "...(truncated)"
 	}
 
-	systemPrompt := `You are a web scraper config generator.
+	systemPrompt := `You are an expert web scraper configuration generator.
+Your task is to analyze an HTML snapshot and generate a scraping plan to achieve a specific GOAL.
+
 Goal: Generate a valid JSON object with:
-- "typescript_config": (string) Playwright await commands if needed.
-- "extractions": (map) key=name, value=regex string. NO lookarounds (?<= or ?=).
-Output ONLY the JSON.`
+- "typescript_config": (string) A sequence of Playwright commands (e.g., await page.click('...')) to navigate or reveal data (like clicking tabs) if required by the goal.
+- "extractions": (map) A set of named extraction patterns where key is the field name and value is a REGEX string to extract that data.
 
-	userPrompt := fmt.Sprintf(`Goal: %s
+REGEX RULES:
+1. ONLY standard Go regex (NO lookarounds like ?<= or ?=).
+2. USE CAPTURING GROUPS () if you want to extract specific text. The scraper uses the first group.
+3. Use single quotes (') for HTML attributes in your regex.
+4. Use [^>]*? to skip unknown attributes in a tag.
+5. Use .*? to match across tags or within rows.
+Output ONLY the JSON object.`
 
-HTML SNAPSHOT:
+	userPrompt := fmt.Sprintf(`### GOAL
 %s
 
-TASK:
-Generate a JSON configuration for scraping this page.
-- Output ONLY valid JSON. 
-- USE EXACTLY TWO CAPTURING GROUPS () per regex for paired data like Name and Rate.
-- Standard Go regex only (NO lookarounds).
-- In your regex, use single quotes (') for HTML attributes.
+### HTML SNAPSHOT (Truncated)
+%s
 `, goal, html)
+
+	if hint != nil {
+		userPrompt += "\n### USER HINTS (Prioritize these concepts):\n"
+		if hint.TypeScriptConfig != "" {
+			userPrompt += fmt.Sprintf("- TypeScript Hint: %s\n", hint.TypeScriptConfig)
+		}
+		if len(hint.Extractions) > 0 {
+			userPrompt += "- Extraction Hints (Key Names to use):\n"
+			for k := range hint.Extractions {
+				userPrompt += fmt.Sprintf("  - %s\n", k)
+			}
+		}
+	}
+
+	userPrompt += `
+### TASK
+Generate the JSON configuration to extract the data requested in the GOAL.
+
+INSTRUCTIONS:
+- Identify the data requested in the GOAL.
+- Create specific field names in 'extractions' for each piece of data (e.g., "account_name", "interest_rate").
+- If the goal asks for a list or table, create regex patterns that match one row at a time. The scraper will find all occurrences.
+- Use class='[^']*KEYWORD[^']*' to match elements based on partial class names you see in the HTML.
+- If you need to click something first (like a "Show More" button or a tab), include it in 'typescript_config'.
+- Output ONLY valid JSON.`
 
 	// Call LLM
 	response, err := s.llmClient.callLLMWithContextAndPriority(ctx, systemPrompt+"\n\n"+userPrompt, PriorityHigh)
