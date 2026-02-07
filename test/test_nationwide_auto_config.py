@@ -25,7 +25,7 @@ def test_nationwide_auto_config():
                 "url": "https://www.nationwide.co.uk/savings/compare-savings-accounts-and-isas/",
                 "goal": "Extract all savings product names and their AER interest rates from the table",
                 "extractions": {
-                    "product_names": "'name':'([^']+)'(?!.*category)",
+                    "product_names": "'name':'([^']*(?:ISA|Saver|Bond)[^']*)'",
                     "interest_rates": "'aer':([\\d\\.]+)"
                 }
             }

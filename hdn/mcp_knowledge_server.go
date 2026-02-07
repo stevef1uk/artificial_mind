@@ -1406,6 +1406,13 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 			}
 		}
 
+		log.Printf("🔍 [MCP-SMART-SCRAPE] User hints: %d extractions", len(userConfig.Extractions))
+		if userConfig != nil {
+			for k, v := range userConfig.Extractions {
+				log.Printf("   📋 %s: %s", k, v)
+			}
+		}
+
 		return s.executeSmartScrape(ctx, url, goal, userConfig)
 
 	case "execute_code":
