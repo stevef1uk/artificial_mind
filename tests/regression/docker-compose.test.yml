@@ -75,11 +75,13 @@ services:
       - MCP_ENDPOINT=http://mock-mcp:3000/mcp
       - HDN_URL=http://hdn:8080
       - DOCKER_SHARED_DIR=/tmp/agi_regression
+      - PLAYWRIGHT_SCRAPER_URL=http://scraper:8080
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /tmp/agi_regression:/tmp/agi_regression
       - ../../hdn/domain.json:/app/domain.json
       - ../../hdn/config.json:/app/config.json
+      - ../../config/agents.yaml:/app/config/agents.yaml
     depends_on:
       redis:
         condition: service_healthy

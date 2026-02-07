@@ -32,21 +32,19 @@ TO_CITY="${2:-newcastle}"
 echo "📍 Testing route: ${FROM_CITY^^} → ${TO_CITY^^}"
 echo ""
 
-# TypeScript config - same as the standalone tests
-# This is the exact same config that worked in our Go/Python tests
-TS_CONFIG="import { test, expect } from '@playwright/test';
-
-test('test', async ({ page }) => {
-  await page.goto('https://ecotree.green/en/calculate-flight-co2');
-  await page.getByRole('link', { name: 'Plane' }).click();
-  await page.getByRole('textbox', { name: 'From To Via' }).click();
-  await page.getByRole('textbox', { name: 'From To Via' }).fill('$FROM_CITY');
-  await page.getByText('$(echo ${FROM_CITY^})').click();
-  await page.locator('input[name=\"To\"]').click();
-  await page.locator('input[name=\"To\"]').fill('$TO_CITY');
-  await page.getByText('$(echo ${TO_CITY^})').click();
-  await page.getByRole('link', { name: ' Calculate my emissions ' }).click();
-});"
+# TypeScript config - proven pattern
+TS_CONFIG="await page.locator('#airportName').first().fill('$FROM_CITY'); 
+    await page.waitForTimeout(3000); 
+    await page.getByText('Southampton, United Kingdom').first().click(); 
+    await page.waitForTimeout(1000); 
+    await page.locator('#airportName').nth(1).fill('$TO_CITY'); 
+    await page.waitForTimeout(3000); 
+    await page.getByText('Newcastle, United Kingdom').first().click(); 
+    await page.waitForTimeout(1000); 
+    await page.locator('select').first().selectOption('return'); 
+    await page.waitForTimeout(500); 
+    await page.getByRole('link', { name: ' Calculate my emissions ' }).click(); 
+    await page.waitForTimeout(5000);"
 
 # Escape the TypeScript config for JSON
 TS_CONFIG_ESCAPED=$(echo "$TS_CONFIG" | jq -Rs .)
@@ -61,7 +59,11 @@ MCP_REQUEST=$(cat <<EOF
     "name": "scrape_url",
     "arguments": {
       "url": "https://ecotree.green/en/calculate-flight-co2",
-      "typescript_config": $TS_CONFIG_ESCAPED
+      "typescript_config": $TS_CONFIG_ESCAPED,
+      "extractions": {
+        "co2": "(\\\\d+)\\\\s+kg\\\\s+Your carbon emissions",
+        "distance": "(\\\\d+)\\\\s+km\\\\s+Your travelled distance"
+      }
     }
   }
 }

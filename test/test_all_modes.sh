@@ -9,54 +9,63 @@ SCRAPER_URL="${PLAYWRIGHT_SCRAPER_URL:-http://localhost:8080}"
 test_mode() {
     MODE=$1
     URL=$2
-    FROM="Southampton"
-    TO="Newcastle"
+    FROM=${3:-"Southampton"}
+    TO=${4:-"Newcastle"}
+    TRAIN_TYPE="Long-distance rail (Electric)" # Default for train
     
-    # Use airport codes for flight robustness
-    if [ "$MODE" = "Plane" ]; then
-        FROM="Southampton" # Use name for more reliable dropdown matching
-        TO="Newcastle"
-    fi
-
     echo "🚗 Testing Scraper - $MODE ($FROM → $TO)"
     echo "=========================================================="
 
-    # Use different selector for Plane
-    SELECTOR="#geosuggest__input"
-    if [ "$MODE" = "Plane" ]; then
-        SELECTOR="#airportName"
+    # Use the proven patterns provided by the user
+    if [ "$MODE" = "Car" ]; then
+        TS_CONFIG="await page.locator('#geosuggest__input').first().fill('$FROM'); 
+            await page.waitForTimeout(3000); 
+            await page.getByText('$FROM').first().click(); 
+            await page.waitForTimeout(1000); 
+            await page.locator('#geosuggest__input').nth(1).fill('$TO'); 
+            await page.waitForTimeout(3000); 
+            await page.getByText('$TO').first().click(); 
+            await page.waitForTimeout(1000); 
+            await page.locator('#return').click(); 
+            await page.waitForTimeout(500); 
+            await page.getByRole('link', { name: ' Calculate my emissions ' }).click(); 
+            await page.waitForTimeout(5000);"
+    elif [ "$MODE" = "Train" ]; then
+        TS_CONFIG="await page.locator('.geosuggest').first().locator('input').fill('$FROM'); 
+            await page.waitForTimeout(3000); 
+            await page.locator('.geosuggest').first().locator('.geosuggest__item').first().click(); 
+            await page.waitForTimeout(1000); 
+            await page.locator('.geosuggest').nth(1).locator('input').fill('$TO'); 
+            await page.waitForTimeout(3000); 
+            await page.locator('.geosuggest').nth(1).locator('.geosuggest__item').first().click(); 
+            await page.waitForTimeout(1000); 
+            await page.locator('#return').click(); 
+            await page.waitForTimeout(500); 
+            await page.getByText('$TRAIN_TYPE').click(); 
+            await page.waitForTimeout(500); 
+            await page.getByRole('link', { name: ' Calculate my emissions ' }).click(); 
+            await page.waitForTimeout(5000);"
+    elif [ "$MODE" = "Plane" ]; then
+        # For Plane, use airport codes for better matching if available
+        TS_CONFIG="await page.locator('#airportName').first().fill('$FROM'); 
+            await page.waitForTimeout(3000); 
+            await page.locator('.airportLine').first().click(); 
+            await page.waitForTimeout(1000); 
+            await page.locator('#airportName').nth(1).fill('$TO'); 
+            await page.waitForTimeout(3000); 
+            await page.locator('.airportLine').first().click(); 
+            await page.waitForTimeout(1000); 
+            await page.locator('select').first().selectOption('Return'); 
+            await page.waitForTimeout(500); 
+            await page.getByRole('link', { name: ' Calculate my emissions ' }).click(); 
+            await page.waitForTimeout(5000);"
     fi
-
-    TS_CONFIG="import { test } from '@playwright/test';
-test('test', async ({ page }) => {
-  await page.goto('$URL');
-  await page.waitForTimeout(3000);
-  
-  // Fill From
-  await page.locator('$SELECTOR').first().fill('$FROM');
-  await page.waitForTimeout(3000);
-  // Try to click the suggestion explicitly for robustness
-  await page.getByText('$FROM').first().click();
-  await page.waitForTimeout(1000);
-  
-  // Fill To
-  await page.locator('$SELECTOR').nth(1).fill('$TO');
-  await page.waitForTimeout(3000);
-  // Try to click the suggestion explicitly for robustness
-  await page.getByText('$TO').first().click();
-  await page.waitForTimeout(1000);
-  
-  // Click Calculate
-  await page.getByRole('link', { name: ' Calculate my emissions ' }).click();
-  
-  // Extra wait for computation
-  await page.waitForTimeout(5000);
-});"
 
     # Start job
     echo "🚀 Starting $MODE scrape job..."
-    # Custom extractions (using [\s\S]*? to handle complex spacing/elements)
-    EXTRACTIONS='{"co2_dynamic": "Your footprint[\\s\\S]*?Carbon[\\s\\S]*?(\\d+(?:[.,]\\d+)?)\\s*kg", "dist_dynamic": "Your footprint[\\s\\S]*?Kilometers[\\s\\S]*?(\\d+(?:[.,]\\d+)?)\\s*km"}'
+    # Match literal text instead of normalized "Carbon"
+    # Simplify CO2 regex to capture integer only (avoiding decimals like 3.1)
+    EXTRACTIONS='{"co2": "Your footprint[\\s\\S]*?(?:CO|emissions)[\\s\\S]*?(\\d+)\\s*kg", "distance": "Your footprint[\\s\\S]*?Kilometers[\\s\\S]*?(\\d+(?:[.,]\\d+)?)\\s*km"}'
     
     START_RESP=$(curl -s -X POST "$SCRAPER_URL/scrape/start" \
         -H 'Content-Type: application/json' \
@@ -99,8 +108,14 @@ test('test', async ({ page }) => {
 }
 
 echo "🏁 Starting Local Scraper Mode Tests"
-test_mode "Car" "https://ecotree.green/en/calculate-car-co2"
+# 1. Train: Petersfield -> London Waterloo
+test_mode "Train" "https://ecotree.green/en/calculate-train-co2" "Petersfield" "London Waterloo"
 echo ""
-test_mode "Train" "https://ecotree.green/en/calculate-train-co2"
+
+# 2. Car: Portsmouth -> London (UK)
+test_mode "Car" "https://ecotree.green/en/calculate-car-co2" "Portsmouth, UK" "London, UK"
 echo ""
-test_mode "Plane" "https://ecotree.green/en/calculate-flight-co2"
+
+# 3. Plane: Southampton -> Newcastle
+test_mode "Plane" "https://ecotree.green/en/calculate-flight-co2" "Southampton" "Newcastle"
+

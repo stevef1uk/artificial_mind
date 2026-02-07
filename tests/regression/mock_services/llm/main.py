@@ -13,6 +13,15 @@ print('Hello from Mock LLM Code Gen')
 x = 10 + 20
 print(f'Result: {x}')
 ```"""
+    elif "scraper" in lower_msg or "scraping" in lower_msg:
+        return """```json
+{
+  "typescript_config": "",
+  "extractions": {
+    "title": "<h1>(.*?)</h1>"
+  }
+}
+```"""
     elif "agent" in lower_msg or "plan" in lower_msg:
         return "Plan: 1. Step A, 2. Step B. Confirmed."
     return f"Mock response to: {msg[:20]}... [Processed by Mock LLM]"
@@ -84,6 +93,15 @@ print(f'Result: {x}')
 2. Execute the necessary steps.
 3. Verify the result.
 Confirmed."""
+    elif "scraper" in lower_msg or "scraping" in lower_msg:
+        content = """```json
+{
+  "typescript_config": "",
+  "extractions": {
+    "title": "<h1>(.*?)</h1>"
+  }
+}
+```"""
 
     return jsonify({
         "model": data.get("model", "mock-model"),

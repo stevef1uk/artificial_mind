@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -35,6 +36,7 @@ type ScrapeRequest struct {
 	URL              string            `json:"url"`
 	TypeScriptConfig string            `json:"typescript_config"`
 	Extractions      map[string]string `json:"extractions,omitempty"`
+	GetHTML          bool              `json:"get_html,omitempty"`
 }
 
 // ScrapeJob represents a scrape job in the queue
@@ -43,6 +45,7 @@ type ScrapeJob struct {
 	URL              string                 `json:"url"`
 	TypeScriptConfig string                 `json:"typescript_config"`
 	Extractions      map[string]string      `json:"extractions,omitempty"`
+	GetHTML          bool                   `json:"get_html,omitempty"`
 	Status           string                 `json:"status"`
 	CreatedAt        time.Time              `json:"created_at"`
 	StartedAt        *time.Time             `json:"started_at,omitempty"`
@@ -76,7 +79,7 @@ func NewJobStore() *JobStore {
 	}
 }
 
-func (s *JobStore) Create(url, tsConfig string, extractions map[string]string) *ScrapeJob {
+func (s *JobStore) Create(url, tsConfig string, extractions map[string]string, getHTML bool) *ScrapeJob {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -85,6 +88,7 @@ func (s *JobStore) Create(url, tsConfig string, extractions map[string]string) *
 		URL:              url,
 		TypeScriptConfig: tsConfig,
 		Extractions:      extractions,
+		GetHTML:          getHTML,
 		Status:           JobStatusPending,
 		CreatedAt:        time.Now(),
 	}
@@ -178,6 +182,13 @@ func (s *ScraperService) worker(id int) {
 			log.Printf("❌ Worker %d: Job %s failed: %v", id, jobID, err)
 			job.Status = JobStatusFailed
 			job.Error = err.Error()
+
+			// STAGE 2: CAPTURE SNAPSHOT
+			if snapshotHTML, ok := err.(interface{ Snapshot() string }); ok {
+				saveSnapshot(job.ID, snapshotHTML.Snapshot())
+			} else if snapshotErr, ok := err.(*SnapshotError); ok {
+				saveSnapshot(job.ID, snapshotErr.HTML)
+			}
 		} else {
 			log.Printf("✅ Worker %d: Job %s completed", id, jobID)
 			job.Status = JobStatusCompleted
@@ -221,7 +232,7 @@ func (s *ScraperService) executeJob(job *ScrapeJob) (map[string]interface{}, err
 	log.Printf("📋 Parsed %d operations", len(operations))
 
 	// Execute Playwright operations
-	return executePlaywrightOperations(job.URL, operations, job.Extractions)
+	return executePlaywrightOperations(job.URL, operations, job.Extractions, job.GetHTML)
 }
 
 func parseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
@@ -336,7 +347,7 @@ func parseOperation(line string) PlaywrightOperation {
 	return PlaywrightOperation{}
 }
 
-func executePlaywrightOperations(url string, operations []PlaywrightOperation, extractions map[string]string) (map[string]interface{}, error) {
+func executePlaywrightOperations(url string, operations []PlaywrightOperation, extractions map[string]string, getHTML bool) (map[string]interface{}, error) {
 	// Start Playwright
 	pwInstance, err := pw.Run()
 	if err != nil {
@@ -345,11 +356,33 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 	defer pwInstance.Stop()
 
 	// Launch browser
-	executablePath := "/usr/bin/chromium"
-	browser, err := pwInstance.Chromium.Launch(pw.BrowserTypeLaunchOptions{
-		Headless:       pw.Bool(true),
-		ExecutablePath: &executablePath,
-	})
+	// Launch browser
+	executablePath := os.Getenv("PLAYWRIGHT_EXECUTABLE_PATH")
+	if executablePath == "" {
+		// Try common paths
+		commonPaths := []string{
+			"/usr/bin/chromium",
+			"/usr/bin/google-chrome",
+			"/bin/google-chrome",
+			"/usr/bin/chromium-browser",
+		}
+		for _, p := range commonPaths {
+			if _, err := os.Stat(p); err == nil {
+				executablePath = p
+				break
+			}
+		}
+	}
+
+	launchOptions := pw.BrowserTypeLaunchOptions{
+		Headless: pw.Bool(true),
+	}
+	if executablePath != "" {
+		launchOptions.ExecutablePath = &executablePath
+		log.Printf("🚀 Using browser executable: %s", executablePath)
+	}
+
+	browser, err := pwInstance.Chromium.Launch(launchOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to launch browser: %v", err)
 	}
@@ -514,59 +547,70 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 	results["page_url"] = page.URL()
 	results["page_title"], _ = page.Title()
 
-	// Get the full page HTML content (includes dynamically rendered elements)
-	htmlContent, _ := page.Content()
+	// 1. Clean up the DOM to match what the Planner saw
+	_, _ = page.Evaluate(`() => {
+        const elements = document.querySelectorAll('script, style, svg, path, link, meta, noscript, iframe');
+        elements.forEach(el => el.remove());
+        
+        // Remove hidden elements
+        const all = document.querySelectorAll('*');
+        all.forEach(el => {
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                el.remove();
+            }
+        });
+    }`)
 
-	// Use InnerText to get only visible text (excludes <script> and <style> tags)
-	bodyContent, _ := page.InnerText("body")
-
-	log.Printf("🔍 HTML content length: %d bytes", len(htmlContent))
-	log.Printf("🔍 Body text length: %d bytes", len(bodyContent))
-	if len(bodyContent) > 2000 {
-		log.Printf("🔍 Body text content (preview): %s", bodyContent[:2000])
-	} else {
-		log.Printf("🔍 Body text content: %s", bodyContent)
+	// Get the cleaned content
+	cleanedHTML, _ := page.Content()
+	if getHTML {
+		results["cleaned_html"] = cleanedHTML
 	}
 
 	// Prepare content for extraction
-	// We use ONLY visible body text to avoid matching hidden scripts/metadata in the HTML
-	searchContent := bodyContent
-	searchContent = strings.ReplaceAll(searchContent, "CO2", "Carbon")
+	// Normalize all double quotes to single quotes to match the Planner's hint and LLM's expectation
+	searchContent := strings.ReplaceAll(cleanedHTML, "\"", "'")
 
-	// Debug snippets
-	if idx := strings.Index(strings.ToLower(searchContent), "emissions"); idx != -1 {
-		start := idx - 50
-		if start < 0 {
-			start = 0
-		}
-		end := idx + 150
-		if end > len(searchContent) {
-			end = len(searchContent)
-		}
-		log.Printf("🔍 Snippet around 'emissions': %s", searchContent[start:end])
-	}
+	// Write to debug file to see EXACTLY what we are matching against
+	_ = os.WriteFile("/tmp/scraper_debug_content.html", []byte(searchContent), 0644)
 
 	// Dynamic extractions (Pass in with other instructions)
 	if extractions != nil {
 		log.Printf("📊 Running %d dynamic extractions...", len(extractions))
 		for name, regexStr := range extractions {
 			log.Printf("   🔍 Pattern for %s: %s", name, regexStr)
-			re, err := regexp.Compile("(?i)" + regexStr)
+			// Note: Go standard regexp doesn't support lookarounds.
+			// We try to clean up the regex if it looks like it was generated with lookarounds.
+			// This is a common hallucination for LLMs.
+			cleanRegex := regexStr
+			if strings.Contains(cleanRegex, "?<=") || strings.Contains(cleanRegex, "?=") {
+				log.Printf("   ⚠️ Lookarounds detected, Go regexp may fail")
+			}
+
+			re, err := regexp.Compile("(?is)" + cleanRegex) // Added 's' flag for dot-matches-newline
 			if err != nil {
 				log.Printf("   ⚠️ Invalid regex for %s: %v", name, err)
 				continue
 			}
 
 			// Try matching against the combined search content
-			matches := re.FindStringSubmatch(searchContent)
-			if len(matches) > 1 {
-				// Use first capture group
-				results[name] = strings.TrimSpace(matches[1])
-				log.Printf("   ✅ Found %s: %s", name, results[name])
-			} else if len(matches) > 0 {
-				// Use full match
-				results[name] = strings.TrimSpace(matches[0])
-				log.Printf("   ✅ Found %s (full match): %s", name, results[name])
+			allMatches := re.FindAllStringSubmatch(searchContent, -1)
+			if len(allMatches) > 0 {
+				var finalMatches []string
+				for _, m := range allMatches {
+					if len(m) > 1 {
+						// Only use the first capturing group
+						finalMatches = append(finalMatches, strings.TrimSpace(m[1]))
+					} else {
+						finalMatches = append(finalMatches, strings.TrimSpace(m[0]))
+					}
+				}
+
+				if len(finalMatches) > 0 {
+					results[name] = finalMatches[0]
+					log.Printf("   ✅ Found %d matches for %s (using first)", len(finalMatches), name)
+				}
 			} else {
 				log.Printf("   ❌ No match for %s", name)
 			}
@@ -593,13 +637,13 @@ func (s *ScraperService) handleStartScrape(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if req.URL == "" || req.TypeScriptConfig == "" {
-		http.Error(w, "Missing url or typescript_config", http.StatusBadRequest)
+	if req.URL == "" {
+		http.Error(w, "Missing url", http.StatusBadRequest)
 		return
 	}
 
 	// Create job
-	job := s.store.Create(req.URL, req.TypeScriptConfig, req.Extractions)
+	job := s.store.Create(req.URL, req.TypeScriptConfig, req.Extractions, req.GetHTML)
 
 	// Queue for processing
 	s.jobQueue <- job.ID
@@ -646,6 +690,86 @@ func (s *ScraperService) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *ScraperService) handleFixJob(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	jobID := r.URL.Query().Get("job_id")
+	goal := r.URL.Query().Get("goal")
+
+	if jobID == "" || goal == "" {
+		http.Error(w, "Missing job_id or goal parameters", http.StatusBadRequest)
+		return
+	}
+
+	job, ok := s.store.Get(jobID)
+	if !ok {
+		http.Error(w, "Job not found", http.StatusNotFound)
+		return
+	}
+
+	if job.Status != JobStatusFailed {
+		http.Error(w, "Job is not in failed state", http.StatusBadRequest)
+		return
+	}
+
+	// Check for snapshot
+	filename := fmt.Sprintf("failed_jobs/%s.html", jobID)
+	htmlBytes, err := os.ReadFile(filename)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Snapshot not found: %v", err), http.StatusNotFound)
+		return
+	}
+
+	// Invoke scrape planner logic (Stage 2)
+	// For now, we stub this out as a log message because the planner is a CLI tool
+	// In the future, we will link the planner package directly.
+	log.Printf("🛠️  FIX REQUESTED for Job %s", jobID)
+	log.Printf("   Goal: %s", goal)
+	log.Printf("   Snapshot size: %d bytes", len(htmlBytes))
+
+	// Placeholder response
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "fix_initiated",
+		"job_id":  jobID,
+		"message": "Fix logic is pending implementation (Stage 2)",
+	})
+}
+
+// SnapshotError wraps an error with HTML snapshot
+type SnapshotError struct {
+	Err  error
+	HTML string
+}
+
+func (e *SnapshotError) Error() string {
+	return e.Err.Error()
+}
+
+func (e *SnapshotError) Snapshot() string {
+	return e.HTML
+}
+
+func saveSnapshot(jobID, html string) {
+	if html == "" {
+		return
+	}
+	// Ensure directory exists
+	if err := os.MkdirAll("failed_jobs", 0755); err != nil {
+		log.Printf("⚠️ Failed to create failed_jobs dir: %v", err)
+		return
+	}
+	filename := fmt.Sprintf("failed_jobs/%s.html", jobID)
+	if err := os.WriteFile(filename, []byte(html), 0644); err != nil {
+		log.Printf("⚠️ Failed to save snapshot for job %s: %v", jobID, err)
+	} else {
+		log.Printf("📸 Saved snapshot for failed job %s to %s", jobID, filename)
+	}
+}
+
 func main() {
 	// Create scraper service with 3 worker threads
 	service := NewScraperService(3)
@@ -655,6 +779,9 @@ func main() {
 	http.HandleFunc("/health", service.handleHealth)
 	http.HandleFunc("/scrape/start", service.handleStartScrape)
 	http.HandleFunc("/scrape/job", service.handleGetJob)
+
+	// STAGE 2: Fix endpoint
+	http.HandleFunc("/scrape/fix", service.handleFixJob)
 
 	// Start server
 	port := ":8080"

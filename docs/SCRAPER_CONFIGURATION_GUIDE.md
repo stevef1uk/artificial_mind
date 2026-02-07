@@ -1,6 +1,6 @@
-# Scraper Configuration Guide: Best Practices & Examples
+This guide explains how to configure the Playwright Scraper service for maximum reliability. 
 
-This guide explains how to configure the Playwright Scraper service for maximum reliability, using our "EcoTree Calculator" implementation as the gold standard.
+> 🚀 **New to scraping?** Check out the [Scraper Quick Start](SCRAPER_QUICK_START.md) for our "Easy Mode" AI generation tool.
 
 ## 🏗️ The Multi-Step Approach
 
@@ -79,7 +79,7 @@ The EcoTree results section is contained within a "Your footprint" block. In vis
 
 ```json
 "extractions": {
-  "co2_result": "Your footprint[\\s\\S]*?Carbon[\\s\\S]*?(\\d+(?:[.,]\\d+)?)\\s*kg",
+  "co2_result": "Your footprint[\\s\\S]*?(?:CO|emissions)[\\s\\S]*?(\\d+(?:[.,]\\d+)?)\\s*kg",
   "distance_result": "Your footprint[\\s\\S]*?Kilometers[\\s\\S]*?(\\d+(?:[.,]\\d+)?)\\s*km"
 }
 ```
@@ -100,7 +100,7 @@ The service automatically waits for `NetworkIdle` + **3 seconds** of rendering t
 
 ### ✅ Dynamic Extraction Tips
 *   **Capture Groups**: Always wrap the part you want in `()`. The scraper returns the FIRST capture group.
-*   **Content Cleaning**: The service automatically replaces "CO2" with "Carbon" in the search text. This prevents the "2" in "CO2" from being incorrectly captured as the result.
+*   **Literal Matching**: Match the literal text exactly as it appears on the page. For common variations like "CO2" vs "CO₂", use a non-capturing group to handle both: `(?:CO|emissions)`.
 *   **Block Anchors**: If a page has multiple sections (e.g., a "Results" section and an "Examples" section), use a unique header from the results section as your starting anchor.
 *   **Visual Order (InnerText)**: Remember that the scraper uses visible text. If the website design puts the number physically above the label, your regex should reflect that order (e.g., `"ParentHeader[\\s\\S]*?Value[\\s\\S]*?Label"`).
 *   **Case Insensitivity**: All extraction regexes are applied with the `(?i)` flag automatically.

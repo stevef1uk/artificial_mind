@@ -3,30 +3,32 @@
 
 set -e
 
-SCRAPER_URL="${PLAYWRIGHT_SCRAPER_URL:-http://localhost:8080}"
+SCRAPER_URL="${PLAYWRIGHT_SCRAPER_URL:-http://localhost:8085}"
 
 echo "✈️  Testing Scraper - Plane (Southampton → Newcastle)"
 echo "=================================================="
 
-# TypeScript config for Plane - matching standalone Go test exactly
-TS_CONFIG='import { test } from '\''@playwright/test'\'';
-test('\''test'\'', async ({ page }) => {
-  await page.goto('\''https://ecotree.green/en/calculate-flight-co2'\'');
-  await page.getByRole('\''link'\'', { name: '\''Plane'\'' }).click();
-  await page.getByRole('\''textbox'\'', { name: '\''From To Via'\'' }).click();
-  await page.getByRole('\''textbox'\'', { name: '\''From To Via'\'' }).fill('\''southampton'\'');
-  await page.getByText('\''Southampton, United Kingdom'\'').click();
-  await page.locator('\''input[name="To"]'\'').click();
-  await page.locator('\''input[name="To"]'\'').fill('\''newcastle'\'');
-  await page.getByText('\''Newcastle, United Kingdom'\'').first().click();
-  await page.getByRole('\''link'\'', { name: '\'' Calculate my emissions '\'' }).click();
-});'
+# TypeScript config for Plane (proven pattern)
+TS_CONFIG="await page.locator('#airportName').first().fill('SOU'); 
+    await page.waitForTimeout(3000); 
+    await page.getByText('Southampton, United Kingdom').first().click(); 
+    await page.waitForTimeout(1000); 
+    await page.locator('#airportName').nth(1).fill('NCL'); 
+    await page.waitForTimeout(3000); 
+    await page.getByText('Newcastle, United Kingdom').first().click(); 
+    await page.waitForTimeout(1000); 
+    await page.locator('select').first().selectOption('return'); 
+    await page.waitForTimeout(500); 
+    await page.getByRole('link', { name: ' Calculate my emissions ' }).click(); 
+    await page.waitForTimeout(5000);"
 
 # Start job
 echo "🚀 Starting scrape job..."
+EXTRACTIONS='{"co2_kg": "(\\d+(?:[.,]\\d+)?)\\s*kg", "distance_km": "(\\d+(?:[.,]\\d+)?)\\s*km"}'
+
 START_RESP=$(curl -s -X POST "$SCRAPER_URL/scrape/start" \
     -H 'Content-Type: application/json' \
-    -d "{\"url\": \"https://ecotree.green/en/calculate-flight-co2\", \"typescript_config\": $(echo "$TS_CONFIG" | jq -Rs .)}")
+    -d "{\"url\": \"https://ecotree.green/en/calculate-flight-co2\", \"typescript_config\": $(echo "$TS_CONFIG" | jq -Rs .), \"extractions\": $EXTRACTIONS}")
 
 JOB_ID=$(echo "$START_RESP" | jq -r '.job_id')
 if [ -z "$JOB_ID" ] || [ "$JOB_ID" = "null" ]; then

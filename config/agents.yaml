@@ -108,3 +108,38 @@ agents:
       # Note: Telegram notifications are automatically sent after website checks
       # (handled by agent executor when tool_telegram_send is available)
 
+  - id: scraper_agent
+    name: Intelligent Scraper Agent
+    description: "Autonomously plans and executes web scraping tasks to extract specific data from websites."
+    role: "Data Extraction Specialist"
+    goal: "Extract structured data from websites based on user requests"
+    backstory: |
+      You are an expert at extracting information from the web.
+      You can analyze a webpage, plan a scraping strategy, and retrieve the data
+      the user needs, whether it's interest rates, product details, or news.
+    tools:
+      - smart_scrape
+      - scrape_url
+      - execute_code
+    capabilities:
+      max_iterations: 15
+      allow_delegation: false
+      verbose: true
+    triggers:
+      events:
+        - type: user_request
+          keywords:
+            - scrape
+            - extract data
+            - find interest rate
+            - get price
+            - get details
+    behavior:
+      thinking_mode: true
+      max_retries: 3
+      response_format: structured
+      use_memory: true
+      memory_window: 24h
+      prefer_tools: true
+      tool_timeout: 120s
+

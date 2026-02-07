@@ -1,7 +1,7 @@
 #!/bin/bash
 # Test all three transport types sequentially
 
-set -e
+# set -e (disabled so all tests run even if one fails)
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -9,7 +9,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-SCRAPER_URL="${PLAYWRIGHT_SCRAPER_URL:-http://localhost:8080}"
+SCRAPER_URL="${PLAYWRIGHT_SCRAPER_URL:-http://localhost:8085}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo -e "${BLUE}🧪 Testing All Transport Types${NC}"
@@ -20,7 +20,7 @@ echo ""
 echo -e "${BLUE}🔍 Checking scraper service...${NC}"
 if ! curl -sf "$SCRAPER_URL/health" > /dev/null 2>&1; then
     echo -e "${RED}❌ Scraper service not reachable at $SCRAPER_URL${NC}"
-    echo "   Start it with: docker run -d --name scraper-test -p 8080:8080 playwright-scraper:test"
+    echo "   Start it with: docker run -d --name scraper-dev -p 8085:8080 playwright-scraper:dev"
     exit 1
 fi
 echo -e "${GREEN}✅ Scraper service is running${NC}"

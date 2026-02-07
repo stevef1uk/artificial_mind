@@ -325,6 +325,7 @@ spec:
 
 ## 📚 Related Documentation
 
+- **Easy Mode:** `docs/SCRAPER_QUICK_START.md` (AI-powered generation)
 - **Architecture:** `ASYNC_SCRAPER_ARCHITECTURE.md`
 - **API Reference:** `services/playwright_scraper/README.md`
 - **Test Script:** `test/test_scraper_service.sh`

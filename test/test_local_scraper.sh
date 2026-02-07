@@ -125,24 +125,24 @@ echo ""
 # Test scraping job
 echo -e "${BLUE}5️⃣  Testing scraping job (EcoTree Car: Portsmouth → London)...${NC}"
 
-TS_CONFIG='import { test } from '\''@playwright/test'\'';
-test('\''test'\'', async ({ page }) => {
-  await page.goto('\''https://ecotree.green/en/calculate-car-co2'\'');
-  await page.waitForTimeout(200);
-  await page.locator('\''div.geosuggest:nth-of-type(1) #geosuggest__input'\'').fill('\''Portsmouth'\'');
-  await page.waitForTimeout(200);
-  await page.getByText('\''Portsmouth'\'').first().click();
-  await page.waitForTimeout(200);
-  await page.locator('\''div.geosuggest:nth-of-type(2) #geosuggest__input'\'').fill('\''London'\'');
-  await page.waitForTimeout(200);
-  await page.getByText('\''London'\'').first().click();
-  await page.waitForTimeout(200);
-  await page.getByRole('\''link'\'', { name: '\'' Calculate my emissions '\'' }).click();
-});'
+TS_CONFIG="await page.locator('#geosuggest__input').first().fill('Portsmouth'); 
+    await page.waitForTimeout(3000); 
+    await page.getByText('Portsmouth').first().click(); 
+    await page.waitForTimeout(1000); 
+    await page.locator('#geosuggest__input').nth(1).fill('London'); 
+    await page.waitForTimeout(3000); 
+    await page.getByText('London').first().click(); 
+    await page.waitForTimeout(1000); 
+    await page.locator('#return').click(); 
+    await page.waitForTimeout(500); 
+    await page.getByRole('link', { name: ' Calculate my emissions ' }).click(); 
+    await page.waitForTimeout(5000);"
+
+EXTRACTIONS='{"co2_kg": "Your footprint[\\s\\S]*?Carbon[\\s\\S]*?(\\d+(?:[.,]\\d+)?)\\s*kg", "distance_km": "Your footprint[\\s\\S]*?Kilometers[\\s\\S]*?(\\d+(?:[.,]\\d+)?)\\s*km"}'
 
 START_RESP=$(curl -s -X POST http://localhost:$SCRAPER_PORT/scrape/start \
     -H 'Content-Type: application/json' \
-    -d "{\"url\": \"https://ecotree.green/en/calculate-car-co2\", \"typescript_config\": $(echo "$TS_CONFIG" | jq -Rs .)}")
+    -d "{\"url\": \"https://ecotree.green/en/calculate-car-co2\", \"typescript_config\": $(echo "$TS_CONFIG" | jq -Rs .), \"extractions\": $EXTRACTIONS}")
 
 JOB_ID=$(echo "$START_RESP" | jq -r '.job_id')
 if [ -z "$JOB_ID" ] || [ "$JOB_ID" = "null" ]; then

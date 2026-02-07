@@ -111,20 +111,19 @@ echo ""
 if curl -s http://localhost:8081/health > /dev/null 2>&1; then
     START_TIME=$(date +%s)
     
-    # Create TypeScript config
-    TS_CONFIG="import { test, expect } from '@playwright/test';
-
-test('test', async ({ page }) => {
-  await page.goto('https://ecotree.green/en/calculate-flight-co2');
-  await page.getByRole('link', { name: 'Plane' }).click();
-  await page.getByRole('textbox', { name: 'From To Via' }).click();
-  await page.getByRole('textbox', { name: 'From To Via' }).fill('$FROM_CITY');
-  await page.getByText('$(echo ${FROM_CITY^})').click();
-  await page.locator('input[name=\"To\"]').click();
-  await page.locator('input[name=\"To\"]').fill('$TO_CITY');
-  await page.getByText('$(echo ${TO_CITY^})').click();
-  await page.getByRole('link', { name: ' Calculate my emissions ' }).click();
-});"
+    # Create TypeScript config (proven pattern)
+    TS_CONFIG="await page.locator('#airportName').first().fill('$FROM_CITY'); 
+        await page.waitForTimeout(3000); 
+        await page.locator('.airportLine').first().click(); 
+        await page.waitForTimeout(1000); 
+        await page.locator('#airportName').nth(1).fill('$TO_CITY'); 
+        await page.waitForTimeout(3000); 
+        await page.locator('.airportLine').first().click(); 
+        await page.waitForTimeout(1000); 
+        await page.locator('select').first().selectOption('Return'); 
+        await page.waitForTimeout(500); 
+        await page.getByRole('link', { name: ' Calculate my emissions ' }).click(); 
+        await page.waitForTimeout(5000);"
 
     TS_CONFIG_ESCAPED=$(echo "$TS_CONFIG" | jq -Rs .)
     

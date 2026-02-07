@@ -23,13 +23,16 @@ require (
 	eventbus v0.0.0
 	github.com/gorilla/mux v1.8.1
 	github.com/nats-io/nats.go v1.46.0
+	github.com/playwright-community/playwright-go v0.5200.1
 	github.com/redis/go-redis/v9 v9.14.0
 )
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/deckarep/golang-set/v2 v2.7.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
-	github.com/joho/godotenv v1.5.1 // indirect
+	github.com/go-jose/go-jose/v3 v3.0.4 // indirect
+	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect

@@ -1,0 +1,32 @@
+Car
+{
+  "url": "https://ecotree.green/en/calculate-car-co2",
+  "async": true,
+  "typescript_config": "await page.locator('#geosuggest__input').first().fill('{{ $json.output.start_from }}'); await page.waitForTimeout(3000); await page.getByText('{{ $json.output.start_from }}').first().click(); await page.waitForTimeout(1000); await page.locator('#geosuggest__input').nth(1).fill('{{ $json.output.destination }}'); await page.waitForTimeout(3000); await page.getByText('{{ $json.output.destination }}').first().click(); await page.waitForTimeout(1000); await page.locator('#return').click(); await page.waitForTimeout(500); await page.getByRole('link', { name: ' Calculate my emissions ' }).click(); await page.waitForTimeout(5000);",
+  "extractions": {
+    "co2": "(\\d+(?:[.,]\\d+)?)\\s*kg\\s*Your carbon emissions",
+    "distance": "(\\d+(?:[.,]\\d+)?)\\s*km\\s*Your travelled distance"
+  }
+}
+
+Train
+{
+  "url": "https://ecotree.green/en/calculate-train-co2",
+  "async": true,
+  "typescript_config": "await page.locator('.geosuggest').first().locator('input').fill('{{ $json.output.start_from }}'); await page.waitForTimeout(2000); await page.locator('.geosuggest').first().locator('.geosuggest__item').first().click(); await page.waitForTimeout(1000); await page.locator('.geosuggest').nth(1).locator('input').fill('{{ $json.output.destination }}'); await page.waitForTimeout(2000); await page.locator('.geosuggest').nth(1).locator('.geosuggest__item').first().click(); await page.waitForTimeout(1000); await page.locator('#return').click(); await page.waitForTimeout(500); await page.getByText('{{ $json.output.train_type[0] }}').click(); await page.waitForTimeout(500); await page.getByRole('link', { name: ' Calculate my emissions ' }).click(); await page.waitForTimeout(5000);",
+  "extractions": {
+    "co2": "(\\d+(?:[.,]\\d+)?)\\s*kg\\s*Your carbon emissions",
+    "distance": "(\\d+(?:[.,]\\d+)?)\\s*km\\s*Your travelled distance"
+  }
+}
+
+Plane
+{
+  "url": "https://ecotree.green/en/calculate-flight-co2",
+  "async": true,
+  "typescript_config": "await page.locator('#airportName').first().fill('{{ $json.output.start_from }}'); await page.waitForTimeout(3000); await page.getByText('{{ $json.output.start_from }}').first().click(); await page.waitForTimeout(1000); await page.locator('#airportName').nth(1).fill('{{ $json.output.destination }}'); await page.waitForTimeout(3000); await page.getByText('{{ $json.output.destination }}').first().click(); await page.waitForTimeout(1000); await page.locator('select').first().selectOption('return'); await page.waitForTimeout(500); await page.getByRole('link', { name: ' Calculate my emissions ' }).click(); await page.waitForTimeout(5000);",
+  "extractions": {
+    "co2": "(\\d+(?:[.,]\\d+)?)\\s*kg\\s*Your carbon emissions",
+    "distance": "(\\d+(?:[.,]\\d+)?)\\s*km\\s*Your travelled distance"
+  }
+}

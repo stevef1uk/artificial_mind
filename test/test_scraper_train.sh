@@ -3,37 +3,34 @@
 
 set -e
 
-SCRAPER_URL="${PLAYWRIGHT_SCRAPER_URL:-http://localhost:8080}"
+SCRAPER_URL="${PLAYWRIGHT_SCRAPER_URL:-http://localhost:8085}"
 
 echo "🚆 Testing Scraper - Train (Petersfield → London Waterloo)"
 echo "=========================================================="
 
-# TypeScript config for Train (using direct URL navigation)
-TS_CONFIG='import { test } from '\''@playwright/test'\'';
-test('\''test'\'', async ({ page }) => {
-  await page.goto('\''https://ecotree.green/en/calculate-train-co2'\'');
-  await page.waitForTimeout(1000);
-  
-  // Fill From
-  await page.locator('\''#geosuggest__input'\'').first().fill('\''Petersfield'\'');
-  await page.waitForTimeout(2000);
-  await page.keyboard.press('\''Enter'\''); // Robust selection
-  await page.waitForTimeout(1000);
-  
-  // Fill To
-  await page.locator('\''#geosuggest__input'\'').nth(1).fill('\''London Waterloo'\'');
-  await page.waitForTimeout(2000);
-  await page.keyboard.press('\''Enter'\''); // Robust selection
-  await page.waitForTimeout(1000);
-  
-  await page.getByRole('\''link'\'', { name: '\'' Calculate my emissions '\'' }).click();
-});'
+# TypeScript config for Train (proven pattern)
+TS_CONFIG="await page.locator('.geosuggest').first().locator('input').fill('Petersfield'); 
+    await page.waitForTimeout(2000); 
+    await page.locator('.geosuggest').first().locator('.geosuggest__item').first().click(); 
+    await page.waitForTimeout(1000); 
+    await page.locator('.geosuggest').nth(1).locator('input').fill('London Waterloo'); 
+    await page.waitForTimeout(2000); 
+    await page.locator('.geosuggest').nth(1).locator('.geosuggest__item').first().click(); 
+    await page.waitForTimeout(1000); 
+    await page.locator('#return').click(); 
+    await page.waitForTimeout(500); 
+    await page.getByText('Long-distance rail (Electric)').click(); 
+    await page.waitForTimeout(500); 
+    await page.getByRole('link', { name: ' Calculate my emissions ' }).click(); 
+    await page.waitForTimeout(5000);"
 
 # Start job
 echo "🚀 Starting scrape job..."
+EXTRACTIONS='{"co2_kg": "(\\d+(?:[.,]\\d+)?)\\s*kg", "distance_km": "(\\d+(?:[.,]\\d+)?)\\s*km"}'
+
 START_RESP=$(curl -s -X POST "$SCRAPER_URL/scrape/start" \
     -H 'Content-Type: application/json' \
-    -d "{\"url\": \"https://ecotree.green/en/calculate-train-co2\", \"typescript_config\": $(echo "$TS_CONFIG" | jq -Rs .)}")
+    -d "{\"url\": \"https://ecotree.green/en/calculate-train-co2\", \"typescript_config\": $(echo "$TS_CONFIG" | jq -Rs .), \"extractions\": $EXTRACTIONS}")
 
 JOB_ID=$(echo "$START_RESP" | jq -r '.job_id')
 if [ -z "$JOB_ID" ] || [ "$JOB_ID" = "null" ]; then

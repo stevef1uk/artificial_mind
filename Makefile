@@ -848,3 +848,40 @@ test-content-safety:
 .PHONY: test-safety-systems
 test-safety-systems: test-tool-metrics test-content-safety
 	@echo "✅ All safety systems tested successfully!"
+
+
+# Scrape Planner
+# ==============
+
+# Build Scrape Planner
+.PHONY: build-scrape-planner
+build-scrape-planner:
+	@echo "🔨 Building Scrape Planner..."
+	@mkdir -p $(BIN_DIR)
+	@$(GO_ENV) GO111MODULE=on go build $(GO_BUILD_FLAGS) $(BIN_DIR)/scrape-planner cmd/scrape_planner/main.go
+	@echo "✅ Scrape Planner built: $(BIN_DIR)/scrape-planner"
+
+# Run Scrape Planner
+.PHONY: plan-scrape
+plan-scrape: build-scrape-planner
+	@echo "🔍 Planning scrape..."
+	@if [ -z "$(URL)" ] || [ -z "$(GOAL)" ]; then \
+		echo "❌ Error: URL and GOAL are required. Usage: make plan-scrape URL=... GOAL=..."; \
+		exit 1; \
+	fi
+	@# Source env file blindly to ensure vars are present
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+	$(BIN_DIR)/scrape-planner -url "$(URL)" -goal "$(GOAL)" -model "$(MODEL)"
+# Build Scraper Local
+.PHONY: build-scraper-local
+build-scraper-local:
+	@echo "🔨 Building Scraper Service (Local)..."
+	@mkdir -p $(BIN_DIR)
+	@cd $(SCRAPER_DIR) && GO111MODULE=on go build $(GO_BUILD_FLAGS) ../../$(BIN_DIR)/playwright-scraper main.go
+	@echo "✅ Scraper Service built: $(BIN_DIR)/playwright-scraper"
+
+# Run Scraper Local
+.PHONY: run-scraper-local
+run-scraper-local: build-scraper-local
+	@echo "🚀 Running Scraper Service (Local)..."
+	@$(BIN_DIR)/playwright-scraper

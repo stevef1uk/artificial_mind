@@ -427,6 +427,25 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 	})
 
 	tools = append(tools, MCPKnowledgeTool{
+		Name:        "smart_scrape",
+		Description: "Perform an AI-powered scrape of a URL to extract specific information based on a goal. Automatically plans the scrape logic and executes it.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"url": map[string]interface{}{
+					"type":        "string",
+					"description": "URL to scrape",
+				},
+				"goal": map[string]interface{}{
+					"type":        "string",
+					"description": "Clear description of what data you want to extract (e.g. 'find all savings account names and their interest rates')",
+				},
+			},
+			"required": []string{"url", "goal"},
+		},
+	})
+
+	tools = append(tools, MCPKnowledgeTool{
 		Name:        "execute_code",
 		Description: "Execute Python or Go code in a secure sandbox. Use for calculation, data processing, or simple scripts.",
 		InputSchema: map[string]interface{}{
@@ -530,7 +549,7 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		return s.saveAvatarContext(ctx, arguments)
 	case "save_episode":
 		return s.saveEpisode(ctx, arguments)
-	case "scrape_url", "execute_code", "read_file":
+	case "scrape_url", "execute_code", "read_file", "smart_scrape":
 		// Route to the new wrapper
 		return s.executeToolWrapper(ctx, toolName, arguments)
 	case "browse_web":
@@ -650,7 +669,7 @@ func (s *MCPKnowledgeServer) getScrapeStatus(ctx context.Context, jobID string) 
 }
 
 // scrapeWithConfig delegates to the external Playwright scraper service with async job queue
-func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig string, async bool, extractions map[string]string) (interface{}, error) {
+func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig string, async bool, extractions map[string]string, getHTML bool) (interface{}, error) {
 	log.Printf("📝 [MCP-SCRAPE] Received TypeScript config (%d bytes) and %d extractions", len(tsConfig), len(extractions))
 
 	// Call external scraper service with async job queue
@@ -665,6 +684,7 @@ func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig
 		"url":               url,
 		"typescript_config": tsConfig,
 		"extractions":       extractions,
+		"get_html":          getHTML,
 	}
 	startReqJSON, err := json.Marshal(startReq)
 	if err != nil {
@@ -746,6 +766,55 @@ func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig
 		case "completed":
 			duration := time.Since(startTime)
 			log.Printf("✅ [MCP-SCRAPE] Job %s completed in %v", startResp.JobID, duration)
+
+			// Apply extractions to the result if patterns are provided
+			if len(extractions) > 0 && getHTML {
+				// Get the page content for extraction
+				pageContent := ""
+				if html, ok := job.Result["cleaned_html"].(string); ok {
+					pageContent = html
+				} else if html, ok := job.Result["raw_html"].(string); ok {
+					pageContent = html
+				} else if html, ok := job.Result["page_content"].(string); ok {
+					pageContent = html
+				}
+				
+				// Apply each extraction pattern
+				if pageContent != "" {
+					log.Printf("🔍 [MCP-SCRAPE] Applying %d extraction patterns to page content (%d chars)", len(extractions), len(pageContent))
+					for key, pattern := range extractions {
+						re, err := regexp.Compile(pattern)
+						if err != nil {
+							log.Printf("⚠️  [MCP-SCRAPE] Invalid regex pattern for '%s': %v", key, err)
+							continue
+						}
+						
+						matches := re.FindAllStringSubmatch(pageContent, -1)
+						if len(matches) > 0 {
+							// Store extracted values
+							if len(matches[0]) > 1 {
+								// If there are capture groups, join them
+								var extracted []string
+								for _, match := range matches {
+									if len(match) > 1 {
+										for i := 1; i < len(match); i++ {
+											if match[i] != "" {
+												extracted = append(extracted, match[i])
+											}
+										}
+									}
+								}
+								if len(extracted) > 0 {
+									job.Result[key] = strings.Join(extracted, " | ")
+									log.Printf("✅ [MCP-SCRAPE] Extracted '%s': found %d matches", key, len(extracted))
+								}
+							}
+						} else {
+							log.Printf("⚠️  [MCP-SCRAPE] No matches found for extraction pattern '%s'", key)
+						}
+					}
+				}
+			}
 
 			// Return result in MCP format
 			resultJSON, _ := json.MarshalIndent(job.Result, "", "  ")
@@ -1197,7 +1266,7 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 				}
 			}
 
-			return s.scrapeWithConfig(ctx, url, tsConfig, isAsync, extractions)
+			return s.scrapeWithConfig(ctx, url, tsConfig, isAsync, extractions, false)
 		}
 
 		// Use the html-scraper binary tool for better content extraction
@@ -1309,6 +1378,14 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 				},
 			},
 		}, nil
+
+	case "smart_scrape":
+		url, _ := args["url"].(string)
+		goal, _ := args["goal"].(string)
+		if url == "" || goal == "" {
+			return nil, fmt.Errorf("url and goal parameters required")
+		}
+		return s.executeSmartScrape(ctx, url, goal)
 
 	case "execute_code":
 		code, _ := args["code"].(string)
@@ -3612,4 +3689,135 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 	}
 
 	return finalResult, nil
+}
+
+// executeSmartScrape performs an AI-powered scrape by first fetching and then planning
+func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string, goal string) (interface{}, error) {
+	log.Printf("🧠 [MCP-SMART-SCRAPE] Starting smart scrape for %s with goal: %s", url, goal)
+
+	// 1. Fetch page HTML using the scraper service (in get_html mode)
+	log.Printf("📥 [MCP-SMART-SCRAPE] Fetching page content to plan scrape...")
+	htmlResultRaw, err := s.scrapeWithConfig(ctx, url, "", false, nil, true) // Pass true for getHTML
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch page content: %v", err)
+	}
+
+	htmlResult, ok := htmlResultRaw.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("unexpected internal result format")
+	}
+
+	// The scraper returns results inside a "result" key for polling
+	innerResult, ok := htmlResult["result"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("could not find result in scrape response")
+	}
+
+	cleanedHTML, ok := innerResult["cleaned_html"].(string)
+	if !ok || cleanedHTML == "" {
+		return nil, fmt.Errorf("scraper did not return cleaned_html")
+	}
+
+	// 2. Plan the scrape using LLM
+	log.Printf("📋 [MCP-SMART-SCRAPE] Planning scrape config with LLM (%d chars of HTML)...", len(cleanedHTML))
+	config, err := s.planScrapeWithLLM(ctx, cleanedHTML, goal)
+	if err != nil {
+		return nil, fmt.Errorf("failed to plan scrape with LLM: %v", err)
+	}
+
+	log.Printf("🚀 [MCP-SMART-SCRAPE] Executing planned scrape with %d extraction patterns", len(config.Extractions))
+
+	// 3. Execute the planned scrape - request HTML if we have extraction patterns
+	requestHTML := len(config.Extractions) > 0
+	return s.scrapeWithConfig(ctx, url, config.TypeScriptConfig, false, config.Extractions, requestHTML)
+}
+
+type ScrapeConfig struct {
+	TypeScriptConfig string            `json:"typescript_config"`
+	Extractions      map[string]string `json:"extractions"`
+}
+
+func (s *MCPKnowledgeServer) planScrapeWithLLM(ctx context.Context, html string, goal string) (*ScrapeConfig, error) {
+	if s.llmClient == nil {
+		return nil, fmt.Errorf("LLM client not configured on knowledge server")
+	}
+
+	// Normalize HTML for LLM
+	html = strings.ReplaceAll(html, "\"", "'")
+	if len(html) > 25000 {
+		html = html[:25000] + "...(truncated)"
+	}
+
+	systemPrompt := `You are a web scraper config generator.
+Goal: Generate a valid JSON object with:
+- "typescript_config": (string) Playwright await commands if needed.
+- "extractions": (map) key=name, value=regex string. NO lookarounds (?<= or ?=).
+Output ONLY the JSON.`
+
+	userPrompt := fmt.Sprintf(`Goal: %s
+
+HTML SNAPSHOT:
+%s
+
+TASK:
+Generate a JSON configuration for scraping this page.
+- Output ONLY valid JSON. 
+- USE EXACTLY TWO CAPTURING GROUPS () per regex for paired data like Name and Rate.
+- Standard Go regex only (NO lookarounds).
+- In your regex, use single quotes (') for HTML attributes.
+`, goal, html)
+
+	// Call LLM
+	response, err := s.llmClient.callLLMWithContextAndPriority(ctx, systemPrompt+"\n\n"+userPrompt, PriorityHigh)
+	if err != nil {
+		return nil, err
+	}
+
+	// Clean/Parse JSON - Enhanced extraction logic
+	var config ScrapeConfig
+	var parseErr error
+	
+	// Try approach 1: Find first { and try parsing incrementally from there
+	if idx := strings.Index(response, "{"); idx != -1 {
+		// Try progressively from first { to end of string
+		for endIdx := idx + 1; endIdx <= len(response); endIdx++ {
+			candidate := response[idx:endIdx]
+			
+			// Try to unmarshal this candidate
+			var tempConfig ScrapeConfig
+			if err := json.Unmarshal([]byte(candidate), &tempConfig); err == nil {
+				// Success! We found valid JSON
+				config = tempConfig
+				parseErr = nil
+				break
+			}
+			parseErr = err
+			
+			// Skip if we haven't found a closing brace yet
+			if strings.LastIndex(candidate, "}") == -1 {
+				continue
+			}
+		}
+	}
+	
+	// If that didn't work, try the old approach (first { to last })
+	if parseErr != nil {
+		cleanedResponse := response
+		if idx := strings.Index(cleanedResponse, "{"); idx != -1 {
+			if lastIdx := strings.LastIndex(cleanedResponse, "}"); lastIdx != -1 {
+				cleanedResponse = cleanedResponse[idx : lastIdx+1]
+				if err := json.Unmarshal([]byte(cleanedResponse), &config); err != nil {
+					parseErr = err
+				} else {
+					parseErr = nil
+				}
+			}
+		}
+	}
+	
+	if parseErr != nil {
+		return nil, fmt.Errorf("failed to parse LLM planning response: %v (response was: %s)", parseErr, response)
+	}
+
+	return &config, nil
 }
