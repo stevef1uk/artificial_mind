@@ -1406,7 +1406,11 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 			}
 		}
 
-		log.Printf("🔍 [MCP-SMART-SCRAPE] User hints: %d extractions", len(userConfig.Extractions))
+		numHints := 0
+		if userConfig != nil {
+			numHints = len(userConfig.Extractions)
+		}
+		log.Printf("🔍 [MCP-SMART-SCRAPE] User hints: %d extractions", numHints)
 		if userConfig != nil {
 			for k, v := range userConfig.Extractions {
 				log.Printf("   📋 %s: %s", k, v)
