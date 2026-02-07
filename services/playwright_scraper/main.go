@@ -547,6 +547,10 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 	results["page_url"] = page.URL()
 	results["page_title"], _ = page.Title()
 
+	// Get the RAW content BEFORE cleanup for extractions
+	// This preserves <script> tags that may contain JSON data
+	rawHTML, _ := page.Content()
+
 	// 1. Clean up the DOM to match what the Planner saw
 	_, _ = page.Evaluate(`() => {
         const elements = document.querySelectorAll('script, style, svg, path, link, meta, noscript, iframe');
@@ -569,8 +573,9 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 	}
 
 	// Prepare content for extraction
+	// Use RAW HTML for extractions (preserves script tags with JSON)
 	// Normalize all double quotes to single quotes to match the Planner's hint and LLM's expectation
-	searchContent := strings.ReplaceAll(cleanedHTML, "\"", "'")
+	searchContent := strings.ReplaceAll(rawHTML, "\"", "'")
 
 	// Write to debug file to see EXACTLY what we are matching against
 	_ = os.WriteFile("/tmp/scraper_debug_content.html", []byte(searchContent), 0644)

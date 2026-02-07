@@ -24,9 +24,10 @@ def test_nationwide_auto_config():
             "arguments": {
                 "url": "https://www.nationwide.co.uk/savings/compare-savings-accounts-and-isas/",
                 "goal": "Extract all savings product names and their AER interest rates from the table",
+                "typescript_config": "await page.getByText('Allow all cookies').click().catch(() => {}); await page.waitForSelector('table', {timeout: 10000}); await page.waitForTimeout(2000);",
                 "extractions": {
-                    "product_names": "<p[^>]*class='[^']*ProductName[^']*'[^>]*>([^<]+)</p>",
-                    "interest_rates": "<div[^>]*data-ref='heading'[^>]*>([\\d\\.]+)%"
+                    "product_names": "class='Table__ProductName[^']*'>([^<]+)<",
+                    "interest_rates": "data-ref='heading'[^>]*>([\\d\\.]+)%"
                 }
             }
         }
@@ -66,6 +67,10 @@ def test_nationwide_auto_config():
                 text = item["text"]
                 print(f"\n   📊 Full Response Text:")
                 print(f"   {text}")
+                
+                # Also show the raw result if available
+                if "result" in result["result"]:
+                    print(f"\n   🔍 Raw Result Keys: {list(result['result']['result'].keys())}")
                 
                 # Try to parse as JSON
                 try:
