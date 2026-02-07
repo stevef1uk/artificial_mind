@@ -1,15 +1,16 @@
 {
-  "llm_provider": "local",
+  "llm_provider": "ollama",
   "llm_api_key": "",
   "mcp_endpoint": "mock://localhost:3000/mcp",
   "settings": {
-    "model": "gemma-3-1b-it-q4_k_m.gguf",
+    "model": "qwen2.5-coder:7b",
     "temperature": "0.7",
-    "max_tokens": "1000",
-    "llm_timeout_seconds": "120"
+    "max_tokens": "4096",
+    "llm_timeout_seconds": "300",
+    "ollama_base_url": "http://192.168.1.53:11434"
   },
   "server": {
     "port": 8080,
-    "host": "localhost"
+    "host": "0.0.0.0"
   }
 }
