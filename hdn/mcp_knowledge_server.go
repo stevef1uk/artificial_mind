@@ -1388,12 +1388,13 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 
 		// Support optional hints
 		var userConfig *ScrapeConfig
-		if ts, ok := args["typescript_config"].(string); ok {
-			if userConfig == nil {
-				userConfig = &ScrapeConfig{Extractions: make(map[string]string)}
+		if ts, _ := args["typescript_config"].(string); ts != "" {
+			userConfig = &ScrapeConfig{
+				TypeScriptConfig: ts,
+				Extractions:      make(map[string]string),
 			}
-			userConfig.TypeScriptConfig = ts
 		}
+
 		if ext, ok := args["extractions"].(map[string]interface{}); ok {
 			if userConfig == nil {
 				userConfig = &ScrapeConfig{Extractions: make(map[string]string)}
@@ -3745,17 +3746,26 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 		return nil, fmt.Errorf("failed to plan scrape with LLM: %v", err)
 	}
 
-	// Merge user results if provided
+	// Merge user results if provided - Prioritize user hints
 	if userConfig != nil {
-		if config.TypeScriptConfig == "" {
+		if userConfig.TypeScriptConfig != "" {
 			config.TypeScriptConfig = userConfig.TypeScriptConfig
 		}
-		if len(config.Extractions) == 0 {
-			config.Extractions = userConfig.Extractions
+		// Merge extractions - user patterns take precedence
+		if len(userConfig.Extractions) > 0 {
+			if config.Extractions == nil {
+				config.Extractions = make(map[string]string)
+			}
+			for k, v := range userConfig.Extractions {
+				config.Extractions[k] = v
+			}
 		}
 	}
 
 	log.Printf("🚀 [MCP-SMART-SCRAPE] Executing planned scrape with %d extraction patterns", len(config.Extractions))
+	for k, v := range config.Extractions {
+		log.Printf("   🔍 %s: %s", k, v)
+	}
 
 	// 3. Execute the planned scrape - request HTML if we have extraction patterns
 	requestHTML := len(config.Extractions) > 0
