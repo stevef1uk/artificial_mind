@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -1430,7 +1431,42 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 			language = "python" // Default
 		}
 
-		// Use the Simple Docker Executor
+		// Check if we should use the SSH Executor (bypass Docker on RPi)
+		execMethod := strings.TrimSpace(os.Getenv("EXECUTION_METHOD"))
+		enableARM := strings.TrimSpace(os.Getenv("ENABLE_ARM64_TOOLS")) == "true"
+		isARM64 := runtime.GOARCH == "arm64" || runtime.GOARCH == "aarch64"
+
+		sshEnabled := execMethod == "ssh" || (isARM64 && (enableARM || execMethod != "docker"))
+
+		if sshEnabled {
+			log.Printf("🚀 [MCP-EXEC] Attempting SSH execution (EXECUTION_METHOD=%s, ARM64=%v)", execMethod, isARM64)
+			sshParams := map[string]interface{}{
+				"code":     code,
+				"language": language,
+				"timeout":  300,
+			}
+
+			// Call the external tool_ssh_executor
+			result, err := s.callExternalHDNTool(ctx, "tool_ssh_executor", sshParams)
+			if err == nil {
+				// Map the result to match expected output format
+				success, _ := result["success"].(bool)
+				output, _ := result["output"].(string)
+				errorMsg, _ := result["error"].(string)
+
+				// Return in standard format
+				return map[string]interface{}{
+					"success": success,
+					"output":  output,
+					"error":   errorMsg,
+					"files":   nil, // SSH executor doesn't return files directly yet
+				}, nil
+			}
+
+			log.Printf("⚠️ [MCP-EXEC] SSH executor failed: %v — falling back to local Docker executor", err)
+		}
+
+		// Use the Simple Docker Executor (Fallback)
 		executor := NewSimpleDockerExecutor() // No storage for ephemeral MCP calls
 		req := &DockerExecutionRequest{
 			Language: language,
@@ -3899,4 +3935,49 @@ INSTRUCTIONS:
 	}
 
 	return &config, nil
+}
+
+// callExternalHDNTool calls an external tool on the HDN server
+func (s *MCPKnowledgeServer) callExternalHDNTool(ctx context.Context, toolID string, params map[string]interface{}) (map[string]interface{}, error) {
+	// Construct the URL for the internal tool invocation
+	// Use hdnURL which points to the API server
+	baseURL := s.hdnURL
+	if baseURL == "" {
+		baseURL = "http://localhost:8080"
+	}
+	url := fmt.Sprintf("%s/api/v1/tools/%s/invoke", baseURL, toolID)
+
+	jsonData, err := json.Marshal(params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal params: %v", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Add Agent attributes header if available in context?
+	// For now, simple invocation is enough
+
+	// Use a long timeout for execution tools
+	client := &http.Client{Timeout: 300 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("tool call failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	return result, nil
 }
