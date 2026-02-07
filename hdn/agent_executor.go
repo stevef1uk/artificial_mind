@@ -86,9 +86,15 @@ Backstory: %s
 You have access to these tools:
 %s
 
-You must decide which tool(s) to call to achieve the user's goal.
-Output a JSON array of tool calls. Each tool call should have "tool_id" and "params".
-Output ONLY the JSON array.`,
+CRITICAL: Decide which tool(s) to call to achieve the user's goal.
+Output a JSON array of tool calls. Each tool call must have "tool_id" and "params".
+Example: [{"tool_id": "tool_name", "params": {"key": "value"}}]
+
+Rules:
+1. Output ONLY the JSON array.
+2. Ensure it is VALID JSON. NO triple quotes (""") inside JSON strings.
+3. Escape newlines and quotes in code strings.
+4. If you use execute_code, the "code" param should be a valid string.`,
 			agentInstance.Config.Name,
 			agentInstance.Config.Role,
 			agentInstance.Config.Goal,
@@ -110,8 +116,8 @@ Output ONLY the JSON array.`,
 				Params map[string]interface{} `json:"params"`
 			}
 
-			// Simple JSON extraction
-			cleanResponse := response
+			// Sanitize response (strip markdown fences and extract JSON array)
+			cleanResponse := sanitizeCode(response)
 			if idx := strings.Index(cleanResponse, "["); idx != -1 {
 				if lastIdx := strings.LastIndex(cleanResponse, "]"); lastIdx != -1 {
 					cleanResponse = cleanResponse[idx : lastIdx+1]

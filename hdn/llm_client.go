@@ -47,7 +47,7 @@ const (
 // LLMRequestTicket represents a request waiting for an LLM slot
 type LLMRequestTicket struct {
 	Priority RequestPriority
-	Acquired chan struct{} // Closed when slot is acquired
+	Acquired chan struct{}   // Closed when slot is acquired
 	Cancel   <-chan struct{} // Context cancellation channel
 }
 
@@ -72,14 +72,14 @@ func initLLMSemaphore() {
 			}
 		}
 		llmRequestSemaphore = make(chan struct{}, maxConcurrentLLM)
-		
+
 		// Initialize priority queues (buffered to prevent blocking)
 		highPriorityQueue = make(chan *LLMRequestTicket, 100)
 		lowPriorityQueue = make(chan *LLMRequestTicket, 100)
-		
+
 		log.Printf("🔒 [LLM] Initialized LLM request semaphore with max %d concurrent requests", maxConcurrentLLM)
 		log.Printf("🔒 [LLM] Priority queue enabled: user requests get priority over background tasks")
-		
+
 		// Start the queue dispatcher
 		go dispatchLLMRequests()
 	})
@@ -112,9 +112,9 @@ func dispatchLLMRequests() {
 		}
 
 		// Check if background LLM work is disabled (check once per loop, not blocking)
-		disableBackgroundLLM := strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "1" || 
-		                         strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "true"
-		
+		disableBackgroundLLM := strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "1" ||
+			strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "true"
+
 		select {
 		case ticket := <-lowPriorityQueue:
 			// If background LLM is disabled, reject low priority requests immediately
@@ -164,23 +164,23 @@ func dispatchLLMRequests() {
 // Returns true if acquired, false if cancelled or timed out
 func acquireLLMSlot(ctx context.Context, priority RequestPriority, timeout time.Duration) bool {
 	initLLMSemaphore()
-	
+
 	// Check if background LLM is disabled - reject low priority requests immediately
 	if priority == PriorityLow {
-		disableBackgroundLLM := strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "1" || 
-		                         strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "true"
+		disableBackgroundLLM := strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "1" ||
+			strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "true"
 		if disableBackgroundLLM {
 			log.Printf("🔒 [LLM] Rejecting low priority request immediately (background LLM disabled)")
 			return false
 		}
 	}
-	
+
 	ticket := &LLMRequestTicket{
 		Priority: priority,
 		Acquired: make(chan struct{}),
 		Cancel:   ctx.Done(),
 	}
-	
+
 	// Enqueue based on priority
 	var queue chan *LLMRequestTicket
 	if priority == PriorityHigh {
@@ -190,7 +190,7 @@ func acquireLLMSlot(ctx context.Context, priority RequestPriority, timeout time.
 		queue = lowPriorityQueue
 		log.Printf("🔒 [LLM] Enqueuing LOW priority request")
 	}
-	
+
 	// Enqueue the request
 	select {
 	case queue <- ticket:
@@ -198,7 +198,7 @@ func acquireLLMSlot(ctx context.Context, priority RequestPriority, timeout time.
 	case <-ctx.Done():
 		return false
 	}
-	
+
 	// Wait for slot acquisition or cancellation
 	select {
 	case <-ticket.Acquired:
@@ -217,14 +217,14 @@ func acquireLLMSlot(ctx context.Context, priority RequestPriority, timeout time.
 
 // AsyncLLMRequest represents an async LLM request with callback
 type AsyncLLMRequest struct {
-	ID           string                    // Unique request ID
-	Priority     RequestPriority           // Request priority
-	Prompt       string                    // The LLM prompt
-	RequestType  string                    // Type of request (e.g., "GenerateMethod", "GenerateCode")
-	RequestData  map[string]interface{}    // Additional request data
-	Callback     func(string, error)       // Callback function to call with result
-	CreatedAt    time.Time                 // When request was created
-	Context      context.Context           // Context for cancellation
+	ID          string                 // Unique request ID
+	Priority    RequestPriority        // Request priority
+	Prompt      string                 // The LLM prompt
+	RequestType string                 // Type of request (e.g., "GenerateMethod", "GenerateCode")
+	RequestData map[string]interface{} // Additional request data
+	Callback    func(string, error)    // Callback function to call with result
+	CreatedAt   time.Time              // When request was created
+	Context     context.Context        // Context for cancellation
 }
 
 // AsyncLLMResponse represents a completed LLM response
@@ -240,26 +240,26 @@ type AsyncLLMQueueManager struct {
 	// Priority stacks (LIFO - Last In First Out)
 	highPriorityStack []*AsyncLLMRequest
 	lowPriorityStack  []*AsyncLLMRequest
-	
+
 	// Response queue
 	responseQueue chan *AsyncLLMResponse
-	
+
 	// Worker pool
-	workerPool     chan struct{}
-	maxWorkers     int
-	
+	workerPool chan struct{}
+	maxWorkers int
+
 	// Backpressure limits
 	maxHighPriorityQueue int // Maximum high-priority requests in queue
 	maxLowPriorityQueue  int // Maximum low-priority requests in queue
-	
+
 	// Synchronization
-	mu             sync.Mutex
-	requestMap     map[string]*AsyncLLMRequest // Map request ID to request for callbacks
-	shutdown       chan struct{}
-	wg             sync.WaitGroup
-	
+	mu         sync.Mutex
+	requestMap map[string]*AsyncLLMRequest // Map request ID to request for callbacks
+	shutdown   chan struct{}
+	wg         sync.WaitGroup
+
 	// LLM client for making actual requests
-	llmClient      *LLMClient
+	llmClient *LLMClient
 }
 
 var (
@@ -282,7 +282,7 @@ func InitAsyncLLMQueue(llmClient *LLMClient) *AsyncLLMQueueManager {
 				maxWorkers = max
 			}
 		}
-		
+
 		// Backpressure limits - configurable via environment variables
 		maxHighPriorityQueue := 100 // High-priority requests (user chat) - allow more
 		if maxStr := os.Getenv("LLM_MAX_HIGH_PRIORITY_QUEUE"); maxStr != "" {
@@ -290,43 +290,43 @@ func InitAsyncLLMQueue(llmClient *LLMClient) *AsyncLLMQueueManager {
 				maxHighPriorityQueue = max
 			}
 		}
-		
+
 		maxLowPriorityQueue := 50 // Low-priority requests (background tasks) - limit to prevent backlog
 		if maxStr := os.Getenv("LLM_MAX_LOW_PRIORITY_QUEUE"); maxStr != "" {
 			if max, err := strconv.Atoi(maxStr); err == nil && max > 0 {
 				maxLowPriorityQueue = max
 			}
 		}
-		
+
 		asyncQueueManager = &AsyncLLMQueueManager{
-			highPriorityStack: make([]*AsyncLLMRequest, 0),
-			lowPriorityStack:  make([]*AsyncLLMRequest, 0),
-			responseQueue:     make(chan *AsyncLLMResponse, 100),
-			workerPool:        make(chan struct{}, maxWorkers),
-			maxWorkers:        maxWorkers,
+			highPriorityStack:    make([]*AsyncLLMRequest, 0),
+			lowPriorityStack:     make([]*AsyncLLMRequest, 0),
+			responseQueue:        make(chan *AsyncLLMResponse, 100),
+			workerPool:           make(chan struct{}, maxWorkers),
+			maxWorkers:           maxWorkers,
 			maxHighPriorityQueue: maxHighPriorityQueue,
 			maxLowPriorityQueue:  maxLowPriorityQueue,
-			requestMap:        make(map[string]*AsyncLLMRequest),
-			shutdown:          make(chan struct{}),
-			llmClient:         llmClient,
+			requestMap:           make(map[string]*AsyncLLMRequest),
+			shutdown:             make(chan struct{}),
+			llmClient:            llmClient,
 		}
-		
+
 		log.Printf("🚀 [ASYNC-LLM] Initialized async LLM queue system with %d workers", maxWorkers)
 		log.Printf("🚀 [ASYNC-LLM] Backpressure limits: high-priority=%d, low-priority=%d", maxHighPriorityQueue, maxLowPriorityQueue)
-		
+
 		// Start queue processor
 		asyncQueueManager.wg.Add(1)
 		go asyncQueueManager.processQueue()
-		
+
 		// Start response handler
 		asyncQueueManager.wg.Add(1)
 		go asyncQueueManager.processResponses()
-		
+
 		// Start queue health monitor (logs queue sizes periodically)
 		asyncQueueManager.wg.Add(1)
 		go asyncQueueManager.monitorQueueHealth()
 	})
-	
+
 	return asyncQueueManager
 }
 
@@ -335,48 +335,48 @@ func InitAsyncLLMQueue(llmClient *LLMClient) *AsyncLLMQueueManager {
 func (aqm *AsyncLLMQueueManager) EnqueueRequest(req *AsyncLLMRequest) error {
 	aqm.mu.Lock()
 	defer aqm.mu.Unlock()
-	
+
 	// Generate ID if not provided
 	if req.ID == "" {
 		req.ID = fmt.Sprintf("req_%d", time.Now().UnixNano())
 	}
-	
+
 	req.CreatedAt = time.Now()
-	
+
 	// Backpressure: Check queue sizes before enqueuing
 	if req.Priority == PriorityHigh {
 		// High-priority requests: check limit but allow more (user requests)
 		if len(aqm.highPriorityStack) >= aqm.maxHighPriorityQueue {
-			log.Printf("🚫 [ASYNC-LLM] HIGH priority queue full (%d/%d), rejecting request: %s", 
+			log.Printf("🚫 [ASYNC-LLM] HIGH priority queue full (%d/%d), rejecting request: %s",
 				len(aqm.highPriorityStack), aqm.maxHighPriorityQueue, req.ID)
 			return fmt.Errorf("high-priority queue full (%d/%d requests)", len(aqm.highPriorityStack), aqm.maxHighPriorityQueue)
 		}
 		aqm.highPriorityStack = append(aqm.highPriorityStack, req)
-		log.Printf("📥 [ASYNC-LLM] Enqueued HIGH priority request: %s (stack size: %d/%d)", 
+		log.Printf("📥 [ASYNC-LLM] Enqueued HIGH priority request: %s (stack size: %d/%d)",
 			req.ID, len(aqm.highPriorityStack), aqm.maxHighPriorityQueue)
 	} else {
 		// Low-priority requests: enforce stricter limit to prevent backlog
 		if len(aqm.lowPriorityStack) >= aqm.maxLowPriorityQueue {
-			log.Printf("🚫 [ASYNC-LLM] LOW priority queue full (%d/%d), rejecting request: %s (backpressure)", 
+			log.Printf("🚫 [ASYNC-LLM] LOW priority queue full (%d/%d), rejecting request: %s (backpressure)",
 				len(aqm.lowPriorityStack), aqm.maxLowPriorityQueue, req.ID)
-			return fmt.Errorf("low-priority queue full (%d/%d requests) - backpressure applied", 
+			return fmt.Errorf("low-priority queue full (%d/%d requests) - backpressure applied",
 				len(aqm.lowPriorityStack), aqm.maxLowPriorityQueue)
 		}
 		aqm.lowPriorityStack = append(aqm.lowPriorityStack, req)
-		log.Printf("📥 [ASYNC-LLM] Enqueued LOW priority request: %s (stack size: %d/%d)", 
+		log.Printf("📥 [ASYNC-LLM] Enqueued LOW priority request: %s (stack size: %d/%d)",
 			req.ID, len(aqm.lowPriorityStack), aqm.maxLowPriorityQueue)
 	}
-	
+
 	// Store in request map for callback routing
 	aqm.requestMap[req.ID] = req
-	
+
 	return nil
 }
 
 // processQueue continuously processes requests from priority stacks
 func (aqm *AsyncLLMQueueManager) processQueue() {
 	defer aqm.wg.Done()
-	
+
 	for {
 		select {
 		case <-aqm.shutdown:
@@ -385,7 +385,7 @@ func (aqm *AsyncLLMQueueManager) processQueue() {
 		default:
 			// Try to get a request from stacks (LIFO - pop from end)
 			var req *AsyncLLMRequest
-			
+
 			aqm.mu.Lock()
 			// Always check high priority first
 			if len(aqm.highPriorityStack) > 0 {
@@ -396,8 +396,8 @@ func (aqm *AsyncLLMQueueManager) processQueue() {
 				log.Printf("📤 [ASYNC-LLM] Popped HIGH priority request: %s", req.ID)
 			} else if len(aqm.lowPriorityStack) > 0 {
 				// Check if background LLM is disabled
-				disableBackgroundLLM := strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "1" || 
-				                         strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "true"
+				disableBackgroundLLM := strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "1" ||
+					strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "true"
 				if !disableBackgroundLLM {
 					// Pop from end (LIFO)
 					lastIdx := len(aqm.lowPriorityStack) - 1
@@ -407,7 +407,7 @@ func (aqm *AsyncLLMQueueManager) processQueue() {
 				}
 			}
 			aqm.mu.Unlock()
-			
+
 			if req != nil {
 				// Acquire worker slot
 				select {
@@ -430,9 +430,9 @@ func (aqm *AsyncLLMQueueManager) processQueue() {
 func (aqm *AsyncLLMQueueManager) processRequest(req *AsyncLLMRequest) {
 	defer aqm.wg.Done()
 	defer func() { <-aqm.workerPool }() // Release worker slot
-	
+
 	log.Printf("🔄 [ASYNC-LLM] Processing request: %s (type: %s)", req.ID, req.RequestType)
-	
+
 	// Check if request was cancelled
 	select {
 	case <-req.Context.Done():
@@ -446,10 +446,10 @@ func (aqm *AsyncLLMQueueManager) processRequest(req *AsyncLLMRequest) {
 		return
 	default:
 	}
-	
+
 	// Make the actual LLM HTTP call directly (bypassing semaphore system)
 	response, err := aqm.makeLLMHTTPCall(req.Context, req.Prompt)
-	
+
 	// Send response to response queue
 	aqm.sendResponse(&AsyncLLMResponse{
 		RequestID:   req.ID,
@@ -457,7 +457,7 @@ func (aqm *AsyncLLMQueueManager) processRequest(req *AsyncLLMRequest) {
 		Error:       err,
 		CompletedAt: time.Now(),
 	})
-	
+
 	log.Printf("✅ [ASYNC-LLM] Completed request: %s (error: %v)", req.ID, err != nil)
 }
 
@@ -465,7 +465,7 @@ func (aqm *AsyncLLMQueueManager) processRequest(req *AsyncLLMRequest) {
 func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt string) (string, error) {
 	client := aqm.llmClient
 	log.Printf("🌐 [ASYNC-LLM] Making API call to provider: %s", client.config.LLMProvider)
-	
+
 	// Use context timeout if available, otherwise use client timeout
 	// For code generation and other long-running tasks, context may have longer timeout
 	httpTimeout := client.httpClient.Timeout
@@ -602,9 +602,9 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 
 	// Make the request (will respect context cancellation)
 	resp, err := httpClient.Do(req)
-	
+
 	requestDuration := time.Since(requestStart)
-	
+
 	// Warn if request took too long
 	if requestDuration > 10*time.Second {
 		log.Printf("⚠️ [ASYNC-LLM] Slow request detected: %v", requestDuration)
@@ -657,7 +657,7 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 		if message, ok := ollamaResp["message"].(map[string]interface{}); ok {
 			if content, ok := message["content"].(string); ok {
 				log.Printf("✅ [ASYNC-LLM] Successfully extracted content from Ollama response")
-				
+
 				// Try to extract token usage from Ollama response if available
 				if promptEvalCount, ok := ollamaResp["prompt_eval_count"].(float64); ok {
 					evalCount := 0.0
@@ -670,7 +670,7 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 						trackTokenUsage(ctx, int(promptEvalCount), int(evalCount), totalTokens, component)
 					}
 				}
-				
+
 				return content, nil
 			}
 		}
@@ -698,13 +698,13 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 		}
 
 		log.Printf("✅ [ASYNC-LLM] Successfully extracted content from %s response", client.config.LLMProvider)
-		
+
 		// Track token usage if available
 		if llmResp.Usage != nil {
 			component := getComponentFromContext(ctx)
 			trackTokenUsage(ctx, llmResp.Usage.PromptTokens, llmResp.Usage.CompletionTokens, llmResp.Usage.TotalTokens, component)
 		}
-		
+
 		return llmResp.Choices[0].Message.Content, nil
 	}
 }
@@ -721,28 +721,28 @@ func (aqm *AsyncLLMQueueManager) sendResponse(resp *AsyncLLMResponse) {
 
 // QueueStats represents current queue statistics
 type QueueStats struct {
-	HighPrioritySize      int
-	LowPrioritySize       int
-	MaxHighPriorityQueue  int
-	MaxLowPriorityQueue   int
-	ActiveWorkers         int
-	MaxWorkers            int
-	HighPriorityPercent   float64
-	LowPriorityPercent    float64
+	HighPrioritySize     int
+	LowPrioritySize      int
+	MaxHighPriorityQueue int
+	MaxLowPriorityQueue  int
+	ActiveWorkers        int
+	MaxWorkers           int
+	HighPriorityPercent  float64
+	LowPriorityPercent   float64
 }
 
 // GetStats returns current queue statistics (thread-safe)
 func (aqm *AsyncLLMQueueManager) GetStats() QueueStats {
 	aqm.mu.Lock()
 	defer aqm.mu.Unlock()
-	
+
 	highSize := len(aqm.highPriorityStack)
 	lowSize := len(aqm.lowPriorityStack)
 	activeWorkers := aqm.maxWorkers - len(aqm.workerPool)
-	
+
 	highPercent := float64(highSize) / float64(aqm.maxHighPriorityQueue) * 100
 	lowPercent := float64(lowSize) / float64(aqm.maxLowPriorityQueue) * 100
-	
+
 	return QueueStats{
 		HighPrioritySize:     highSize,
 		LowPrioritySize:      lowSize,
@@ -759,21 +759,30 @@ func (aqm *AsyncLLMQueueManager) GetStats() QueueStats {
 // Also implements auto-disable/enable of background LLM based on queue size
 func (aqm *AsyncLLMQueueManager) monitorQueueHealth() {
 	defer aqm.wg.Done()
-	
+
 	ticker := time.NewTicker(10 * time.Second) // Check every 10 seconds for auto-disable
 	defer ticker.Stop()
-	
+
 	// Track auto-disable state
 	var autoDisabled bool
 	var redisClient *redis.Client
-	
+
 	// Try to get Redis client from environment (if available)
 	// This is a best-effort - if Redis isn't available, we'll just log
-	redisAddr := os.Getenv("REDIS_ADDR")
+	redisAddr := os.Getenv("REDIS_URL")
+	if redisAddr == "" {
+		redisAddr = os.Getenv("REDIS_ADDR")
+	}
 	if redisAddr == "" {
 		redisAddr = "localhost:6379"
 	}
-	
+
+	// Normalize address
+	redisAddr = strings.TrimPrefix(redisAddr, "redis://")
+	if !strings.Contains(redisAddr, ":") {
+		redisAddr += ":6379"
+	}
+
 	ctx := context.Background()
 	rdb := redis.NewClient(&redis.Options{
 		Addr: redisAddr,
@@ -786,11 +795,11 @@ func (aqm *AsyncLLMQueueManager) monitorQueueHealth() {
 		log.Printf("⚠️ [ASYNC-LLM] Redis not available for auto-disable: %v (auto-disable disabled)", err)
 		rdb.Close()
 	}
-	
+
 	// Thresholds for auto-disable/enable (configurable)
-	disableThreshold := 0.90  // Disable when queue is 90% full
-	enableThreshold := 0.50   // Re-enable when queue drops to 50%
-	
+	disableThreshold := 0.90 // Disable when queue is 90% full
+	enableThreshold := 0.50  // Re-enable when queue drops to 50%
+
 	if thresholdStr := os.Getenv("LLM_AUTO_DISABLE_THRESHOLD"); thresholdStr != "" {
 		if threshold, err := strconv.ParseFloat(thresholdStr, 64); err == nil && threshold > 0 && threshold <= 1.0 {
 			disableThreshold = threshold
@@ -801,14 +810,14 @@ func (aqm *AsyncLLMQueueManager) monitorQueueHealth() {
 			enableThreshold = threshold
 		}
 	}
-	
+
 	for {
 		select {
 		case <-aqm.shutdown:
 			return
 		case <-ticker.C:
 			stats := aqm.GetStats()
-			
+
 			// Log queue health every 30 seconds (every 3rd tick)
 			if time.Now().Second()%30 < 10 {
 				if stats.HighPrioritySize > 0 || stats.LowPrioritySize > 0 {
@@ -817,28 +826,28 @@ func (aqm *AsyncLLMQueueManager) monitorQueueHealth() {
 						stats.LowPrioritySize, stats.MaxLowPriorityQueue, stats.LowPriorityPercent,
 						stats.ActiveWorkers, stats.MaxWorkers)
 				}
-				
+
 				// Warn if queues are getting full
 				if stats.HighPriorityPercent > 80 {
-					log.Printf("⚠️ [ASYNC-LLM] High-priority queue is %d%% full (%d/%d)", 
+					log.Printf("⚠️ [ASYNC-LLM] High-priority queue is %d%% full (%d/%d)",
 						int(stats.HighPriorityPercent), stats.HighPrioritySize, stats.MaxHighPriorityQueue)
 				}
 				if stats.LowPriorityPercent > 80 {
-					log.Printf("⚠️ [ASYNC-LLM] Low-priority queue is %d%% full (%d/%d) - backpressure may be applied", 
+					log.Printf("⚠️ [ASYNC-LLM] Low-priority queue is %d%% full (%d/%d) - backpressure may be applied",
 						int(stats.LowPriorityPercent), stats.LowPrioritySize, stats.MaxLowPriorityQueue)
 				}
 			}
-			
+
 			// Auto-disable/enable logic
 			lowPercent := stats.LowPriorityPercent / 100.0
-			
+
 			if !autoDisabled && lowPercent >= disableThreshold {
 				// Queue is too full - disable background LLM
 				if redisClient != nil {
 					err := redisClient.Set(ctx, "DISABLE_BACKGROUND_LLM", "1", 0).Err()
 					if err == nil {
 						autoDisabled = true
-						log.Printf("🛑 [ASYNC-LLM] Auto-disabled background LLM (queue at %.1f%%, threshold: %.1f%%)", 
+						log.Printf("🛑 [ASYNC-LLM] Auto-disabled background LLM (queue at %.1f%%, threshold: %.1f%%)",
 							stats.LowPriorityPercent, disableThreshold*100)
 					}
 				}
@@ -848,7 +857,7 @@ func (aqm *AsyncLLMQueueManager) monitorQueueHealth() {
 					err := redisClient.Del(ctx, "DISABLE_BACKGROUND_LLM").Err()
 					if err == nil {
 						autoDisabled = false
-						log.Printf("✅ [ASYNC-LLM] Auto-re-enabled background LLM (queue at %.1f%%, threshold: %.1f%%)", 
+						log.Printf("✅ [ASYNC-LLM] Auto-re-enabled background LLM (queue at %.1f%%, threshold: %.1f%%)",
 							stats.LowPriorityPercent, enableThreshold*100)
 					}
 				}
@@ -860,7 +869,7 @@ func (aqm *AsyncLLMQueueManager) monitorQueueHealth() {
 // processResponses processes completed LLM responses and calls callbacks
 func (aqm *AsyncLLMQueueManager) processResponses() {
 	defer aqm.wg.Done()
-	
+
 	for {
 		select {
 		case <-aqm.shutdown:
@@ -873,12 +882,12 @@ func (aqm *AsyncLLMQueueManager) processResponses() {
 				delete(aqm.requestMap, resp.RequestID)
 			}
 			aqm.mu.Unlock()
-			
+
 			if !exists {
 				log.Printf("⚠️ [ASYNC-LLM] No request found for response: %s", resp.RequestID)
 				continue
 			}
-			
+
 			// Call the callback function
 			log.Printf("📞 [ASYNC-LLM] Calling callback for request: %s", resp.RequestID)
 			if req.Callback != nil {
@@ -955,7 +964,7 @@ func NewLLMClient(config DomainConfig) *LLMClient {
 			timeout = sec
 		}
 	}
-	
+
 	// Create transport with longer dial timeout to handle slow connections
 	// Dial timeout is separate from HTTP timeout - it controls how long to wait
 	// to establish the TCP connection. Default is often too short for external services.
@@ -967,7 +976,7 @@ func NewLLMClient(config DomainConfig) *LLMClient {
 			dialTimeout = 60 * time.Second
 		}
 	}
-	
+
 	transport := &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout:   dialTimeout,
@@ -977,7 +986,7 @@ func NewLLMClient(config DomainConfig) *LLMClient {
 		IdleConnTimeout:     90 * time.Second,
 		TLSHandshakeTimeout: 10 * time.Second,
 	}
-	
+
 	return &LLMClient{
 		config: config,
 		httpClient: &http.Client{
@@ -1305,9 +1314,9 @@ func (c *LLMClient) callLLMWithContextAndPriority(ctx context.Context, prompt st
 	}
 
 	// Check if async queue system should be used
-	useAsync := strings.TrimSpace(os.Getenv("USE_ASYNC_LLM_QUEUE")) == "1" || 
-	           strings.TrimSpace(os.Getenv("USE_ASYNC_LLM_QUEUE")) == "true"
-	
+	useAsync := strings.TrimSpace(os.Getenv("USE_ASYNC_LLM_QUEUE")) == "1" ||
+		strings.TrimSpace(os.Getenv("USE_ASYNC_LLM_QUEUE")) == "true"
+
 	if useAsync {
 		return c.callLLMAsyncWithContextAndPriority(ctx, prompt, priority)
 	}
@@ -1320,11 +1329,11 @@ func (c *LLMClient) callLLMWithContextAndPriority(ctx context.Context, prompt st
 func (c *LLMClient) callLLMAsyncWithContextAndPriority(ctx context.Context, prompt string, priority RequestPriority) (string, error) {
 	// Initialize async queue if not already done
 	queueMgr := InitAsyncLLMQueue(c)
-	
+
 	// Create a channel to receive the result
 	resultChan := make(chan string, 1)
 	errorChan := make(chan error, 1)
-	
+
 	// Create callback function
 	callback := func(response string, err error) {
 		if err != nil {
@@ -1333,7 +1342,7 @@ func (c *LLMClient) callLLMAsyncWithContextAndPriority(ctx context.Context, prom
 		}
 		resultChan <- response
 	}
-	
+
 	// Create async request
 	req := &AsyncLLMRequest{
 		Priority:    priority,
@@ -1345,15 +1354,15 @@ func (c *LLMClient) callLLMAsyncWithContextAndPriority(ctx context.Context, prom
 		Callback: callback,
 		Context:  ctx,
 	}
-	
+
 	// Enqueue the request
 	if err := queueMgr.EnqueueRequest(req); err != nil {
 		log.Printf("❌ [ASYNC-LLM] Failed to enqueue request: %v", err)
 		return "", err
 	}
-	
+
 	log.Printf("🚀 [ASYNC-LLM] Request enqueued: %s (priority: %v)", req.ID, priority)
-	
+
 	// Wait for result (with timeout from context or default)
 	timeout := 10 * time.Minute // Long timeout for async processing
 	if deadline, ok := ctx.Deadline(); ok {
@@ -1362,7 +1371,7 @@ func (c *LLMClient) callLLMAsyncWithContextAndPriority(ctx context.Context, prom
 			timeout = timeUntilDeadline
 		}
 	}
-	
+
 	select {
 	case response := <-resultChan:
 		return response, nil
@@ -1387,7 +1396,7 @@ func (c *LLMClient) callLLMReal(prompt string) (string, error) {
 func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, prompt string, priority RequestPriority) (string, error) {
 	// Initialize semaphore if not already done
 	initLLMSemaphore()
-	
+
 	// Acquire semaphore slot with priority
 	// For high-priority requests, use a longer timeout to ensure they get through even with background load
 	// For code generation and other important background tasks, also use a longer timeout
@@ -1417,7 +1426,7 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 		return "", fmt.Errorf("failed to acquire LLM slot (cancelled or timed out)")
 	}
 	defer func() { <-llmRequestSemaphore }()
-	
+
 	log.Printf("🌐 [LLM] Making API call to provider: %s", c.config.LLMProvider)
 	log.Printf("🌐 [LLM] Timeout: %v", c.httpClient.Timeout)
 
@@ -1532,9 +1541,9 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 
 	// Make the request (will respect context cancellation)
 	resp, err := c.httpClient.Do(req)
-	
+
 	requestDuration := time.Since(requestStart)
-	
+
 	// Warn if request took too long (likely CPU inference instead of GPU)
 	if requestDuration > 10*time.Second {
 		log.Printf("⚠️ [LLM] Slow request detected: %v (expected < 10s with GPU). This may indicate CPU inference instead of GPU.", requestDuration)
@@ -1586,7 +1595,7 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 		if message, ok := ollamaResp["message"].(map[string]interface{}); ok {
 			if content, ok := message["content"].(string); ok {
 				log.Printf("✅ [LLM] Successfully extracted content from Ollama response")
-				
+
 				// Try to extract token usage from Ollama response if available
 				// Ollama may include prompt_eval_count and eval_count in some responses
 				if promptEvalCount, ok := ollamaResp["prompt_eval_count"].(float64); ok {
@@ -1600,7 +1609,7 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 						trackTokenUsage(ctx, int(promptEvalCount), int(evalCount), totalTokens, component)
 					}
 				}
-				
+
 				return content, nil
 			}
 		}
@@ -1636,10 +1645,10 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 		}
 
 		log.Printf("✅ [LLM] Successfully extracted content from %s response", c.config.LLMProvider)
-		
+
 		// Track token usage if available
 		if llmResp.Usage != nil {
-			log.Printf("📊 [LLM] Token usage found: prompt=%d, completion=%d, total=%d", 
+			log.Printf("📊 [LLM] Token usage found: prompt=%d, completion=%d, total=%d",
 				llmResp.Usage.PromptTokens, llmResp.Usage.CompletionTokens, llmResp.Usage.TotalTokens)
 			component := getComponentFromContext(ctx)
 			trackTokenUsage(ctx, llmResp.Usage.PromptTokens, llmResp.Usage.CompletionTokens, llmResp.Usage.TotalTokens, component)
@@ -1662,7 +1671,7 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 				log.Printf("📄 [LLM] Response preview: %s", bodyPreview)
 			}
 		}
-		
+
 		return llmResp.Choices[0].Message.Content, nil
 	}
 }
@@ -1674,7 +1683,7 @@ func trackTokenUsage(ctx context.Context, promptTokens, completionTokens, totalT
 	if totalTokens == 0 {
 		return // No tokens to track
 	}
-	
+
 	// Normalize component name (default to "unknown" if empty)
 	if component == "" {
 		component = "unknown"
@@ -1683,18 +1692,18 @@ func trackTokenUsage(ctx context.Context, promptTokens, completionTokens, totalT
 	component = strings.ToLower(strings.TrimSpace(component))
 	component = strings.ReplaceAll(component, " ", "-")
 	component = strings.ReplaceAll(component, "_", "-")
-	
+
 	// Get Redis address from environment
 	redisAddr := os.Getenv("REDIS_URL")
 	if redisAddr == "" {
 		// Try to construct default address
 		redisAddr = "localhost:6379"
 	}
-	
+
 	// Normalize Redis address (remove redis:// prefix if present)
 	redisAddr = strings.TrimPrefix(redisAddr, "redis://")
 	redisAddr = strings.TrimPrefix(redisAddr, "rediss://")
-	
+
 	// Create Redis client (will be reused if called multiple times)
 	// We create a new client each time to avoid connection issues
 	// In production, you might want to cache this
@@ -1702,63 +1711,63 @@ func trackTokenUsage(ctx context.Context, promptTokens, completionTokens, totalT
 		Addr: redisAddr,
 	})
 	defer redisClient.Close()
-	
+
 	// Test connection
 	if err := redisClient.Ping(ctx).Err(); err != nil {
 		log.Printf("⚠️ [TOKEN-TRACK] Redis not available for token tracking: %v", err)
 		return
 	}
-	
+
 	// Get today's date key
 	today := time.Now().UTC().Format("2006-01-02")
-	
+
 	// Update overall daily token totals
 	// Use INCRBY for atomic increments
 	promptKey := fmt.Sprintf("token_usage:%s:prompt", today)
 	completionKey := fmt.Sprintf("token_usage:%s:completion", today)
 	totalKey := fmt.Sprintf("token_usage:%s:total", today)
-	
+
 	if err := redisClient.IncrBy(ctx, promptKey, int64(promptTokens)).Err(); err != nil {
 		log.Printf("⚠️ [TOKEN-TRACK] Failed to track prompt tokens: %v", err)
 	} else {
 		log.Printf("📊 [TOKEN-TRACK] Tracked %d prompt tokens (daily total updating)", promptTokens)
 	}
-	
+
 	if err := redisClient.IncrBy(ctx, completionKey, int64(completionTokens)).Err(); err != nil {
 		log.Printf("⚠️ [TOKEN-TRACK] Failed to track completion tokens: %v", err)
 	} else {
 		log.Printf("📊 [TOKEN-TRACK] Tracked %d completion tokens (daily total updating)", completionTokens)
 	}
-	
+
 	if err := redisClient.IncrBy(ctx, totalKey, int64(totalTokens)).Err(); err != nil {
 		log.Printf("⚠️ [TOKEN-TRACK] Failed to track total tokens: %v", err)
 	} else {
 		log.Printf("📊 [TOKEN-TRACK] Tracked %d total tokens (daily total updating)", totalTokens)
 	}
-	
+
 	// Update per-component token totals
 	componentPromptKey := fmt.Sprintf("token_usage:%s:component:%s:prompt", today, component)
 	componentCompletionKey := fmt.Sprintf("token_usage:%s:component:%s:completion", today, component)
 	componentTotalKey := fmt.Sprintf("token_usage:%s:component:%s:total", today, component)
-	
+
 	if err := redisClient.IncrBy(ctx, componentPromptKey, int64(promptTokens)).Err(); err != nil {
 		log.Printf("⚠️ [TOKEN-TRACK] Failed to track prompt tokens for component %s: %v", component, err)
 	} else {
 		log.Printf("📊 [TOKEN-TRACK] Tracked %d prompt tokens for component %s", promptTokens, component)
 	}
-	
+
 	if err := redisClient.IncrBy(ctx, componentCompletionKey, int64(completionTokens)).Err(); err != nil {
 		log.Printf("⚠️ [TOKEN-TRACK] Failed to track completion tokens for component %s: %v", component, err)
 	} else {
 		log.Printf("📊 [TOKEN-TRACK] Tracked %d completion tokens for component %s", completionTokens, component)
 	}
-	
+
 	if err := redisClient.IncrBy(ctx, componentTotalKey, int64(totalTokens)).Err(); err != nil {
 		log.Printf("⚠️ [TOKEN-TRACK] Failed to track total tokens for component %s: %v", component, err)
 	} else {
 		log.Printf("📊 [TOKEN-TRACK] Tracked %d total tokens for component %s", totalTokens, component)
 	}
-	
+
 	// Set expiration to 24 hours for individual records (will be aggregated hourly)
 	expiration := 24 * time.Hour
 	redisClient.Expire(ctx, promptKey, expiration)
@@ -1788,7 +1797,7 @@ func (c *LLMClient) getMockResponse(prompt string) (string, error) {
 	log.Printf("⚠️ [LLM] Using MOCK LLM - this should only be used for testing!")
 	log.Printf("⚠️ [LLM] To use a real LLM, set LLM_PROVIDER environment variable or configure config.json")
 	log.Printf("⚠️ [LLM] Valid providers: 'local' (Ollama), 'openai', 'anthropic'")
-	
+
 	// Simple mock responses based on prompt content for task planning
 	if containsString(prompt, "WriteEmail") {
 		return `{
