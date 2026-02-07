@@ -17,11 +17,11 @@ var (
 
 // PromptHintsConfig defines LLM prompt hints for a skill (imported from main package)
 type PromptHintsConfig struct {
-	Keywords          []string `json:"keywords,omitempty"`
-	PromptText        string   `json:"prompt_text,omitempty"`
-	ForceToolCall     bool     `json:"force_tool_call,omitempty"`
-	AlwaysInclude     []string `json:"always_include_keywords,omitempty"`
-	RejectText        bool     `json:"reject_text_response,omitempty"`
+	Keywords      []string `json:"keywords,omitempty"`
+	PromptText    string   `json:"prompt_text,omitempty"`
+	ForceToolCall bool     `json:"force_tool_call,omitempty"`
+	AlwaysInclude []string `json:"always_include_keywords,omitempty"`
+	RejectText    bool     `json:"reject_text_response,omitempty"`
 }
 
 // SetPromptHints sets prompt hints for a tool ID
@@ -73,19 +73,19 @@ func GetAllPromptHints() map[string]*PromptHintsConfig {
 func MatchesConfiguredToolKeywords(message string) string {
 	messageLower := strings.ToLower(message)
 	allHints := GetAllPromptHints()
-	
+
 	for toolID, hints := range allHints {
 		if hints == nil {
 			continue
 		}
-		
+
 		// Check keywords
 		for _, keyword := range hints.Keywords {
 			if strings.Contains(messageLower, strings.ToLower(keyword)) {
 				return toolID
 			}
 		}
-		
+
 		// Check always_include keywords
 		for _, keyword := range hints.AlwaysInclude {
 			if strings.Contains(messageLower, strings.ToLower(keyword)) {
@@ -93,7 +93,7 @@ func MatchesConfiguredToolKeywords(message string) string {
 			}
 		}
 	}
-	
+
 	return ""
 }
 
@@ -208,13 +208,13 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 		// Validation: Check configured prompt hints and enforce tool usage
 		inputLower := strings.ToLower(input)
 		allHints := GetAllPromptHints()
-		
+
 		// Check each tool with prompt hints
 		for toolID, hints := range allHints {
 			if hints == nil {
 				continue
 			}
-			
+
 			// Check if input matches keywords
 			matchesKeywords := false
 			for _, keyword := range hints.Keywords {
@@ -223,7 +223,7 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 					break
 				}
 			}
-			
+
 			// Check always_include keywords
 			matchesAlwaysInclude := false
 			for _, keyword := range hints.AlwaysInclude {
@@ -232,11 +232,11 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 					break
 				}
 			}
-			
+
 			if !matchesKeywords && !matchesAlwaysInclude {
 				continue
 			}
-			
+
 			// Check if tool is available
 			hasTool := false
 			actualToolID := toolID
@@ -247,7 +247,7 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 					break
 				}
 			}
-			
+
 			if hasTool && hints.ForceToolCall {
 				// Reject text responses if configured
 				if hints.RejectText && parsedResponse.Type == ResponseTypeText {
@@ -262,7 +262,7 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 						},
 					}, nil
 				}
-				
+
 				// Reject wrong tool calls if configured
 				if parsedResponse.Type == ResponseTypeToolCall && parsedResponse.ToolCall != nil {
 					responseToolID := parsedResponse.ToolCall.ToolID
@@ -302,13 +302,13 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 	// Validation: Check configured prompt hints and enforce tool usage
 	inputLower := strings.ToLower(input)
 	allHints := GetAllPromptHints()
-	
+
 	// Check each tool with prompt hints
 	for toolID, hints := range allHints {
 		if hints == nil {
 			continue
 		}
-		
+
 		// Check if input matches keywords
 		matchesKeywords := false
 		for _, keyword := range hints.Keywords {
@@ -317,7 +317,7 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 				break
 			}
 		}
-		
+
 		// Check always_include keywords
 		matchesAlwaysInclude := false
 		for _, keyword := range hints.AlwaysInclude {
@@ -326,11 +326,11 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 				break
 			}
 		}
-		
+
 		if !matchesKeywords && !matchesAlwaysInclude {
 			continue
 		}
-		
+
 		// Check if tool is available
 		hasTool := false
 		actualToolID := toolID
@@ -341,11 +341,11 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 				break
 			}
 		}
-		
+
 		if hasTool && hints.ForceToolCall {
 			// Reject text responses if configured
-				if hints.RejectText && parsedResponse.Type == ResponseTypeText {
-					log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response when %s tool is available. Forcing tool call.", actualToolID)
+			if hints.RejectText && parsedResponse.Type == ResponseTypeText {
+				log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response when %s tool is available. Forcing tool call.", actualToolID)
 				// Force tool call with default parameters
 				return &FlexibleLLMResponse{
 					Type: ResponseTypeToolCall,
@@ -356,7 +356,7 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 					},
 				}, nil
 			}
-			
+
 			// Reject wrong tool calls if configured
 			if parsedResponse.Type == ResponseTypeToolCall && parsedResponse.ToolCall != nil {
 				responseToolID := parsedResponse.ToolCall.ToolID
@@ -398,18 +398,18 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		"mcp_find_related_concepts": {"related", "related concepts", "find related", "connections"},
 		"mcp_search_weaviate":       {"weaviate", "search", "vector", "semantic", "similar", "episodes", "memories"},
 		// Note: mcp_read_google_data keywords are now loaded from configuration
-		"tool_http_get":             {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
-		"tool_html_scraper":         {"scrape", "html", "web", "website", "article", "news", "page", "parse html"},
-		"tool_file_read":            {"read", "file", "load", "open", "readfile", "read file", "content", "text"},
-		"tool_file_write":           {"write", "file", "save", "store", "output", "write file", "save file", "create file"},
-		"tool_ls":                   {"list", "directory", "dir", "files", "ls", "list files", "directory listing"},
-		"tool_exec":                 {"exec", "execute", "command", "shell", "run", "cmd", "system", "bash", "sh"},
-		"tool_codegen":              {"generate", "code", "create", "write code", "generate code", "program", "script"},
-		"tool_json_parse":           {"json", "parse", "parse json", "decode", "unmarshal"},
-		"tool_text_search":          {"search", "find", "text", "pattern", "match", "grep", "filter"},
-		"tool_docker_list":          {"docker", "container", "image", "list docker", "docker list"},
-		"tool_docker_build":         {"docker build", "build image", "dockerfile", "container build"},
-		"tool_docker_exec":          {"docker exec", "run docker", "execute docker", "container exec"},
+		"tool_http_get":     {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
+		"tool_html_scraper": {"scrape", "html", "web", "website", "article", "news", "page", "parse html"},
+		"tool_file_read":    {"read", "file", "load", "open", "readfile", "read file", "content", "text"},
+		"tool_file_write":   {"write", "file", "save", "store", "output", "write file", "save file", "create file"},
+		"tool_ls":           {"list", "directory", "dir", "files", "ls", "list files", "directory listing"},
+		"tool_exec":         {"exec", "execute", "command", "shell", "run", "cmd", "system", "bash", "sh"},
+		"tool_codegen":      {"generate", "code", "create", "write code", "generate code", "program", "script"},
+		"tool_json_parse":   {"json", "parse", "parse json", "decode", "unmarshal"},
+		"tool_text_search":  {"search", "find", "text", "pattern", "match", "grep", "filter"},
+		"tool_docker_list":  {"docker", "container", "image", "list docker", "docker list"},
+		"tool_docker_build": {"docker build", "build image", "dockerfile", "container build"},
+		"tool_docker_exec":  {"docker exec", "run docker", "execute docker", "container exec"},
 	}
 
 	// First pass: include tools that match keywords
@@ -480,7 +480,7 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 			}
 		}
 	}
-	
+
 	// Also check keywords for tool matching
 	for toolID, hints := range allHints {
 		if hints == nil || len(hints.Keywords) == 0 {
@@ -697,7 +697,7 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 	}
 
 	prompt.WriteString("🚨 CRITICAL: You MUST respond with ONLY a valid JSON object. NO explanatory text before or after the JSON.\n\n")
-	
+
 	// Add configured prompt hints
 	allHints := GetAllPromptHints()
 	for toolID, hints := range allHints {
@@ -722,7 +722,7 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 	prompt.WriteString("- 🚫 NEVER generate fake or hallucinated content. If you need data, use a tool to get it.\n")
 	prompt.WriteString("- If the request is vague or generic, infer the most likely tool needed and use it with reasonable default parameters.\n")
 	prompt.WriteString("- For knowledge queries: use mcp_query_neo4j, mcp_get_concept, or mcp_find_related_concepts to query the knowledge base.\n")
-	
+
 	// Add configured tool-specific guidance from prompt hints (reuse allHints from above)
 	for toolID, hints := range allHints {
 		if hints != nil && hints.PromptText != "" {
@@ -957,12 +957,8 @@ func (f *FlexibleLLMAdapter) stripMarkdownCodeBlocks(response string) string {
 	// Also remove any remaining backticks that might be in the middle
 	// But be careful - we only want to remove markdown fences, not backticks in code strings
 	// So we only remove backticks at the very start/end after trimming
-	if strings.HasPrefix(cleaned, "`") {
-		cleaned = strings.TrimPrefix(cleaned, "`")
-	}
-	if strings.HasSuffix(cleaned, "`") {
-		cleaned = strings.TrimSuffix(cleaned, "`")
-	}
+	cleaned = strings.TrimPrefix(cleaned, "`")
+	cleaned = strings.TrimSuffix(cleaned, "`")
 	cleaned = strings.TrimSpace(cleaned)
 
 	return cleaned
