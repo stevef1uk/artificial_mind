@@ -789,7 +789,14 @@ func main() {
 	http.HandleFunc("/scrape/fix", service.handleFixJob)
 
 	// Start server
-	port := ":8085"
+	// Start server
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8085"
+	}
+	if !strings.HasPrefix(port, ":") {
+		port = ":" + port
+	}
 	log.Printf("🚀 Playwright Scraper Service starting on %s", port)
 	if err := http.ListenAndServe(port, nil); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

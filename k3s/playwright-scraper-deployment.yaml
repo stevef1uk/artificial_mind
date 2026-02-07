@@ -70,6 +70,8 @@ spec:
           failureThreshold: 3
         
         env:
+        - name: PORT
+          value: "8080"
         - name: TZ
           value: "UTC"
         - name: SECURE_CUSTOMER_PRIVATE_PATH
