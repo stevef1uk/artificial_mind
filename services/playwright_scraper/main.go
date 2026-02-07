@@ -62,7 +62,7 @@ type PlaywrightOperation struct {
 	Role          string
 	RoleName      string
 	Text          string
-	Timeout       int
+	TimeoutMS     int
 	Index         int    // For nth(n) selectors
 	ChildSelector string // For scoped selectors (e.g., locator().locator())
 }
@@ -341,7 +341,7 @@ func parseOperation(line string) PlaywrightOperation {
 	if matches := regexp.MustCompile(`await\s+page\.waitForTimeout\((\d+)\)`).FindStringSubmatch(line); len(matches) > 1 {
 		var timeout int
 		fmt.Sscanf(matches[1], "%d", &timeout)
-		return PlaywrightOperation{Type: "wait", Timeout: timeout / 1000}
+		return PlaywrightOperation{Type: "wait", TimeoutMS: timeout}
 	}
 
 	return PlaywrightOperation{}
@@ -476,8 +476,8 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 			time.Sleep(300 * time.Millisecond)
 
 		case "wait":
-			if op.Timeout > 0 {
-				time.Sleep(time.Duration(op.Timeout) * time.Second)
+			if op.TimeoutMS > 0 {
+				time.Sleep(time.Duration(op.TimeoutMS) * time.Millisecond)
 			} else {
 				time.Sleep(500 * time.Millisecond)
 			}

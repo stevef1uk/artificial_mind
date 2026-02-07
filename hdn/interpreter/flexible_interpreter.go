@@ -36,16 +36,16 @@ type ToolExecutionResult struct {
 
 // FlexibleInterpreter handles flexible natural language processing
 type FlexibleInterpreter struct {
-	llmAdapter   *FlexibleLLMAdapter
-	toolProvider ToolProviderInterface
+	llmAdapter      *FlexibleLLMAdapter
+	toolProvider    ToolProviderInterface
 	recentToolCalls map[string]time.Time // Loop protection: track recent tool calls
 }
 
 // NewFlexibleInterpreter creates a new flexible interpreter
 func NewFlexibleInterpreter(llmAdapter *FlexibleLLMAdapter, toolProvider ToolProviderInterface) *FlexibleInterpreter {
 	return &FlexibleInterpreter{
-		llmAdapter:     llmAdapter,
-		toolProvider:   toolProvider,
+		llmAdapter:      llmAdapter,
+		toolProvider:    toolProvider,
 		recentToolCalls: make(map[string]time.Time),
 	}
 }
@@ -143,7 +143,7 @@ func (f *FlexibleInterpreter) InterpretWithPriority(ctx context.Context, req *Na
 			// Generate a descriptive name and description from the code
 			// Extract function/class names or key operations to create a better description
 			description := generateToolDescriptionFromCode(response.CodeArtifact.Language, response.CodeArtifact.Code)
-			
+
 			result.Metadata["proposed_tool"] = map[string]interface{}{
 				"id":           id,
 				"name":         id,
@@ -191,7 +191,7 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 
 	// If it's a tool call, validate and execute it
 	log.Printf("🔍 [FLEXIBLE-INTERPRETER] InterpretAndExecuteWithPriority: checking for tool call. result.ToolCall=%v, result.ResponseType=%s", result.ToolCall != nil, result.ResponseType)
-	
+
 	// CRITICAL: Refuse to execute tools for scoring requests - they should return text/JSON only
 	if isScoringRequest(req.Input) && result.ToolCall != nil {
 		log.Printf("🚫 [FLEXIBLE-INTERPRETER] BLOCKED tool execution for scoring request - forcing text response")
@@ -203,12 +203,12 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 		result.Message = "Scoring request - tool execution blocked, text response expected"
 		return result, nil
 	}
-	
+
 	if result.ToolCall != nil {
 		// Loop protection: Check for rapid repeated identical tool calls
 		toolCallKey := fmt.Sprintf("%s:%v", result.ToolCall.ToolID, result.ToolCall.Parameters)
 		now := time.Now()
-		
+
 		// Check if we've seen this exact tool call recently (within 2 seconds)
 		if lastSeen, exists := f.recentToolCalls[toolCallKey]; exists {
 			if now.Sub(lastSeen) < 2*time.Second {
@@ -222,17 +222,17 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 				return result, nil
 			}
 		}
-		
+
 		// Update the recent tool calls map
 		f.recentToolCalls[toolCallKey] = now
-		
+
 		// Clean up old entries (older than 1 minute for better memory management)
 		for key, timestamp := range f.recentToolCalls {
 			if now.Sub(timestamp) > 1*time.Minute {
 				delete(f.recentToolCalls, key)
 			}
 		}
-		
+
 		log.Printf("🔧 [FLEXIBLE-INTERPRETER] Executing tool: %s with parameters: %+v", result.ToolCall.ToolID, result.ToolCall.Parameters)
 		// Validate the tool ID against available tools to avoid invoking non-existent endpoints
 		tools, terr := f.toolProvider.GetAvailableTools(ctx)
@@ -290,17 +290,30 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 
 // getMessageForResponseType generates an appropriate message for the response type
 func (f *FlexibleInterpreter) getMessageForResponseType(response *FlexibleLLMResponse) string {
+	if response == nil {
+		return "Empty response"
+	}
+
 	switch response.Type {
 	case ResponseTypeToolCall:
-		return fmt.Sprintf("Selected tool: %s", response.ToolCall.ToolID)
+		if response.ToolCall != nil {
+			return fmt.Sprintf("Selected tool: %s", response.ToolCall.ToolID)
+		}
+		return "Tool call requested but details missing"
 	case ResponseTypeCodeArtifact:
-		return fmt.Sprintf("Generated %s code", response.CodeArtifact.Language)
+		if response.CodeArtifact != nil {
+			return fmt.Sprintf("Generated %s code", response.CodeArtifact.Language)
+		}
+		return "Code artifact requested but details missing"
 	case ResponseTypeStructuredTask:
-		return fmt.Sprintf("Created task: %s", response.StructuredTask.TaskName)
+		if response.StructuredTask != nil {
+			return fmt.Sprintf("Created task: %s", response.StructuredTask.TaskName)
+		}
+		return "Structured task created but details missing"
 	case ResponseTypeText:
 		return "Provided text response"
 	default:
-		return "Processed input successfully"
+		return fmt.Sprintf("Processed input successfully (type: %s)", response.Type)
 	}
 }
 
@@ -343,9 +356,9 @@ func generateToolDescriptionFromCode(language, code string) string {
 	if len(c) == 0 {
 		return "Auto-proposed utility from code artifact"
 	}
-	
+
 	lower := strings.ToLower(c)
-	
+
 	// Try to extract function/class names
 	var funcNames []string
 	if language == "python" {
@@ -377,15 +390,15 @@ func generateToolDescriptionFromCode(language, code string) string {
 			}
 		}
 	}
-	
+
 	// Build description based on code content
 	var descParts []string
-	
+
 	// Add function names if found
 	if len(funcNames) > 0 {
 		descParts = append(descParts, fmt.Sprintf("Functions: %s", strings.Join(funcNames, ", ")))
 	}
-	
+
 	// Detect operations from keywords
 	operations := []string{}
 	if strings.Contains(lower, "parse") || strings.Contains(lower, "json.loads") {
@@ -412,16 +425,16 @@ func generateToolDescriptionFromCode(language, code string) string {
 	if strings.Contains(lower, "calculate") || strings.Contains(lower, "compute") {
 		operations = append(operations, "calculate")
 	}
-	
+
 	if len(operations) > 0 {
 		descParts = append(descParts, fmt.Sprintf("Operations: %s", strings.Join(operations, ", ")))
 	}
-	
+
 	// Build final description
 	if len(descParts) > 0 {
 		return fmt.Sprintf("Auto-proposed utility: %s (%s)", strings.Join(descParts, "; "), language)
 	}
-	
+
 	// Fallback: try to extract a meaningful snippet
 	if len(c) > 100 {
 		// Use first meaningful line
@@ -436,7 +449,7 @@ func generateToolDescriptionFromCode(language, code string) string {
 			}
 		}
 	}
-	
+
 	return fmt.Sprintf("Auto-proposed utility from code artifact (%s)", language)
 }
 

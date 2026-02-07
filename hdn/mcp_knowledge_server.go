@@ -778,7 +778,7 @@ func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig
 				} else if html, ok := job.Result["page_content"].(string); ok {
 					pageContent = html
 				}
-				
+
 				// Apply each extraction pattern
 				if pageContent != "" {
 					log.Printf("🔍 [MCP-SCRAPE] Applying %d extraction patterns to page content (%d chars)", len(extractions), len(pageContent))
@@ -788,7 +788,7 @@ func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig
 							log.Printf("⚠️  [MCP-SCRAPE] Invalid regex pattern for '%s': %v", key, err)
 							continue
 						}
-						
+
 						matches := re.FindAllStringSubmatch(pageContent, -1)
 						if len(matches) > 0 {
 							// Store extracted values
@@ -3744,8 +3744,8 @@ func (s *MCPKnowledgeServer) planScrapeWithLLM(ctx context.Context, html string,
 
 	// Normalize HTML for LLM
 	html = strings.ReplaceAll(html, "\"", "'")
-	if len(html) > 25000 {
-		html = html[:25000] + "...(truncated)"
+	if len(html) > 125000 {
+		html = html[:125000] + "...(truncated)"
 	}
 
 	systemPrompt := `You are a web scraper config generator.
@@ -3776,13 +3776,13 @@ Generate a JSON configuration for scraping this page.
 	// Clean/Parse JSON - Enhanced extraction logic
 	var config ScrapeConfig
 	var parseErr error
-	
+
 	// Try approach 1: Find first { and try parsing incrementally from there
 	if idx := strings.Index(response, "{"); idx != -1 {
 		// Try progressively from first { to end of string
 		for endIdx := idx + 1; endIdx <= len(response); endIdx++ {
 			candidate := response[idx:endIdx]
-			
+
 			// Try to unmarshal this candidate
 			var tempConfig ScrapeConfig
 			if err := json.Unmarshal([]byte(candidate), &tempConfig); err == nil {
@@ -3792,14 +3792,14 @@ Generate a JSON configuration for scraping this page.
 				break
 			}
 			parseErr = err
-			
+
 			// Skip if we haven't found a closing brace yet
 			if strings.LastIndex(candidate, "}") == -1 {
 				continue
 			}
 		}
 	}
-	
+
 	// If that didn't work, try the old approach (first { to last })
 	if parseErr != nil {
 		cleanedResponse := response
@@ -3814,7 +3814,7 @@ Generate a JSON configuration for scraping this page.
 			}
 		}
 	}
-	
+
 	if parseErr != nil {
 		return nil, fmt.Errorf("failed to parse LLM planning response: %v (response was: %s)", parseErr, response)
 	}

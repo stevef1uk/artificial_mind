@@ -108,7 +108,7 @@ func main() {
 	_ = os.WriteFile("debug_input.html", []byte(content), 0644)
 
 	// Truncate
-	maxLength := 25000
+	maxLength := 125000
 	if len(content) > maxLength {
 		content = content[:maxLength] + "...(truncated)"
 	}
