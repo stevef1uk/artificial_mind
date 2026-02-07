@@ -23,18 +23,50 @@ data:
     }
   domain.json: |
     {
-      "methods": [],
-      "actions": [],
-      "config": {
-        "llm_provider": "openai",
-        "mcp_endpoint": "mock://localhost:3000/mcp",
-        "settings": {
-          "model": "gemma-3-1b-it-q4_k_m.gguf",
-          "temperature": "0.7",
-          "max_tokens": "1000",
-          "openai_url": "http://llama-server.agi.svc.cluster.local:8085"
+      "methods": [
+        {
+          "task": "RespondToQuery",
+          "preconditions": [],
+          "subtasks": ["GenerateResponse"]
+        },
+        {
+          "task": "HelpUser",
+          "preconditions": [],
+          "subtasks": ["GenerateResponse"]
+        },
+        {
+          "task": "ExplainSystem",
+          "preconditions": [],
+          "subtasks": ["GenerateResponse"]
+        },
+        {
+          "task": "ScrapeWebsite",
+          "preconditions": [],
+          "subtasks": ["ExecuteScraping", "ProcessScrapedData"]
+        },
+        {
+          "task": "FetchData",
+          "preconditions": [],
+          "subtasks": ["ExecuteScraping", "ProcessScrapedData"]
         }
-      }
+      ],
+      "actions": [
+        {
+          "task": "GenerateResponse",
+          "preconditions": [],
+          "effects": ["response_generated"]
+        },
+        {
+          "task": "ExecuteScraping",
+          "preconditions": [],
+          "effects": ["data_scraped"]
+        },
+        {
+          "task": "ProcessScrapedData",
+          "preconditions": ["data_scraped"],
+          "effects": ["data_processed"]
+        }
+      ]
     }
   agents.yaml: |
     # Configuration for Autonomous Agents using Google ADK (Agent Development Kit)
@@ -100,4 +132,83 @@ data:
               query: unread
               type: email
               limit: 50
+
+      - id: website_status_monitor
+        name: Website Status Monitor
+        description: Checks if important websites are up and running, reports their HTTP status codes, and alerts if any are down. Perfect for monitoring critical services or your own infrastructure.
+        role: Website Health Monitor
+        goal: Monitor a list of websites and report their status (up/down, response times, HTTP status codes) via Telegram
+        backstory: |
+          You are a website monitoring specialist that checks the health of websites by making HTTP requests
+          and analyzing their responses. You provide clear status reports and identify any issues, then notify
+          via Telegram for immediate visibility.
+        
+        tools:
+          - tool_http_get
+          - tool_telegram_send
+        
+        capabilities:
+          max_iterations: 10
+          allow_delegation: false
+          verbose: true
+        
+        triggers:
+          schedule:
+            - cron: "*/15 * * * *"  # Every 15 minutes
+              action: execute
+        
+        behavior:
+          thinking_mode: true
+          max_retries: 3
+          response_format: structured
+          use_memory: true
+          memory_window: 24h
+          prefer_tools: true
+          tool_timeout: 60s
+        
+        tasks:
+          - id: monitor_task
+            description: Monitor and check status of websites
+            expected_output: Status report for each website (up/down, HTTP status, response time)
+            tools:
+              - tool_http_get
+            parameters:
+              websites:
+                - "https://me.sjfisher.com"
+                - "https://k3s.sjfisher.com"
+
+      - id: scraper_agent
+        name: Intelligent Scraper Agent
+        description: "Autonomously plans and executes web scraping tasks to extract specific data from websites."
+        role: "Data Extraction Specialist"
+        goal: "Extract structured data from websites based on user requests"
+        backstory: |
+          You are an expert at extracting information from the web.
+          You can analyze a webpage, plan a scraping strategy, and retrieve the data
+          the user needs, whether it's interest rates, product details, or news.
+        tools:
+          - smart_scrape
+          - scrape_url
+          - execute_code
+        capabilities:
+          max_iterations: 15
+          allow_delegation: false
+          verbose: true
+        triggers:
+          events:
+            - type: user_request
+              keywords:
+                - scrape
+                - extract data
+                - find interest rate
+                - get price
+                - get details
+        behavior:
+          thinking_mode: true
+          max_retries: 3
+          response_format: structured
+          use_memory: true
+          memory_window: 24h
+          prefer_tools: true
+          tool_timeout: 120s
 

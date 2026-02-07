@@ -417,6 +417,7 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 
 	// Initialize agent executor
 	agentExecutor := NewAgentExecutor(agentRegistry)
+	agentExecutor.SetLLMClient(llmClient)
 
 	// Initialize agent history (requires Redis)
 	agentHistory := NewAgentHistory(redisClient)
