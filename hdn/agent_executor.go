@@ -93,7 +93,20 @@ Output a JSON array of tool calls. Each tool call must have exactly:
   "params": { "key": "value" }
 }
 
-Example: [{"tool_id": "smart_scrape", "params": {"url": "https://example.com", "goal": "Find rates"}}]
+Example: 
+[
+  {
+    "tool_id": "smart_scrape", 
+    "params": {
+      "url": "https://example.com", 
+      "goal": "Find rates",
+      "extractions": {
+        "product_name": "regex_pattern_here",
+        "price": "regex_pattern_here"
+      }
+    }
+  }
+]
 
 Rules:
 1. Output ONLY the JSON array. NO conversational text before or after.
