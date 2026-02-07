@@ -1382,6 +1382,18 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 
 	case "smart_scrape":
 		url, _ := args["url"].(string)
+		// DEBUG: Inspect incoming arguments for smart_scrape to trace missing extractions
+		keys := make([]string, 0, len(args))
+		for k := range args {
+			keys = append(keys, k)
+		}
+		log.Printf("🔍 [DEBUG-SMART-SCRAPE] Arguments keys: %v", keys)
+		if extVal, exists := args["extractions"]; exists {
+			log.Printf("🔍 [DEBUG-SMART-SCRAPE] 'extractions' exists, type: %T, value: %+v", extVal, extVal)
+		} else {
+			log.Printf("⚠️ [DEBUG-SMART-SCRAPE] 'extractions' key MISSING from arguments")
+		}
+
 		goal, _ := args["goal"].(string)
 		if url == "" || goal == "" {
 			return nil, fmt.Errorf("url and goal parameters required")
