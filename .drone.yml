@@ -215,4 +215,3 @@ volumes:
 trigger:
   event:
     - push
-    - custom
