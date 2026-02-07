@@ -10,8 +10,8 @@ spec:
     app: playwright-scraper
   ports:
     - name: http
-      port: 8080
-      targetPort: 8080
+      port: 8085
+      targetPort: 8085
   type: ClusterIP
 ---
 apiVersion: apps/v1
@@ -40,7 +40,7 @@ spec:
         image: stevef1uk/playwright-scraper:latest
         imagePullPolicy: Always
         ports:
-        - containerPort: 8080
+        - containerPort: 8085
           name: http
         
         resources:
@@ -54,7 +54,7 @@ spec:
         livenessProbe:
           httpGet:
             path: /health
-            port: 8080
+            port: 8085
           initialDelaySeconds: 30
           periodSeconds: 30
           timeoutSeconds: 5
@@ -63,15 +63,13 @@ spec:
         readinessProbe:
           httpGet:
             path: /health
-            port: 8080
+            port: 8085
           initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
         
         env:
-        - name: PORT
-          value: "8080"
         - name: TZ
           value: "UTC"
         - name: SECURE_CUSTOMER_PRIVATE_PATH

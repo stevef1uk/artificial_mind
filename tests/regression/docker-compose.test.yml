@@ -75,7 +75,7 @@ services:
       - MCP_ENDPOINT=http://mock-mcp:3000/mcp
       - HDN_URL=http://hdn:8080
       - DOCKER_SHARED_DIR=/tmp/agi_regression
-      - PLAYWRIGHT_SCRAPER_URL=http://scraper:8080
+      - PLAYWRIGHT_SCRAPER_URL=http://scraper:8085
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /tmp/agi_regression:/tmp/agi_regression
@@ -124,9 +124,7 @@ services:
       dockerfile: tests/regression/Dockerfile.scraper.test
     container_name: reg-scraper
     ports:
-      - "18081:8080"
-    environment:
-      - PORT=8080
+      - "18081:8085"
     depends_on:
       - redis
 
@@ -143,6 +141,6 @@ services:
       - mock-llm
     environment:
       - HDN_URL=http://hdn:8080
-      - SCRAPER_URL=http://scraper:8080
+      - SCRAPER_URL=http://scraper:8085
       - FSM_URL=http://fsm:8083
       - LLM_URL=http://mock-llm:11434

@@ -49,7 +49,7 @@ spec:
             - name: PRINCIPLES_URL
               value: "http://principles-server.agi.svc.cluster.local:8080"
             - name: PLAYWRIGHT_SCRAPER_URL
-              value: "http://playwright-scraper.agi.svc.cluster.local:8080"
+              value: "http://playwright-scraper.agi.svc.cluster.local:8085"
             - name: SCRAPER_POLL_INTERVAL_MS
               value: "1000"
             - name: SCRAPER_JOB_TIMEOUT_SECONDS
