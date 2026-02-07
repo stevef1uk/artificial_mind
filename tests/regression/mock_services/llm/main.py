@@ -6,6 +6,9 @@ app = Flask(__name__)
 
 def get_smart_response(msg):
     lower_msg = msg.lower()
+    if "json array of tool calls" in lower_msg or "scraper_agent" in lower_msg:
+        return """[{"tool_id": "smart_scrape", "params": {"url": "https://example.com", "goal": "Find rates"}}]"""
+    
     if "python" in lower_msg or "code" in lower_msg or "calculate" in lower_msg:
         return """Here is the Python code:
 ```python
@@ -22,8 +25,6 @@ print(f'Result: {x}')
   }
 }
 ```"""
-    elif "agent" in lower_msg or "plan" in lower_msg:
-        return "Plan: 1. Step A, 2. Step B. Confirmed."
     return f"Mock response to: {msg[:20]}... [Processed by Mock LLM]"
 
 @app.route('/health', methods=['GET'])
@@ -77,8 +78,12 @@ def ollama_chat():
     # Check for keywords to trigger specific behaviors
     lower_msg = last_msg.lower()
     
-    # Behavior 1: Code Generation
-    if "python" in lower_msg or "code" in lower_msg or "calculate" in lower_msg:
+    # Behavior 1: Agent Planning
+    if "json array of tool calls" in lower_msg or "scraper_agent" in lower_msg or "plan" in lower_msg or "decide" in lower_msg:
+        content = """[{"tool_id": "smart_scrape", "params": {"url": "https://example.com", "goal": "Find rates"}}]"""
+    
+    # Behavior 2: Code Generation
+    elif "python" in lower_msg or "code" in lower_msg or "calculate" in lower_msg:
         content = """Here is the Python code you requested:
 ```python
 print('Hello from Mock LLM Code Gen')
@@ -86,13 +91,6 @@ x = 10 + 20
 print(f'Result: {x}')
 ```"""
     
-    # Behavior 2: Agent Planning / Thought Process
-    elif "agent" in lower_msg or "plan" in lower_msg or "task" in lower_msg:
-        content = """I have analyzed the task. Here is the plan:
-1. Identify the goal.
-2. Execute the necessary steps.
-3. Verify the result.
-Confirmed."""
     elif "scraper" in lower_msg or "scraping" in lower_msg:
         content = """```json
 {

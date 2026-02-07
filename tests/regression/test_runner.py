@@ -198,6 +198,34 @@ def test_smart_scrape():
         print(f"   ❌ Exception in test_smart_scrape: {e}")
         return False
 
+def test_intelligent_agent_execution():
+    print("\n🧪 Testing Intelligent Agent Execution (End-to-End)...")
+    payload = {
+        "input": "Scrape https://example.com and find the title"
+    }
+    
+    try:
+        url = f"{HDN_URL}/api/v1/agents/scraper_agent/execute"
+        print(f"   POST {url}")
+        # This will trigger the LLM planning logic in AgentExecutor
+        resp = requests.post(url, json=payload, timeout=60)
+        
+        if resp.status_code == 200:
+            result = resp.json()
+            if "results" in result and result["results"] is not None:
+                print(f"   ✅ Agent execution successful! Result items: {len(result['results'])}")
+                return True
+            else:
+                print(f"   ❌ Agent execution returned no results: {result}")
+                return False
+        else:
+            print(f"   ❌ HTTP {resp.status_code}: {resp.text}")
+            return False
+            
+    except Exception as e:
+        print(f"   ❌ Exception: {e}")
+        return False
+
 def test_intelligent_scraper_agent():
     print("\n🧪 Testing Intelligent Scraper Agent Selection...")
     # Send a goal that should trigger the scraper agent
@@ -274,6 +302,7 @@ def main():
     # if not test_code_generation(): success = False
     if not test_smart_scrape(): success = False
     if not test_intelligent_scraper_agent(): success = False
+    if not test_intelligent_agent_execution(): success = False
     
     if success:
         print("\n🎉 ALL EXTENDED TESTS PASSED")

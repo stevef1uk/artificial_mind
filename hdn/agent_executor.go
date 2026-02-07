@@ -87,14 +87,21 @@ You have access to these tools:
 %s
 
 CRITICAL: Decide which tool(s) to call to achieve the user's goal.
-Output a JSON array of tool calls. Each tool call must have "tool_id" and "params".
-Example: [{"tool_id": "tool_name", "params": {"key": "value"}}]
+Output a JSON array of tool calls. Each tool call must have exactly: 
+{
+  "tool_id": "string",
+  "params": { "key": "value" }
+}
+
+Example: [{"tool_id": "smart_scrape", "params": {"url": "https://example.com", "goal": "Find rates"}}]
 
 Rules:
-1. Output ONLY the JSON array.
-2. Ensure it is VALID JSON. NO triple quotes (""") inside JSON strings.
-3. Escape newlines and quotes in code strings.
-4. If you use execute_code, the "code" param should be a valid string.`,
+1. Output ONLY the JSON array. NO conversational text before or after.
+2. Ensure it is VALID JSON. 
+3. NO triple quotes (""") inside JSON strings. Use normal double quotes and escape them if needed.
+4. Escape all newlines in code strings with \n.
+5. NO trailing commas in objects or arrays.
+6. Every value in "params" must have a key.`,
 			agentInstance.Config.Name,
 			agentInstance.Config.Role,
 			agentInstance.Config.Goal,

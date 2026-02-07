@@ -201,10 +201,17 @@ func (r *AgentRegistry) createToolAdapter(toolID string) (ToolAdapter, error) {
 		return r.createHDNToolAdapter(toolID)
 	}
 
+	// Final Fallback: Try matching as a raw tool name (e.g. smart_scrape)
+	// Try MCP knowledge server first
+	if r.mcpKnowledgeServer != nil {
+		log.Printf("🔧 [AGENT-REGISTRY] Routing %s to MCP adapter (no prefix fallback)", toolID)
+		return r.createMCPToolAdapter(toolID)
+	}
+
 	return ToolAdapter{
 		ToolID: toolID,
 		Execute: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
-			return nil, fmt.Errorf("unknown tool type: %s", toolID)
+			return nil, fmt.Errorf("unknown tool type: %s (no registry available)", toolID)
 		},
 	}, nil
 }
