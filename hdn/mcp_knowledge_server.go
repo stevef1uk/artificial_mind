@@ -192,9 +192,6 @@ func (s *MCPKnowledgeServer) HandleRequest(w http.ResponseWriter, r *http.Reques
 	case "tools/list":
 		result, err = s.listTools()
 	case "tools/call":
-		// DEBUG: Log raw params to trace execution arguments
-		log.Printf("🔍 [DEBUG-MCP-RPC] Raw params: %s", string(req.Params))
-
 		var params struct {
 			Name      string                 `json:"name"`
 			Arguments map[string]interface{} `json:"arguments"`
@@ -203,14 +200,6 @@ func (s *MCPKnowledgeServer) HandleRequest(w http.ResponseWriter, r *http.Reques
 			s.sendError(w, req.ID, -32602, "Invalid params", err)
 			return
 		}
-
-		// DEBUG: Log parsed argument keys
-		argKeys := make([]string, 0, len(params.Arguments))
-		for k := range params.Arguments {
-			argKeys = append(argKeys, k)
-		}
-		log.Printf("🔍 [DEBUG-MCP-RPC] Parsed arguments keys: %v", argKeys)
-
 		result, err = s.callTool(r.Context(), params.Name, params.Arguments)
 	default:
 		s.sendError(w, req.ID, -32601, fmt.Sprintf("Method not found: %s", req.Method), nil)
@@ -1393,17 +1382,6 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 
 	case "smart_scrape":
 		url, _ := args["url"].(string)
-		// DEBUG: Inspect incoming arguments for smart_scrape to trace missing extractions
-		keys := make([]string, 0, len(args))
-		for k := range args {
-			keys = append(keys, k)
-		}
-		log.Printf("🔍 [DEBUG-SMART-SCRAPE] Arguments keys: %v", keys)
-		if extVal, exists := args["extractions"]; exists {
-			log.Printf("🔍 [DEBUG-SMART-SCRAPE] 'extractions' exists, type: %T, value: %+v", extVal, extVal)
-		} else {
-			log.Printf("⚠️ [DEBUG-SMART-SCRAPE] 'extractions' key MISSING from arguments")
-		}
 
 		goal, _ := args["goal"].(string)
 		if url == "" || goal == "" {
