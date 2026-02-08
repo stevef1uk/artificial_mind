@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"strings"
 )
 
@@ -27,14 +28,21 @@ func isConsentPage(html string) bool {
 	}
 
 	matchCount := 0
+	var matchedKeywords []string
 	for _, keyword := range consentKeywords {
 		if strings.Contains(htmlLower, keyword) {
 			matchCount++
+			matchedKeywords = append(matchedKeywords, keyword)
 		}
 	}
 
 	// If we find 2 or more consent-related keywords, it's likely a consent page
-	return matchCount >= 2
+	isConsent := matchCount >= 2
+	if matchCount > 0 {
+		log.Printf("🔍 [CONSENT-DETECT] Found %d consent keywords: %v (threshold: 2, is_consent: %v)",
+			matchCount, matchedKeywords, isConsent)
+	}
+	return isConsent
 }
 
 // generateConsentBypassScript generates TypeScript to click common consent buttons
