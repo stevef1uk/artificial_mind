@@ -4039,8 +4039,9 @@ INSTRUCTIONS:
 - Identify the data requested in the GOAL.
 - Create specific field names in 'extractions' for each piece of data (e.g., "account_name", "interest_rate").
 - If the goal asks for a list or table, create regex patterns that match one row at a time. The scraper will find all occurrences.
-- Use the EXACT quotes and attributes you see in the HTML snapshot.
-- Capture ONLY the data you want. Do NOT capture HTML tags or CSS classes.
+- Use ONLY single quotes (') for HTML attributes in your regex. e.g. class='name'
+- Capture ONLY the data you want in the first ().
+- CRITICAL: Your response MUST be valid JSON. Double all backslashes in your regex: \\s, \\d, \\S.
 - Output ONLY valid JSON.`
 
 	// Call LLM
@@ -4077,7 +4078,15 @@ INSTRUCTIONS:
 			}
 			cleanedResponse = strings.Join(lines, "\n")
 
+			// REPAIR: LLMs often fail to escape backslashes in regex (e.g. \s)
+			// which makes the JSON invalid. Let's fix that.
+			reEsc := regexp.MustCompile(`\\([wsdWSDBA])`)
+			cleanedResponse = reEsc.ReplaceAllString(cleanedResponse, `\\$1`)
+			cleanedResponse = strings.ReplaceAll(cleanedResponse, `[\s\S]`, `[\\s\\S]`)
+
 			if err := json.Unmarshal([]byte(cleanedResponse), &rawMap); err == nil {
+				// Successfully parsed into map, now map to struct
+
 				// Handle both "extractions" and "extraction_instructions"
 				var extractions map[string]interface{}
 				if ex, ok := rawMap["extractions"].(map[string]interface{}); ok {
@@ -4094,19 +4103,6 @@ INSTRUCTIONS:
 						} else if obj, ok := v.(map[string]interface{}); ok {
 							if p, ok := obj["pattern"].(string); ok {
 								config.Extractions[k] = p
-							} else if r, ok := obj["regex"].(string); ok {
-								config.Extractions[k] = r
-							}
-						} else if arr, ok := v.([]interface{}); ok && len(arr) > 0 {
-							// Handle arrays (take first element)
-							if s, ok := arr[0].(string); ok {
-								config.Extractions[k] = s
-							} else if obj, ok := arr[0].(map[string]interface{}); ok {
-								if r, ok := obj["regex"].(string); ok {
-									config.Extractions[k] = r
-								} else if p, ok := obj["pattern"].(string); ok {
-									config.Extractions[k] = p
-								}
 							}
 						}
 					}
@@ -4116,7 +4112,41 @@ INSTRUCTIONS:
 				}
 				parseErr = nil
 			} else {
-				parseErr = err
+				// FALLBACK: Use regex to extract pairs if JSON is still broken
+				log.Printf("⚠️ [MCP-SMART-SCRAPE] JSON parse failed (%v), trying regex recovery...", err)
+				config.Extractions = make(map[string]string)
+
+				// Find "key": "value" pairs
+				rePairs := regexp.MustCompile(`"([^"]+)"\s*:\s*"([\s\S]*?)"(?:\s*[,}])`)
+				pairs := rePairs.FindAllStringSubmatch(cleanedResponse, -1)
+				for _, p := range pairs {
+					key := p[1]
+					val := p[2]
+					if key == "typescript_config" {
+						config.TypeScriptConfig = val
+					} else if key != "extractions" && key != "extraction_instructions" && key != "goal" {
+						config.Extractions[key] = val
+					}
+				}
+
+				// Also look for values inside an extractions object block
+				if len(config.Extractions) == 0 {
+					reNested := regexp.MustCompile(`"([^"]+)"\s*:\s*[{]\s*([\s\S]*?)[}]`)
+					nested := reNested.FindAllStringSubmatch(cleanedResponse, -1)
+					for _, n := range nested {
+						inner := n[2]
+						innerPairs := rePairs.FindAllStringSubmatch(inner, -1)
+						for _, p := range innerPairs {
+							config.Extractions[p[1]] = p[2]
+						}
+					}
+				}
+
+				if len(config.Extractions) > 0 {
+					parseErr = nil
+				} else {
+					parseErr = err
+				}
 			}
 		}
 	}
@@ -4146,8 +4176,23 @@ INSTRUCTIONS:
 		sanitized := strings.ReplaceAll(v, "(?<=", "(?:")
 		sanitized = strings.ReplaceAll(sanitized, "(?=", "(?:")
 
-		// 2. Wrap in capturing group if AI forgot ()
-		if !strings.Contains(sanitized, "(") {
+		// 2. Wrap in capturing group if AI forgot a CAPTURING group
+		// (A capturing group is a '(' not followed by '?' or '\')
+		hasCapture := false
+		for i := 0; i < len(sanitized); i++ {
+			if sanitized[i] == '(' {
+				// check if escaped
+				if i > 0 && sanitized[i-1] == '\\' {
+					continue
+				}
+				if i+1 < len(sanitized) && sanitized[i+1] != '?' {
+					hasCapture = true
+					break
+				}
+			}
+		}
+
+		if !hasCapture {
 			sanitized = "(" + sanitized + ")"
 		}
 
