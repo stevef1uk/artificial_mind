@@ -111,11 +111,15 @@ Example:
 Rules:
 1. Output ONLY the JSON array. NO conversational text before or after.
 2. For 'smart_scrape', specific 'extractions' MUST use valid Go/RE2 Regex. Do NOT use XPath or CSS selectors.
-2. Ensure it is VALID JSON. 
-3. NO triple quotes (""") inside JSON strings. Use normal double quotes and escape them if needed.
-4. Escape all newlines in code strings with \n.
-5. NO trailing commas in objects or arrays.
-6. Every value in "params" must have a key.`,
+3. Ensure it is VALID JSON. NO comments (// or /*) allowed.
+4. NO triple quotes (""") inside JSON strings.
+5. INTERNAL QUOTES: If you need to put a double quote inside a JSON string value (like in a regex), you MUST escape it with a backslash so it becomes \" (Example: "pattern": "class=\"value\"").
+6. Escape all newlines in code strings with \n.
+7. NO trailing commas in objects or arrays.
+8. Every value in "params" must have a key.
+9. TOOLS ARE INDEPENDENT. One tool CANNOT use a variable (like 'smart_scrape_result', 'html_content', or 'results[0]') from a previous tool. Each tool call is a fresh execution with NO shared state.
+10. If you need to extract data, use 'smart_scrape' by itself. Do NOT try to use 'execute_code' to process 'smart_scrape' results; it will fail.
+11. 'execute_code' runs in a VACUUM. It only has access to standard libraries. It cannot 'see' other tools or their results.`,
 			agentInstance.Config.Name,
 			agentInstance.Config.Role,
 			agentInstance.Config.Goal,

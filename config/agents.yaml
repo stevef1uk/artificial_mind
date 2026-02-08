@@ -120,7 +120,6 @@ agents:
     tools:
       - smart_scrape
       - scrape_url
-      - execute_code
     capabilities:
       max_iterations: 15
       allow_delegation: false

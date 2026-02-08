@@ -53,22 +53,45 @@ func sanitizeCode(text string) string {
 		return text
 	}
 	t := strings.TrimSpace(text)
+	// Remove C-style single-line comments (// ...) which LLMs often hallucinate into JSON
+	// Only match if it's NOT part of a URL (e.g., preceded by http: or https:)
+	// More precisely: match // only if it's at start of line or preceded by space
+	commentRegex := regexp.MustCompile(`(?m)(^|\s)//.*$`)
+	t = commentRegex.ReplaceAllString(t, "")
+
 	// Remove fenced block ```lang\n...\n```
 	fence := regexp.MustCompile("(?s)^```[a-zA-Z0-9_-]*\n(.*?)\n```\\s*$")
 	if m := fence.FindStringSubmatch(t); m != nil && len(m) > 1 {
 		t = m[1]
 	}
+
+	// Final pass: if it's still wrapped in backticks after the above, strip them
+	t = strings.Trim(t, "`")
+	t = strings.TrimSpace(t)
+
 	// Remove a leading single-word language line (e.g., "go") if present
 	lines := strings.Split(t, "\n")
 	if len(lines) > 0 {
 		first := strings.TrimSpace(lines[0])
 		switch strings.ToLower(first) {
-		case "go", "golang", "python", "py", "javascript", "js", "typescript", "ts", "java", "bash", "sh":
+		case "go", "golang", "python", "py", "javascript", "js", "typescript", "ts", "java", "bash", "sh", "json":
 			t = strings.Join(lines[1:], "\n")
 		}
 	}
 	// Trim again after processing
-	return strings.TrimSpace(t)
+	t = strings.TrimSpace(t)
+
+	// Debug log the sanitized code (truncated)
+	log.Printf("🛠️ [SANITIZE] Sanitized code length: %d", len(t))
+	if len(t) > 0 {
+		preview := t
+		if len(preview) > 500 {
+			preview = preview[:500] + "..."
+		}
+		log.Printf("🛠️ [SANITIZE] Preview: %s", preview)
+	}
+
+	return t
 }
 
 // sanitizeConsoleOutput removes noisy environment/provisioning logs and keeps meaningful program output
