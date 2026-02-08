@@ -101,7 +101,7 @@ Example:
       "url": "https://example.com", 
       "goal": "Find rates",
       "extractions": {
-        "product_name": "regex_pattern_here",
+        "product_name": "regex_pattern_here (MUST BE REGEX, NOT XPATH)",
         "price": "regex_pattern_here"
       }
     }
@@ -110,6 +110,7 @@ Example:
 
 Rules:
 1. Output ONLY the JSON array. NO conversational text before or after.
+2. For 'smart_scrape', specific 'extractions' MUST use valid Go/RE2 Regex. Do NOT use XPath or CSS selectors.
 2. Ensure it is VALID JSON. 
 3. NO triple quotes (""") inside JSON strings. Use normal double quotes and escape them if needed.
 4. Escape all newlines in code strings with \n.
