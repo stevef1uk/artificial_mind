@@ -3806,17 +3806,22 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 		// Generate TypeScript to click accept button
 		consentTS := generateConsentBypassScript()
 
-		// Execute the consent bypass and re-fetch the page
+		// Execute the bypass
+		log.Printf("🍪 [MCP-SMART-SCRAPE] Executing consent bypass...")
 		bypassResult, err := s.scrapeWithConfig(ctx, url, consentTS, false, nil, true)
 		if err != nil {
-			log.Printf("⚠️ [MCP-SMART-SCRAPE] Failed to bypass consent page: %v, continuing anyway", err)
+			log.Printf("⚠️ [MCP-SMART-SCRAPE] Consent bypass failed: %v", err)
+			// Continue with original result, hoping it's usable or LLM can handle it
 		} else {
 			// Update HTML with the new page content
 			if bypassMap, ok := bypassResult.(map[string]interface{}); ok {
 				if bypassInner, ok := bypassMap["result"].(map[string]interface{}); ok {
 					if newHTML, ok := bypassInner["cleaned_html"].(string); ok && newHTML != "" {
 						log.Printf("✅ [MCP-SMART-SCRAPE] Successfully bypassed consent page, got %d chars of new HTML", len(newHTML))
-						cleanedHTML = newHTML
+						// Use the result from the bypass job as the fresh content
+						// The bypass job keeps the session open long enough to get the content
+						htmlResult = bypassMap // Update the main htmlResult with the new one
+						cleanedHTML = newHTML  // Update cleanedHTML as well
 					}
 				}
 			}
@@ -4018,4 +4023,3 @@ func (s *MCPKnowledgeServer) callExternalHDNTool(ctx context.Context, toolID str
 
 	return result, nil
 }
-
