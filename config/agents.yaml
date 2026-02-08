@@ -120,6 +120,8 @@ agents:
     tools:
       - smart_scrape
       - scrape_url
+      - execute_code
+      - tool_http_get
     capabilities:
       max_iterations: 15
       allow_delegation: false
@@ -133,6 +135,10 @@ agents:
             - find interest rate
             - get price
             - get details
+            - compare
+            - savings
+            - products
+            - monitor website
     behavior:
       thinking_mode: true
       max_retries: 3
@@ -140,5 +146,5 @@ agents:
       use_memory: true
       memory_window: 24h
       prefer_tools: true
-      tool_timeout: 120s
+      tool_timeout: 300s
 
