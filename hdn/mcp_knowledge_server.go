@@ -3909,14 +3909,13 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 				}
 			}
 		}
-
 		if foundAny {
 			resultJSON, _ := json.MarshalIndent(results, "", "  ")
 			return map[string]interface{}{
 				"content": []map[string]interface{}{
 					{
 						"type": "text",
-						"text": fmt.Sprintf("Scrape Results (Fast-path):\n%s", string(resultJSON)),
+						"text": fmt.Sprintf("Scrape Results:\n%s", string(resultJSON)),
 					},
 				},
 				"result": results,
@@ -4037,11 +4036,11 @@ Generate the JSON configuration to extract the data requested in the GOAL.
 
 INSTRUCTIONS:
 - Identify the data requested in the GOAL.
-- Create specific field names in 'extractions' for each piece of data (e.g., "account_name", "interest_rate").
-- If the goal asks for a list or table, create regex patterns that match one row at a time. The scraper will find all occurrences.
+- If the page has a <table>, focus your regex on matching <tr> rows within <tbody>.
+- Create specific field names in 'extractions' (e.g., "account", "rate").
 - Use ONLY single quotes (') for HTML attributes in your regex. e.g. class='name'
 - Capture ONLY the data you want in the first ().
-- CRITICAL: Your response MUST be valid JSON. Double all backslashes in your regex: \\s, \\d, \\S.
+- CRITICAL: Your response MUST be valid JSON. Double all backslashes: \\s, \\d, \\S.
 - Output ONLY valid JSON.`
 
 	// Call LLM
@@ -4078,10 +4077,11 @@ INSTRUCTIONS:
 			}
 			cleanedResponse = strings.Join(lines, "\n")
 
-			// REPAIR: LLMs often fail to escape backslashes in regex (e.g. \s)
-			// which makes the JSON invalid. Let's fix that.
-			reEsc := regexp.MustCompile(`\\([wsdWSDBA])`)
-			cleanedResponse = reEsc.ReplaceAllString(cleanedResponse, `\\$1`)
+			// REPAIR: Generic fix for unescaped backslashes in JSON strings
+			// Target: Any \ NOT followed by \, ", /, b, f, n, r, t, or uXXXX
+			reRepair := regexp.MustCompile(`\\([^"\\/bfnrtu])`)
+			cleanedResponse = reRepair.ReplaceAllString(cleanedResponse, `\\$1`)
+			// Also fix the specific cases where LLM forgets to escape the [ ] brackets
 			cleanedResponse = strings.ReplaceAll(cleanedResponse, `[\s\S]`, `[\\s\\S]`)
 
 			if err := json.Unmarshal([]byte(cleanedResponse), &rawMap); err == nil {
@@ -4103,6 +4103,10 @@ INSTRUCTIONS:
 						} else if obj, ok := v.(map[string]interface{}); ok {
 							if p, ok := obj["pattern"].(string); ok {
 								config.Extractions[k] = p
+							}
+						} else if arr, ok := v.([]interface{}); ok && len(arr) > 0 {
+							if s, ok := arr[0].(string); ok {
+								config.Extractions[k] = s
 							}
 						}
 					}
