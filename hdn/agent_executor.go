@@ -462,6 +462,11 @@ Synthesized Response:`, input, string(resultsJSON))
 		} else {
 			log.Printf("✅ [AGENT-EXECUTOR] Response synthesized successfully")
 			result["summary"] = strings.TrimSpace(summary)
+
+			// If we have a summary, we can truncate the raw results to make the response more readable
+			// We'll keep the results count but hide the massive blobs
+			result["raw_results_count"] = len(results)
+			result["results"] = "Raw data has been summarized. See 'summary' for readable content."
 		}
 	}
 
