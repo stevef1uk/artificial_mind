@@ -40,8 +40,10 @@ type Chat struct {
 }
 
 type TelegramResponse struct {
-	OK     bool     `json:"ok"`
-	Result []Update `json:"result"`
+	OK          bool     `json:"ok"`
+	Result      []Update `json:"result"`
+	Description string   `json:"description,omitempty"`
+	ErrorCode   int      `json:"error_code,omitempty"`
 }
 
 type MCPRequest struct {
@@ -124,7 +126,7 @@ func (bot *TelegramBot) getUpdates() ([]Update, error) {
 	}
 
 	if !telegramResp.OK {
-		return nil, fmt.Errorf("telegram API error")
+		return nil, fmt.Errorf("telegram API error: %d %s", telegramResp.ErrorCode, telegramResp.Description)
 	}
 
 	return telegramResp.Result, nil

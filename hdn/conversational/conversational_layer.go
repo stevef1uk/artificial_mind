@@ -507,7 +507,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		} else if origMsg, ok := hdnContext["original_message"]; ok {
 			originalMessage = origMsg
 		}
-		
+
 		// Check if original message matches configured tool keywords
 		if originalMessage != "" {
 			// Use configurable tool keyword matching instead of hardcoded email checks
@@ -528,7 +528,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				}, nil
 			}
 		}
-		
+
 		if forceKnowledgeQuery {
 			log.Printf("🧠 [CONVERSATIONAL] Force knowledge query enabled (sources=%s) - running combined Neo4j + RAG flow", knowledgeSources)
 		}
@@ -611,26 +611,35 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 
 		// Helper function to filter skip words from extracted text
 		filterSkipWords := func(text string) string {
+			originalWords := strings.Fields(text)
 			words := strings.Fields(strings.ToLower(text))
 			skipWords := map[string]bool{
 				"the": true, "a": true, "an": true, "and": true, "or": true, "but": true,
 				"in": true, "on": true, "at": true, "to": true, "for": true, "of": true,
-				"with": true, "by": true, "is": true, "are": true, "was": true, "were": true,
-				"who": true, "what": true, "where": true, "when": true, "why": true, "how": true,
-				"tell": true, "me": true, "about": true, "search": true, "find": true,
-				"news": true, "latest": true, "current": true, "recent": true,
+				"with": true, "about": true, "by": true, "from": true, "up": true, "out": true,
+				"what": true, "who": true, "where": true, "when": true, "why": true, "how": true,
+				"is": true, "are": true, "was": true, "were": true, "am": true, "be": true,
+				"can": true, "could": true, "should": true, "would": true, "do": true, "does": true,
+				"did": true, "will": true, "i": true, "you": true, "me": true, "my": true,
+				"tell": true, "say": true, "show": true, "give": true, "please": true,
 			}
-			filtered := make([]string, 0)
-			for _, word := range words {
-				word = strings.Trim(word, ".,!?;:()[]{}'\"")
-				if !skipWords[word] && len(word) > 2 {
-					filtered = append(filtered, word)
+
+			var filtered []string
+			for i, w := range words {
+				// Trim punctuation from the word before checking against skipWords
+				cleanWord := strings.Trim(w, ".,!?;:()[]{}'\"")
+				if !skipWords[cleanWord] {
+					filtered = append(filtered, originalWords[i])
 				}
 			}
-			if len(filtered) > 0 {
-				return strings.Join(filtered, " ")
+
+			// If everything was filtered out, return the original text
+			// to avoid sending empty queries to vector search
+			if len(filtered) == 0 {
+				return text
 			}
-			return text // Return original if all words filtered
+
+			return strings.Join(filtered, " ")
 		}
 
 		// Try different patterns in order of specificity
@@ -769,30 +778,20 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 
 		// Use the extracted core query directly for better precision
 		// This ensures we search for the specific term (e.g., "bondi") rather than the full question
-		ragQueryText := strings.ToLower(strings.TrimSpace(coreQuery))
-		if ragQueryText == "" || ragQueryText == "unknown" {
-			// If extraction failed, try to extract from original message
-			ragQueryText = strings.ToLower(strings.TrimSpace(searchText))
-			// Remove common question words
-			words := strings.Fields(ragQueryText)
-			filtered := make([]string, 0)
-			skipWords := map[string]bool{"who": true, "what": true, "where": true, "when": true, "why": true, "how": true,
-				"is": true, "are": true, "the": true, "a": true, "an": true, "tell": true, "me": true, "about": true,
-				"latest": true, "situation": true, "current": true, "update": true, "in": true, "of": true,
-				"search": true, "for": true, "news": true, "find": true, "get": true, "show": true, "give": true,
-				"now": true, "today": true, "currently": true, "recently": true, "right": true, "at": true, "on": true}
-			for _, word := range words {
-				if !skipWords[word] && len(word) > 2 {
-					filtered = append(filtered, word)
-				}
-			}
-			if len(filtered) > 0 {
-				ragQueryText = strings.Join(filtered, " ")
+		// Extract meaningful search term from text
+		ragQueryText := filterSkipWords(searchText)
+
+		// If query is about the user (e.g. "who am i", "about me"), ensure we search for Steven Fisher
+		if strings.Contains(strings.ToLower(searchText), "who am i") ||
+			strings.Contains(strings.ToLower(searchText), "about me") ||
+			strings.Contains(strings.ToLower(searchText), "who is steven") {
+			if ragQueryText == "" || len(ragQueryText) < 5 {
+				ragQueryText = "Steven Fisher personal information biography work history"
 			}
 		}
 
 		if ragQueryText == "" {
-			log.Printf("⚠️ [CONVERSATIONAL] Could not extract query for RAG search, returning Neo4j-only results")
+			log.Printf("⚠️ [CONVERSATIONAL] RAG search query is empty after filtering skip words from: '%s'", searchText)
 			// Return Neo4j results (if any)
 			return &ActionResult{
 				Type:    "knowledge_result",
@@ -920,7 +919,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		} else if origMsg, ok := hdnContext["original_message"]; ok {
 			originalMessage = origMsg
 		}
-		
+
 		// Check if original message matches configured tool keywords
 		if originalMessage != "" {
 			// Use configurable tool keyword matching instead of hardcoded email checks
@@ -941,7 +940,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				}, nil
 			}
 		}
-		
+
 		// Use HDN's task execution for non-email tasks
 		result, err := cl.hdnClient.ExecuteTask(ctx, action.Goal, hdnContext)
 		if err != nil {

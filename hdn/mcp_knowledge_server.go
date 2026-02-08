@@ -3038,8 +3038,12 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 			meaningfulWords := make([]string, 0)
 			for _, word := range words {
 				word = strings.Trim(word, ".,!?;:()[]{}'\"")
-				if !skipWords[word] && len(word) > 2 {
-					meaningfulWords = append(meaningfulWords, word)
+				// Be less aggressive with filtering for short meaningful words
+				// Allow words like "me", "i", "who" if they are the only words
+				if !skipWords[word] || (len(words) <= 3 && (word == "who" || word == "me" || word == "i")) {
+					if len(word) >= 1 {
+						meaningfulWords = append(meaningfulWords, word)
+					}
 				}
 			}
 			if len(meaningfulWords) > 0 {

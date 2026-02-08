@@ -57,7 +57,7 @@ func NewNLGGenerator(llmClient LLMClientInterface) *NLGGenerator {
 // validateResponseSafety checks if a generated response contains dangerous content
 func (nlg *NLGGenerator) validateResponseSafety(responseText string) (bool, string) {
 	lower := strings.ToLower(responseText)
-	
+
 	// Dangerous command patterns
 	dangerousPatterns := []string{
 		"rm -rf", "rm -rf /", "rm -rf *", "rm -rf /",
@@ -68,14 +68,14 @@ func (nlg *NLGGenerator) validateResponseSafety(responseText string) (bool, stri
 		"#!/bin/bash", "#!/bin/sh", // Block script generation
 		"chmod 777", "chmod +x", // Dangerous permissions
 	}
-	
+
 	for _, pattern := range dangerousPatterns {
 		if strings.Contains(lower, pattern) {
 			log.Printf("🚨 [NLG-SAFETY] Blocked dangerous content: %s", pattern)
 			return false, fmt.Sprintf("Response contains dangerous command pattern: %s", pattern)
 		}
 	}
-	
+
 	// Check for code blocks containing dangerous commands
 	if strings.Contains(lower, "```") {
 		// Extract code blocks and check them
@@ -90,14 +90,14 @@ func (nlg *NLGGenerator) validateResponseSafety(responseText string) (bool, stri
 			}
 		}
 	}
-	
+
 	return true, ""
 }
 
 // validateAndWrapResponse validates a response and returns a safe NLGResponse
 func (nlg *NLGGenerator) validateAndWrapResponse(responseText string, responseType string, intentType string, confidence float64) *NLGResponse {
 	text := strings.TrimSpace(responseText)
-	
+
 	// Safety check: validate response doesn't contain dangerous content
 	if safe, reason := nlg.validateResponseSafety(text); !safe {
 		log.Printf("🚨 [NLG-SAFETY] Blocked unsafe response: %s", reason)
@@ -112,7 +112,7 @@ func (nlg *NLGGenerator) validateAndWrapResponse(responseText string, responseTy
 			},
 		}
 	}
-	
+
 	return &NLGResponse{
 		Text:       text,
 		Confidence: confidence,
@@ -242,17 +242,18 @@ Intent: %s
 Goal: %s
 
 🚨 CRITICAL RULES:
-1. You MUST use ONLY the information provided in the "Retrieved Information" section below.
-2. DO NOT invent, make up, or hallucinate any data that is not explicitly shown.
-3. If the "Retrieved Information" contains email data formatted as a list (starting with "[1]" or similar), you MUST copy and paste that entire formatted list EXACTLY as it appears. Do NOT re-describe it, do NOT add commentary, do NOT add sentences like "This email is from..." or "The subject line is...". Just present the formatted list verbatim.
+1. You MUST use the information provided in the "Retrieved Information" and "Retrieved Personal Context" sections below.
+2. DO NOT invent, make up, or hallucinate any data that is not explicitly shown in those sections.
+3. If the "Retrieved Information" contains email data formatted as a list (starting with "[1]" or similar), you MUST copy and paste that entire formatted list EXACTLY as it appears. Do NOT re-describe it, do NOT add commentary. Just present the formatted list verbatim.
 4. When you see formatted email data like:
    [1] [UNREAD]
        From: Name <email@domain.com>
        Subject: Subject line
    You MUST output it EXACTLY like that - no additional text before or after.
-5. If no information is retrieved, say so clearly - do NOT invent fake data to fill the gap.
+5. If no information is retrieved in either section, say so clearly - do NOT invent fake data.
 6. NEVER provide code, scripts, or commands that could be harmful or destructive (e.g., rm -rf, format disk, delete all files).
 7. NEVER generate bash scripts, shell commands, or executable code that could damage systems or data.
+8. If the 'Retrieved Personal Context' contains information about Steven Fisher, assume this is the user you are talking to and answer accordingly.
 
 Please provide a clear, informative answer. 
 
@@ -558,7 +559,7 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 								if item, ok := res.(map[string]interface{}); ok {
 									// Case-insensitive field extraction
 									subject := getStringFromMapCaseInsensitive(item, "subject")
-									
+
 									// Extract "from" field (might be string or complex object)
 									var fromField interface{}
 									keyLower := strings.ToLower("from")
@@ -728,7 +729,7 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 								if item, ok := res.(map[string]interface{}); ok {
 									// Case-insensitive field extraction
 									subject := getStringFromMapCaseInsensitive(item, "subject")
-									
+
 									// Extract "from" field (might be string or complex object)
 									var fromField interface{}
 									keyLower := strings.ToLower("from")
@@ -830,12 +831,12 @@ func extractEmailAddress(fromField interface{}) string {
 	if fromField == nil {
 		return ""
 	}
-	
+
 	// If it's already a string, return it
 	if s, ok := fromField.(string); ok {
 		return s
 	}
-	
+
 	// If it's a map, try to extract the email address
 	if m, ok := fromField.(map[string]interface{}); ok {
 		// Try "address" field first
@@ -846,7 +847,7 @@ func extractEmailAddress(fromField interface{}) string {
 			}
 			return addr
 		}
-		
+
 		// Try "value" field which might contain an array
 		if value, ok := m["value"]; ok {
 			if arr, ok := value.([]interface{}); ok && len(arr) > 0 {
@@ -861,13 +862,13 @@ func extractEmailAddress(fromField interface{}) string {
 				}
 			}
 		}
-		
+
 		// Try "text" field (sometimes email is in text format)
 		if text, ok := m["text"].(string); ok && text != "" {
 			return text
 		}
 	}
-	
+
 	// Fallback: convert to string
 	return fmt.Sprintf("%v", fromField)
 }
