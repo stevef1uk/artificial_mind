@@ -24,9 +24,10 @@ def test_nationwide_auto_config():
             "arguments": {
                 "url": "https://www.nationwide.co.uk/savings/compare-savings-accounts-and-isas/",
                 "goal": "Extract all savings product names and their AER interest rates from the table",
+                "goal": "Extract all savings product names and their AER interest rates from the table",
                 "extractions": {
-                    "product_names": "'name':'([^']*(?:ISA|Saver|Bond)[^']*)'",
-                    "interest_rates": "'aer':([\\d\\.]+)"
+                    "product_names": "Table__ProductName[^>]*>\\s*([^<]+)<",
+                    "interest_rates": "data-ref=['\"]heading['\"]>\\s*([0-9.]+%)</div>"
                 }
             }
         }
@@ -53,6 +54,8 @@ def test_nationwide_auto_config():
         if "result" not in result:
             print(f"   ❌ Unexpected response format")
             return False
+
+
 
         content = result["result"].get("content", [])
         if not content:

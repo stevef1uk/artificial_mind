@@ -3952,23 +3952,55 @@ func (s *MCPKnowledgeServer) planScrapeWithLLM(ctx context.Context, html string,
 		log.Printf("⚠️ [MCP-SMART-SCRAPE] HTML still exceeding 120k limit, truncated")
 	}
 
+	// Debug: Show sample of cleaned HTML to help troubleshoot extraction issues
+	sampleLen := 2000
+	if len(html) < sampleLen {
+		sampleLen = len(html)
+	}
+	log.Printf("🔍 [MCP-SMART-SCRAPE] Sample of cleaned HTML for LLM (first %d chars):\n%s\n...end sample", sampleLen, html[:sampleLen])
+
 	systemPrompt := `You are an expert web scraper configuration generator.
 Your task is to analyze an HTML snapshot and generate a scraping plan to achieve a specific GOAL.
 
 Goal: Generate a valid JSON object with:
 - "typescript_config": (string) A sequence of Playwright JS commands (e.g., await page.click('...')) to navigate or reveal data if required. MUST BE A STRING, NOT AN OBJECT.
-- "extractions": (map) A set of named extraction patterns where key is the field name and value is a standard REGEX string.
+- "extractions": (map<string, string>) A set of named extraction patterns. 
+  - Key: The field name (e.g. "price", "title")
+  - Value: A single REGEX STRING (e.g. "regex..."). DO NOT USE ARRAYS.
 
 REGEX RULES:
-1. ONLY standard Go regex (NO lookarounds).
+1. ONLY standard Go regex (NO lookarounds like (?=...) or (?<=...)).
 2. USE CAPTURING GROUPS () for the value. The scraper uses the FIRST group as the result.
-3. Target the HTML tags you see in the snapshot.
+3. Target the HTML tags you see in the snapshot - including CUSTOM tags (not just div/span).
 4. Use single quotes (') for HTML attributes in your regex. e.g. class='[^']*price[^']*'
 5. IMPORTANT: Use [^>]*? to skip unknown attributes between class and the closing >.
-6. Example for price in a span: "class='[^']*price[^']*'[^>]*?>\\s*([$€£0-9,.]+)"
-7. Example for price in a div: "<div[^>]*class='[^']*price[^']*'[^>]*?>\\s*([$€£0-9,.]+)"
-8. If extracting from a table cell: "<td[^>]*class='[^']*market-cap[^']*'[^>]*?>\\s*([^<]+)"
-9. For Yahoo Finance specifically, prices are often in: <fin-streamer[^>]*data-symbol='AAPL'[^>]*>([0-9,.]+)</fin-streamer>
+6. VALUE MUST BE A STRING, NOT AN ARRAY. Example: "price": "regex..." NOT "price": ["regex..."]
+
+EXAMPLES:
+- RIGHT: "price:\s*(\d+)"
+- WRONG (Lookaround): "(?<=price: )(\d+)"
+
+COMMON PATTERNS:
+6. Standard tag with class: "<span[^>]*class='[^']*price[^']*'[^>]*?>\s*([$€£0-9,.]+)"
+7. Div with class: "<div[^>]*class='[^']*price[^']*'[^>]*?>\s*([$€£0-9,.]+)"
+8. Table cell: "<td[^>]*class='[^']*market-cap[^']*'[^>]*?>\s*([^<]+)"
+
+MODERN WEB PATTERNS (Custom Tags & Data Attributes):
+9. Custom tags (e.g. <fin-streamer>, <price-display>): Match ANY tag name you see in HTML
+   - Value in content: "<custom-tag[^>]*attribute='value'[^>]*?>\s*([0-9,.]+)"
+   - Value in data-value attribute: "<custom-tag[^>]*data-value='([^']+)'"
+   - Value in value attribute: "<custom-tag[^>]*value='([^']+)'"
+10. Try MULTIPLE patterns for the same field if unsure where value is stored:
+    - First try: content between tags
+    - Then try: data-value, value, data-field, or other data-* attributes
+11. For data attributes, use: "<tag[^>]*data-attribute-name='([^']+)'"
+12. Match partial attribute values: "data-field='[^']*price[^']*'"
+
+STRATEGY:
+- Look for custom HTML tags (anything not standard like div/span/p)
+- Check both tag CONTENT and tag ATTRIBUTES for values
+- Use flexible patterns that work across similar elements
+- If you see data-* attributes, they often contain the actual values
 
 Output ONLY the JSON object. Do NOT wrap in markdown code blocks like ` + "```json" + `. Start the response with '{'.`
 
@@ -4028,6 +4060,14 @@ INSTRUCTIONS:
 					for k, v := range extractions {
 						if strVal, ok := v.(string); ok {
 							config.Extractions[k] = strVal
+						} else if arrVal, ok := v.([]interface{}); ok {
+							// Handle array of strings case (LLM often returns single-element array)
+							if len(arrVal) > 0 {
+								if firstStr, ok := arrVal[0].(string); ok {
+									config.Extractions[k] = firstStr
+									log.Printf("⚠️ [MCP-SMART-SCRAPE] LLM sent array for extraction '%s', using first element", k)
+								}
+							}
 						}
 					}
 				}
@@ -4129,11 +4169,12 @@ func cleanHTMLForPlanning(html string) string {
 	html = re.ReplaceAllString(html, "")
 
 	// 3. Strip extremely noisy attributes that provide no value for scraping/selection
+	// BUT preserve data attributes that might contain actual values (data-symbol, data-field, data-value, value)
 	noisyAttrs := []string{
 		"data-reactid", "data-tracking", "data-ylk", "data-test-id", "data-rapid-context",
+		"data-image-id", "data-beacons", "data-rapid-param", "data-rapid", "data-analytics",
 		"onclick", "onmouseover", "onmouseout", "onload", "onfocus", "onblur",
 		"style", "rel", "target", "width", "height", "role", "aria-[a-z0-9-]*", "tabindex",
-		"data-image-id", "data-beacons", "data-rapid-param",
 	}
 	for _, attr := range noisyAttrs {
 		re = regexp.MustCompile(`(?i)\s` + attr + `=(?:'[^']*'|"[^"]*")`)
