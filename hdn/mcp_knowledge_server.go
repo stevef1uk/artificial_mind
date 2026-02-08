@@ -4070,7 +4070,6 @@ INSTRUCTIONS:
 					if idx > 0 && line[idx-1] == ':' {
 						isUrl = true
 					}
-
 					if !isUrl {
 						lines[i] = line[:idx]
 					}
@@ -4079,8 +4078,6 @@ INSTRUCTIONS:
 			cleanedResponse = strings.Join(lines, "\n")
 
 			if err := json.Unmarshal([]byte(cleanedResponse), &rawMap); err == nil {
-				// Successfully parsed into map, now map to struct
-
 				// Handle both "extractions" and "extraction_instructions"
 				var extractions map[string]interface{}
 				if ex, ok := rawMap["extractions"].(map[string]interface{}); ok {
@@ -4092,51 +4089,23 @@ INSTRUCTIONS:
 				if extractions != nil {
 					config.Extractions = make(map[string]string)
 					for k, v := range extractions {
-						var strVal string
-						found := false
-
 						if s, ok := v.(string); ok {
-							strVal = s
-							found = true
+							config.Extractions[k] = s
 						} else if obj, ok := v.(map[string]interface{}); ok {
-							// Handle object { "type": "regex", "pattern": "..." }
 							if p, ok := obj["pattern"].(string); ok {
-								strVal = p
-								found = true
+								config.Extractions[k] = p
+							} else if r, ok := obj["regex"].(string); ok {
+								config.Extractions[k] = r
 							}
-						}
-
-						if found {
-							// Fix lookarounds that break Go regexp
-							sanitized := strings.ReplaceAll(strVal, "(?<=", "(?:")
-							sanitized = strings.ReplaceAll(sanitized, "(?=", "(?:")
-							config.Extractions[k] = sanitized
-						} else if arrVal, ok := v.([]interface{}); ok {
-							// Handle array of strings OR array of objects case
-							if len(arrVal) > 0 {
-								var firstStr string
-								foundArr := false
-
-								// Check if first element is string
-								if s, ok := arrVal[0].(string); ok {
-									firstStr = s
-									foundArr = true
-								} else if obj, ok := arrVal[0].(map[string]interface{}); ok {
-									// Check for "regex" or "pattern" in object
-									if r, ok := obj["regex"].(string); ok {
-										firstStr = r
-										foundArr = true
-									} else if p, ok := obj["pattern"].(string); ok {
-										firstStr = p
-										foundArr = true
-									}
-								}
-
-								if foundArr {
-									sanitized := strings.ReplaceAll(firstStr, "(?<=", "(?:")
-									sanitized = strings.ReplaceAll(sanitized, "(?=", "(?:")
-									config.Extractions[k] = sanitized
-									log.Printf("⚠️ [MCP-SMART-SCRAPE] LLM sent array for extraction '%s', using first element", k)
+						} else if arr, ok := v.([]interface{}); ok && len(arr) > 0 {
+							// Handle arrays (take first element)
+							if s, ok := arr[0].(string); ok {
+								config.Extractions[k] = s
+							} else if obj, ok := arr[0].(map[string]interface{}); ok {
+								if r, ok := obj["regex"].(string); ok {
+									config.Extractions[k] = r
+								} else if p, ok := obj["pattern"].(string); ok {
+									config.Extractions[k] = p
 								}
 							}
 						}
@@ -4144,11 +4113,6 @@ INSTRUCTIONS:
 				}
 				if ts, ok := rawMap["typescript_config"].(string); ok {
 					config.TypeScriptConfig = ts
-				} else if tsObj, ok := rawMap["typescript_config"]; ok && tsObj != nil {
-					// Fallback: if they sent an object instead of string, marshal it back to string or log warning
-					tsBytes, _ := json.Marshal(tsObj)
-					config.TypeScriptConfig = string(tsBytes)
-					log.Printf("⚠️ [MCP-SMART-SCRAPE] LLM sent object for typescript_config instead of string, marshaled to JSON")
 				}
 				parseErr = nil
 			} else {
@@ -4158,11 +4122,12 @@ INSTRUCTIONS:
 	}
 
 	if parseErr != nil {
-		cleanedResponse := response
-		if idx := strings.Index(cleanedResponse, "{"); idx != -1 {
-			if lastIdx := strings.LastIndex(cleanedResponse, "}"); lastIdx != -1 {
-				cleanedResponse = cleanedResponse[idx : lastIdx+1]
-				if err := json.Unmarshal([]byte(cleanedResponse), &config); err != nil {
+		// Approach 2: Direct unmarshal into struct
+		cleanedRes := response
+		if idx := strings.Index(cleanedRes, "{"); idx != -1 {
+			if lastIdx := strings.LastIndex(cleanedRes, "}"); lastIdx != -1 {
+				cleanedRes = cleanedRes[idx : lastIdx+1]
+				if err := json.Unmarshal([]byte(cleanedRes), &config); err != nil {
 					parseErr = err
 				} else {
 					parseErr = nil
@@ -4173,6 +4138,13 @@ INSTRUCTIONS:
 
 	if parseErr != nil {
 		return nil, fmt.Errorf("failed to parse LLM planning response: %v (response was: %s)", parseErr, response)
+	}
+
+	// ALWAYS sanitize all extractions at the end, regardless of parsing path
+	for k, v := range config.Extractions {
+		sanitized := strings.ReplaceAll(v, "(?<=", "(?:")
+		sanitized = strings.ReplaceAll(sanitized, "(?=", "(?:")
+		config.Extractions[k] = sanitized
 	}
 
 	return &config, nil
