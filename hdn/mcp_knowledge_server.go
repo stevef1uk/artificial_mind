@@ -4142,8 +4142,15 @@ INSTRUCTIONS:
 
 	// ALWAYS sanitize all extractions at the end, regardless of parsing path
 	for k, v := range config.Extractions {
+		// 1. Fix lookarounds
 		sanitized := strings.ReplaceAll(v, "(?<=", "(?:")
 		sanitized = strings.ReplaceAll(sanitized, "(?=", "(?:")
+
+		// 2. Wrap in capturing group if AI forgot ()
+		if !strings.Contains(sanitized, "(") {
+			sanitized = "(" + sanitized + ")"
+		}
+
 		config.Extractions[k] = sanitized
 	}
 
