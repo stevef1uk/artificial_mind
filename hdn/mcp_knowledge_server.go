@@ -3859,6 +3859,59 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 		}
 	}
 
+	// 3. Fast Path: If no extra navigation is required, extract from the HTML we already have
+	if config.TypeScriptConfig == "" || strings.TrimSpace(config.TypeScriptConfig) == "// no navigation needed" {
+		log.Printf("⚡ [MCP-SMART-SCRAPE] Fast-path: Extracting from existing HTML (no extra navigation needed)")
+
+		// Prepare a result object similar to what scrapeWithConfig returns
+		results := make(map[string]interface{})
+		// Use the page title from the first scrape if available
+		if title, ok := innerResult["page_title"].(string); ok {
+			results["page_title"] = title
+		}
+		results["page_url"] = url
+
+		// Apply extraction patterns to cleanedHTML
+		foundAny := false
+		for key, pattern := range config.Extractions {
+			re, err := regexp.Compile(pattern)
+			if err != nil {
+				log.Printf("⚠️  [MCP-SMART-SCRAPE] Invalid regex for '%s': %v", key, err)
+				continue
+			}
+			matches := re.FindAllStringSubmatch(cleanedHTML, -1)
+			if len(matches) > 0 {
+				if len(matches[0]) > 1 {
+					var extracted []string
+					for _, m := range matches {
+						if len(m) > 1 && m[1] != "" {
+							extracted = append(extracted, m[1])
+						}
+					}
+					if len(extracted) > 0 {
+						results[key] = strings.Join(extracted, "\n")
+						foundAny = true
+						log.Printf("✅ [MCP-SMART-SCRAPE] Extracted '%s' via fast-path", key)
+					}
+				}
+			}
+		}
+
+		if foundAny {
+			resultJSON, _ := json.MarshalIndent(results, "", "  ")
+			return map[string]interface{}{
+				"content": []map[string]interface{}{
+					{
+						"type": "text",
+						"text": fmt.Sprintf("Scrape Results (Fast-path):\n%s", string(resultJSON)),
+					},
+				},
+				"result": results,
+			}, nil
+		}
+		log.Printf("⚠️ [MCP-SMART-SCRAPE] Fast-path failed to extract any data, falling back to full scrape")
+	}
+
 	log.Printf("🚀 [MCP-SMART-SCRAPE] Executing planned scrape with %d extraction patterns", len(config.Extractions))
 	for k, v := range config.Extractions {
 		log.Printf("   🔍 %s: %s", k, v)

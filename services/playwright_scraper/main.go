@@ -442,10 +442,13 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 
 	page.SetDefaultTimeout(120000) // 120 seconds
 
-	// Navigate to URL
-	log.Printf("📍 Navigating to %s", url)
+	waitUntil := pw.WaitUntilStateLoad
+	if os.Getenv("SCRAPE_WAIT_UNTIL") == "networkidle" {
+		waitUntil = pw.WaitUntilStateNetworkidle
+	}
+
 	if _, err := page.Goto(url, pw.PageGotoOptions{
-		WaitUntil: pw.WaitUntilStateNetworkidle,
+		WaitUntil: waitUntil,
 	}); err != nil {
 		return nil, fmt.Errorf("failed to navigate: %v", err)
 	}
@@ -654,9 +657,15 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 	page.WaitForLoadState(pw.PageWaitForLoadStateOptions{State: pw.LoadStateNetworkidle})
 
 	// Add a fixed safety buffer for client-side rendering
-	// Complex SPAs often need a moment after network idle to render DOM
-	log.Println("⏳ Waiting for final render (3 seconds)...")
-	time.Sleep(3000 * time.Millisecond)
+	// Complex SPAs often need a moment after network idle to render
+	if getHTML {
+		// Reduced wait for faster planning/initial fetch
+		log.Printf("⏳ Waiting for final render (1 second)...")
+		time.Sleep(1 * time.Second)
+	} else {
+		log.Println("⏳ Waiting for final render (3 seconds)...")
+		time.Sleep(3000 * time.Millisecond)
+	}
 
 	// Extract results
 	log.Println("📊 Extracting results...")
