@@ -456,12 +456,24 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 		case "bypassConsent":
 			log.Println("🍪 Attempting auto-consent bypass...")
 
+			// DEBUG: Print all buttons found to understand why we miss them
+			buttons, err := page.Locator("button, input[type='submit'], a[role='button']").All()
+			if err == nil {
+				log.Printf("🔍 Found %d interactive elements:", len(buttons))
+				for i, btn := range buttons {
+					txt, _ := btn.TextContent()
+					name, _ := btn.GetAttribute("name")
+					cls, _ := btn.GetAttribute("class")
+					log.Printf("   [%d] Text='%s' Name='%s' Class='%s'", i, strings.TrimSpace(txt), name, cls)
+				}
+			}
+
 			// 1. Try generic role-based buttons first
 			patterns := []string{
 				"(?i)accept", "(?i)agree", "(?i)continue", "(?i)allow", "(?i)ok", "(?i)yes",
 				"(?i)accepter", "(?i)continuer", "(?i)autoriser", "(?i)j'accepte",
 				"(?i)akzeptieren", "(?i)zustimmen",
-				"(?i)aceptar", "(?i)continuar",
+				"(?i)aceptar", "(?i)continuar", "tout équivalents", // Generic French
 			}
 
 			clicked := false
@@ -491,6 +503,9 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 					"button[id*='continue']", "button[class*='continue']",
 					"a[id*='accept']", "a[class*='accept']",
 					"form[action*='consent'] input[type='submit']",
+					// Catch-all: Primary submit button in a consent form
+					"form[class*='consent'] button[type='submit']",
+					".consent-container button[type='submit']",
 				}
 				for _, sel := range selectors {
 					locator := page.Locator(sel).First()
