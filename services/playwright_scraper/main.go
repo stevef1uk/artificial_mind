@@ -708,7 +708,7 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 	// Prepare content for extraction
 	// Use RAW HTML for extractions (preserves script tags with JSON)
 	// Normalize all double quotes to single quotes to match the Planner's hint and LLM's expectation
-	searchContent := strings.ReplaceAll(rawHTML, "\"", "'")
+	searchContent := rawHTML
 
 	// Write to debug file to see EXACTLY what we are matching against
 	_ = os.WriteFile("/tmp/scraper_debug_content.html", []byte(searchContent), 0644)
