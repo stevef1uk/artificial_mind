@@ -440,7 +440,7 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 	}
 	defer page.Close()
 
-	page.SetDefaultTimeout(90000) // 90 seconds
+	page.SetDefaultTimeout(120000) // 120 seconds
 
 	// Navigate to URL
 	log.Printf("📍 Navigating to %s", url)

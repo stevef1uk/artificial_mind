@@ -3888,10 +3888,10 @@ func (s *MCPKnowledgeServer) planScrapeWithLLM(ctx context.Context, html string,
 
 	// Normalize HTML for LLM
 	html = strings.ReplaceAll(html, "\"", "'")
-	// Since we now have a 32k token window, we can safely send more cleaned HTML
-	if len(html) > 175000 {
-		html = html[:175000] + "...(truncated)"
-		log.Printf("⚠️ [MCP-SMART-SCRAPE] HTML still exceeding 175k limit, truncated")
+	// Since we have a 32k token window (~131k chars), 120k is a safe limit to avoid losing the system prompt
+	if len(html) > 120000 {
+		html = html[:120000] + "...(truncated)"
+		log.Printf("⚠️ [MCP-SMART-SCRAPE] HTML still exceeding 120k limit, truncated")
 	}
 
 	systemPrompt := `You are an expert web scraper configuration generator.
@@ -4072,6 +4072,7 @@ func cleanHTMLForPlanning(html string) string {
 		"data-reactid", "data-tracking", "data-ylk", "data-test-id", "data-rapid-context",
 		"onclick", "onmouseover", "onmouseout", "onload", "onfocus", "onblur",
 		"style", "rel", "target", "width", "height", "role", "aria-[a-z0-9-]*", "tabindex",
+		"data-image-id", "data-beacons", "data-rapid-param",
 	}
 	for _, attr := range noisyAttrs {
 		re = regexp.MustCompile(`(?i)\s` + attr + `=(?:'[^']*'|"[^"]*")`)
