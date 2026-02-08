@@ -500,10 +500,10 @@ Synthesized Response:`, input, string(resultsJSON))
 			isHuge = true
 		}
 
-		if (result["summary"] != nil) || isHuge {
+		if isHuge {
 			result["raw_results_count"] = len(results)
-			result["results"] = "Raw data has been summarized or truncated for readability. Link to raw results is available in the logs."
-			if isHuge && result["summary"] == nil {
+			result["results"] = "Raw data has been truncated because it exceeds 5MB. Link to raw results is available in the logs."
+			if result["summary"] == nil {
 				result["summary"] = "The extraction result was too technical and large to display directly (Total Size: " + fmt.Sprintf("%d bytes", len(resultsJSON_raw)) + "). Please check the logs for the raw JSON/HTML data."
 			}
 		}
