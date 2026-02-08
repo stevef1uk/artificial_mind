@@ -438,14 +438,36 @@ record_history:
 
 	// NEW: Response Synthesis Step
 	// If we have an LLM client, use it to synthesize a human-readable summary of the results
-	if e.llmClient != nil && len(results) > 0 {
-		log.Printf("🤖 [AGENT-EXECUTOR] Synthesizing human-readable response...")
+	if len(results) > 0 {
+		var summary string
+		var synthesisErr error
 
-		resultsJSON, _ := json.MarshalIndent(results, "", "  ")
-		synthesisPrompt := fmt.Sprintf(`You are the Response Synthesis Engine for an Intelligent AI Agent.
+		if e.llmClient != nil {
+			log.Printf("🤖 [AGENT-EXECUTOR] Synthesizing human-readable response...")
+
+			// Sanitize results for synthesis: strip massive fields like raw HTML/Markdown
+			// to avoid blowing out the LLM context window.
+			sanitizedResults := make([]interface{}, len(results))
+			for i, res := range results {
+				if m, ok := res.(map[string]interface{}); ok {
+					// Create a shallow copy and remove blacklisted huge fields
+					sanitized := make(map[string]interface{})
+					for k, v := range m {
+						if k != "cleaned_html" && k != "html" && k != "markdown" && k != "raw_content" {
+							sanitized[k] = v
+						}
+					}
+					sanitizedResults[i] = sanitized
+				} else {
+					sanitizedResults[i] = res
+				}
+			}
+
+			resultsJSON, _ := json.MarshalIndent(sanitizedResults, "", "  ")
+			synthesisPrompt := fmt.Sprintf(`You are the Response Synthesis Engine for an Intelligent AI Agent.
 The user asked: "%s"
 
-The agent executed several tools and obtained the following raw results:
+The agent executed several tools and obtained the following raw results (summarized):
 %s
 
 Your task is to synthesize a clean, friendly, and highly readable response for the user based ONLY on these results.
@@ -456,17 +478,30 @@ Your task is to synthesize a clean, friendly, and highly readable response for t
 
 Synthesized Response:`, input, string(resultsJSON))
 
-		summary, err := e.llmClient.callLLMWithContextAndPriority(ctx, synthesisPrompt, PriorityHigh)
-		if err != nil {
-			log.Printf("⚠️ [AGENT-EXECUTOR] Response synthesis failed: %v", err)
-		} else {
+			summary, synthesisErr = e.llmClient.callLLMWithContextAndPriority(ctx, synthesisPrompt, PriorityHigh)
+		}
+
+		if synthesisErr != nil {
+			log.Printf("⚠️ [AGENT-EXECUTOR] Response synthesis failed: %v", synthesisErr)
+		} else if summary != "" {
 			log.Printf("✅ [AGENT-EXECUTOR] Response synthesized successfully")
 			result["summary"] = strings.TrimSpace(summary)
+		}
 
-			// If we have a summary, we can truncate the raw results to make the response more readable
-			// We'll keep the results count but hide the massive blobs
+		// ALWAYS truncate the main results field if it's potentially huge or if we have a summary
+		// This keeps the UI responsive and clean.
+		isHuge := false
+		resultsJSON_raw, _ := json.Marshal(results)
+		if len(resultsJSON_raw) > 5000 {
+			isHuge = true
+		}
+
+		if (result["summary"] != nil) || isHuge {
 			result["raw_results_count"] = len(results)
-			result["results"] = "Raw data has been summarized. See 'summary' for readable content."
+			result["results"] = "Raw data has been summarized or truncated for readability. Link to raw results is available in the logs."
+			if isHuge && result["summary"] == nil {
+				result["summary"] = "The extraction result was too technical and large to display directly (Total Size: " + fmt.Sprintf("%d bytes", len(resultsJSON_raw)) + "). Please check the logs for the raw JSON/HTML data."
+			}
 		}
 	}
 
