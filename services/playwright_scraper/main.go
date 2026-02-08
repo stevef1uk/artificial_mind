@@ -255,75 +255,75 @@ func parseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
 
 func parseOperation(line string) PlaywrightOperation {
 	// goto
-	if matches := regexp.MustCompile(`await\s+page\.goto\(['"]([^'"]+)['"]\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`await\s+page\.goto\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "goto", Selector: matches[1]}
 	}
 
 	// getByRole (click)
-	if matches := regexp.MustCompile(`await\s+page\.getByRole\(['"](\w+)['"],\s*\{\s*name:\s*['"]([^'"]+)['"]\s*\}\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 2 {
+	if matches := regexp.MustCompile(`await\s+page\.getByRole\(['"](\w+)['"],\s*\{\s*name:\s*['"](.+?)['"]\s*\}\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "getByRole", Role: matches[1], RoleName: matches[2]}
 	}
 
 	// getByRole (fill)
-	if matches := regexp.MustCompile(`await\s+page\.getByRole\(['"](\w+)['"],\s*\{\s*name:\s*['"]([^'"]+)['"]\s*\}\)\.fill\(['"]([^'"]+)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
+	if matches := regexp.MustCompile(`await\s+page\.getByRole\(['"](\w+)['"],\s*\{\s*name:\s*['"](.+?)['"]\s*\}\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
 		return PlaywrightOperation{Type: "getByRoleFill", Role: matches[1], RoleName: matches[2], Value: matches[3]}
 	}
 
 	// getByText with .first().click()
-	if matches := regexp.MustCompile(`await\s+page\.getByText\(['"]([^'"]+)['"]\)\.first\(\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`await\s+page\.getByText\(['"](.+?)['"]\)\.first\(\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "getByText", Text: matches[1]}
 	}
 
 	// getByText with .click() (no .first())
-	if matches := regexp.MustCompile(`await\s+page\.getByText\(['"]([^'"]+)['"]\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`await\s+page\.getByText\(['"](.+?)['"]\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "getByTextClick", Text: matches[1]}
 	}
 
 	// locator with .first().locator().fill()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.first\(\)\.locator\(['"]([^'"]+)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.first\(\)\.locator\(['"](.+?)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
 		return PlaywrightOperation{Type: "scopedLocatorFillFirst", Selector: matches[1], ChildSelector: matches[2], Value: matches[3]}
 	}
 
 	// locator with .nth(n).locator().fill()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.nth\((\d+)\)\.locator\(['"]([^'"]+)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 4 {
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.nth\((\d+)\)\.locator\(['"](.+?)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 4 {
 		index, _ := strconv.Atoi(matches[2])
 		return PlaywrightOperation{Type: "scopedLocatorFillNth", Selector: matches[1], Index: index, ChildSelector: matches[3], Value: matches[4]}
 	}
 
 	// locator with .first().locator().first().click() or .click()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.first\(\)\.locator\(['"]([^'"]+)['"]\)(?:\.first\(\)|\.nth\(\d+\))?\.click\(\)`).FindStringSubmatch(line); len(matches) > 2 {
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.first\(\)\.locator\(['"](.+?)['"]\)(?:\.first\(\)|\.nth\(\d+\))?\.click\(\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "scopedLocatorClickFirst", Selector: matches[1], ChildSelector: matches[2]}
 	}
 
 	// locator with .nth(n).locator().first().click() or .click()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.nth\((\d+)\)\.locator\(['"]([^'"]+)['"]\)(?:\.first\(\)|\.nth\(\d+\))?\.click\(\)`).FindStringSubmatch(line); len(matches) > 3 {
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.nth\((\d+)\)\.locator\(['"](.+?)['"]\)(?:\.first\(\)|\.nth\(\d+\))?\.click\(\)`).FindStringSubmatch(line); len(matches) > 3 {
 		index, _ := strconv.Atoi(matches[2])
 		return PlaywrightOperation{Type: "scopedLocatorClickNth", Selector: matches[1], Index: index, ChildSelector: matches[3]}
 	}
 
-	// locator with .fill() - use [^'"]+ to match only the selector content
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
+	// locator with .fill()
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "locatorFill", Selector: matches[1], Value: matches[2]}
 	}
 
 	// locator with .first().fill()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.first\(\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.first\(\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "locatorFillAtIndex", Selector: matches[1], Value: matches[2], Index: 0}
 	}
 
 	// locator with .nth(n).fill()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.nth\((\d+)\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.nth\((\d+)\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
 		index, _ := strconv.Atoi(matches[2])
 		return PlaywrightOperation{Type: "locatorFillAtIndex", Selector: matches[1], Value: matches[3], Index: index}
 	}
 
 	// locator with .first().click()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.first\(\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.first\(\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "locatorFirst", Selector: matches[1]}
 	}
 
 	// locator with .click() (no .first())
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"]([^'"]+)['"]\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "locator", Selector: matches[1]}
 	}
 

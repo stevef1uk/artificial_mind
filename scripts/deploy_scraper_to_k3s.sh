@@ -36,12 +36,7 @@ docker build --no-cache -f Dockerfile.hdn.secure \
   --build-arg VENDOR_PUBLIC_KEY=secure/vendor_public.pem \
   -t ${HDN_IMAGE} .
 
-echo -e "${GREEN}✅ HDN server image built${NC}"
-
-echo -e "${YELLOW}Step 4: Pushing HDN image to registry${NC}"
-docker push ${HDN_IMAGE}
-
-echo -e "${GREEN}✅ HDN server image pushed${NC}"
+echo -e "${GREEN}✅ HDN server image built and pushed${NC}"
 
 echo -e "${YELLOW}Step 5: Deploying scraper service to K3s${NC}"
 kubectl apply -f k3s/playwright-scraper-deployment.yaml

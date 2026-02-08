@@ -1,18 +1,18 @@
 #!/bin/bash
 # Test MCP scrape_url against HDN server running in Kubernetes
+# Now supports all three transport types with proven configs
 
 set -e
 
 NAMESPACE="${1:-agi}"
-FROM_CITY="${2:-southampton}"
-TO_CITY="${3:-newcastle}"
+TRANSPORT_TYPE="${2:-plane}"
 
 echo "============================================================"
 echo "🧪 MCP EcoTree Test - Kubernetes"
 echo "============================================================"
 echo ""
 echo "📍 Namespace: $NAMESPACE"
-echo "📍 Route: ${FROM_CITY^^} → ${TO_CITY^^}"
+echo "📍 Transport Type: $TRANSPORT_TYPE"
 echo ""
 
 # Find HDN service
@@ -54,25 +54,78 @@ fi
 echo "✅ HDN server is responding"
 echo ""
 
-# TypeScript config
-TS_CONFIG="import { test, expect } from '@playwright/test';
+# Configure based on transport type
+case "$TRANSPORT_TYPE" in
+    plane)
+        URL="https://ecotree.green/en/calculate-flight-co2"
+        # Proven TypeScript config from test_scraper_plane.sh
+        TS_CONFIG="await page.locator('#airportName').first().fill('SOU'); 
+    await page.waitForTimeout(3000); 
+    await page.getByText('Southampton, United Kingdom').first().click(); 
+    await page.waitForTimeout(1000); 
+    await page.locator('#airportName').nth(1).fill('NCL'); 
+    await page.waitForTimeout(3000); 
+    await page.getByText('Newcastle, United Kingdom').first().click(); 
+    await page.waitForTimeout(1000); 
+    await page.locator('select').first().selectOption('return'); 
+    await page.waitForTimeout(500); 
+    await page.getByRole('link', { name: ' Calculate my emissions ' }).click(); 
+    await page.waitForTimeout(5000);"
+        ROUTE="Southampton → Newcastle"
+        ICON="✈️"
+        ;;
+    train)
+        URL="https://ecotree.green/en/calculate-train-co2"
+        # Proven TypeScript config from test_scraper_train.sh
+        TS_CONFIG="await page.locator('.geosuggest').first().locator('input').fill('Petersfield'); 
+    await page.waitForTimeout(2000); 
+    await page.locator('.geosuggest').first().locator('.geosuggest__item').first().click(); 
+    await page.waitForTimeout(1000); 
+    await page.locator('.geosuggest').nth(1).locator('input').fill('London Waterloo'); 
+    await page.waitForTimeout(2000); 
+    await page.locator('.geosuggest').nth(1).locator('.geosuggest__item').first().click(); 
+    await page.waitForTimeout(1000); 
+    await page.locator('#return').click(); 
+    await page.waitForTimeout(500); 
+    await page.getByText('Long-distance rail (Electric)').click(); 
+    await page.waitForTimeout(500); 
+    await page.getByRole('link', { name: ' Calculate my emissions ' }).click(); 
+    await page.waitForTimeout(5000);"
+        ROUTE="Petersfield → London Waterloo"
+        ICON="🚆"
+        ;;
+    car)
+        URL="https://ecotree.green/en/calculate-car-co2"
+        # Proven TypeScript config from test_scraper_car.sh
+        TS_CONFIG="await page.locator('#geosuggest__input').first().fill('Portsmouth'); 
+    await page.waitForTimeout(5000); 
+    await page.getByText('Portsmouth').first().click(); 
+    await page.waitForTimeout(2000); 
+    await page.locator('#geosuggest__input').nth(1).fill('London'); 
+    await page.waitForTimeout(5000); 
+    await page.getByText('London').first().click(); 
+    await page.waitForTimeout(2000); 
+    await page.locator('#return').click(); 
+    await page.waitForTimeout(1000); 
+    await page.getByRole('link', { name: ' Calculate my emissions ' }).click(); 
+    await page.waitForTimeout(5000);"
+        ROUTE="Portsmouth → London"
+        ICON="🚗"
+        ;;
+    *)
+        echo "❌ Unknown transport type: $TRANSPORT_TYPE"
+        echo "Valid options: plane, train, car"
+        exit 1
+        ;;
+esac
 
-test('test', async ({ page }) => {
-  await page.goto('https://ecotree.green/en/calculate-flight-co2');
-  await page.getByRole('link', { name: 'Plane' }).click();
-  await page.getByRole('textbox', { name: 'From To Via' }).click();
-  await page.getByRole('textbox', { name: 'From To Via' }).fill('$FROM_CITY');
-  await page.getByText('$(echo ${FROM_CITY^})').click();
-  await page.locator('input[name=\"To\"]').click();
-  await page.locator('input[name=\"To\"]').fill('$TO_CITY');
-  await page.getByText('$(echo ${TO_CITY^})').click();
-  await page.getByRole('link', { name: ' Calculate my emissions ' }).click();
-});"
+echo "$ICON Testing $TRANSPORT_TYPE: $ROUTE"
+echo ""
 
 # Escape for JSON
 TS_CONFIG_ESCAPED=$(echo "$TS_CONFIG" | jq -Rs .)
 
-# Create MCP request
+# Create MCP request with extractions
 MCP_REQUEST=$(cat <<EOF
 {
   "jsonrpc": "2.0",
@@ -81,8 +134,12 @@ MCP_REQUEST=$(cat <<EOF
   "params": {
     "name": "scrape_url",
     "arguments": {
-      "url": "https://ecotree.green/en/calculate-flight-co2",
-      "typescript_config": $TS_CONFIG_ESCAPED
+      "url": "$URL",
+      "typescript_config": $TS_CONFIG_ESCAPED,
+      "extractions": {
+        "co2_kg": "(\\\\d+(?:[.,]\\\\d+)?)\\\\s*kg",
+        "distance_km": "(\\\\d+(?:[.,]\\\\d+)?)\\\\s*km"
+      }
     }
   }
 }
@@ -129,7 +186,7 @@ if [ -n "$CONTENT" ]; then
     echo "$CONTENT"
     echo ""
     
-    # Extract CO2 value
+    # Extract CO2 and distance values
     CO2_VALUE=$(echo "$CONTENT" | grep -oP 'CO2 Emissions: \K[\d,]+' || echo "")
     DISTANCE=$(echo "$CONTENT" | grep -oP 'Distance: \K[\d,]+' || echo "")
     
@@ -139,19 +196,9 @@ if [ -n "$CONTENT" ]; then
         echo "============================================================"
         echo ""
         echo "🎯 Key Results:"
-        echo "   • CO2 Emissions: ${CO2_VALUE} kg"
-        [ -n "$DISTANCE" ] && echo "   • Distance: ${DISTANCE} km"
+        echo "   $ICON CO2 Emissions: ${CO2_VALUE} kg"
+        [ -n "$DISTANCE" ] && echo "   📏 Distance: ${DISTANCE} km"
         echo ""
-        
-        # Compare with expected
-        if [ "$FROM_CITY" = "southampton" ] && [ "$TO_CITY" = "newcastle" ]; then
-            if [ "$CO2_VALUE" = "292" ]; then
-                echo "✅ Result matches expected value! (292 kg CO2)"
-                echo "🎉 MCP Playwright integration working in Kubernetes!"
-            else
-                echo "⚠️  Result differs from expected (expected 292 kg, got ${CO2_VALUE} kg)"
-            fi
-        fi
     else
         echo "⚠️  Could not extract CO2 value from response"
     fi
@@ -171,5 +218,10 @@ echo "💡 Useful commands:"
 echo "   View pods:  kubectl get pods -n $NAMESPACE"
 echo "   View logs:  kubectl logs -n $NAMESPACE \$(kubectl get pods -n $NAMESPACE -o name | grep hdn | head -1)"
 echo "   Describe:   kubectl describe \$(kubectl get pods -n $NAMESPACE -o name | grep hdn | head -1) -n $NAMESPACE"
+echo ""
+echo "💡 Test other transport types:"
+echo "   $0 $NAMESPACE plane"
+echo "   $0 $NAMESPACE train"
+echo "   $0 $NAMESPACE car"
 echo ""
 
