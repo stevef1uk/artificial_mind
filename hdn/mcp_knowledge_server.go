@@ -4255,12 +4255,13 @@ func (s *MCPKnowledgeServer) callExternalHDNTool(ctx context.Context, toolID str
 // cleanHTMLForPlanning simplifies HTML to make it more digestible for the planning LLM
 func cleanHTMLForPlanning(html string) string {
 	// 1. Remove script, style, svg, and other noise tags with their content
+	// CRITICAL: Must use non-greedy matching (.*?) to avoid eating everything between the first and last tag
 	tagsToRemove := []string{"script", "style", "svg", "path", "link", "meta", "noscript", "iframe", "head"}
 	for _, tag := range tagsToRemove {
 		re := regexp.MustCompile(`(?is)<` + tag + `[^>]*>.*?</` + tag + `>`)
 		html = re.ReplaceAllString(html, "")
-		// Also handle tags that might not have a close tag or are self-closing
-		re = regexp.MustCompile(`(?is)<` + tag + `[^>]*>`)
+		// Also handle self-closing tags
+		re = regexp.MustCompile(`(?is)<` + tag + `[^>]*/>`)
 		html = re.ReplaceAllString(html, "")
 	}
 
@@ -4269,12 +4270,12 @@ func cleanHTMLForPlanning(html string) string {
 	html = re.ReplaceAllString(html, "")
 
 	// 3. Strip extremely noisy attributes that provide no value for scraping/selection
-	// BUT preserve data attributes that might contain actual values (data-symbol, data-field, data-value, value)
 	noisyAttrs := []string{
 		"data-reactid", "data-tracking", "data-ylk", "data-test-id", "data-rapid-context",
 		"data-image-id", "data-beacons", "data-rapid-param", "data-rapid", "data-analytics",
 		"onclick", "onmouseover", "onmouseout", "onload", "onfocus", "onblur",
 		"style", "rel", "target", "width", "height", "role", "aria-[a-z0-9-]*", "tabindex",
+		"viewbox", "d", "clip-rule", "fill", "stroke", "xmlns", "version",
 	}
 	for _, attr := range noisyAttrs {
 		re = regexp.MustCompile(`(?i)\s` + attr + `=(?:'[^']*'|"[^"]*")`)
