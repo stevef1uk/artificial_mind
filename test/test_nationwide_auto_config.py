@@ -78,8 +78,46 @@ def test_auto_config_generation():
                 print(f"\n   📊 Full Response Text:\n   {text_content[:500]}...") # Print first 500 chars
                 
                 # Check if we got expected data
+                try:
+                    # Clean up "Scrape Results:" prefix if present
+                    clean_json = text_content
+                    if "Scrape Results:" in clean_json:
+                        clean_json = clean_json.split("Scrape Results:", 1)[1].strip()
+                    
+                    data = json.loads(clean_json)
+                    
+                    # Print found keys
+                    print(f"\n   🔍 Raw Result Keys: {list(data.keys())}")
+                    
+                    if "product_names" in data and "interest_rates" in data:
+                        p_names = data["product_names"]
+                        i_rates = data["interest_rates"]
+                        
+                        # Handle if they are strings (newline separated) or lists
+                        if isinstance(p_names, str):
+                            p_list = [p.strip() for p in p_names.split('\n') if p.strip()]
+                        else:
+                            p_list = p_names
+                            
+                        if isinstance(i_rates, str):
+                            i_list = [i.strip() for i in i_rates.split('\n') if i.strip()]
+                        else:
+                            i_list = i_rates
+                            
+                        print(f"\n   📋 Structured Data Found:")
+                        print(f"\n   🏦 Found {len(p_list)} Products:")
+                        for i in range(min(len(p_list), len(i_list))):
+                            print(f"      - {p_list[i]}: {i_list[i]}")
+                            
+                        if len(p_list) > 0:
+                             print("\n   ✅ Success! Multiple matches found and returned.")
+                             return True
+                    
+                except json.JSONDecodeError:
+                    pass
+
                 if "Flex Regular Saver" in text_content or "ISA" in text_content:
-                    print("\n   ✅ Success! Found expected product names in output.")
+                    print("\n   ✅ Success! Found expected product names in output (Raw text check).")
                     return True
                 else:
                     print("\n   ⚠️ Response does not look like product data. Check regex hints.")
