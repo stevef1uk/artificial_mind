@@ -772,6 +772,7 @@ func (s *ScraperService) handleStartScrape(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Create job
+	log.Printf("📥 ScrapeRequest received with %d cookies", len(req.Cookies))
 	job := s.store.Create(req.URL, req.TypeScriptConfig, req.Extractions, req.GetHTML, req.Cookies)
 
 	// Queue for processing
