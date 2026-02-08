@@ -301,6 +301,11 @@ func parseOperation(line string) PlaywrightOperation {
 		return PlaywrightOperation{Type: "scopedLocatorClickNth", Selector: matches[1], Index: index, ChildSelector: matches[3]}
 	}
 
+	// bypassConsent special command
+	if strings.Contains(line, "await page.bypassConsent()") {
+		return PlaywrightOperation{Type: "bypassConsent"}
+	}
+
 	// locator with .fill()
 	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "locatorFill", Selector: matches[1], Value: matches[2]}
@@ -447,6 +452,64 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 				log.Printf("   ⚠️ Failed: %v", err)
 			}
 			time.Sleep(300 * time.Millisecond)
+
+		case "bypassConsent":
+			log.Println("🍪 Attempting auto-consent bypass...")
+
+			// 1. Try generic role-based buttons first
+			patterns := []string{
+				"(?i)accept", "(?i)agree", "(?i)continue", "(?i)allow", "(?i)ok", "(?i)yes",
+				"(?i)accepter", "(?i)continuer", "(?i)autoriser", "(?i)j'accepte",
+				"(?i)akzeptieren", "(?i)zustimmen",
+				"(?i)aceptar", "(?i)continuar",
+			}
+
+			clicked := false
+			for _, p := range patterns {
+				// Use regexp for case insensitive matching
+				re := regexp.MustCompile(p)
+				locator := page.GetByRole(pw.AriaRole("button"), pw.PageGetByRoleOptions{Name: re}).First()
+
+				if count, _ := locator.Count(); count > 0 {
+					// Use Force: true to click even if covered by overlay
+					if err := locator.Click(pw.LocatorClickOptions{Timeout: pw.Float(2000), Force: pw.Bool(true)}); err == nil {
+						log.Printf("✅ Clicked consent button pattern: %s", p)
+						clicked = true
+						break
+					}
+				}
+			}
+
+			// 2. Fallback to specific selectors
+			if !clicked {
+				selectors := []string{
+					"button[name='agree']",
+					"button.accept-all",
+					"input[type='submit'][value*='Accept']",
+					"button[id*='accept']", "button[class*='accept']",
+					"button[id*='agree']", "button[class*='agree']",
+					"button[id*='continue']", "button[class*='continue']",
+					"a[id*='accept']", "a[class*='accept']",
+					"form[action*='consent'] input[type='submit']",
+				}
+				for _, sel := range selectors {
+					locator := page.Locator(sel).First()
+					if count, _ := locator.Count(); count > 0 {
+						if err := locator.Click(pw.LocatorClickOptions{Timeout: pw.Float(2000), Force: pw.Bool(true)}); err == nil {
+							log.Printf("✅ Clicked consent selector: %s", sel)
+							clicked = true
+							break
+						}
+					}
+				}
+			}
+
+			if clicked {
+				log.Println("⏳ Waiting 5s for navigation after consent click...")
+				time.Sleep(5 * time.Second)
+			} else {
+				log.Println("⚠️ No consent button found to click after trying all patterns")
+			}
 
 		case "locator":
 			// locator().click()
