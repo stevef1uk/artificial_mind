@@ -37,6 +37,7 @@ type ScrapeRequest struct {
 	TypeScriptConfig string            `json:"typescript_config"`
 	Extractions      map[string]string `json:"extractions,omitempty"`
 	GetHTML          bool              `json:"get_html,omitempty"`
+	Cookies          []pw.Cookie       `json:"cookies,omitempty"` // Session persistence
 }
 
 // ScrapeJob represents a scrape job in the queue
@@ -46,6 +47,7 @@ type ScrapeJob struct {
 	TypeScriptConfig string                 `json:"typescript_config"`
 	Extractions      map[string]string      `json:"extractions,omitempty"`
 	GetHTML          bool                   `json:"get_html,omitempty"`
+	Cookies          []pw.Cookie            `json:"cookies,omitempty"`
 	Status           string                 `json:"status"`
 	CreatedAt        time.Time              `json:"created_at"`
 	StartedAt        *time.Time             `json:"started_at,omitempty"`
@@ -79,7 +81,7 @@ func NewJobStore() *JobStore {
 	}
 }
 
-func (s *JobStore) Create(url, tsConfig string, extractions map[string]string, getHTML bool) *ScrapeJob {
+func (s *JobStore) Create(url, tsConfig string, extractions map[string]string, getHTML bool, cookies []pw.Cookie) *ScrapeJob {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -89,6 +91,7 @@ func (s *JobStore) Create(url, tsConfig string, extractions map[string]string, g
 		TypeScriptConfig: tsConfig,
 		Extractions:      extractions,
 		GetHTML:          getHTML,
+		Cookies:          cookies,
 		Status:           JobStatusPending,
 		CreatedAt:        time.Now(),
 	}
@@ -232,7 +235,7 @@ func (s *ScraperService) executeJob(job *ScrapeJob) (map[string]interface{}, err
 	log.Printf("📋 Parsed %d operations", len(operations))
 
 	// Execute Playwright operations
-	return executePlaywrightOperations(job.URL, operations, job.Extractions, job.GetHTML)
+	return executePlaywrightOperations(job.URL, operations, job.Extractions, job.GetHTML, job.Cookies)
 }
 
 func parseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
@@ -352,7 +355,7 @@ func parseOperation(line string) PlaywrightOperation {
 	return PlaywrightOperation{}
 }
 
-func executePlaywrightOperations(url string, operations []PlaywrightOperation, extractions map[string]string, getHTML bool) (map[string]interface{}, error) {
+func executePlaywrightOperations(url string, operations []PlaywrightOperation, extractions map[string]string, getHTML bool, cookies []pw.Cookie) (map[string]interface{}, error) {
 	// Start Playwright
 	pwInstance, err := pw.Run()
 	if err != nil {
@@ -397,6 +400,43 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 	page, err := browser.NewPage()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create page: %v", err)
+	}
+
+	// Restore cookies if provided
+	if len(cookies) > 0 {
+		log.Printf("🍪 Restoring %d cookies for session...", len(cookies))
+		var optionalCookies []pw.OptionalCookie
+		for _, c := range cookies {
+			// Create pointers for optional fields
+			name := c.Name
+			val := c.Value
+			domain := c.Domain
+			path := c.Path
+			httpOnly := c.HttpOnly
+			secure := c.Secure
+			expires := c.Expires
+
+			oc := pw.OptionalCookie{
+				Name:     name,
+				Value:    val,
+				Domain:   &domain,
+				Path:     &path,
+				HttpOnly: &httpOnly,
+				Secure:   &secure,
+				Expires:  &expires,
+			}
+			/*
+				if c.SameSite != "None" {
+					// samesite := pw.SameSiteAttribute(c.SameSite)
+					// oc.SameSite = &samesite
+				}
+			*/
+			optionalCookies = append(optionalCookies, oc)
+		}
+
+		if err := page.Context().AddCookies(optionalCookies); err != nil {
+			log.Printf("⚠️ Failed to restore cookies: %v", err)
+		}
 	}
 	defer page.Close()
 
@@ -622,6 +662,12 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 	log.Println("📊 Extracting results...")
 
 	results := make(map[string]interface{})
+
+	// Capture cookies for session persistence
+	if cookies, err := page.Context().Cookies(); err == nil {
+		results["cookies"] = cookies
+	}
+
 	results["page_url"] = page.URL()
 	results["page_title"], _ = page.Title()
 
@@ -726,7 +772,7 @@ func (s *ScraperService) handleStartScrape(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Create job
-	job := s.store.Create(req.URL, req.TypeScriptConfig, req.Extractions, req.GetHTML)
+	job := s.store.Create(req.URL, req.TypeScriptConfig, req.Extractions, req.GetHTML, req.Cookies)
 
 	// Queue for processing
 	s.jobQueue <- job.ID
