@@ -4036,8 +4036,9 @@ Generate the JSON configuration to extract the data requested in the GOAL.
 
 INSTRUCTIONS:
 - Identify the data requested in the GOAL.
+- STRICT RULE: ONLY use attributes (class, id, data-ref) that you see in the HTML SNAPSHOT.
+- NEVER invent attributes like 'data-rate' or 'product-id' if they are not in the snapshot.
 - If the page has a <table>, focus your regex on matching <tr> rows within <tbody>.
-- Create specific field names in 'extractions' (e.g., "account", "rate").
 - Use ONLY single quotes (') for HTML attributes in your regex. e.g. class='name'
 - Capture ONLY the data you want in the first ().
 - CRITICAL: Your response MUST be valid JSON. Double all backslashes: \\s, \\d, \\S.
