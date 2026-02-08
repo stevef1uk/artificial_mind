@@ -3872,6 +3872,35 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 		}
 	}
 
+	// 2.5 ALWAYS sanitize ALL extractions here (both LLM-generated and user-provided)
+	// This ensures we fix lookarounds and missing groups before fast-path or navigation.
+	for k, v := range config.Extractions {
+		// 1. Fix lookarounds
+		sanitized := strings.ReplaceAll(v, "(?<=", "(?:")
+		sanitized = strings.ReplaceAll(sanitized, "(?=", "(?:")
+
+		// 2. Wrap in capturing group if AI or user forgot a CAPTURING group
+		hasCapture := false
+		for i := 0; i < len(sanitized); i++ {
+			if sanitized[i] == '(' {
+				// check if escaped
+				if i > 0 && sanitized[i-1] == '\\' {
+					continue
+				}
+				if i+1 < len(sanitized) && sanitized[i+1] != '?' {
+					hasCapture = true
+					break
+				}
+			}
+		}
+
+		if !hasCapture {
+			sanitized = "(" + sanitized + ")"
+		}
+
+		config.Extractions[k] = sanitized
+	}
+
 	// 3. Fast Path: If no extra navigation is required, extract from the HTML we already have
 	if config.TypeScriptConfig == "" || strings.TrimSpace(config.TypeScriptConfig) == "// no navigation needed" {
 		log.Printf("⚡ [MCP-SMART-SCRAPE] Fast-path: Extracting from existing HTML (no extra navigation needed)")
@@ -4173,35 +4202,6 @@ INSTRUCTIONS:
 
 	if parseErr != nil {
 		return nil, fmt.Errorf("failed to parse LLM planning response: %v (response was: %s)", parseErr, response)
-	}
-
-	// ALWAYS sanitize all extractions at the end, regardless of parsing path
-	for k, v := range config.Extractions {
-		// 1. Fix lookarounds
-		sanitized := strings.ReplaceAll(v, "(?<=", "(?:")
-		sanitized = strings.ReplaceAll(sanitized, "(?=", "(?:")
-
-		// 2. Wrap in capturing group if AI forgot a CAPTURING group
-		// (A capturing group is a '(' not followed by '?' or '\')
-		hasCapture := false
-		for i := 0; i < len(sanitized); i++ {
-			if sanitized[i] == '(' {
-				// check if escaped
-				if i > 0 && sanitized[i-1] == '\\' {
-					continue
-				}
-				if i+1 < len(sanitized) && sanitized[i+1] != '?' {
-					hasCapture = true
-					break
-				}
-			}
-		}
-
-		if !hasCapture {
-			sanitized = "(" + sanitized + ")"
-		}
-
-		config.Extractions[k] = sanitized
 	}
 
 	return &config, nil
