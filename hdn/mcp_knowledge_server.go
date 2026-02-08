@@ -3799,6 +3799,30 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 		return nil, fmt.Errorf("scraper did not return cleaned_html")
 	}
 
+	// 1.5. Check if this is a consent/cookie page and handle it
+	if isConsentPage(cleanedHTML) {
+		log.Printf("🍪 [MCP-SMART-SCRAPE] Detected consent/cookie page, attempting to bypass...")
+
+		// Generate TypeScript to click accept button
+		consentTS := generateConsentBypassScript()
+
+		// Execute the consent bypass and re-fetch the page
+		bypassResult, err := s.scrapeWithConfig(ctx, url, consentTS, false, nil, true)
+		if err != nil {
+			log.Printf("⚠️ [MCP-SMART-SCRAPE] Failed to bypass consent page: %v, continuing anyway", err)
+		} else {
+			// Update HTML with the new page content
+			if bypassMap, ok := bypassResult.(map[string]interface{}); ok {
+				if bypassInner, ok := bypassMap["result"].(map[string]interface{}); ok {
+					if newHTML, ok := bypassInner["cleaned_html"].(string); ok && newHTML != "" {
+						log.Printf("✅ [MCP-SMART-SCRAPE] Successfully bypassed consent page, got %d chars of new HTML", len(newHTML))
+						cleanedHTML = newHTML
+					}
+				}
+			}
+		}
+	}
+
 	// 2. Plan the scrape using LLM
 	log.Printf("📋 [MCP-SMART-SCRAPE] Planning scrape config with LLM (%d chars of HTML)...", len(cleanedHTML))
 	config, err := s.planScrapeWithLLM(ctx, cleanedHTML, goal, userConfig)
@@ -3993,4 +4017,81 @@ func (s *MCPKnowledgeServer) callExternalHDNTool(ctx context.Context, toolID str
 	}
 
 	return result, nil
+}
+
+// isConsentPage detects if the HTML content is a consent/cookie page
+func isConsentPage(html string) bool {
+htmlLower := strings.ToLower(html)
+
+// Check for common consent page indicators
+consentKeywords := []string{
+sent",
+sent",
+age cookies",
+gs",
+gs",
+tinue",
+fidentialité", // French: privacy settings
+   // French: your settings
+sent.google",
+sent.yahoo",
+t := 0
+for _, keyword := range consentKeywords {
+gs.Contains(htmlLower, keyword) {
+t++
+d 2 or more consent-related keywords, it's likely a consent page
+return matchCount >= 2
+}
+
+// generateConsentBypassScript generates TypeScript to click common consent buttons
+func generateConsentBypassScript() string {
+return `
+// Try to find and click consent/accept buttons
+try {
+  // Common button texts in multiple languages
+  const acceptTexts = [
+    /accept/i, /agree/i, /continue/i, /allow/i, /ok/i,
+    /accepter/i, /continuer/i, /autoriser/i,  // French
+    /akzeptieren/i, /zustimmen/i,              // German
+    /aceptar/i, /continuar/i                   // Spanish
+  ];
+  
+  // Try each pattern
+  for (const pattern of acceptTexts) {
+    try {
+      await page.getByRole('button', { name: pattern }).first().click({ timeout: 2000 });
+      console.log('Clicked consent button with pattern:', pattern);
+      await page.waitForTimeout(2000);
+      break;
+    } catch (e) {
+      // Try next pattern
+    }
+  }
+  
+  // Also try common button IDs/classes
+  const selectors = [
+    'button[id*="accept"]',
+    'button[class*="accept"]',
+    'button[id*="agree"]',
+    'button[class*="agree"]',
+    'button[id*="continue"]',
+    'button[class*="continue"]',
+    'a[id*="accept"]',
+    'a[class*="accept"]'
+  ];
+  
+  for (const selector of selectors) {
+    try {
+      await page.locator(selector).first().click({ timeout: 1000 });
+      console.log('Clicked consent element:', selector);
+      await page.waitForTimeout(2000);
+      break;
+    } catch (e) {
+      // Try next selector
+    }
+  }
+} catch (error) {
+  console.log('No consent button found or already accepted');
+}
+`
 }
