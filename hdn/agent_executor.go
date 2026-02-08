@@ -496,7 +496,7 @@ Synthesized Response:`, input, string(resultsJSON))
 		// This keeps the UI responsive and clean.
 		isHuge := false
 		resultsJSON_raw, _ := json.Marshal(results)
-		if len(resultsJSON_raw) > 5000 {
+		if len(resultsJSON_raw) > 5000000 {
 			isHuge = true
 		}
 
