@@ -527,13 +527,7 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 	var jsonData []byte
 	var err error
 
-	// Check if openai_url is set - if so, use OpenAI format even if provider is "local"
-	var useOpenAIFormat bool
-	if url, ok := client.config.Settings["openai_url"]; ok && strings.TrimSpace(url) != "" {
-		useOpenAIFormat = true
-	}
-
-	if client.config.LLMProvider == "local" && !useOpenAIFormat {
+	if client.config.LLMProvider == "local" || client.config.LLMProvider == "ollama" {
 		// Ollama uses a different format
 		ollamaRequest := map[string]interface{}{
 			"model": client.getModelName(),
@@ -649,7 +643,7 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 
 	// Parse response based on provider
 	// Reuse useOpenAIFormat from above (already declared at line 527)
-	if client.config.LLMProvider == "local" && !useOpenAIFormat {
+	if client.config.LLMProvider == "local" || client.config.LLMProvider == "ollama" {
 		// Ollama response format
 		log.Printf("🌐 [ASYNC-LLM] Parsing Ollama response")
 		var ollamaResp map[string]interface{}
