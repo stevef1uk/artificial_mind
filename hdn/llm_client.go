@@ -487,7 +487,9 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 	var apiKey string
 
 	// Check if openai_url is set - if so, use OpenAI-compatible endpoint regardless of provider
-	if url, ok := client.config.Settings["openai_url"]; ok && strings.TrimSpace(url) != "" {
+	// EXCEPT if the provider is explicitly 'ollama' or 'local', in which case we prefer the native API for advanced options like num_ctx
+	if url, ok := client.config.Settings["openai_url"]; ok && strings.TrimSpace(url) != "" &&
+		client.config.LLMProvider != "ollama" && client.config.LLMProvider != "local" {
 		apiURL = strings.TrimSpace(url)
 		if !strings.HasSuffix(apiURL, "/v1/chat/completions") {
 			apiURL = strings.TrimRight(apiURL, "/") + "/v1/chat/completions"
@@ -505,8 +507,10 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 			apiKey = client.config.LLMAPIKey
 			log.Printf("🌐 [ASYNC-LLM] Using Anthropic API")
 		case "local", "ollama":
-			// For local models, use Ollama. Allow override via settings["ollama_url"].
+			// For local models, use Ollama. Allow override via settings["ollama_url"] or settings["openai_url"].
 			if url, ok := client.config.Settings["ollama_url"]; ok && strings.TrimSpace(url) != "" {
+				apiURL = normalizeOllamaURL(strings.TrimSpace(url))
+			} else if url, ok := client.config.Settings["openai_url"]; ok && strings.TrimSpace(url) != "" {
 				apiURL = normalizeOllamaURL(strings.TrimSpace(url))
 			} else {
 				apiURL = "http://localhost:11434/api/chat"

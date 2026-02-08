@@ -3888,9 +3888,10 @@ func (s *MCPKnowledgeServer) planScrapeWithLLM(ctx context.Context, html string,
 
 	// Normalize HTML for LLM
 	html = strings.ReplaceAll(html, "\"", "'")
-	if len(html) > 150000 {
-		html = html[:150000] + "...(truncated)"
-		log.Printf("⚠️ [MCP-SMART-SCRAPE] HTML still exceeding 150k limit, truncated")
+	// Since we now have a 32k token window, we can safely send more cleaned HTML
+	if len(html) > 175000 {
+		html = html[:175000] + "...(truncated)"
+		log.Printf("⚠️ [MCP-SMART-SCRAPE] HTML still exceeding 175k limit, truncated")
 	}
 
 	systemPrompt := `You are an expert web scraper configuration generator.
