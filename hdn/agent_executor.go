@@ -436,6 +436,35 @@ record_history:
 		"tool_calls": toolCalls,
 	}
 
+	// NEW: Response Synthesis Step
+	// If we have an LLM client, use it to synthesize a human-readable summary of the results
+	if e.llmClient != nil && len(results) > 0 {
+		log.Printf("🤖 [AGENT-EXECUTOR] Synthesizing human-readable response...")
+
+		resultsJSON, _ := json.MarshalIndent(results, "", "  ")
+		synthesisPrompt := fmt.Sprintf(`You are the Response Synthesis Engine for an Intelligent AI Agent.
+The user asked: "%s"
+
+The agent executed several tools and obtained the following raw results:
+%s
+
+Your task is to synthesize a clean, friendly, and highly readable response for the user based ONLY on these results.
+- Use Markdown formatting (tables, bullet points, bold text).
+- Be concise but complete.
+- If the data is a list of items (like news stories or prices), present them in a clear table or list.
+- If no results were found or an error occurred, explain that clearly.
+
+Synthesized Response:`, input, string(resultsJSON))
+
+		summary, err := e.llmClient.callLLMWithContextAndPriority(ctx, synthesisPrompt, PriorityHigh)
+		if err != nil {
+			log.Printf("⚠️ [AGENT-EXECUTOR] Response synthesis failed: %v", err)
+		} else {
+			log.Printf("✅ [AGENT-EXECUTOR] Response synthesized successfully")
+			result["summary"] = strings.TrimSpace(summary)
+		}
+	}
+
 	// Record successful execution in history
 	if e.history != nil && executionID != "" {
 		execution := &AgentExecution{
