@@ -1281,8 +1281,9 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 
 		// Find the html-scraper binary
 		candidates := []string{
-			filepath.Join(projectRoot, "bin", "html-scraper"),
+			"/app/bin/tools/html_scraper", // Kubernetes deployment path
 			filepath.Join(projectRoot, "bin", "tools", "html_scraper"),
+			filepath.Join(projectRoot, "bin", "html-scraper"),
 			"bin/html-scraper",
 			"../bin/html-scraper",
 		}
@@ -1295,22 +1296,29 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 				} else {
 					scraperBin = candidate
 				}
+				log.Printf("🔍 [MCP-SCRAPE] Found html_scraper at: %s", scraperBin)
 				break
 			}
 		}
 
 		if scraperBin == "" {
+			log.Printf("⚠️ [MCP-SCRAPE] html_scraper binary not found, using fallback HTTP client with HTML cleaning")
 			// Fallback to raw HTTP client if scraper not found
 			client := NewSafeHTTPClient()
 			content, err := client.SafeGetWithContentCheck(ctx, url)
 			if err != nil {
 				return nil, err
 			}
+
+			// Clean up HTML to make it more readable
+			// Remove script tags, style tags, and extract text
+			cleaned := cleanHTMLForDisplay(content)
+
 			return map[string]interface{}{
 				"content": []map[string]interface{}{
 					{
 						"type": "text",
-						"text": content,
+						"text": cleaned,
 					},
 				},
 			}, nil
