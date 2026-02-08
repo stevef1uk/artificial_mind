@@ -186,9 +186,9 @@ if [ -n "$CONTENT" ]; then
     echo "$CONTENT"
     echo ""
     
-    # Extract CO2 and distance values
-    CO2_VALUE=$(echo "$CONTENT" | grep -oP 'CO2 Emissions: \K[\d,]+' || echo "")
-    DISTANCE=$(echo "$CONTENT" | grep -oP 'Distance: \K[\d,]+' || echo "")
+    # Extract CO2 and distance values from the JSON result
+    CO2_VALUE=$(echo "$RESPONSE" | jq -r '.result.result.co2_kg // empty')
+    DISTANCE=$(echo "$RESPONSE" | jq -r '.result.result.distance_km // empty')
     
     if [ -n "$CO2_VALUE" ]; then
         echo "============================================================"
