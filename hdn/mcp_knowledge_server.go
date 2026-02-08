@@ -4058,10 +4058,13 @@ INSTRUCTIONS:
 			lines := strings.Split(cleanedResponse, "\n")
 			for i, line := range lines {
 				if idx := strings.Index(line, "//"); idx != -1 {
-					// Check if it's not inside a string (naive check: count quotes?)
-					// For now, assume comments are at end of line outside strings.
-					// Simple hack: if // is preceded by http: or https:, don't strip.
-					if !strings.Contains(line[:idx], "http:") && !strings.Contains(line[:idx], "https:") {
+					// Check if it's a URL (preceded by :)
+					isUrl := false
+					if idx > 0 && line[idx-1] == ':' {
+						isUrl = true
+					}
+
+					if !isUrl {
 						lines[i] = line[:idx]
 					}
 				}
@@ -4102,9 +4105,27 @@ INSTRUCTIONS:
 							sanitized = strings.ReplaceAll(sanitized, "(?=", "(?:")
 							config.Extractions[k] = sanitized
 						} else if arrVal, ok := v.([]interface{}); ok {
-							// Handle array of strings case (LLM often returns single-element array)
+							// Handle array of strings OR array of objects case
 							if len(arrVal) > 0 {
-								if firstStr, ok := arrVal[0].(string); ok {
+								var firstStr string
+								foundArr := false
+
+								// Check if first element is string
+								if s, ok := arrVal[0].(string); ok {
+									firstStr = s
+									foundArr = true
+								} else if obj, ok := arrVal[0].(map[string]interface{}); ok {
+									// Check for "regex" or "pattern" in object
+									if r, ok := obj["regex"].(string); ok {
+										firstStr = r
+										foundArr = true
+									} else if p, ok := obj["pattern"].(string); ok {
+										firstStr = p
+										foundArr = true
+									}
+								}
+
+								if foundArr {
 									sanitized := strings.ReplaceAll(firstStr, "(?<=", "(?:")
 									sanitized = strings.ReplaceAll(sanitized, "(?=", "(?:")
 									config.Extractions[k] = sanitized
