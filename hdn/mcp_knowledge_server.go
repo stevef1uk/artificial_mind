@@ -3880,10 +3880,13 @@ func (s *MCPKnowledgeServer) planScrapeWithLLM(ctx context.Context, html string,
 		return nil, fmt.Errorf("LLM client not configured on knowledge server")
 	}
 
+	// Clean HTML for LLM to avoid distraction and stay within context limits
+	html = cleanHTMLForPlanning(html)
+
 	// Normalize HTML for LLM
 	html = strings.ReplaceAll(html, "\"", "'")
-	if len(html) > 125000 {
-		html = html[:125000] + "...(truncated)"
+	if len(html) > 150000 {
+		html = html[:150000] + "...(truncated)"
 	}
 
 	systemPrompt := `You are an expert web scraper configuration generator.
@@ -4031,4 +4034,40 @@ func (s *MCPKnowledgeServer) callExternalHDNTool(ctx context.Context, toolID str
 	}
 
 	return result, nil
+}
+
+// cleanHTMLForPlanning simplifies HTML to make it more digestible for the planning LLM
+func cleanHTMLForPlanning(html string) string {
+	// 1. Remove script, style, svg, and other noise tags with their content
+	tagsToRemove := []string{"script", "style", "svg", "path", "link", "meta", "noscript", "iframe", "head"}
+	for _, tag := range tagsToRemove {
+		re := regexp.MustCompile(`(?is)<` + tag + `[^>]*>.*?</` + tag + `>`)
+		html = re.ReplaceAllString(html, "")
+		// Also handle tags that might not have a close tag or are self-closing
+		re = regexp.MustCompile(`(?is)<` + tag + `[^>]*>`)
+		html = re.ReplaceAllString(html, "")
+	}
+
+	// 2. Remove HTML comments
+	re := regexp.MustCompile(`(?s)<!--.*?-->`)
+	html = re.ReplaceAllString(html, "")
+
+	// 3. Strip extremely noisy attributes that provide no value for scraping/selection
+	noisyAttrs := []string{
+		"data-reactid", "data-tracking", "data-ylk", "data-test-id", "data-rapid-context",
+		"onclick", "onmouseover", "onmouseout", "onload", "onfocus", "onblur",
+		"style", "rel", "target", "width", "height", "role", "aria-[a-z0-9-]*", "tabindex",
+	}
+	for _, attr := range noisyAttrs {
+		re = regexp.MustCompile(`(?i)\s` + attr + `=(?:'[^']*'|"[^"]*")`)
+		html = re.ReplaceAllString(html, "")
+	}
+
+	// 4. Compact multiple spaces and newlines
+	re = regexp.MustCompile(`\n+`)
+	html = re.ReplaceAllString(html, "\n")
+	re = regexp.MustCompile(`[ \t]+`)
+	html = re.ReplaceAllString(html, " ")
+
+	return strings.TrimSpace(html)
 }
