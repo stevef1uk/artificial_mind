@@ -119,9 +119,6 @@ agents:
       the user needs, whether it's interest rates, product details, or news.
     tools:
       - smart_scrape
-      - scrape_url
-      - execute_code
-      - tool_http_get
     capabilities:
       max_iterations: 15
       allow_delegation: false
