@@ -3838,7 +3838,12 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 
 	// 2. Plan the scrape using LLM
 	log.Printf("📋 [MCP-SMART-SCRAPE] Planning scrape config with LLM (%d chars of HTML)...", len(cleanedHTML))
-	config, err := s.planScrapeWithLLM(ctx, cleanedHTML, goal, userConfig)
+
+	// Create a longer timeout context specifically for LLM planning (Ollama can be slow with large HTML)
+	planCtx, planCancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer planCancel()
+
+	config, err := s.planScrapeWithLLM(planCtx, cleanedHTML, goal, userConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to plan scrape with LLM: %v", err)
 	}
@@ -3959,8 +3964,11 @@ REGEX RULES:
 2. USE CAPTURING GROUPS () for the value. The scraper uses the FIRST group as the result.
 3. Target the HTML tags you see in the snapshot.
 4. Use single quotes (') for HTML attributes in your regex. e.g. class='[^']*price[^']*'
-5. Example for price: "class='[^']*price[^']*'>\s*([$0-9,.]+)"
-6. If extracting from a table, match one specific cell: "class='[^']*market-cap[^']*'>\s*([^<]+)"
+5. IMPORTANT: Use [^>]*? to skip unknown attributes between class and the closing >.
+6. Example for price in a span: "class='[^']*price[^']*'[^>]*?>\\s*([$€£0-9,.]+)"
+7. Example for price in a div: "<div[^>]*class='[^']*price[^']*'[^>]*?>\\s*([$€£0-9,.]+)"
+8. If extracting from a table cell: "<td[^>]*class='[^']*market-cap[^']*'[^>]*?>\\s*([^<]+)"
+9. For Yahoo Finance specifically, prices are often in: <fin-streamer[^>]*data-symbol='AAPL'[^>]*>([0-9,.]+)</fin-streamer>
 
 Output ONLY the JSON object. Do NOT wrap in markdown code blocks like ` + "```json" + `. Start the response with '{'.`
 
