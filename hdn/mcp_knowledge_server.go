@@ -4053,18 +4053,61 @@ INSTRUCTIONS:
 	if first := strings.Index(cleanedResponse, "{"); first != -1 {
 		if last := strings.LastIndex(cleanedResponse, "}"); last != -1 && last > first {
 			cleanedResponse = cleanedResponse[first : last+1]
+
+			// robust: remove JS comments (like // ...)
+			lines := strings.Split(cleanedResponse, "\n")
+			for i, line := range lines {
+				if idx := strings.Index(line, "//"); idx != -1 {
+					// Check if it's not inside a string (naive check: count quotes?)
+					// For now, assume comments are at end of line outside strings.
+					// Simple hack: if // is preceded by http: or https:, don't strip.
+					if !strings.Contains(line[:idx], "http:") && !strings.Contains(line[:idx], "https:") {
+						lines[i] = line[:idx]
+					}
+				}
+			}
+			cleanedResponse = strings.Join(lines, "\n")
+
 			if err := json.Unmarshal([]byte(cleanedResponse), &rawMap); err == nil {
 				// Successfully parsed into map, now map to struct
-				if extractions, ok := rawMap["extractions"].(map[string]interface{}); ok {
+
+				// Handle both "extractions" and "extraction_instructions"
+				var extractions map[string]interface{}
+				if ex, ok := rawMap["extractions"].(map[string]interface{}); ok {
+					extractions = ex
+				} else if ex, ok := rawMap["extraction_instructions"].(map[string]interface{}); ok {
+					extractions = ex
+				}
+
+				if extractions != nil {
 					config.Extractions = make(map[string]string)
 					for k, v := range extractions {
-						if strVal, ok := v.(string); ok {
-							config.Extractions[k] = strVal
+						var strVal string
+						found := false
+
+						if s, ok := v.(string); ok {
+							strVal = s
+							found = true
+						} else if obj, ok := v.(map[string]interface{}); ok {
+							// Handle object { "type": "regex", "pattern": "..." }
+							if p, ok := obj["pattern"].(string); ok {
+								strVal = p
+								found = true
+							}
+						}
+
+						if found {
+							// Fix lookarounds that break Go regexp
+							sanitized := strings.ReplaceAll(strVal, "(?<=", "(?:")
+							sanitized = strings.ReplaceAll(sanitized, "(?=", "(?:")
+							config.Extractions[k] = sanitized
 						} else if arrVal, ok := v.([]interface{}); ok {
 							// Handle array of strings case (LLM often returns single-element array)
 							if len(arrVal) > 0 {
 								if firstStr, ok := arrVal[0].(string); ok {
-									config.Extractions[k] = firstStr
+									sanitized := strings.ReplaceAll(firstStr, "(?<=", "(?:")
+									sanitized = strings.ReplaceAll(sanitized, "(?=", "(?:")
+									config.Extractions[k] = sanitized
 									log.Printf("⚠️ [MCP-SMART-SCRAPE] LLM sent array for extraction '%s', using first element", k)
 								}
 							}
