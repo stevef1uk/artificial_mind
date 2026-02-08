@@ -3898,16 +3898,18 @@ func (s *MCPKnowledgeServer) planScrapeWithLLM(ctx context.Context, html string,
 Your task is to analyze an HTML snapshot and generate a scraping plan to achieve a specific GOAL.
 
 Goal: Generate a valid JSON object with:
-- "typescript_config": (string) A sequence of Playwright commands (e.g., await page.click('...')) to navigate or reveal data (like clicking tabs) if required by the goal.
-- "extractions": (map) A set of named extraction patterns where key is the field name and value is a REGEX string to extract that data.
+- "typescript_config": (string) A sequence of Playwright JS commands (e.g., await page.click('...')) to navigate or reveal data if required. MUST BE A STRING, NOT AN OBJECT.
+- "extractions": (map) A set of named extraction patterns where key is the field name and value is a standard REGEX string.
 
 REGEX RULES:
-1. ONLY standard Go regex (NO lookarounds like ?<= or ?=).
-2. USE CAPTURING GROUPS () if you want to extract specific text. The scraper uses the first group.
-3. Use single quotes (') for HTML attributes in your regex.
-4. Use [^>]*? to skip unknown attributes in a tag.
-5. Use .*? to match across tags or within rows.
-Output ONLY the JSON object.`
+1. ONLY standard Go regex (NO lookarounds).
+2. USE CAPTURING GROUPS () for the value. The scraper uses the FIRST group as the result.
+3. Target the HTML tags you see in the snapshot.
+4. Use single quotes (') for HTML attributes in your regex. e.g. class='[^']*price[^']*'
+5. Example for price: "class='[^']*price[^']*'>\s*([$0-9,.]+)"
+6. If extracting from a table, match one specific cell: "class='[^']*market-cap[^']*'>\s*([^<]+)"
+
+Output ONLY the JSON object. Do NOT wrap in markdown code blocks like ` + "```json" + `. Start the response with '{'.`
 
 	userPrompt := fmt.Sprintf(`### GOAL
 %s
@@ -3946,35 +3948,43 @@ INSTRUCTIONS:
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("🤖 [MCP-SMART-SCRAPE] Raw LLM planning response: %s", response)
 
 	// Clean/Parse JSON - Enhanced extraction logic
 	var config ScrapeConfig
 	var parseErr error
 
-	// Try approach 1: Find first { and try parsing incrementally from there
-	if idx := strings.Index(response, "{"); idx != -1 {
-		// Try progressively from first { to end of string
-		for endIdx := idx + 1; endIdx <= len(response); endIdx++ {
-			candidate := response[idx:endIdx]
-
-			// Try to unmarshal this candidate
-			var tempConfig ScrapeConfig
-			if err := json.Unmarshal([]byte(candidate), &tempConfig); err == nil {
-				// Success! We found valid JSON
-				config = tempConfig
+	// Try approach 1: Parse into map first for maximum resilience
+	var rawMap map[string]interface{}
+	cleanedResponse := response
+	if first := strings.Index(cleanedResponse, "{"); first != -1 {
+		if last := strings.LastIndex(cleanedResponse, "}"); last != -1 && last > first {
+			cleanedResponse = cleanedResponse[first : last+1]
+			if err := json.Unmarshal([]byte(cleanedResponse), &rawMap); err == nil {
+				// Successfully parsed into map, now map to struct
+				if extractions, ok := rawMap["extractions"].(map[string]interface{}); ok {
+					config.Extractions = make(map[string]string)
+					for k, v := range extractions {
+						if strVal, ok := v.(string); ok {
+							config.Extractions[k] = strVal
+						}
+					}
+				}
+				if ts, ok := rawMap["typescript_config"].(string); ok {
+					config.TypeScriptConfig = ts
+				} else if tsObj, ok := rawMap["typescript_config"]; ok && tsObj != nil {
+					// Fallback: if they sent an object instead of string, marshal it back to string or log warning
+					tsBytes, _ := json.Marshal(tsObj)
+					config.TypeScriptConfig = string(tsBytes)
+					log.Printf("⚠️ [MCP-SMART-SCRAPE] LLM sent object for typescript_config instead of string, marshaled to JSON")
+				}
 				parseErr = nil
-				break
-			}
-			parseErr = err
-
-			// Skip if we haven't found a closing brace yet
-			if strings.LastIndex(candidate, "}") == -1 {
-				continue
+			} else {
+				parseErr = err
 			}
 		}
 	}
 
-	// If that didn't work, try the old approach (first { to last })
 	if parseErr != nil {
 		cleanedResponse := response
 		if idx := strings.Index(cleanedResponse, "{"); idx != -1 {
