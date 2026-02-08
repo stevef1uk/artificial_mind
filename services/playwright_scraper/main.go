@@ -602,19 +602,19 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 			// Try matching against the combined search content
 			allMatches := re.FindAllStringSubmatch(searchContent, -1)
 			if len(allMatches) > 0 {
-				var finalMatches []string
-				for _, m := range allMatches {
-					if len(m) > 1 {
-						// Only use the first capturing group
-						finalMatches = append(finalMatches, strings.TrimSpace(m[1]))
-					} else {
-						finalMatches = append(finalMatches, strings.TrimSpace(m[0]))
-					}
+				var firstMatch string
+				// Only use the first match to avoid capturing multiple values
+				m := allMatches[0]
+				if len(m) > 1 {
+					// Only use the first capturing group
+					firstMatch = strings.TrimSpace(m[1])
+				} else {
+					firstMatch = strings.TrimSpace(m[0])
 				}
 
-				if len(finalMatches) > 0 {
-					results[name] = strings.Join(finalMatches, "\n")
-					log.Printf("   ✅ Found %d matches for %s", len(finalMatches), name)
+				if firstMatch != "" {
+					results[name] = firstMatch
+					log.Printf("   ✅ Found %d matches for %s, using first: %s", len(allMatches), name, firstMatch)
 				}
 			} else {
 				log.Printf("   ❌ No match for %s", name)
