@@ -799,10 +799,18 @@ func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig
 								var extracted []string
 								for _, match := range matches {
 									if len(match) > 1 {
-										for i := 1; i < len(match); i++ {
+										// Prioritize the last non-empty capture group
+										// (LLMs often capture a class in group 1 and data in group 2)
+										found := false
+										for i := len(match) - 1; i >= 1; i-- {
 											if match[i] != "" {
 												extracted = append(extracted, match[i])
+												found = true
+												break
 											}
+										}
+										if !found {
+											extracted = append(extracted, match[0])
 										}
 									}
 								}
@@ -3944,8 +3952,7 @@ func (s *MCPKnowledgeServer) planScrapeWithLLM(ctx context.Context, html string,
 	cleanedLen := len(html)
 	log.Printf("🧹 [MCP-SMART-SCRAPE] HTML cleaned for planning: %d -> %d chars (reduced by %.1f%%)", originalLen, cleanedLen, float64(originalLen-cleanedLen)/float64(originalLen)*100)
 
-	// Normalize HTML for LLM
-	html = strings.ReplaceAll(html, "\"", "'")
+	// Normalize HTML for LLM - remove destructive replacement that breaks regex matching
 	// Since we have a 32k token window (~131k chars), 120k is a safe limit to avoid losing the system prompt
 	if len(html) > 120000 {
 		html = html[:120000] + "...(truncated)"
@@ -4032,8 +4039,8 @@ INSTRUCTIONS:
 - Identify the data requested in the GOAL.
 - Create specific field names in 'extractions' for each piece of data (e.g., "account_name", "interest_rate").
 - If the goal asks for a list or table, create regex patterns that match one row at a time. The scraper will find all occurrences.
-- Use class='[^']*KEYWORD[^']*' to match elements based on partial class names you see in the HTML.
-- If you need to click something first (like a "Show More" button or a tab), include it in 'typescript_config'.
+- Use the EXACT quotes and attributes you see in the HTML snapshot.
+- Capture ONLY the data you want. Do NOT capture HTML tags or CSS classes.
 - Output ONLY valid JSON.`
 
 	// Call LLM
