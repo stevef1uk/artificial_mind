@@ -33,7 +33,8 @@ echo "📍 Testing route: ${FROM_CITY^^} → ${TO_CITY^^}"
 echo ""
 
 # TypeScript config - proven pattern
-TS_CONFIG="await page.locator('#airportName').first().fill('$FROM_CITY'); 
+TS_CONFIG="await page.bypassConsent();
+    await page.locator('#airportName').first().fill('$FROM_CITY'); 
     await page.waitForTimeout(3000); 
     await page.getByText('Southampton, United Kingdom').first().click(); 
     await page.waitForTimeout(1000); 
@@ -44,7 +45,7 @@ TS_CONFIG="await page.locator('#airportName').first().fill('$FROM_CITY');
     await page.locator('select').first().selectOption('return'); 
     await page.waitForTimeout(500); 
     await page.getByRole('link', { name: ' Calculate my emissions ' }).click(); 
-    await page.waitForTimeout(5000);"
+    await page.waitForTimeout(10000);"
 
 # Escape the TypeScript config for JSON
 TS_CONFIG_ESCAPED=$(echo "$TS_CONFIG" | jq -Rs .)

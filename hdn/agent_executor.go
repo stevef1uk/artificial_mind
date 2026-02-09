@@ -471,14 +471,23 @@ record_history:
 			synthesisPrompt := fmt.Sprintf(`You are the Response Synthesis Engine for an Intelligent AI Agent.
 The user asked: "%s"
 
-The agent executed several tools and obtained the following raw results (summarized):
+The agent executed tools and obtained these raw results:
 %s
 
-Your task is to synthesize a clean, friendly, and highly readable response for the user based ONLY on these results.
-- Use Markdown formatting (tables, bullet points, bold text).
-- Be concise but complete.
-- If the data is a list of items (like news stories or prices), present them in a clear table or list.
-- If no results were found or an error occurred, explain that clearly.
+### TASK
+Synthesize a clean, professional, and HIGHLY READABLE summary for the user.
+
+### FORMATTING RULES
+1. **USE MARKDOWN TABLES** for any list of items (e.g., products, prices, rates, stock data).
+   - If there match-able columns (like "Product Name" and "Interest Rate"), align them in a table.
+   - Example: 
+     | Product | Rate |
+     | :--- | :--- |
+     | Flex Saver | 5.00%% |
+2. **BE CONCISE**. Do not repeat the same data in text and table. Use the table as the primary source of truth.
+3. use **BOLD** for headings and key values.
+4. If no data was found or an error occurred, provide a clear, helpful explanation.
+5. DO NOT mention technical internal keys like "result", "cleaned_html", or regex patterns.
 
 Synthesized Response:`, input, string(resultsJSON))
 

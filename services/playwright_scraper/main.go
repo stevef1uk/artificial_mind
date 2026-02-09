@@ -171,34 +171,44 @@ func (s *ScraperService) worker(id int) {
 	log.Printf("🚀 Worker %d started", id)
 
 	for jobID := range s.jobQueue {
-		job, ok := s.store.Get(jobID)
-		if !ok {
-			log.Printf("⚠️ Worker %d: Job %s not found", id, jobID)
-			continue
-		}
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("❌ Worker %d PANIC: %v", id, r)
+					// Try to update job status if possible
+					// s.store.UpdateStatus(jobID, JobStatusFailed)
+				}
+			}()
 
-		log.Printf("🔧 Worker %d: Processing job %s", id, jobID)
-		s.store.UpdateStatus(jobID, JobStatusRunning)
-
-		result, err := s.executeJob(job)
-		if err != nil {
-			log.Printf("❌ Worker %d: Job %s failed: %v", id, jobID, err)
-			job.Status = JobStatusFailed
-			job.Error = err.Error()
-
-			// STAGE 2: CAPTURE SNAPSHOT
-			if snapshotHTML, ok := err.(interface{ Snapshot() string }); ok {
-				saveSnapshot(job.ID, snapshotHTML.Snapshot())
-			} else if snapshotErr, ok := err.(*SnapshotError); ok {
-				saveSnapshot(job.ID, snapshotErr.HTML)
+			job, ok := s.store.Get(jobID)
+			if !ok {
+				log.Printf("⚠️ Worker %d: Job %s not found", id, jobID)
+				return
 			}
-		} else {
-			log.Printf("✅ Worker %d: Job %s completed", id, jobID)
-			job.Status = JobStatusCompleted
-			job.Result = result
-		}
 
-		s.store.Update(job)
+			log.Printf("🔧 Worker %d: Processing job %s", id, jobID)
+			s.store.UpdateStatus(jobID, JobStatusRunning)
+
+			result, err := s.executeJob(job)
+			if err != nil {
+				log.Printf("❌ Worker %d: Job %s failed: %v", id, jobID, err)
+				job.Status = JobStatusFailed
+				job.Error = err.Error()
+
+				// STAGE 2: CAPTURE SNAPSHOT
+				if snapshotHTML, ok := err.(interface{ Snapshot() string }); ok {
+					saveSnapshot(job.ID, snapshotHTML.Snapshot())
+				} else if snapshotErr, ok := err.(*SnapshotError); ok {
+					saveSnapshot(job.ID, snapshotErr.HTML)
+				}
+			} else {
+				log.Printf("✅ Worker %d: Job %s completed", id, jobID)
+				job.Status = JobStatusCompleted
+				job.Result = result
+			}
+
+			s.store.Update(job)
+		}()
 	}
 }
 
@@ -305,8 +315,13 @@ func parseOperation(line string) PlaywrightOperation {
 	}
 
 	// bypassConsent special command
-	if strings.Contains(line, "await page.bypassConsent()") {
+	if strings.Contains(line, "bypassConsent") {
 		return PlaywrightOperation{Type: "bypassConsent"}
+	}
+
+	// locator with .first().selectOption()
+	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.first\(\)\.selectOption\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
+		return PlaywrightOperation{Type: "locatorSelectOptionFirst", Selector: matches[1], Value: matches[2]}
 	}
 
 	// locator with .fill()
@@ -639,6 +654,14 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 
 		case "keyboardType":
 			if err := page.Keyboard().Type(op.Value); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(300 * time.Millisecond)
+
+		case "locatorSelectOptionFirst":
+			// locator().first().selectOption(v)
+			values := []string{op.Value}
+			if _, err := page.Locator(op.Selector).First().SelectOption(pw.SelectOptionValues{Values: &values}); err != nil {
 				log.Printf("   ⚠️ Failed: %v", err)
 			}
 			time.Sleep(300 * time.Millisecond)
