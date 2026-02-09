@@ -661,7 +661,7 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 		case "locatorSelectOptionFirst":
 			// locator().first().selectOption(v)
 			values := []string{op.Value}
-			if _, err := page.Locator(op.Selector).First().SelectOption(pw.SelectOptionValues{Values: &values}); err != nil {
+			if _, err := page.Locator(op.Selector).First().SelectOption(pw.SelectOptionValues{Values: &values}, pw.LocatorSelectOptionOptions{Timeout: pw.Float(5000)}); err != nil {
 				log.Printf("   ⚠️ Failed: %v", err)
 			}
 			time.Sleep(300 * time.Millisecond)

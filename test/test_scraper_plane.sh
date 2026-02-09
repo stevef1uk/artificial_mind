@@ -41,7 +41,7 @@ echo "✅ Job started: $JOB_ID"
 
 # Poll for results
 echo "⏳ Polling for results..."
-TIMEOUT=90
+TIMEOUT=180
 START_TIME=$(date +%s)
 
 while true; do
