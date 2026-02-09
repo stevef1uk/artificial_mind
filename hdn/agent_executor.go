@@ -527,27 +527,15 @@ Synthesized Response:`, input, string(resultsJSON))
 	}
 
 	// Record successful execution in history
-	// We use the full results for history even if we pruned the response
 	if e.history != nil && executionID != "" {
-		historyResult := map[string]interface{}{
-			"agent_id":   agentID,
-			"input":      input,
-			"results":    results, // Full results
-			"duration":   duration.String(),
-			"tool_calls": toolCalls, // Full tool calls
-		}
-		if result["summary"] != nil {
-			historyResult["summary"] = result["summary"]
-		}
-
 		execution := &AgentExecution{
 			ID:        executionID,
 			AgentID:   agentID,
 			Input:     input,
 			Status:    "success",
-			Result:    historyResult,
+			Result:    result, // Use the already pruned result map
 			Duration:  duration,
-			ToolCalls: toolCalls,
+			ToolCalls: toolCalls, // Full tool calls are still preserved here
 			StartedAt: startTime,
 		}
 		now := time.Now()
