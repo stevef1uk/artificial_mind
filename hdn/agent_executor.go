@@ -505,31 +505,47 @@ Synthesized Response:`, input, string(resultsJSON))
 			result["summary"] = strings.TrimSpace(summary)
 		}
 
-		// ALWAYS truncate the main results field if it's potentially huge or if we have a summary
-		// This keeps the UI responsive and clean.
-		isHuge := false
+		// Prune or truncate the main results field to stay focused on the answer.
+		// If we have a summary, we move raw data out of the way to simplify the response.
+		hasSummary := result["summary"] != nil
 		resultsJSON_raw, _ := json.Marshal(results)
-		if len(resultsJSON_raw) > 5000000 {
-			isHuge = true
-		}
+		isHuge := len(resultsJSON_raw) > 2000000 // 2MB threshold
 
-		if isHuge {
+		if hasSummary || isHuge {
 			result["raw_results_count"] = len(results)
-			result["results"] = "Raw data has been truncated because it exceeds 5MB. Link to raw results is available in the logs."
-			if result["summary"] == nil {
-				result["summary"] = "The extraction result was too technical and large to display directly (Total Size: " + fmt.Sprintf("%d bytes", len(resultsJSON_raw)) + "). Please check the logs for the raw JSON/HTML data."
+			if hasSummary {
+				// Hide raw data to focus on the summary
+				result["results"] = "Raw data hidden (see summary above)"
+				result["tool_calls"] = "Steps hidden (summary available)"
+			} else if isHuge {
+				result["results"] = "Raw data has been truncated because it exceeds 2MB. Check logs for details."
+				if result["summary"] == nil {
+					result["summary"] = fmt.Sprintf("The extraction result was too large to display directly (%d bytes).", len(resultsJSON_raw))
+				}
 			}
 		}
 	}
 
 	// Record successful execution in history
+	// We use the full results for history even if we pruned the response
 	if e.history != nil && executionID != "" {
+		historyResult := map[string]interface{}{
+			"agent_id":   agentID,
+			"input":      input,
+			"results":    results, // Full results
+			"duration":   duration.String(),
+			"tool_calls": toolCalls, // Full tool calls
+		}
+		if result["summary"] != nil {
+			historyResult["summary"] = result["summary"]
+		}
+
 		execution := &AgentExecution{
 			ID:        executionID,
 			AgentID:   agentID,
 			Input:     input,
 			Status:    "success",
-			Result:    result,
+			Result:    historyResult,
 			Duration:  duration,
 			ToolCalls: toolCalls,
 			StartedAt: startTime,
