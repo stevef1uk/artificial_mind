@@ -48,20 +48,50 @@ cd ~/dev/artificial_mind/k3s
 ./test_intelligence.sh
 ```
 
+## Scraper & Smart Scrape Integration
+
+### 1. Test the Scraper Service directly
+This confirms the Playwright workers in Kubernetes are handling complex multi-step forms (like the EcoTree calculator).
+
+```bash
+# 1. Port forward the scraper service
+kubectl port-forward -n agi svc/playwright-scraper 8085:8085 &
+
+# 2. Run the transport suite (Plane, Train, Car)
+export PLAYWRIGHT_SCRAPER_URL=http://localhost:8085
+./test/test_all_transports.sh
+```
+
+### 2. Test Smart Scrape (AI Planning)
+This confirms the HDN server can use the LLM to generate a plan and execute it through the scraper service.
+
+```bash
+# Example: Find Apple stock price via Kubernetes HDN
+./test/test_smart_scrape_k8s.sh agi "https://finance.yahoo.com/quote/AAPL" "Find the current stock price"
+```
+
+### 3. Smart Scrape Validator (Go)
+Use the Go-based mirror to verify the Agent's planning and synthesis quality against the K3s cluster:
+
+```bash
+# Option A: Using NodePort (Direct RPI IP)
+export HDN_URL=http://<rpi-ip>:30257
+go run test/test_nationwide_k8s.go
+
+# Option B: Using Port Forward (if NodePort is blocked)
+kubectl port-forward -n agi svc/hdn-server-rpi58 30257:8080 &
+go run test/test_nationwide_k8s.go
+```
+
 ## What to Look For
 
 ### In Logs:
-- `🧠 [INTELLIGENCE] Added X prevention hints from learned experience`
-- `🧠 [INTELLIGENCE] Retrieved learned prevention hint`
-- `🧠 [INTELLIGENCE] Using learned successful strategy`
-
-### In Redis:
-After running code generation tasks, you should see:
-- `failure_pattern:*` keys
-- `codegen_strategy:*` keys  
-- `prevention_hint:*` keys
+- `🧠 [MCP-SMART-SCRAPE] Starting smart scrape...` (HDN Pod)
+- `🔧 Worker X: Processing job...` (Scraper Pod)
+- `✅ Completed in Xs!` (Scraper Pod)
 
 ### Behavior:
-- First code generation: May have retries
-- Similar code generation: Should have fewer retries (shows learning)
+- **Plane Test**: Should take ~25-30s. If it hangs for 2m, check `SelectOption` timeouts.
+- **Smart Scrape**: Should produce a clean **Markdown Table** in the final response.
+- **NodePort**: If testing from the RPI directly without port-forwarding, use the NodeIP and NodePort (usually http://<rpi-ip>:30081).
 

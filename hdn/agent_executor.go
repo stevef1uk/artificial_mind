@@ -491,7 +491,11 @@ Synthesize a clean, professional, and HIGHLY READABLE summary for the user.
 
 Synthesized Response:`, input, string(resultsJSON))
 
-			summary, synthesisErr = e.llmClient.callLLMWithContextAndPriority(ctx, synthesisPrompt, PriorityHigh)
+			// Use a dedicated context for synthesis with a generous timeout, as RPI/Ollama can be slow.
+			// This ensures synthesis completes even if the main request context has expired.
+			synthesisCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			summary, synthesisErr = e.llmClient.callLLMWithContextAndPriority(synthesisCtx, synthesisPrompt, PriorityHigh)
+			cancel()
 		}
 
 		if synthesisErr != nil {

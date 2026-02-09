@@ -4047,14 +4047,14 @@ Output ONLY the JSON object. Do NOT wrap in markdown code blocks like ` + "```js
 `, goal, html)
 
 	if hint != nil {
-		userPrompt += "\n### USER HINTS (Prioritize these concepts):\n"
+		userPrompt += "\n### USER HINTS (MANDATORY REGEX):\n"
+		userPrompt += "The user has provided specific regex patterns that are known to work. You MUST use these exact patterns for the specified keys.\n"
 		if hint.TypeScriptConfig != "" {
-			userPrompt += fmt.Sprintf("- TypeScript Hint: %s\n", hint.TypeScriptConfig)
+			userPrompt += fmt.Sprintf("- TypeScript Logic: %s\n", hint.TypeScriptConfig)
 		}
 		if len(hint.Extractions) > 0 {
-			userPrompt += "- Extraction Hints (Key Names to use):\n"
-			for k := range hint.Extractions {
-				userPrompt += fmt.Sprintf("  - %s\n", k)
+			for k, v := range hint.Extractions {
+				userPrompt += fmt.Sprintf("- Key '%s' MUST USE REGEX: %s\n", k, v)
 			}
 		}
 	}
