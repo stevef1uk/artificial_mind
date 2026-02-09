@@ -4047,14 +4047,16 @@ Output ONLY the JSON object. Do NOT wrap in markdown code blocks like ` + "```js
 `, goal, html)
 
 	if hint != nil {
-		userPrompt += "\n### USER HINTS (MANDATORY REGEX):\n"
-		userPrompt += "The user has provided specific regex patterns that are known to work. You MUST use these exact patterns for the specified keys.\n"
+		userPrompt += "\n### USER HINTS (PROBABLE REGEX):\n"
+		userPrompt += "The user has provided regex patterns that worked in the past. \n"
+		userPrompt += "VALIDATION RULE: If these patterns match the HTML SNAPSHOT below, use them. \n"
+		userPrompt += "SELF-HEALING RULE: If a pattern obviously fails to match the current HTML (e.g., attributes changed), you MUST IGNORE the hint and generate a NEW working regex for that key.\n"
 		if hint.TypeScriptConfig != "" {
-			userPrompt += fmt.Sprintf("- TypeScript Logic: %s\n", hint.TypeScriptConfig)
+			userPrompt += fmt.Sprintf("- Suggested TypeScript Logic: %s\n", hint.TypeScriptConfig)
 		}
 		if len(hint.Extractions) > 0 {
 			for k, v := range hint.Extractions {
-				userPrompt += fmt.Sprintf("- Key '%s' MUST USE REGEX: %s\n", k, v)
+				userPrompt += fmt.Sprintf("- Key '%s' suggested regex: %s\n", k, v)
 			}
 		}
 	}
