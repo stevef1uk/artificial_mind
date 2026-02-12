@@ -337,7 +337,6 @@ Rules:
 							}
 
 							if telegramAdapter != nil {
-								log.Printf("📱 [AGENT-EXECUTOR] Telegram adapter found, preparing notification...")
 								// Format message
 								message := "🌐 *Website Status Report*\n\n"
 								allUp := true
@@ -366,29 +365,30 @@ Rules:
 									message += fmt.Sprintf("%s: %s (HTTP %s) - %s\n", url, statusText, statusCode, duration)
 								}
 
-								if allUp {
-									message += "\n✅ All websites are operational!"
-								} else {
+								if !allUp {
+									log.Printf("📱 [AGENT-EXECUTOR] Website(s) down or warning, preparing Telegram notification...")
 									message += "\n⚠️ Some websites have issues - please check!"
-								}
 
-								// Send notification
-								telegramParams := map[string]interface{}{
-									"message":    message,
-									"chat_id":    os.Getenv("TELEGRAM_CHAT_ID"), // Explicitly set chat_id
-									"parse_mode": "Markdown",
-								}
+									// Send notification
+									telegramParams := map[string]interface{}{
+										"message":    message,
+										"chat_id":    os.Getenv("TELEGRAM_CHAT_ID"), // Explicitly set chat_id
+										"parse_mode": "Markdown",
+									}
 
-								log.Printf("📱 [AGENT-EXECUTOR] Sending Telegram notification to chat_id: %s", telegramParams["chat_id"])
-								telegramResult, err := telegramAdapter.Execute(ctx, telegramParams)
-								if err != nil {
-									log.Printf("⚠️ [AGENT-EXECUTOR] Failed to send Telegram notification: %v", err)
+									log.Printf("📱 [AGENT-EXECUTOR] Sending Telegram notification to chat_id: %s", telegramParams["chat_id"])
+									telegramResult, err := telegramAdapter.Execute(ctx, telegramParams)
+									if err != nil {
+										log.Printf("⚠️ [AGENT-EXECUTOR] Failed to send Telegram notification: %v", err)
+									} else {
+										log.Printf("✅ [AGENT-EXECUTOR] Telegram notification sent successfully")
+										results = append(results, map[string]interface{}{
+											"task":   "telegram_notification",
+											"result": telegramResult,
+										})
+									}
 								} else {
-									log.Printf("✅ [AGENT-EXECUTOR] Telegram notification sent successfully")
-									results = append(results, map[string]interface{}{
-										"task":   "telegram_notification",
-										"result": telegramResult,
-									})
+									log.Printf("📱 [AGENT-EXECUTOR] Skipping Telegram notification because all websites are operational")
 								}
 							} else {
 								log.Printf("⚠️ [AGENT-EXECUTOR] Telegram adapter not found in agent tools")
