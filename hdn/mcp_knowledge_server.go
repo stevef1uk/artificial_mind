@@ -4152,6 +4152,8 @@ INSTRUCTIONS:
 								config.Extractions[k] = p
 							} else if r, ok := obj["regex"].(string); ok {
 								config.Extractions[k] = r
+							} else if s, ok := obj["selector"].(string); ok {
+								config.Extractions[k] = s
 							} else if v, ok := obj["value"].(string); ok {
 								config.Extractions[k] = v
 							}
@@ -4179,7 +4181,7 @@ INSTRUCTIONS:
 					val := p[2]
 					if key == "typescript_config" {
 						config.TypeScriptConfig = val
-					} else if key != "extractions" && key != "extraction_instructions" && key != "goal" && key != "explanation" && key != "summary" && key != "regex" && key != "pattern" {
+					} else if key != "extractions" && key != "extraction_instructions" && key != "goal" && key != "explanation" && key != "summary" && key != "regex" && key != "pattern" && key != "selector" {
 						config.Extractions[key] = val
 					}
 				}
@@ -4192,12 +4194,12 @@ INSTRUCTIONS:
 					inner := n[2]
 					innerPairs := rePairs.FindAllStringSubmatch(inner, -1)
 
-					// If the nested object has "regex", "pattern", or "value", map it as the parent key's value
+					// If the nested object has "regex", "pattern", "selector" or "value", map it as the parent key's value
 					foundInner := false
 					for _, p := range innerPairs {
 						ik := p[1]
 						iv := p[2]
-						if ik == "regex" || ik == "pattern" || ik == "value" {
+						if ik == "regex" || ik == "pattern" || ik == "selector" || ik == "value" {
 							config.Extractions[parentKey] = iv
 							foundInner = true
 						}
