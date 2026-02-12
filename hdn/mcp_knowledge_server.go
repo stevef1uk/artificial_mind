@@ -3856,18 +3856,24 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 		return nil, fmt.Errorf("failed to plan scrape with LLM: %v", err)
 	}
 
-	// Merge user results if provided - Prioritize user hints
+	// Merge user results if provided
 	if userConfig != nil {
-		if userConfig.TypeScriptConfig != "" {
+		if userConfig.TypeScriptConfig != "" && config.TypeScriptConfig == "" {
 			config.TypeScriptConfig = userConfig.TypeScriptConfig
 		}
-		// Merge extractions - user patterns take precedence
+		// Merge extractions - only use user hints if the LLM didn't find anything for that key.
+		// This allows the LLM to 'heal' broken user patterns.
 		if len(userConfig.Extractions) > 0 {
 			if config.Extractions == nil {
 				config.Extractions = make(map[string]string)
 			}
 			for k, v := range userConfig.Extractions {
-				config.Extractions[k] = v
+				if _, exists := config.Extractions[k]; !exists {
+					log.Printf("📥 [MCP-SMART-SCRAPE] Using user hint for missing key '%s'", k)
+					config.Extractions[k] = v
+				} else {
+					log.Printf("🩹 [MCP-SMART-SCRAPE] LLM provided its own pattern for '%s', ignoring user hint (healing active)", k)
+				}
 			}
 		}
 	}
