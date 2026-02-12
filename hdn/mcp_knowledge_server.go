@@ -3881,9 +3881,11 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 	// 2.5 ALWAYS sanitize ALL extractions here (both LLM-generated and user-provided)
 	// This ensures we fix lookarounds and missing groups before fast-path or navigation.
 	for k, v := range config.Extractions {
-		// 1. Fix lookarounds
+		// 1. Fix lookarounds and named groups (Go doesn't like (?<name>...))
 		sanitized := strings.ReplaceAll(v, "(?<=", "(?:")
 		sanitized = strings.ReplaceAll(sanitized, "(?=", "(?:")
+		reNamedGroup := regexp.MustCompile(`\(\?<[^>]+>`)
+		sanitized = reNamedGroup.ReplaceAllString(sanitized, "(")
 
 		// 2. Wrap in capturing group if AI or user forgot a CAPTURING group
 		hasCapture := false
@@ -4115,13 +4117,6 @@ INSTRUCTIONS:
 			}
 			cleanedResponse = strings.Join(lines, "\n")
 
-			// REPAIR: Generic fix for unescaped backslashes in JSON strings
-			// Target: Any \ NOT followed by \, ", /, b, f, n, r, t, or uXXXX
-			reRepair := regexp.MustCompile(`\\([^"\\/bfnrtu])`)
-			cleanedResponse = reRepair.ReplaceAllString(cleanedResponse, `\\$1`)
-			// Also fix the specific cases where LLM forgets to escape the [ ] brackets
-			cleanedResponse = strings.ReplaceAll(cleanedResponse, `[\s\S]`, `[\\s\\S]`)
-
 			if err := json.Unmarshal([]byte(cleanedResponse), &rawMap); err == nil {
 				// Successfully parsed into map, now map to struct
 
@@ -4148,14 +4143,14 @@ INSTRUCTIONS:
 							config.Extractions[k] = s
 						} else if obj, ok := v.(map[string]interface{}); ok {
 							// Handle nested objects like {"price": {"regex": "..."}}
-							if p, ok := obj["pattern"].(string); ok {
-								config.Extractions[k] = p
+							if r, ok := obj["selector"].(string); ok {
+								config.Extractions[k] = r
+							} else if r, ok := obj["pattern"].(string); ok {
+								config.Extractions[k] = r
 							} else if r, ok := obj["regex"].(string); ok {
 								config.Extractions[k] = r
-							} else if s, ok := obj["selector"].(string); ok {
-								config.Extractions[k] = s
-							} else if v, ok := obj["value"].(string); ok {
-								config.Extractions[k] = v
+							} else if r, ok := obj["value"].(string); ok {
+								config.Extractions[k] = r
 							}
 						} else if arr, ok := v.([]interface{}); ok && len(arr) > 0 {
 							if s, ok := arr[0].(string); ok {

@@ -107,6 +107,21 @@ The service automatically waits for `NetworkIdle` + **3 seconds** of rendering t
 
 ---
 
+## 🤖 Self-Healing & Probabilistic Hints
+
+The scraper features an autonomous **Self-Healing** mechanism. This allows the agent to maintain performance over time even as websites evolve.
+
+### How it works:
+1. **Fast-Path (Hints)**: When you provide `extractions` in a `smart_scrape` request, the agent treats them as "Probabilistic Hints". It first tries to extract data from the current HTML using these patterns immediately.
+2. **Validation**: If the hints match, the scrape completes in milliseconds.
+3. **Autonomous Repair**: If the hints fail to match the current HTML, the agent automatically triggers an **LLM Planning Phase**. The AI examines the fresh HTML, identifies why the hint failed (e.g., a CSS class changed), and generates a **new working pattern**.
+4. **Precedence**: LLM-generated "healed" patterns always take precedence over provided hints once the repair phase is triggered.
+
+### Why this matters:
+You can safely reuse configs from last month. If the site changed, the agent will fix itself, notify you of the new working pattern, and return the data anyway.
+
+---
+
 ## 🚀 Testing Your Config
 Before deploying a new calculator to the cluster, test it locally using the `curl` loop:
 

@@ -19,6 +19,27 @@ We'll test in 3 stages:
 1. **Stage 1:** Test scraper service standalone
 2. **Stage 2:** Test HDN server calling scraper
 3. **Stage 3:** Test complete MCP flow
+4. **Stage 4:** Test Self-Healing capability
+
+---
+
+## Stage 4: Test Self-Healing Capability
+
+The system can now recover from broken extraction hints autonomously by regenerate them via LLM.
+
+### Step 4.1: Run Self-Healing Test
+
+This test provides a deliberately broken CSS selector for Apple's stock price and verifies that the system recovers and finds the data anyway.
+
+```bash
+go run test/test_self_healing_aapl.go
+```
+
+### Step 4.2: Verify Healing in Logs
+
+Watch the HDN logs for:
+- `🩹 [MCP-SMART-SCRAPE] LLM provided its own pattern ... ignoring user hint (healing active)`
+- `🚀 [MCP-SMART-SCRAPE] Executing planned scrape with ...`
 
 ---
 

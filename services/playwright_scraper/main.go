@@ -526,10 +526,22 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 				}
 			}
 
+			// 0. Special handling for Yahoo-style "Scroll to bottom" buttons
+			scrollToBottomPatterns := []string{"(?i)aller à la fin", "(?i)scroll to bottom", "(?i)suivi"}
+			for _, p := range scrollToBottomPatterns {
+				re := regexp.MustCompile(p)
+				locator := page.GetByRole(pw.AriaRole("button"), pw.PageGetByRoleOptions{Name: re}).First()
+				if count, _ := locator.Count(); count > 0 {
+					log.Printf("⬇️ Clicking 'Scroll to Bottom' button: %s", p)
+					_ = locator.Click(pw.LocatorClickOptions{Timeout: pw.Float(1000)})
+					time.Sleep(500 * time.Millisecond) // Give it a moment to enable the next button
+				}
+			}
+
 			// 1. Try generic role-based buttons first
 			patterns := []string{
 				"(?i)accept", "(?i)agree", "(?i)continue", "(?i)allow", "(?i)ok", "(?i)yes",
-				"(?i)accepter", "(?i)continuer", "(?i)autoriser", "(?i)j'accepte",
+				"(?i)accepter", "(?i)continuer", "(?i)autoriser", "(?i)j'accepte", "(?i)tout accepter",
 				"(?i)akzeptieren", "(?i)zustimmen",
 				"(?i)aceptar", "(?i)continuar", "tout équivalents", // Generic French
 			}

@@ -9,14 +9,7 @@ def get_smart_response(msg):
     if "json array of tool calls" in lower_msg or "scraper_agent" in lower_msg:
         return """[{"tool_id": "smart_scrape", "params": {"url": "https://example.com", "goal": "Find rates"}}]"""
     
-    if "python" in lower_msg or "code" in lower_msg or "calculate" in lower_msg:
-        return """Here is the Python code:
-```python
-print('Hello from Mock LLM Code Gen')
-x = 10 + 20
-print(f'Result: {x}')
-```"""
-    elif "scraper" in lower_msg or "scraping" in lower_msg:
+    if "scraper" in lower_msg or "scraping" in lower_msg:
         return """```json
 {
   "typescript_config": "",
@@ -24,6 +17,13 @@ print(f'Result: {x}')
     "title": "<h1>(.*?)</h1>"
   }
 }
+```"""
+    elif "python" in lower_msg or "code" in lower_msg or "calculate" in lower_msg:
+        return """Here is the Python code:
+```python
+print('Hello from Mock LLM Code Gen')
+x = 10 + 20
+print(f'Result: {x}')
 ```"""
     return f"Mock response to: {msg[:20]}... [Processed by Mock LLM]"
 
@@ -82,15 +82,7 @@ def ollama_chat():
     if "json array of tool calls" in lower_msg or "scraper_agent" in lower_msg or "plan" in lower_msg or "decide" in lower_msg:
         content = """[{"tool_id": "smart_scrape", "params": {"url": "https://example.com", "goal": "Find rates"}}]"""
     
-    # Behavior 2: Code Generation
-    elif "python" in lower_msg or "code" in lower_msg or "calculate" in lower_msg:
-        content = """Here is the Python code you requested:
-```python
-print('Hello from Mock LLM Code Gen')
-x = 10 + 20
-print(f'Result: {x}')
-```"""
-    
+    # Behavior 2: Scraper Configuration
     elif "scraper" in lower_msg or "scraping" in lower_msg:
         content = """```json
 {
@@ -99,6 +91,15 @@ print(f'Result: {x}')
     "title": "<h1>(.*?)</h1>"
   }
 }
+```"""
+    
+    # Behavior 3: Code Generation
+    elif "python" in lower_msg or "code" in lower_msg or "calculate" in lower_msg:
+        content = """Here is the Python code you requested:
+```python
+print('Hello from Mock LLM Code Gen')
+x = 10 + 20
+print(f'Result: {x}')
 ```"""
 
     return jsonify({

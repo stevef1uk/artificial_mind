@@ -25,6 +25,7 @@ bin/scrape-planner -url "https://www.nationwide.co.uk/savings/cash-isas/" \
 1.  **Navigates** to the URL using Playwright.
 2.  **Cleans** the DOM to fit into the LLM's context window.
 3.  **Generates** a JSON configuration (saved to `/tmp/scrape_config.json`).
+4.  **Self-Heals**: If you provide a previously working pattern (as a "hint") that is now broken due to website changes, the AI will automatically detect the failure, ignore the broken hint, and generate a new working extraction pattern based on the fresh HTML.
 
 ---
 

@@ -330,13 +330,30 @@ agents:
 ```
 
 **Integration Points:**
-
-- **MCP Knowledge Server**: Agents can use MCP tools for knowledge queries
-- **n8n Skills**: Agents can invoke n8n webhook-based skills
-- **HDN Tools**: Agents can use internal HDN tools (HTTP GET, Telegram send, etc.)
-- **Telegram Bot**: Agents can send notifications via Telegram
-- **Monitor UI**: Agents tab provides web-based management interface
 - **Redis**: Execution history stored in Redis for persistence
+
+#### Self-Healing AI Scraper (Feb 2026)
+
+The HDN server's `smart_scrape` capability has been enhanced with an autonomous **Self-Healing** mechanism, allowing it to adapt to website structural changes without human intervention.
+
+**Mechanism:**
+1. **Probabilistic Hints**: Users can provide `extractions` as hints (CSS selectors or Regex).
+2. **Fast-Path Execution**: The agent first attempts to extract data using these hints against the current DOM. If successful, it returns immediately (latency < 100ms).
+3. **Validation & Healing Phase**: If a hint fails to match, the agent triggers an **LLM-driven Healing Phase**.
+   - The full cleaned HTML is sent to the LLM.
+   - The LLM is instructed to validate the old hint and **ignore it** if it is obviously broken.
+   - The LLM generates a **new working pattern** based on the current HTML structure.
+   - The "healed" pattern takes precedence and is used for the extraction.
+4. **Adaptive Parsing**: A resilient multipart parser handles variations in LLM response formats (JSON, Markdown-wrapped, or key-value structures) and automatically sanitizes patterns for target-language compatibility (e.g., converting named groups to standard groups for Go).
+
+**Benefits:**
+- **Resilience**: Drastically reduces manual maintenance of scraping scripts.
+- **Efficiency**: Retains high performance for stable sites while offering deep error recovery for changing targets.
+- **Zero-Config Evolution**: Previously hard-coded tools can now "drift" back into alignment with the website's reality.
+
+**Tool Metrics**:
+- Success rate of "Healed" vs "Fast-Path" scrapes is tracked.
+- Healing latency is typically 5-15 seconds (LLM dependent) vs 100ms for hints.
 
 **Tool Adapter System:**
 

@@ -21,7 +21,7 @@ func main() {
 	if hdnURL == "" {
 		// Default to the NodePort found in the cluster (RPI IP + 30257)
 		// We can try to guess the RPI IP or just use localhost if port-forwarded
-		hdnURL = "http://localhost:30257/mcp"
+		hdnURL = "http://localhost:9090/mcp"
 	}
 
 	if !strings.HasSuffix(hdnURL, "/mcp") {
