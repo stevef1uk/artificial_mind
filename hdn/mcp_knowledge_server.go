@@ -4125,6 +4125,14 @@ INSTRUCTIONS:
 					extractions = ex
 				} else if ex, ok := rawMap["extraction_instructions"].(map[string]interface{}); ok {
 					extractions = ex
+				} else {
+					// RESILIENCE: If no wrapper, assume root keys (excluding meta keys) are extractions
+					extractions = make(map[string]interface{})
+					for k, v := range rawMap {
+						if k != "typescript_config" && k != "goal" && k != "explanation" && k != "summary" {
+							extractions[k] = v
+						}
+					}
 				}
 
 				if extractions != nil {
@@ -4133,8 +4141,13 @@ INSTRUCTIONS:
 						if s, ok := v.(string); ok {
 							config.Extractions[k] = s
 						} else if obj, ok := v.(map[string]interface{}); ok {
+							// Handle nested objects like {"price": {"regex": "..."}}
 							if p, ok := obj["pattern"].(string); ok {
 								config.Extractions[k] = p
+							} else if r, ok := obj["regex"].(string); ok {
+								config.Extractions[k] = r
+							} else if v, ok := obj["value"].(string); ok {
+								config.Extractions[k] = v
 							}
 						} else if arr, ok := v.([]interface{}); ok && len(arr) > 0 {
 							if s, ok := arr[0].(string); ok {
@@ -4160,24 +4173,37 @@ INSTRUCTIONS:
 					val := p[2]
 					if key == "typescript_config" {
 						config.TypeScriptConfig = val
-					} else if key != "extractions" && key != "extraction_instructions" && key != "goal" {
+					} else if key != "extractions" && key != "extraction_instructions" && key != "goal" && key != "explanation" && key != "summary" && key != "regex" && key != "pattern" {
 						config.Extractions[key] = val
 					}
 				}
 
-				// Also look for values inside an extractions object block
-				if len(config.Extractions) == 0 {
-					reNested := regexp.MustCompile(`"([^"]+)"\s*:\s*[{]\s*([\s\S]*?)[}]`)
-					nested := reNested.FindAllStringSubmatch(cleanedResponse, -1)
-					for _, n := range nested {
-						inner := n[2]
-						innerPairs := rePairs.FindAllStringSubmatch(inner, -1)
+				// Also look for values inside any nested object blocks (like {"price": {"regex": "..."}})
+				reNested := regexp.MustCompile(`"([^"]+)"\s*:\s*[{]\s*([\s\S]*?)[}]`)
+				nested := reNested.FindAllStringSubmatch(cleanedResponse, -1)
+				for _, n := range nested {
+					parentKey := n[1]
+					inner := n[2]
+					innerPairs := rePairs.FindAllStringSubmatch(inner, -1)
+
+					// If the nested object has "regex", "pattern", or "value", map it as the parent key's value
+					foundInner := false
+					for _, p := range innerPairs {
+						ik := p[1]
+						iv := p[2]
+						if ik == "regex" || ik == "pattern" || ik == "value" {
+							config.Extractions[parentKey] = iv
+							foundInner = true
+						}
+					}
+
+					// Fallback: If it's just more fields inside an "extractions" object
+					if !foundInner && (parentKey == "extractions" || parentKey == "extraction_instructions") {
 						for _, p := range innerPairs {
 							config.Extractions[p[1]] = p[2]
 						}
 					}
 				}
-
 				if len(config.Extractions) > 0 {
 					parseErr = nil
 				} else {
