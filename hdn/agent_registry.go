@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"iter"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -21,6 +24,7 @@ type AgentRegistry struct {
 	mcpKnowledgeServer *MCPKnowledgeServer   // For MCP tools
 	skillRegistry      *DynamicSkillRegistry // For n8n webhooks
 	apiServer          *APIServer            // For HDN tools
+	configPath         string                // Path to the configuration file
 }
 
 // AgentInstance represents a running agent instance
@@ -82,6 +86,7 @@ func (r *AgentRegistry) LoadAgentsFromConfig(configPath string) error {
 	defer r.mutex.Unlock()
 
 	r.config = config
+	r.configPath = configPath
 
 	// Debug: Log skill registry state before loading agents
 	if r.skillRegistry != nil {
@@ -112,6 +117,73 @@ func (r *AgentRegistry) LoadAgentsFromConfig(configPath string) error {
 	}
 
 	log.Printf("✅ [AGENT-REGISTRY] Loaded %d agent(s) and %d crew(s) from configuration", len(r.agents), len(r.crews))
+	return nil
+}
+
+// LoadScraperAgents loads agents from the config/scrapers/ directory
+func (r *AgentRegistry) LoadScraperAgents(scrapersDir string) error {
+	entries, err := os.ReadDir(scrapersDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // No scrapers dir yet
+		}
+		return fmt.Errorf("failed to read scrapers dir: %w", err)
+	}
+
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	loadedCount := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		path := filepath.Join(scrapersDir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			log.Printf("⚠️ [AGENT-REGISTRY] Failed to read scraper config %s: %v", path, err)
+			continue
+		}
+
+		var scraper struct {
+			Name         string `json:"name"`
+			URL          string `json:"url"`
+			Goal         string `json:"goal"`
+			SelectorHint string `json:"selector_hint"`
+		}
+		if err := json.Unmarshal(data, &scraper); err != nil {
+			log.Printf("⚠️ [AGENT-REGISTRY] Failed to parse scraper config %s: %v", path, err)
+			continue
+		}
+
+		// Convert to AgentConfig
+		agentConfig := &AgentConfig{
+			ID:          "scraper_" + strings.TrimSuffix(entry.Name(), ".json"),
+			Name:        scraper.Name,
+			Description: fmt.Sprintf("Scraper agent for %s", scraper.URL),
+			Role:        "Data Scraper",
+			Goal:        fmt.Sprintf("Scrape data from %s. Goal: %s", scraper.URL, scraper.Goal),
+			Tools:       []string{"mcp_smart_scrape"},
+			Capabilities: &AgentCapabilities{
+				MaxIterations: 5,
+			},
+			// Add instructions to guide the LLM
+			Instructions: []string{
+				fmt.Sprintf("You are a specialized scraper for %s.", scraper.URL),
+				fmt.Sprintf("Your primary task is to use the 'smart_scrape' tool to extract data based on this goal: %s", scraper.Goal),
+				"You should call the tool immediately with the target URL.",
+			},
+		}
+
+		if err := r.registerAgent(agentConfig); err != nil {
+			log.Printf("⚠️ [AGENT-REGISTRY] Failed to register scraper agent %s: %v", agentConfig.ID, err)
+			continue
+		}
+		loadedCount++
+	}
+
+	log.Printf("✅ [AGENT-REGISTRY] Loaded %d dynamic scraper agent(s) from %s", loadedCount, scrapersDir)
 	return nil
 }
 
@@ -363,4 +435,68 @@ func (r *AgentRegistry) ListCrews() []string {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+// AddAgent adds a new agent to the registry and persists it to the config file
+func (r *AgentRegistry) AddAgent(agentConfig *AgentConfig) error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	// Check if already exists
+	if _, ok := r.agents[agentConfig.ID]; ok {
+		return fmt.Errorf("agent with ID %s already exists", agentConfig.ID)
+	}
+
+	// Register in memory
+	if err := r.registerAgent(agentConfig); err != nil {
+		return err
+	}
+
+	// Add to config for persistence
+	if r.config != nil && r.configPath != "" {
+		r.config.Agents = append(r.config.Agents, *agentConfig)
+		if err := SaveAgentsConfig(r.configPath, r.config); err != nil {
+			log.Printf("⚠️ [AGENT-REGISTRY] Failed to save updated config: %v", err)
+			return fmt.Errorf("agent registered but failed to save config: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// DeleteAgent removes an agent from the registry and deletes its config file if it's a dynamic scraper
+func (r *AgentRegistry) DeleteAgent(id string) error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	// Check if agent exists
+	if _, ok := r.agents[id]; !ok {
+		return fmt.Errorf("agent %s not found", id)
+	}
+
+	// Delete from memory
+	delete(r.agents, id)
+
+	// Delete from config if persistent
+	if r.config != nil && r.configPath != "" {
+		for i, agent := range r.config.Agents {
+			if agent.ID == id {
+				r.config.Agents = append(r.config.Agents[:i], r.config.Agents[i+1:]...)
+				_ = SaveAgentsConfig(r.configPath, r.config)
+				break
+			}
+		}
+	}
+
+	// If it's a dynamic scraper (starts with "scraper_"), try to delete the config file
+	if strings.HasPrefix(id, "scraper_") {
+		scraperName := strings.TrimPrefix(id, "scraper_")
+		configPath := filepath.Join("../config/scrapers", scraperName+".json")
+		if _, err := os.Stat(configPath); err == nil {
+			_ = os.Remove(configPath)
+		}
+	}
+
+	log.Printf("✅ [AGENT-REGISTRY] Deleted agent: %s", id)
+	return nil
 }

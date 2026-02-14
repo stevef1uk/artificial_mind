@@ -82,6 +82,8 @@ func (e *AgentExecutor) ExecuteAgent(ctx context.Context, agentID string, input 
 Role: %s
 Goal: %s
 Backstory: %s
+Instructions:
+%s
 
 You have access to these tools:
 %s
@@ -124,6 +126,7 @@ Rules:
 			agentInstance.Config.Role,
 			agentInstance.Config.Goal,
 			agentInstance.Config.Backstory,
+			strings.Join(agentInstance.Config.Instructions, "\n"),
 			strings.Join(toolsInfo, "\n"))
 
 		userPrompt := fmt.Sprintf("User Input: %s", input)

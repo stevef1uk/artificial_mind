@@ -413,6 +413,13 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 	} else {
 		log.Printf("✅ [AGENT-REGISTRY] Successfully loaded agents from configuration")
 	}
+
+	// Load dynamic scraper agents
+	scrapersDir := "../config/scrapers"
+	if err := agentRegistry.LoadScraperAgents(scrapersDir); err != nil {
+		log.Printf("⚠️ [AGENT-REGISTRY] Failed to load dynamic scraper agents: %v", err)
+	}
+
 	server.agentRegistry = agentRegistry
 
 	// Initialize agent executor

@@ -1081,7 +1081,11 @@ func (s *APIServer) setupRoutes() {
 
 	// Agent management routes (for testing)
 	s.router.HandleFunc("/api/v1/agents", s.handleListAgents).Methods("GET")
+	s.router.HandleFunc("/api/v1/agents", s.handleCreateAgent).Methods("POST")
+	s.router.HandleFunc("/api/v1/agents", s.handleAgentOptions).Methods("OPTIONS")
 	s.router.HandleFunc("/api/v1/agents/{id}", s.handleGetAgent).Methods("GET")
+	s.router.HandleFunc("/api/v1/agents/{id}", s.handleDeleteAgent).Methods("DELETE")
+	s.router.HandleFunc("/api/v1/agents/{id}", s.handleAgentOptions).Methods("OPTIONS")
 	s.router.HandleFunc("/api/v1/agents/{id}/execute", s.handleExecuteAgent).Methods("POST")
 	s.router.HandleFunc("/api/v1/agents/{id}/executions", s.handleGetAgentExecutions).Methods("GET")
 	s.router.HandleFunc("/api/v1/agents/{id}/executions/{execution_id}", s.handleGetAgentExecution).Methods("GET")

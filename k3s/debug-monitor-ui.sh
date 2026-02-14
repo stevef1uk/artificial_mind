@@ -36,3 +36,4 @@ echo "💡 To force pull new image, delete the pod:"
 echo "   kubectl delete pod ${POD_NAME} -n ${NAMESPACE}"
 
 
+

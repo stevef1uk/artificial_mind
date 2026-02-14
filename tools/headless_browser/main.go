@@ -151,7 +151,8 @@ func main() {
 		if sel == "" {
 			return
 		}
-		// 1. Inject highlight CSS if not present
+
+		// 1. Inject highlight CSS into main frame (safe, global style)
 		_, _ = page.Evaluate(`() => {
 			if (!document.getElementById('hdn-highlight-style')) {
 				const s = document.createElement('style');
@@ -159,9 +160,31 @@ func main() {
 				s.innerHTML = '.hdn-active-target { outline: 12px solid #ff0000 !important; outline-offset: -2px !important; box-shadow: 0 0 40px 10px rgba(255,0,0,0.9) !important; z-index: 9999999 !important; position: relative !important; animation: hdn-pulse 0.5s infinite alternate !important; } @keyframes hdn-pulse { from { outline-color: #ff0000; box-shadow: 0 0 20px 5px rgba(255,0,0,0.5); } to { outline-color: #ff5555; box-shadow: 0 0 50px 15px rgba(255,0,0,1); } }';
 				document.head.appendChild(s);
 			}
+			// Clean up previous highlights in main frame
+			document.querySelectorAll('.hdn-active-target').forEach(e => e.classList.remove('hdn-active-target'));
 		}`)
-		// 2. Apply highlight and scroll
-		_, _ = page.Evaluate("(sel) => { document.querySelectorAll('.hdn-active-target').forEach(e => e.classList.remove('hdn-active-target')); const el = document.querySelector(sel); if(el) { el.classList.add('hdn-active-target'); el.scrollIntoView({block:'center'}); } }", sel)
+
+		// 2. Apply highlight to target element using Locator (handles frames)
+		loc := resolveLocator(page, sel)
+		if loc != nil {
+			// We try to add the class. Note: If it's in a frame, the CSS style from main frame might not apply
+			// unless we also inject style into that frame.
+			// Best effort: Inject style into this specific frame if needed context is accessible.
+			_, _ = loc.Evaluate(`el => {
+				const doc = el.ownerDocument;
+				if (doc && !doc.getElementById('hdn-highlight-style-frame')) {
+					const s = doc.createElement('style');
+					s.id = 'hdn-highlight-style-frame';
+					s.innerHTML = '.hdn-active-target { outline: 12px solid #ff0000 !important; outline-offset: -2px !important; box-shadow: 0 0 40px 10px rgba(255,0,0,0.9) !important; z-index: 9999999 !important; position: relative !important; animation: hdn-pulse 0.5s infinite alternate !important; } @keyframes hdn-pulse { from { outline-color: #ff0000; box-shadow: 0 0 20px 5px rgba(255,0,0,0.5); } to { outline-color: #ff5555; box-shadow: 0 0 50px 15px rgba(255,0,0,1); } }';
+					if (doc.head) doc.head.appendChild(s);
+				}
+				// Remove other highlights in this frame
+				doc.querySelectorAll('.hdn-active-target').forEach(e => e.classList.remove('hdn-active-target'));
+				
+				el.classList.add('hdn-active-target'); 
+				el.scrollIntoView({block:'center', inline:'center'});
+			}`, nil)
+		}
 
 		// 3. Small sleep to ensure highlight renders
 		time.Sleep(100 * time.Millisecond)
@@ -191,6 +214,12 @@ func main() {
 		// SILENT REPLAY MODE: If not the last action and lastOnly is requested, make it fast and invisible
 		isReplay := !isLastAction && *lastOnly
 
+		// Write progress at start of every step so UI updates even during slow actions
+		if *screenshot != "" && !isReplay {
+			html, _ := page.Content()
+			saveProgress(*screenshot, fmt.Sprintf("Step %d/%d: starting %s...", i+1, len(actions), actionType), i+1, len(actions), html)
+		}
+
 		switch actionType {
 		case "fill":
 			value, _ := action["value"].(string)
@@ -208,7 +237,8 @@ func main() {
 					} else if screenshot != nil && *screenshot != "" {
 						// TAKE OUTCOME SCREENSHOT
 						saveScreenshot(page, *screenshot, isLastAction)
-						saveProgress(*screenshot, fmt.Sprintf("Step %d/%d (Done): Filled %s", i+1, len(actions), selector), i+1, len(actions), "")
+						currentHTML, _ := page.Content()
+						saveProgress(*screenshot, fmt.Sprintf("Step %d/%d (Done): Filled %s", i+1, len(actions), selector), i+1, len(actions), currentHTML)
 					}
 				} else {
 					actionErr = fmt.Errorf("selector %s not found in any frame", selector)
@@ -230,7 +260,8 @@ func main() {
 					} else if screenshot != nil && *screenshot != "" {
 						// TAKE OUTCOME SCREENSHOT
 						saveScreenshot(page, *screenshot, isLastAction)
-						saveProgress(*screenshot, fmt.Sprintf("Step %d/%d (Done): Typed into %s", i+1, len(actions), selector), i+1, len(actions), "")
+						currentHTML, _ := page.Content()
+						saveProgress(*screenshot, fmt.Sprintf("Step %d/%d (Done): Typed into %s", i+1, len(actions), selector), i+1, len(actions), currentHTML)
 					}
 					// Mandatory settlement for dynamic forms
 					time.Sleep(300 * time.Millisecond)
@@ -257,6 +288,10 @@ func main() {
 				}
 
 				log.Printf("⌨️ Pressing key %s (normalized: %s)...", key, normalizedKey)
+				if *screenshot != "" && !isReplay {
+					html, _ := page.Content()
+					saveProgress(*screenshot, fmt.Sprintf("Step %d/%d: pressing %s...", i+1, len(actions), normalizedKey), i+1, len(actions), html)
+				}
 				if err := page.Keyboard().Press(normalizedKey); err != nil {
 					actionErr = err
 				}
@@ -274,6 +309,14 @@ func main() {
 					if err := targetLoc.Click(); err != nil {
 						actionErr = err
 					}
+
+					if screenshot != nil && *screenshot != "" {
+						// TAKE OUTCOME SCREENSHOT
+						saveScreenshot(page, *screenshot, isLastAction)
+						currentHTML, _ := page.Content()
+						saveProgress(*screenshot, fmt.Sprintf("Step %d/%d (Done): Clicked %s", i+1, len(actions), selector), i+1, len(actions), currentHTML)
+					}
+
 					// Mandatory settlement
 					time.Sleep(300 * time.Millisecond)
 				} else {
@@ -316,11 +359,19 @@ func main() {
 				}
 				if dur > 0 {
 					log.Printf("⏳ Waiting for %v seconds as requested...", dur)
+					if *screenshot != "" && !isReplay {
+						html, _ := page.Content()
+						saveProgress(*screenshot, fmt.Sprintf("Step %d/%d: waiting %.0fs...", i+1, len(actions), dur), i+1, len(actions), html)
+					}
 					time.Sleep(time.Duration(dur*1000) * time.Millisecond)
 				}
 			} else if selector != "" {
 				// Wait for selector
 				log.Printf("⏳ Waiting for %s...", selector)
+				if *screenshot != "" && !isReplay {
+					html, _ := page.Content()
+					saveProgress(*screenshot, fmt.Sprintf("Step %d/%d: waiting for %s...", i+1, len(actions), selector), i+1, len(actions), html)
+				}
 				if _, err := page.WaitForSelector(selector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(5000)}); err != nil {
 					log.Printf("⚠️ Wait for selector %s timed out", selector)
 				}
@@ -332,6 +383,11 @@ func main() {
 					prepareAction(page, selector, isLastAction, *screenshot, *lastOnly, i+1, len(actions), "select")
 				}
 				performResilientSelect(page, selector, value)
+				if screenshot != nil && *screenshot != "" {
+					saveScreenshot(page, *screenshot, isLastAction)
+					currentHTML, _ := page.Content()
+					saveProgress(*screenshot, fmt.Sprintf("Step %d/%d (Done): Selected %s in %s", i+1, len(actions), value, selector), i+1, len(actions), currentHTML)
+				}
 				// Mandatory settlement
 				time.Sleep(300 * time.Millisecond)
 			}
@@ -451,25 +507,161 @@ func performResilientSelect(page playwright.Page, selector, value string) {
 	}
 	log.Printf("🔽 Selecting '%s' in %s...", value, selector)
 
-	// Is it a SELECT?
-	isSelect, _ := page.Evaluate("(sel) => { const el = document.querySelector(sel); return el && el.tagName === 'SELECT' }", selector)
-	if b, ok := isSelect.(bool); ok && b {
-		// Try value
-		if _, err := page.SelectOption(selector, playwright.SelectOptionValues{Values: &[]string{value}}); err == nil {
-			return
+	loc := page.Locator(selector).First()
+
+	// Check if element exists and get its type
+	if count, _ := loc.Count(); count > 0 {
+		// Get both tagName and type attribute
+		elementInfo, err := loc.Evaluate(`el => ({
+			tagName: el.tagName,
+			type: el.type || el.getAttribute('type') || '',
+			role: el.getAttribute('role') || ''
+		})`, nil)
+
+		if err == nil {
+			if info, ok := elementInfo.(map[string]interface{}); ok {
+				tagName, _ := info["tagName"].(string)
+				inputType, _ := info["type"].(string)
+				role, _ := info["role"].(string)
+
+				log.Printf("   🔍 Element: <%s> type='%s' role='%s'", tagName, inputType, role)
+
+				// Handle CHECKBOX or RADIO inputs
+				if tagName == "INPUT" && (inputType == "checkbox" || inputType == "radio") {
+					log.Printf("   ℹ️ Detected %s input, using click strategy", inputType)
+
+					// Check current state
+					isChecked, _ := loc.Evaluate("el => el.checked", nil)
+					checked, _ := isChecked.(bool)
+
+					// Determine if we should click based on desired value
+					shouldBeChecked := value == "true" || value == "1" || value == "yes" || value == "on"
+
+					if shouldBeChecked != checked {
+						log.Printf("   🖱️ Clicking %s to change state from %v to %v", inputType, checked, shouldBeChecked)
+						if err := loc.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(2000)}); err != nil {
+							log.Printf("   ⚠️ Click failed: %v", err)
+						} else {
+							log.Printf("   ✅ %s toggled successfully", inputType)
+						}
+					} else {
+						log.Printf("   ✅ %s already in desired state (%v)", inputType, checked)
+					}
+					return
+				}
+
+				// Handle SELECT elements
+				if tagName == "SELECT" {
+					log.Printf("   ℹ️ Identified as standard HTML SELECT")
+					// Try value
+					if _, err := loc.SelectOption(playwright.SelectOptionValues{Values: &[]string{value}}); err == nil {
+						log.Printf("   ✅ Selected via value")
+						return
+					}
+					// Try label
+					if _, err := loc.SelectOption(playwright.SelectOptionValues{Labels: &[]string{value}}); err == nil {
+						log.Printf("   ✅ Selected via label")
+						return
+					}
+					log.Printf("   ⚠️ Standard select failed, trying custom fallback...")
+				}
+			}
 		}
-		// Try label
-		if _, err := page.SelectOption(selector, playwright.SelectOptionValues{Labels: &[]string{value}}); err == nil {
-			return
-		}
-	} else {
-		// INPUT/Custom: Fill + Enter
-		log.Printf("   ℹ️ Using Fill+Enter for select on %s", selector)
-		_ = page.Fill(selector, "")
-		_ = page.Type(selector, value, playwright.PageTypeOptions{Delay: playwright.Float(100)})
-		time.Sleep(500 * time.Millisecond)
+	}
+
+	// Try click-to-open dropdown (button/div that opens a list)
+	if tryClickToOpenDropdown(page, selector, value) {
+		return
+	}
+
+	// Typeable combobox/autocomplete: focus, clear, type, then click suggestion
+	log.Printf("   ℹ️ Treating as typeable combobox on %s", selector)
+	if err := page.Click(selector, playwright.PageClickOptions{Timeout: playwright.Float(2000)}); err != nil {
+		log.Printf("   ⚠️ Click to focus failed (might be covered), trying force click")
+		_ = page.Click(selector, playwright.PageClickOptions{Timeout: playwright.Float(1000), Force: playwright.Bool(true)})
+	}
+	_ = page.Fill(selector, "")
+	_ = page.Type(selector, value, playwright.PageTypeOptions{Delay: playwright.Float(150)})
+	time.Sleep(500 * time.Millisecond)
+
+	suggestionFound := tryClickDropdownOption(page, value)
+	if !suggestionFound {
+		log.Printf("   ℹ️ No clear suggestion clicked, falling back to 'Enter'")
 		_ = page.Keyboard().Press("Enter")
 	}
+}
+
+// tryClickToOpenDropdown opens a click-to-open control (button/div) then clicks the option matching value.
+// Returns true if an option was successfully clicked.
+func tryClickToOpenDropdown(page playwright.Page, selector, value string) bool {
+	loc := resolveLocator(page, selector)
+	if loc == nil {
+		return false
+	}
+	// Open the dropdown by clicking the trigger
+	if err := loc.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(2000)}); err != nil {
+		log.Printf("   ⚠️ Click to open dropdown failed: %v", err)
+		return false
+	}
+	time.Sleep(450 * time.Millisecond) // Let list render
+	if tryClickDropdownOption(page, value) {
+		log.Printf("   ✅ Selected option via click-to-open dropdown")
+		return true
+	}
+	return false
+}
+
+// tryClickDropdownOption looks for a visible option containing value and clicks it (listbox, role=option, etc.).
+// Returns true if a click succeeded.
+func tryClickDropdownOption(page playwright.Page, value string) bool {
+	// Strategy A: Playwright text locator (exclude the trigger by preferring elements in listbox/menu)
+	listboxText := fmt.Sprintf("[role='listbox'] >> text=/%s/i", value)
+	if count, _ := page.Locator(listboxText).Count(); count > 0 {
+		if err := page.Locator(listboxText).First().Click(playwright.LocatorClickOptions{Timeout: playwright.Float(1000)}); err == nil {
+			return true
+		}
+	}
+	textSelector := fmt.Sprintf("text=/%s/i", value)
+	if count, _ := page.Locator(textSelector).Count(); count > 0 {
+		// Prefer last() so we hit the option in the overlay rather than the trigger label
+		if err := page.Locator(textSelector).Last().Click(playwright.LocatorClickOptions{Timeout: playwright.Float(1000)}); err == nil {
+			return true
+		}
+	}
+	// Strategy B: Common dropdown item patterns
+	for _, pat := range []string{"[role='option']", ".dropdown-item", "li", ".result-item", ".autocomplete-option", "[data-option]"} {
+		complexSel := fmt.Sprintf("%s:has-text(\"%s\")", pat, value)
+		if count, _ := page.Locator(complexSel).Count(); count > 0 {
+			if err := page.Locator(complexSel).First().Click(playwright.LocatorClickOptions{Timeout: playwright.Float(1000)}); err == nil {
+				return true
+			}
+		}
+	}
+	// Strategy C: JS fallback (visible elements containing text)
+	jsScript := `(text) => {
+		const candidates = document.querySelectorAll('[role="option"], [role="listbox"] li, .dropdown-item, li, [data-option], .autocomplete-option');
+		for (const el of candidates) {
+			if (el.innerText.trim().toLowerCase().includes(text.toLowerCase()) && el.offsetParent !== null) {
+				el.click();
+				return true;
+			}
+		}
+		// Broader: any clickable with matching text
+		const all = document.querySelectorAll('li, div[role="option"], .dropdown-item, span, [data-value]');
+		for (const el of all) {
+			if (el.innerText.toLowerCase().includes(text.toLowerCase()) && el.offsetParent !== null) {
+				el.click();
+				return true;
+			}
+		}
+		return false;
+	}`
+	if result, err := page.Evaluate(jsScript, value); err == nil {
+		if success, ok := result.(bool); ok && success {
+			return true
+		}
+	}
+	return false
 }
 
 func saveScreenshot(page playwright.Page, path string, fullPage bool) {
@@ -536,10 +728,11 @@ func resolveLocator(page playwright.Page, selector string) playwright.Locator {
 func saveProgress(path string, status string, step int, total int, html string) {
 	progressPath := path + ".progress"
 	prog := map[string]interface{}{
-		"status": status,
-		"step":   step,
-		"total":  total,
-		"html":   html,
+		"status":     status,
+		"step":       step,
+		"total":      total,
+		"html":       html,
+		"screenshot": path,
 	}
 	data, _ := json.Marshal(prog)
 	_ = os.WriteFile(progressPath, data, 0644)

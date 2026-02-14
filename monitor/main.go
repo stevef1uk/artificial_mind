@@ -374,6 +374,40 @@ func main() {
 	}
 	log.Printf("📁 [MONITOR] Serving static files from: %s", staticDir)
 	r.Static("/static", staticDir)
+
+	// Smart Scrape: serve progress and screenshots from same dir the backend writes to
+	screenshotDir := filepath.Join(staticDir, "smart_scrape", "screenshots")
+	log.Printf("📸 [MONITOR] Screenshot directory: %s", screenshotDir)
+	r.GET("/api/smart_scrape/screenshots/:name", func(c *gin.Context) {
+		name := c.Param("name")
+		if name == "" || strings.Contains(name, "..") {
+			log.Printf("⚠️ [SCREENSHOT] Invalid name: %s", name)
+			c.Status(http.StatusBadRequest)
+			return
+		}
+		path := filepath.Join(screenshotDir, name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				log.Printf("❌ [SCREENSHOT] File not found: %s", path)
+				c.Status(http.StatusNotFound)
+				return
+			}
+			log.Printf("❌ [SCREENSHOT] Read error for %s: %v", path, err)
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		switch {
+		case strings.HasSuffix(name, ".progress"):
+			c.Data(http.StatusOK, "application/json", data)
+		case strings.HasSuffix(name, ".png"):
+			log.Printf("✅ [SCREENSHOT] Serving %s (%d bytes)", name, len(data))
+			c.Data(http.StatusOK, "image/png", data)
+		default:
+			c.Data(http.StatusOK, "application/octet-stream", data)
+		}
+	})
+
 	// Explicitly load templates and partials (Glob lacks ** support)
 	// Get the directory where the monitor binary is located
 	execPath, err := os.Executable()
@@ -504,6 +538,8 @@ func main() {
 	r.GET("/api/agents/:id/executions", monitor.getAgentExecutions)
 	r.GET("/api/agents/:id/executions/:execution_id", monitor.getAgentExecution)
 	r.POST("/api/agents/:id/execute", monitor.executeAgent)
+	r.POST("/api/agents", monitor.createAgent)
+	r.DELETE("/api/agents/:id", monitor.deleteAgent)
 
 	// Reasoning Layer APIs
 	r.GET("/api/reasoning/traces/:domain", monitor.getReasoningTraces)
@@ -7512,6 +7548,40 @@ func (m *MonitorService) getAgentExecution(c *gin.Context) {
 	c.Data(resp.StatusCode, "application/json", body)
 }
 
+// createAgent: POST /api/agents
+func (m *MonitorService) createAgent(c *gin.Context) {
+	// Read request body
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body", "details": err.Error()})
+		return
+	}
+
+	// Forward to HDN server
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest("POST", m.hdnURL+"/api/v1/agents", bytes.NewReader(body))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request", "details": err.Error()})
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to forward request to HDN", "details": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to read HDN response", "details": err.Error()})
+		return
+	}
+
+	c.Data(resp.StatusCode, "application/json", respBody)
+}
+
 // executeAgent: POST /api/agents/:id/execute
 func (m *MonitorService) executeAgent(c *gin.Context) {
 	id := c.Param("id")
@@ -7546,6 +7616,38 @@ func (m *MonitorService) executeAgent(c *gin.Context) {
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to read execution response", "details": err.Error()})
+		return
+	}
+
+	c.Data(resp.StatusCode, "application/json", respBody)
+}
+
+// deleteAgent proxies agent deletion to HDN server
+func (m *MonitorService) deleteAgent(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "agent ID is required"})
+		return
+	}
+
+	// Forward DELETE request to HDN server
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest("DELETE", m.hdnURL+"/api/v1/agents/"+url.QueryEscape(id), nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request", "details": err.Error()})
+		return
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to delete agent", "details": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to read delete response", "details": err.Error()})
 		return
 	}
 

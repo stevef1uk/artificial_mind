@@ -1,0 +1,1 @@
+{"name":"testscraper1","url":"https://co2.myclimate.org/en/flight_calculators/new","goal":"Extract the CO2 output for the journey","selector_hint":"div#portfolios_index > div"}

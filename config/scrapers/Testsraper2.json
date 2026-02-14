@@ -1,0 +1,1 @@
+{"name":"Testsraper2","url":"https://co2.myclimate.org/en/flight_calculators/new","goal":"Extract the CO2 here: div#portfolios_index > div","selector_hint":"div#portfolios_index > div"}

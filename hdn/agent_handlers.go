@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -34,14 +35,14 @@ func (s *APIServer) handleListAgents(w http.ResponseWriter, r *http.Request) {
 			"goal":        agent.Config.Goal,
 			"tools":       agent.Config.Tools,
 		}
-		
+
 		// Add scheduled status if scheduler is available
 		if s.agentScheduler != nil {
 			agentData["scheduled"] = s.agentScheduler.IsScheduled(id)
 		} else {
 			agentData["scheduled"] = false
 		}
-		
+
 		agents = append(agents, agentData)
 	}
 
@@ -82,7 +83,7 @@ func (s *APIServer) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 		"backstory":   agent.Config.Backstory,
 		"tools":       agent.Config.Tools,
 		"capabilities": map[string]interface{}{
-			"max_iterations":  agent.Config.Capabilities.MaxIterations,
+			"max_iterations":   agent.Config.Capabilities.MaxIterations,
 			"allow_delegation": agent.Config.Capabilities.AllowDelegation,
 			"verbose":          agent.Config.Capabilities.Verbose,
 		},
@@ -217,9 +218,9 @@ func (s *APIServer) handleGetAgentExecutions(w http.ResponseWriter, r *http.Requ
 	}
 
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"agent_id":  agentID,
+		"agent_id":   agentID,
 		"executions": executions,
-		"count":     len(executions),
+		"count":      len(executions),
 	})
 }
 
@@ -305,3 +306,72 @@ func (s *APIServer) handleGetAgentStatus(w http.ResponseWriter, r *http.Request)
 	_ = json.NewEncoder(w).Encode(status)
 }
 
+// handleDeleteAgent: DELETE /api/v1/agents/{id}
+func (s *APIServer) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	if s.agentRegistry == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "agent registry not available",
+		})
+		return
+	}
+
+	vars := mux.Vars(r)
+	agentID := vars["id"]
+
+	if agentID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "agent ID is required",
+		})
+		return
+	}
+
+	if err := s.agentRegistry.DeleteAgent(agentID); err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "deleted",
+		"id":     agentID,
+	})
+}
+
+// handleAgentOptions: OPTIONS /api/v1/agents/{id} - CORS preflight
+func (s *APIServer) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/json")
+
+	var config AgentConfig
+	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+		log.Printf("⚠️ [HDN] Failed to decode agent config: %v", err)
+		http.Error(w, "invalid agent config", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.agentRegistry.AddAgent(&config); err != nil {
+		log.Printf("⚠️ [HDN] Failed to add agent: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"status": "created", "id": config.ID})
+}
+
+func (s *APIServer) handleAgentOptions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.WriteHeader(http.StatusOK)
+}

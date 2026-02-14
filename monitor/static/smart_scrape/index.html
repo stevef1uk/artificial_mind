@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Scrape Studio | Artificial Mind</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="logo">
+                <h1>🕸️ SMART SCRAPE STUDIO</h1>
+            </div>
+
+            <div class="form-group">
+                <label for="url-input">Target URL</label>
+                <div class="input-wrapper">
+                    <input type="url" id="url-input" placeholder="https://example.com"
+                        value="https://news.ycombinator.com">
+                    <button id="analyze-btn" class="primary-btn">
+                        <span>🔍 Analyze Page</span>
+                        <div id="loading-indicator" class="spinner hidden"></div>
+                    </button>
+                </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="form-group">
+                <label>Browser Interaction</label>
+                <p class="helper-text">Instruct the agent (e.g., "Click Login", "Search for shoes").</p>
+                <div class="input-wrapper">
+                    <input type="text" id="instruction-input" placeholder="What should I do?">
+                    <button id="execute-instruction-btn" class="secondary-btn">
+                        <span>▶️ Execute</span>
+                    </button>
+                    <button id="stop-execution-btn" class="secondary-btn"
+                        style="background-color: #ef4444; margin-left: 8px;">
+                        <span>⏹️ Stop</span>
+                    </button>
+                </div>
+                <div id="interaction-loading" class="status-message hidden">
+                    <div class="spinner" style="display:inline-block; margin-right:8px;"></div>
+                    <span>Thinking...</span>
+                </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="form-group">
+                <label for="goal-input">Extraction Goal</label>
+                <textarea id="goal-input" rows="3"
+                    placeholder="e.g., Extract all news titles and their points..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>Selected Element</label>
+                <div id="selected-selector" class="selector-display">None</div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="form-group">
+                <label for="agent-name">Agent Name</label>
+                <input type="text" id="agent-name" placeholder="My_Scraper_Agent">
+            </div>
+
+            <div class="form-group">
+                <label for="schedule-select">Frequency</label>
+                <select id="schedule-select">
+                    <option value="once">Run Once</option>
+                    <option value="hourly">Hourly</option>
+                    <option value="daily">Daily</option>
+                </select>
+            </div>
+
+            <button id="create-agent-btn" class="accent-btn" disabled>🚀 Deploy Scraper Agent</button>
+            <div id="status-message" class="status-message hidden"></div>
+        </aside>
+
+        <main class="preview-area">
+            <div class="preview-header">
+                <h2>WORKSPACE PREVIEW</h2>
+                <div class="preview-controls">
+                    <button id="sync-selector-btn" class="text-btn" style="color: #22c55e;">⚡ Sync Selector</button>
+                    <button id="toggle-view-btn" class="text-btn">🔄 Switch to Interaction View</button>
+                </div>
+            </div>
+            <div class="iframe-container">
+                <iframe id="page-preview" sandbox="allow-scripts allow-same-origin"></iframe>
+                <img id="screenshot-preview" class="hidden" src="" alt="Session Screenshot">
+                <div id="placeholder-message" class="placeholder">
+                    <div>🌐</div>
+                    <p>Enter a URL to begin the analysis</p>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="app.js?v=20260214-1300"></script>
+</body>
+
+</html>

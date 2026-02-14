@@ -13,7 +13,7 @@ echo -e "${YELLOW}🧪 Testing Headless Browser CO2 Calculator Tool${NC}"
 echo ""
 
 # Check if binary exists
-BIN_DIR="${BIN_DIR:-./bin}"
+BIN_DIR="${BIN_DIR:-../bin}"
 BROWSER_BIN="$BIN_DIR/headless-browser"
 
 if [ ! -f "$BROWSER_BIN" ]; then
@@ -90,5 +90,6 @@ echo "   For production use, you would:"
 echo "   1. First scrape the page to find actual form selectors"
 echo "   2. Use the LLM to help identify form fields if needed"
 echo "   3. Then execute the form filling actions"
+
 
 
