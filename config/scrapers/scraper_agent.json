@@ -1,1 +1,1 @@
-{"name":"scraper_agent","url":"https://co2.myclimate.org/en/flight_calculators/new","goal":"","selector_hint":"div#portfolios_index > div"}
+{"name":"scraper_agent","url":"https://co2.myclimate.org/en/flight_calculators/new","goal":"","selector_hint":"#portfolios_index"}

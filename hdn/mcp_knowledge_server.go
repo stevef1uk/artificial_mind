@@ -4019,6 +4019,24 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 		config.Extractions[k] = sanitized
 	}
 
+	// 2.5. Self-Correction: If the goal requires calculation/search but LLM provided no JS, retry once with a more direct warning
+	isInteractiveGoal := strings.Contains(strings.ToLower(goal), "calculate") || strings.Contains(strings.ToLower(goal), "search") || strings.Contains(strings.ToLower(goal), "fill")
+	if isInteractiveGoal && (config.TypeScriptConfig == "" || strings.TrimSpace(config.TypeScriptConfig) == "// no navigation needed") {
+		log.Printf("⚠️ [MCP-SMART-SCRAPE] LLM provided no navigation for an interactive goal. Retrying with explicit warning...")
+
+		retryUserConfig := ScrapeConfig{Extractions: make(map[string]string)}
+		if userConfig != nil {
+			retryUserConfig = *userConfig
+		}
+		// We'll use a hack - put the warning in the TypeScript config hint if it's empty
+		retryUserConfig.TypeScriptConfig = "IMPORTANT: THE LAST PLAN FAILED BECAUSE IT HAD NO JS COMMANDS. YOU MUST PROVIDE await page.fill() AND await page.click() COMMANDS TO REACH THE RESULT."
+
+		config, err = s.planScrapeWithLLM(planCtx, cleanedHTML, goal, &retryUserConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to plan scrape with LLM (retry): %v", err)
+		}
+	}
+
 	// 3. Fast Path: If no extra navigation is required, extract from the HTML we already have
 	if config.TypeScriptConfig == "" || strings.TrimSpace(config.TypeScriptConfig) == "// no navigation needed" {
 		log.Printf("⚡ [MCP-SMART-SCRAPE] Fast-path: Extracting from existing HTML (no extra navigation needed)")
@@ -4071,15 +4089,113 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 		log.Printf("⚠️ [MCP-SMART-SCRAPE] Fast-path failed to extract any data, falling back to full scrape")
 	}
 
-	log.Printf("🚀 [MCP-SMART-SCRAPE] Executing planned scrape with %d extraction patterns", len(config.Extractions))
-	for k, v := range config.Extractions {
-		log.Printf("   🔍 %s: %s", k, v)
+	// 3. Execute the planned scrape
+	log.Printf("🚀 [MCP-SMART-SCRAPE] Executing planned scrape (Navigation: %v)", config.TypeScriptConfig != "")
+
+	// Initial run: Execute navigation and/or extractions
+	requestHTML := true // Always request HTML so we can do second-pass if needed
+	scrapeResultRaw, err := s.scrapeWithConfig(ctx, url, config.TypeScriptConfig, false, config.Extractions, requestHTML, capturedCookies)
+	if err != nil {
+		return nil, err
 	}
 
-	// 3. Execute the planned scrape - request HTML if we have extraction patterns
-	requestHTML := len(config.Extractions) > 0
-	// Pass captured cookies from bypass if any
-	return s.scrapeWithConfig(ctx, url, config.TypeScriptConfig, false, config.Extractions, requestHTML, capturedCookies)
+	scrapeResult, ok := scrapeResultRaw.(map[string]interface{})
+	if !ok {
+		return scrapeResultRaw, nil
+	}
+
+	finalInnerResult, ok := scrapeResult["result"].(map[string]interface{})
+	if !ok {
+		return scrapeResult, nil
+	}
+
+	// 4. Two-Step Scrape: If navigation was performed, the extraction patterns might have been guesses.
+	// Check if we need a second pass to specialize extractions for the final page.
+	isPostNavigation := config.TypeScriptConfig != ""
+
+	// Check if any extractions were requested but NOT found
+	missingExtractions := false
+	if len(config.Extractions) > 0 {
+		for key := range config.Extractions {
+			if _, exists := finalInnerResult[key]; !exists {
+				missingExtractions = true
+				break
+			}
+		}
+	}
+
+	if isPostNavigation && missingExtractions {
+		finalHTML, _ := finalInnerResult["cleaned_html"].(string)
+		if finalHTML != "" {
+			log.Printf("🔍 [MCP-SMART-SCRAPE] Navigation succeeded but extractions failed. Performing second-pass planning on final page...")
+
+			// Plan specialized extractions for the final page HTML
+			// Use a very specific goal for the second pass to avoid re-navigation loops
+			secondPassGoal := fmt.Sprintf("RECOVERY MODE: Navigation is already complete. The data you need should be in the HTML snapshot below. DO NOT provide any navigation JS. Just find the correct regex for: %s", goal)
+
+			secondPassConfig, err := s.planScrapeWithLLM(planCtx, finalHTML, secondPassGoal, &ScrapeConfig{
+				TypeScriptConfig: "// NAVIGATION ALREADY COMPLETED - DO NOT ADD COMMANDS HERE",
+				Extractions:      config.Extractions, // Pass existing as hints
+			})
+
+			if err == nil && len(secondPassConfig.Extractions) > 0 {
+				log.Printf("🎯 [MCP-SMART-SCRAPE] Second-pass planned %d specialized extraction patterns", len(secondPassConfig.Extractions))
+
+				// Apply new patterns to finalHTML
+				secondResults := s.applyExtractions(finalHTML, secondPassConfig.Extractions)
+
+				// Merge results into finalInnerResult
+				foundNew := false
+				for k, v := range secondResults {
+					if _, alreadyFound := finalInnerResult[k]; !alreadyFound {
+						finalInnerResult[k] = v
+						foundNew = true
+						log.Printf("✅ [MCP-SMART-SCRAPE] Second-pass successfully extracted '%s'", k)
+					}
+				}
+
+				if foundNew {
+					// Update the display text in scrapeResult
+					resultJSON, _ := json.MarshalIndent(finalInnerResult, "", "  ")
+					if content, ok := scrapeResult["content"].([]map[string]interface{}); ok && len(content) > 0 {
+						content[0]["text"] = fmt.Sprintf("Scrape Results (Two-Step):\n%s", string(resultJSON))
+					}
+				}
+			}
+		}
+	}
+
+	return scrapeResult, nil
+}
+
+// applyExtractions applies regex patterns to HTML locally
+func (s *MCPKnowledgeServer) applyExtractions(html string, patterns map[string]string) map[string]string {
+	results := make(map[string]string)
+	for key, pattern := range patterns {
+		// Fix common regex issues
+		sanitized := strings.ReplaceAll(pattern, "(?<=", "(?:")
+		sanitized = strings.ReplaceAll(sanitized, "(?=", "(?:")
+
+		re, err := regexp.Compile(sanitized)
+		if err != nil {
+			log.Printf("⚠️ [MCP-SMART-SCRAPE] Invalid regex for '%s': %v", key, err)
+			continue
+		}
+
+		matches := re.FindAllStringSubmatch(html, -1)
+		if len(matches) > 0 {
+			var extracted []string
+			for _, m := range matches {
+				if len(m) > 1 && m[1] != "" {
+					extracted = append(extracted, m[1])
+				}
+			}
+			if len(extracted) > 0 {
+				results[key] = strings.Join(extracted, "\n")
+			}
+		}
+	}
+	return results
 }
 
 type ScrapeConfig struct {
@@ -4115,6 +4231,10 @@ func (s *MCPKnowledgeServer) planScrapeWithLLM(ctx context.Context, html string,
 	systemPrompt := `You are an expert web scraper configuration generator.
 Your task is to analyze an HTML snapshot and generate a scraping plan to achieve a specific GOAL.
 
+⚠️ LANDING PAGE WARNING:
+If the HTML SNAPSHOT looks like a FORM (has input fields, selects) and the GOAL is to "Calculate", "Search", or "Find" something specific, you are likely on a LANDING PAGE. 
+The data you need is NOT on this page yet. You MUST provide JS commands in "typescript_config" to fill the form and submit it.
+
 Goal: Generate a valid JSON object with:
 - "typescript_config": (string) A sequence of Playwright JS commands (e.g., await page.click('...')) to navigate or reveal data if required. MUST BE A STRING, NOT AN OBJECT.
 - "extractions": (map<string, string>) A set of named extraction patterns. 
@@ -4129,6 +4249,13 @@ REGEX RULES:
 3. Target the HTML tags you see in the snapshot.
 4. Use single quotes (') or [\"'] in your regex for attributes.
 5. IMPORTANT: Use [^>]* to skip unknown attributes. e.g. "Table__ProductName[^>]*>\\s*([^<]+)<"
+SPECIFICITY RULE:
+3. NEVER use generic regex like "(\\d+)" or "([^<]+)" alone.
+4. ALWAYS anchor your regex to nearby unique text or labels you see in the snapshot.
+   - ❌ BAD: "(\\d+\\.?\\d*)"
+   - ✅ GOOD: "CO2\\s*emissions[^>]*>\\s*([^<]+)"
+   - ✅ GOOD: "Total[^>]*>\\s*([0-9,.]+)\\s*kg"
+
 EXAMPLES:
 - RIGHT: "price:\s*(\d+)"
 - WRONG (Lookaround): "(?<=price: )(\d+)"
@@ -4149,11 +4276,44 @@ MODERN WEB PATTERNS (Custom Tags & Data Attributes):
 11. For data attributes, use: "<tag[^>]*data-attribute-name='([^']+)'"
 12. Match partial attribute values: "data-field='[^']*price[^']*'"
 
+INTERACTIVE PATTERNS (Autocompletes & Dropdowns):
+13. If an input field triggers a dropdown (e.g. role='combobox', 'autocomplete' attribute, or nearby 'ul'), YOU MUST:
+    - Type a partial value: await page.locator('selector').fill('partial')
+    - Wait for suggestion: await page.waitForTimeout(1000)
+    - Click the SPECIFIC suggestion: await page.locator('li[role="option"]').first().click() OR await page.locator('.autocomplete-suggestion').first().click()
+14. For standard <select> elements:
+    - Use .selectOption('internal_value') where 'internal_value' is the value attribute of the <option> tag.
+    - NEVER use .fill() on a <select>.
+15. For Radio Buttons (<input type='radio'>):
+    - Use .check() on the specific radio button ID or label.
+
+NAVIGATION RULES:
+16. If the GOAL requires calculating, searching, or filtering data NOT present in the HTML SNAPSHOT (e.g., "Calculate emissions...", "Find price of..."), you MUST provide JS commands in "typescript_config" to reach the result.
+17. DO NOT leave "typescript_config" empty for calculation goals. This is a fatal error.
+18. ALWAYS wait after submitting a form: If you click a submit button, add await page.waitForTimeout(3000) to ensure the results page loads.
+
+CALCULATION RULE:
+19. If the goal is to CALCULATE or SEARCH, assume the result is NOT in the current HTML. You must fill the form (handling autocompletes if any) and click the submit button.
+
+SYNTAX RULES:
+20. Each JS command in "typescript_config" MUST be a separate awaited statement ending with a semicolon.
+    - ❌ BAD: await page.click('...').click()
+    - ✅ GOOD: await page.click('...'); 
+21. NEVER chain methods like .click() or .waitForTimeout() to a promise that doesn't return the page object.
+22. Use double quotes for the JSON wrapper and single quotes for JS strings: "await page.click('selector');"
+
+THINKING PROCESS:
+- STEP 1: Does the goal require user interaction (typing, clicking, selecting)?
+- STEP 2: If YES, write the JS sequence in "typescript_config".
+- STEP 3: Identify only the patterns for the FINAL result page after navigation.
+
 STRATEGY:
 - Look for custom HTML tags (anything not standard like div/span/p)
 - Check both tag CONTENT and tag ATTRIBUTES for values
-- Use flexible patterns that work across similar elements
+- Use flexible but SPECIFIC patterns (e.g., include surrounding static text or classes) to avoid multiple garbage matches.
 - If you see data-* attributes, they often contain the actual values
+- For forms, check if fields are autocompletes that require clicking a suggestion to 'lock' the value.
+- If the goal data isn't in the snapshot, plan the navigation to get there.
 
 Output ONLY the JSON object. Do NOT wrap in markdown code blocks like ` + "```json" + `. Start the response with '{'.`
 
@@ -4185,10 +4345,10 @@ Generate the JSON configuration to extract the data requested in the GOAL.
 
 INSTRUCTIONS:
 - Identify the data requested in the GOAL.
-- STRICT RULE: ONLY use attributes (class, id, data-ref) that you see in the HTML SNAPSHOT.
+- CALCULATION/SEARCH goals REQUIRE interaction logic in "typescript_config".
+- STRICT RULE: ONLY use attributes (class, id, role) that you see in the HTML SNAPSHOT.
 - NEVER invent attributes like 'data-rate' or 'product-id' if they are not in the snapshot.
 - If the page has a <table>, focus your regex on matching <tr> rows within <tbody>.
-- Use ONLY single quotes (') for HTML attributes in your regex. e.g. class='name'
 - Capture ONLY the data you want in the first ().
 - CRITICAL: Your response MUST be valid JSON. Double all backslashes: \\s, \\d, \\S.
 - Output ONLY valid JSON.`
@@ -4226,6 +4386,7 @@ INSTRUCTIONS:
 				}
 			}
 			cleanedResponse = strings.Join(lines, "\n")
+			cleanedResponse = sanitizeJSONResponse(cleanedResponse)
 
 			if err := json.Unmarshal([]byte(cleanedResponse), &rawMap); err == nil {
 				// Successfully parsed into map, now map to struct
@@ -4415,7 +4576,7 @@ func cleanHTMLForPlanning(html string) string {
 		"data-reactid", "data-tracking", "data-ylk", "data-test-id", "data-rapid-context",
 		"data-image-id", "data-beacons", "data-rapid-param", "data-rapid", "data-analytics",
 		"onclick", "onmouseover", "onmouseout", "onload", "onfocus", "onblur",
-		"style", "rel", "target", "width", "height", "role", "aria-[a-z0-9-]*", "tabindex",
+		"style", "rel", "target", "width", "height", "tabindex",
 		"viewbox", "d", "clip-rule", "fill", "stroke", "xmlns", "version",
 	}
 	for _, attr := range noisyAttrs {
@@ -4430,4 +4591,25 @@ func cleanHTMLForPlanning(html string) string {
 	html = re.ReplaceAllString(html, " ")
 
 	return strings.TrimSpace(html)
+}
+
+func sanitizeJSONResponse(js string) string {
+	// 1. Remove markdown code blocks if present
+	js = regexp.MustCompile("(?s)^```(?:json)?\n?").ReplaceAllString(js, "")
+	js = regexp.MustCompile("(?s)\n?```$").ReplaceAllString(js, "")
+
+	// 2. Find the first '{' and last '}' to isolate the JSON object
+	first := strings.Index(js, "{")
+	last := strings.LastIndex(js, "}")
+	if first != -1 && last != -1 && last > first {
+		js = js[first : last+1]
+	}
+
+	// 3. Fix backslash-escaped single quotes (LLM often thinks JSON needs these)
+	js = strings.ReplaceAll(js, "\\'", "'")
+
+	// 4. Robust: remove trailing commas before closing braces/brackets
+	js = regexp.MustCompile(`,\s*([}\]])`).ReplaceAllString(js, "$1")
+
+	return strings.TrimSpace(js)
 }

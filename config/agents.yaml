@@ -1,147 +1,84 @@
-# Configuration for Autonomous Agents using Google ADK (Agent Development Kit)
-# This file defines agents that can autonomously use tools and execute tasks
-# Based on Google ADK's agent configuration structure
-# Documentation: https://google.github.io/adk-docs/
-
 agents:
-  - id: email_monitor_agent
-    name: Email Monitor Agent
-    description: Monitors emails and takes actions based on content
-    role: Email Monitoring Specialist
-    goal: Monitor inbox for important emails and notify or take actions
-    backstory: |
-      You are an email monitoring specialist that watches for important messages,
-      categorizes them, and takes appropriate actions like flagging urgent items
-      or summarizing daily digests.
-    
-    # Tools this agent can use (references to MCP tools or configured skills)
-    tools:
-      - mcp_read_google_data
-      - mcp_save_episode
-      - tool_http_get
-    
-    # Agent capabilities and constraints
-    capabilities:
-      max_iterations: 10
-      allow_delegation: false
-      verbose: true
-    
-    # When to trigger this agent
-    triggers:
-      schedule:
-        - cron: "*/30 * * * *"  # Every 30 minutes
-          action: check_emails
-      events:
-        - type: user_request
-          keywords:
-            - check emails
-            - monitor inbox
-            - email summary
-        - type: goal
-          goal_type: monitor_emails
-    
-    # Agent behavior configuration
-    behavior:
-      thinking_mode: true
-      max_retries: 3
-      response_format: structured
-      use_memory: true
-      memory_window: 24h
-      prefer_tools: true
-      tool_timeout: 60s
-    
-    # Task definitions for this agent
-    tasks:
-      - id: check_unread_emails
-        description: Check for unread emails and categorize them
-        expected_output: List of unread emails with categories
-        tools:
-          - mcp_read_google_data
-        parameters:
-          query: unread
-          type: email
-          limit: 50
-
-  - id: website_status_monitor
-    name: Website Status Monitor
-    description: Checks if important websites are up and running, reports their HTTP status codes, and alerts if any are down. Perfect for monitoring critical services or your own infrastructure.
-    role: Website Health Monitor
-    goal: Monitor a list of websites and report their status (up/down, response times, HTTP status codes) via Telegram
-    backstory: |
-      You are a website monitoring specialist that checks the health of websites by making HTTP requests
-      and analyzing their responses. You provide clear status reports and identify any issues, then notify
-      via Telegram for immediate visibility.
-    
-    tools:
-      - tool_http_get
-      - tool_telegram_send
-    
-    capabilities:
-      max_iterations: 10
-      allow_delegation: false
-      verbose: true
-    
-    triggers:
-      schedule:
-        - cron: "*/15 * * * *"  # Every 15 minutes
-          action: execute
-    
-    behavior:
-      thinking_mode: true
-      max_retries: 3
-      response_format: structured
-      use_memory: true
-      memory_window: 24h
-      prefer_tools: true
-      tool_timeout: 60s
-    
-    tasks:
-      - id: monitor_task
-        description: Monitor and check status of websites
-        expected_output: Status report for each website (up/down, HTTP status, response time)
-        tools:
-          - tool_http_get
-        parameters:
-          websites:
-            - "https://me.sjfisher.com"
-            - "https://k3s.sjfisher.com"
-      # Note: Telegram notifications are automatically sent after website checks
-      # (handled by agent executor when tool_telegram_send is available)
-
-  - id: scraper_agent
-    name: Intelligent Scraper Agent
-    description: "Autonomously plans and executes web scraping tasks to extract specific data from websites."
-    role: "Data Extraction Specialist"
-    goal: "Extract structured data from websites based on user requests"
-    backstory: |
-      You are an expert at extracting information from the web.
-      You can analyze a webpage, plan a scraping strategy, and retrieve the data
-      the user needs, whether it's interest rates, product details, or news.
-    tools:
-      - smart_scrape
-    capabilities:
-      max_iterations: 15
-      allow_delegation: false
-      verbose: true
-    triggers:
-      events:
-        - type: user_request
-          keywords:
-            - scrape
-            - extract data
-            - find interest rate
-            - get price
-            - get details
-            - compare
-            - savings
-            - products
-            - monitor website
-    behavior:
-      thinking_mode: true
-      max_retries: 3
-      response_format: structured
-      use_memory: true
-      memory_window: 24h
-      prefer_tools: true
-      tool_timeout: 300s
-
+    - id: email_monitor_agent
+      name: Email Monitor Agent
+      description: Monitors emails and takes actions based on content
+      role: Email Monitoring Specialist
+      goal: Monitor inbox for important emails and notify or take actions
+      backstory: |
+        You are an email monitoring specialist that watches for important messages,
+        categorizes them, and takes appropriate actions like flagging urgent items
+        or summarizing daily digests.
+      tools:
+        - mcp_read_google_data
+        - mcp_save_episode
+        - tool_http_get
+      capabilities:
+        max_iterations: 10
+        verbose: true
+      triggers:
+        schedule:
+            - cron: '*/30 * * * *'
+              action: check_emails
+        events:
+            - type: user_request
+              keywords:
+                - check emails
+                - monitor inbox
+                - email summary
+            - type: goal
+              goal_type: monitor_emails
+      behavior:
+        thinking_mode: true
+        max_retries: 3
+        response_format: structured
+        use_memory: true
+        memory_window: 24h
+        prefer_tools: true
+        tool_timeout: 60s
+      tasks:
+        - id: check_unread_emails
+          description: Check for unread emails and categorize them
+          expected_output: List of unread emails with categories
+          tools:
+            - mcp_read_google_data
+          parameters:
+            limit: 50
+            query: unread
+            type: email
+    - id: website_status_monitor
+      name: Website Status Monitor
+      description: Checks if important websites are up and running, reports their HTTP status codes, and alerts if any are down. Perfect for monitoring critical services or your own infrastructure.
+      role: Website Health Monitor
+      goal: Monitor a list of websites and report their status (up/down, response times, HTTP status codes) via Telegram
+      backstory: |
+        You are a website monitoring specialist that checks the health of websites by making HTTP requests
+        and analyzing their responses. You provide clear status reports and identify any issues, then notify
+        via Telegram for immediate visibility.
+      tools:
+        - tool_http_get
+        - tool_telegram_send
+      capabilities:
+        max_iterations: 10
+        verbose: true
+      triggers:
+        schedule:
+            - cron: '*/15 * * * *'
+              action: execute
+      behavior:
+        thinking_mode: true
+        max_retries: 3
+        response_format: structured
+        use_memory: true
+        memory_window: 24h
+        prefer_tools: true
+        tool_timeout: 60s
+      tasks:
+        - id: monitor_task
+          description: Monitor and check status of websites
+          expected_output: Status report for each website (up/down, HTTP status, response time)
+          tools:
+            - tool_http_get
+          parameters:
+            websites:
+                - https://me.sjfisher.com
+                - https://k3s.sjfisher.com
