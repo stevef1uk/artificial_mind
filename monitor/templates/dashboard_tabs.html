@@ -1,11 +1,13 @@
 {{ define "dashboard_tabs.html" }}
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.title}} - Tabbed UI v2</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="/static/js/logs.js?v=2025-12-20-16-00"></script>
@@ -153,9 +155,17 @@
             margin-right: 8px;
         }
 
-        .status-healthy { background-color: #27ae60; }
-        .status-unhealthy { background-color: #e74c3c; }
-        .status-degraded { background-color: #f39c12; }
+        .status-healthy {
+            background-color: #27ae60;
+        }
+
+        .status-unhealthy {
+            background-color: #e74c3c;
+        }
+
+        .status-degraded {
+            background-color: #f39c12;
+        }
 
         .btn {
             background: #007bff;
@@ -173,10 +183,21 @@
             background: #0056b3;
         }
 
-        .btn-success { background: #28a745; }
-        .btn-success:hover { background: #1e7e34; }
-        .btn-danger { background: #dc3545; }
-        .btn-danger:hover { background: #c82333; }
+        .btn-success {
+            background: #28a745;
+        }
+
+        .btn-success:hover {
+            background: #1e7e34;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
 
         .refresh-btn {
             background: #6c757d;
@@ -195,7 +216,8 @@
             transform: translateY(-2px);
         }
 
-        .workflow-item, .step-item {
+        .workflow-item,
+        .step-item {
             background: #f8f9fa;
             border: 1px solid #e9ecef;
             border-radius: 8px;
@@ -223,10 +245,25 @@
             text-transform: uppercase;
         }
 
-        .status-completed { background: #d4edda; color: #155724; }
-        .status-running { background: #d1ecf1; color: #0c5460; }
-        .status-failed { background: #f8d7da; color: #721c24; }
-        .status-pending { background: #fff3cd; color: #856404; }
+        .status-completed {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-running {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .status-failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-pending {
+            background: #fff3cd;
+            color: #856404;
+        }
 
         .step-description {
             color: #6c757d;
@@ -372,10 +409,12 @@
             color: #ff6b35;
             font-weight: bold;
         }
+
         .local-indicator {
             color: #28a745;
             font-weight: bold;
         }
+
         .log-item {
             display: flex;
             gap: 10px;
@@ -384,18 +423,33 @@
             font-family: monospace;
             font-size: 12px;
         }
+
         .log-time {
             color: #666;
             min-width: 80px;
         }
+
         .log-level {
             font-weight: bold;
             min-width: 60px;
         }
-        .log-level.ERROR { color: #e74c3c; }
-        .log-level.WARN { color: #f39c12; }
-        .log-level.INFO { color: #3498db; }
-        .log-level.DEBUG { color: #95a5a6; }
+
+        .log-level.ERROR {
+            color: #e74c3c;
+        }
+
+        .log-level.WARN {
+            color: #f39c12;
+        }
+
+        .log-level.INFO {
+            color: #3498db;
+        }
+
+        .log-level.DEBUG {
+            color: #95a5a6;
+        }
+
         .log-message {
             flex: 1;
             white-space: pre-wrap;
@@ -436,13 +490,13 @@
             .rag-results-grid {
                 grid-template-columns: 1fr;
             }
-            
+
             .rag-card-header {
                 flex-direction: column;
                 align-items: flex-start;
                 gap: 8px;
             }
-            
+
             .rag-metadata {
                 flex-direction: column;
                 gap: 8px;
@@ -472,7 +526,8 @@
             color: #2c3e50;
         }
 
-        .input-group input, .input-group select {
+        .input-group input,
+        .input-group select {
             width: 100%;
             padding: 8px 12px;
             border: 1px solid #ced4da;
@@ -480,7 +535,8 @@
             font-size: 0.9rem;
         }
 
-        .input-group input:focus, .input-group select:focus {
+        .input-group input:focus,
+        .input-group select:focus {
             outline: none;
             border-color: #007bff;
             box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
@@ -598,17 +654,17 @@
             background: linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%);
             box-shadow: 0 2px 4px rgba(156, 39, 176, 0.3);
         }
-        
+
         /* Database query highlighting */
         .thought-card.database-query {
             border-left: 4px solid #28a745;
             background: linear-gradient(to right, #f0fff4 0%, #ffffff 10%);
         }
-        
+
         .thought-card.database-query:hover {
             box-shadow: 0 4px 12px rgba(40, 167, 69, 0.2);
         }
-        
+
         .database-badge {
             display: inline-block;
             background: #28a745;
@@ -620,7 +676,7 @@
             margin-left: 8px;
             vertical-align: middle;
         }
-        
+
         .meta-value.mcp-tool,
         .meta-value.tool-name {
             color: #28a745;
@@ -697,6 +753,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="header">
@@ -723,10 +780,12 @@
                 <button class="tab-button" onclick="switchTab('agents')">🤖 Agents</button>
                 <button class="tab-button" onclick="switchTab('metrics')">📦 Artefacts</button>
                 <button class="tab-button" onclick="switchTab('logs')">📝 Logs</button>
+                <button class="tab-button" onclick="switchTab('smartscrape')">🕸️ Smart Scrape</button>
             </div>
 
             <!-- Overview Tab -->
             <div id="overview-tab" class="tab-content active">
+
                 <div class="card">
                     <h3>System Status</h3>
                     <div id="system-status">
@@ -754,7 +813,8 @@
                 <div class="card">
                     <h3>📅 Daily Summary</h3>
                     <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
-                        <input id="ds-date" type="date" style="padding:8px; border:1px solid #e1e8ed; border-radius:6px;"/>
+                        <input id="ds-date" type="date"
+                            style="padding:8px; border:1px solid #e1e8ed; border-radius:6px;" />
                         <button class="btn" onclick="loadDailySummary()">Load</button>
                     </div>
                     <pre id="daily-summary" class="panel-scroll" style="min-height:160px; white-space:pre-wrap;"></pre>
@@ -787,9 +847,11 @@
                     <div class="input-group">
                         <label for="mem-session">Session ID:</label>
                         <div style="display:flex; gap:8px; align-items:center;">
-                            <input type="text" id="mem-session" placeholder="Enter session ID (default 'system')" style="flex:1;">
+                            <input type="text" id="mem-session" placeholder="Enter session ID (default 'system')"
+                                style="flex:1;">
                             <select id="mem-session-select" style="min-width:260px;"></select>
-                            <button class="btn" id="refresh-sessions-btn" title="Discover recent sessions">Discover</button>
+                            <button class="btn" id="refresh-sessions-btn"
+                                title="Discover recent sessions">Discover</button>
                         </div>
                         <div id="mem-session-hint" style="margin-top:6px; color:#6c757d; font-size:0.9rem;"></div>
                     </div>
@@ -830,13 +892,15 @@
                     <h3>Natural Language Input</h3>
                     <div class="input-group">
                         <label for="nl-input">Enter your request:</label>
-                        <input type="text" id="nl-input" placeholder="e.g., Create a Python program that prints 'Hello World'">
+                        <input type="text" id="nl-input"
+                            placeholder="e.g., Create a Python program that prints 'Hello World'">
                     </div>
                     <div class="input-group">
                         <label for="project-input">Project (optional):</label>
                         <input type="text" id="project-input" placeholder="Leave blank to auto-create from prompt">
                     </div>
-                    <div class="input-group" style="display:flex; align-items:center; gap:16px; margin-top:8px; flex-wrap:wrap;">
+                    <div class="input-group"
+                        style="display:flex; align-items:center; gap:16px; margin-top:8px; flex-wrap:wrap;">
                         <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
                             <input type="checkbox" id="force-knowledge-rag" />
                             <span>Use knowledge + RAG (Neo4j + episodic + news)</span>
@@ -851,27 +915,28 @@
                         <div class="loading">Enter a request and click Execute...</div>
                     </div>
                 </div>
-                
+
                 <div class="card">
                     <h3>Tool Metrics</h3>
                     <div id="tool-metrics-content">
                         <div class="loading">Click to load tool metrics...</div>
                     </div>
                 </div>
-                
+
                 <div class="card">
                     <h3>Content Safety Monitor</h3>
                     <div id="safety-content">
                         <div class="loading">Click to load safety data...</div>
                     </div>
                 </div>
-                
+
                 <div class="card">
                     <h3>Tools</h3>
                     <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
                         <label style="display:flex; align-items:center; gap:6px;">
                             <span>Origin:</span>
-                            <select id="tools-origin-filter" style="padding:6px; border:1px solid #e1e8ed; border-radius:6px;">
+                            <select id="tools-origin-filter"
+                                style="padding:6px; border:1px solid #e1e8ed; border-radius:6px;">
                                 <option value="all" selected>All</option>
                                 <option value="system">System only</option>
                                 <option value="agent">Agent only</option>
@@ -886,7 +951,7 @@
                         <div class="loading">Loading tools...</div>
                     </div>
                 </div>
-                
+
                 <div class="card">
                     <h3>RAG Search</h3>
                     <div class="input-group">
@@ -929,18 +994,21 @@
                 <div class="card">
                     <h3>Reasoning Layer</h3>
                     <div style="margin:6px 0 10px 0; color:#555; font-size:0.95em;">
-                        <span id="reasoning-summary">Domain-level traces, beliefs, curiosity goals, and explanations.</span>
+                        <span id="reasoning-summary">Domain-level traces, beliefs, curiosity goals, and
+                            explanations.</span>
                     </div>
                     <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
                         <select id="reasoning-domain" style="padding:6px; border:1px solid #e1e8ed; border-radius:6px;">
                             <option value="General" selected>General</option>
                         </select>
                         <button class="btn" id="reasoning-discover-domains">Discover Domains</button>
-                        <input id="reasoning-goal-filter" placeholder="filter by goal (optional)" style="flex:1; min-width:260px; padding:8px; border:1px solid #e1e8ed; border-radius:6px;"/>
+                        <input id="reasoning-goal-filter" placeholder="filter by goal (optional)"
+                            style="flex:1; min-width:260px; padding:8px; border:1px solid #e1e8ed; border-radius:6px;" />
                         <label style="display:flex; align-items:center; gap:6px;">
                             <input id="reasoning-auto-refresh" type="checkbox" checked /> Auto-refresh
                         </label>
-                        <select id="reasoning-refresh-interval" style="padding:6px; border:1px solid #e1e8ed; border-radius:6px;">
+                        <select id="reasoning-refresh-interval"
+                            style="padding:6px; border:1px solid #e1e8ed; border-radius:6px;">
                             <option value="3000">3s</option>
                             <option value="5000" selected>5s</option>
                             <option value="10000">10s</option>
@@ -980,35 +1048,44 @@
                     <div style="margin:6px 0 10px 0; color:#555; font-size:0.95em;">
                         Ask questions and explore the AI's reasoning process and decision-making chain.
                     </div>
-                    
+
                     <!-- Chat Input Section -->
-                    <div style="margin-bottom:20px; padding:15px; background:#f8f9fa; border-radius:8px; border:1px solid #e9ecef;">
-                        <label for="thoughts-chat-input" style="font-weight:500; display:block; margin-bottom:8px;">Ask a question:</label>
+                    <div
+                        style="margin-bottom:20px; padding:15px; background:#f8f9fa; border-radius:8px; border:1px solid #e9ecef;">
+                        <label for="thoughts-chat-input" style="font-weight:500; display:block; margin-bottom:8px;">Ask
+                            a question:</label>
                         <div style="display:flex; gap:8px;">
-                            <input type="text" id="thoughts-chat-input" placeholder="Type your question here..." style="flex:1; padding:8px 12px; border:1px solid #e1e8ed; border-radius:6px; font-size:0.95rem;" onkeypress="if(event.key==='Enter') sendThoughtsChatMessage()">
-                            <button class="btn" onclick="sendThoughtsChatMessage()" id="thoughts-chat-send">Send</button>
+                            <input type="text" id="thoughts-chat-input" placeholder="Type your question here..."
+                                style="flex:1; padding:8px 12px; border:1px solid #e1e8ed; border-radius:6px; font-size:0.95rem;"
+                                onkeypress="if(event.key==='Enter') sendThoughtsChatMessage()">
+                            <button class="btn" onclick="sendThoughtsChatMessage()"
+                                id="thoughts-chat-send">Send</button>
                         </div>
                         <div id="thoughts-chat-status" style="margin-top:8px; font-size:0.85rem; color:#6c757d;"></div>
                         <!-- Response Display -->
-                        <div id="thoughts-chat-response" style="margin-top:12px; padding:12px; background:white; border-radius:6px; border:1px solid #dee2e6; display:none;">
+                        <div id="thoughts-chat-response"
+                            style="margin-top:12px; padding:12px; background:white; border-radius:6px; border:1px solid #dee2e6; display:none;">
                             <div style="font-weight:600; color:#495057; margin-bottom:6px;">AI Response:</div>
                             <div id="thoughts-chat-response-text" style="color:#2c3e50; line-height:1.6;"></div>
                         </div>
                     </div>
-                    
+
                     <!-- Session Selection -->
                     <div style="display:flex; gap:10px; align-items:center; margin-bottom:15px; flex-wrap:wrap;">
                         <label for="thoughts-session-select" style="font-weight:500;">Session:</label>
-                        <select id="thoughts-session-select" onchange="if(this.value) loadThoughts();" style="padding:8px 12px; border:1px solid #e1e8ed; border-radius:6px; min-width:250px;">
+                        <select id="thoughts-session-select" onchange="if(this.value) loadThoughts();"
+                            style="padding:8px 12px; border:1px solid #e1e8ed; border-radius:6px; min-width:250px;">
                             <option value="">Select a session...</option>
                         </select>
                         <label for="thoughts-limit" style="font-weight:500;">Limit:</label>
-                        <input type="number" id="thoughts-limit" value="50" min="1" max="200" style="padding:8px 12px; border:1px solid #e1e8ed; border-radius:6px; width:80px;">
+                        <input type="number" id="thoughts-limit" value="50" min="1" max="200"
+                            style="padding:8px 12px; border:1px solid #e1e8ed; border-radius:6px; width:80px;">
                         <button class="btn" onclick="loadThoughts()">🔄 Refresh Thoughts</button>
                         <button class="btn" onclick="loadThoughtsSessions()">🔄 Refresh Sessions</button>
                     </div>
                     <div id="thoughts-container" style="margin-top:15px;">
-                        <div class="loading">Ask a question above or select a session to view the AI's chain of thought...</div>
+                        <div class="loading">Ask a question above or select a session to view the AI's chain of
+                            thought...</div>
                     </div>
                 </div>
             </div>
@@ -1016,7 +1093,8 @@
             <!-- Agents Tab -->
             <div id="agents-tab" class="tab-content">
                 <div class="card">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                         <h3>🤖 Agents</h3>
                         <button class="btn" onclick="showAgentWizard()">➕ Create Agent</button>
                     </div>
@@ -1042,7 +1120,8 @@
                     </div>
                     <div style="margin-top:10px; display:flex; gap:10px; align-items:center;">
                         <button class="btn" onclick="loadArtifacts()">Load Artefacts</button>
-                        <button class="btn" onclick="loadLatestProjectWorkflowArtifacts()">Load Latest Project Workflow</button>
+                        <button class="btn" onclick="loadLatestProjectWorkflowArtifacts()">Load Latest Project
+                            Workflow</button>
                     </div>
                     <div id="artifacts-content" style="margin-top: 15px;">
                         <div class="loading">Enter a workflow id or choose a project to load artefacts...</div>
@@ -1053,30 +1132,49 @@
             <!-- Logs Tab -->
             <div id="logs-tab" class="tab-content">
                 <div class="card full-width">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap;">
                         <h3>🧾 Recent Logs</h3>
                         <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                            <button id="log-source-toggle" onclick="toggleLogSource()" style="padding: 8px 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; min-width: 120px;">
+                            <button id="log-source-toggle" onclick="toggleLogSource()"
+                                style="padding: 8px 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; min-width: 120px;">
                                 Switch to <span id="log-source-indicator">K8s Logs</span>
                             </button>
-                            <button onclick="if(typeof window.setLogSource==='function'){window.setLogSource('k8s');}" style="padding: 6px 10px; background: #0ea5e9; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">Use K8s</button>
-                            <button onclick="if(typeof window.setLogSource==='function'){window.setLogSource('local');}" style="padding: 6px 10px; background: #16a34a; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">Use Local</button>
+                            <button onclick="if(typeof window.setLogSource==='function'){window.setLogSource('k8s');}"
+                                style="padding: 6px 10px; background: #0ea5e9; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">Use
+                                K8s</button>
+                            <button onclick="if(typeof window.setLogSource==='function'){window.setLogSource('local');}"
+                                style="padding: 6px 10px; background: #16a34a; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">Use
+                                Local</button>
                             <!-- K8s Service Selector (shown when using Kubernetes logs) -->
-                            <div id="k8s-service-controls" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                            <div id="k8s-service-controls"
+                                style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
                                 <label for="k8s-ns-input" style="font-size:12px; color:#374151;">Namespace</label>
-                                <input id="k8s-ns-input" value="agi" placeholder="e.g. agi" style="width:120px; padding:4px 6px; font-size:12px;" />
-                                <label for="k8s-selector-key-input" style="font-size:12px; color:#374151;">Selector key</label>
-                                <input id="k8s-selector-key-input" value="app" placeholder="e.g. app" title="Label KEY to match" style="width:190px; padding:4px 6px; font-size:12px;" />
-                                <label for="k8s-service-select" style="font-size:12px; color:#374151; font-weight: 600;">Label value:</label>
-                                <select id="k8s-service-select" onchange="if(typeof changeLogService==='function')changeLogService(this.value)" style="min-width:160px; padding:4px 6px; font-size:12px;">
+                                <input id="k8s-ns-input" value="agi" placeholder="e.g. agi"
+                                    style="width:120px; padding:4px 6px; font-size:12px;" />
+                                <label for="k8s-selector-key-input" style="font-size:12px; color:#374151;">Selector
+                                    key</label>
+                                <input id="k8s-selector-key-input" value="app" placeholder="e.g. app"
+                                    title="Label KEY to match" style="width:190px; padding:4px 6px; font-size:12px;" />
+                                <label for="k8s-service-select"
+                                    style="font-size:12px; color:#374151; font-weight: 600;">Label value:</label>
+                                <select id="k8s-service-select"
+                                    onchange="if(typeof changeLogService==='function')changeLogService(this.value)"
+                                    style="min-width:160px; padding:4px 6px; font-size:12px;">
                                     <option value="">Loading...</option>
                                 </select>
-                                <button onclick="if(typeof applyK8sSettings==='function')applyK8sSettings()" title="Apply K8s settings" style="padding: 6px 10px; background: #6b7280; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Apply</button>
+                                <button onclick="if(typeof applyK8sSettings==='function')applyK8sSettings()"
+                                    title="Apply K8s settings"
+                                    style="padding: 6px 10px; background: #6b7280; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Apply</button>
                             </div>
                             <!-- Local Log File Selector (shown when using local logs) -->
-                            <div id="local-log-controls" style="display: none; gap: 6px; align-items: center; flex-wrap: wrap;">
-                                <label for="local-log-file-select" style="font-size:12px; color:#374151; font-weight: 600;">Log File:</label>
-                                <select id="local-log-file-select" onchange="if(this.value&&typeof changeLocalLogFile==='function')changeLocalLogFile(this.value)" style="min-width:200px; padding:4px 6px; font-size:12px; border: 1px solid #ddd; border-radius: 4px; background: white;">
+                            <div id="local-log-controls"
+                                style="display: none; gap: 6px; align-items: center; flex-wrap: wrap;">
+                                <label for="local-log-file-select"
+                                    style="font-size:12px; color:#374151; font-weight: 600;">Log File:</label>
+                                <select id="local-log-file-select"
+                                    onchange="if(this.value&&typeof changeLocalLogFile==='function')changeLocalLogFile(this.value)"
+                                    style="min-width:200px; padding:4px 6px; font-size:12px; border: 1px solid #ddd; border-radius: 4px; background: white;">
                                     <option value="/tmp/hdn_server.log">hdn_server.log</option>
                                     <option value="/tmp/fsm.log">fsm.log</option>
                                     <option value="/tmp/goal_manager.log">goal_manager.log</option>
@@ -1084,12 +1182,20 @@
                                     <option value="/var/log/syslog">syslog</option>
                                 </select>
                             </div>
-                            <button onclick="loadLogs(); loadRecentLogsCompact();" style="padding: 8px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
+                            <button onclick="loadLogs(); loadRecentLogsCompact();"
+                                style="padding: 8px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
                                 🔄 Refresh
                             </button>
                         </div>
                     </div>
                     <div id="logs-compact" class="logs-container" style="max-height: 240px;"></div>
+                </div>
+            </div>
+
+            <!-- Smart Scrape Tab -->
+            <div id="smartscrape-tab" class="tab-content">
+                <div class="card full-width" style="height: 850px; padding: 0; overflow: hidden; border-radius: 15px;">
+                    <iframe src="/static/smart_scrape/" style="width: 100%; height: 100%; border: none;"></iframe>
                 </div>
             </div>
         </div>
@@ -1103,7 +1209,7 @@
             div.textContent = text;
             return div.innerHTML;
         }
-        
+
         let currentTab = 'overview';
         let autoRefreshInterval = null;
         let reasoningInterval = null;
@@ -1119,11 +1225,12 @@
             metrics: false,
             logs: false,
             reasoning: false,
-            thoughts: false
+            thoughts: false,
+            smartscrape: true
         };
 
         // Tab switching (make globally accessible)
-        window.switchTab = function(tabName) {
+        window.switchTab = function (tabName) {
             console.log('switchTab called with:', tabName);
             // Hide all tabs
             document.querySelectorAll('.tab-content').forEach(tab => {
@@ -1138,21 +1245,21 @@
             const targetButton = document.querySelector(`[onclick="switchTab('${tabName}')"]`);
             console.log('Target tab element:', targetTab);
             console.log('Target button element:', targetButton);
-            
+
             if (targetTab) {
                 targetTab.classList.add('active');
                 console.log('Added active class to tab');
             } else {
                 console.error('Target tab not found:', tabName + '-tab');
             }
-            
+
             if (targetButton) {
                 targetButton.classList.add('active');
                 console.log('Added active class to button');
             } else {
                 console.error('Target button not found for:', tabName);
             }
-            
+
             // Clear any tab-specific timers when switching
             if (reasoningInterval) {
                 clearInterval(reasoningInterval);
@@ -1180,11 +1287,11 @@
             try {
                 // Don't replace content for tabs that render their own dynamic inner content
                 // Keep existing DOM for: overview, workflows, tools, agents, metrics (Artefacts), reasoning, logs, thoughts
-                if (tabName !== 'overview' && tabName !== 'workflows' && tabName !== 'tools' && tabName !== 'agents' && tabName !== 'metrics' && tabName !== 'reasoning' && tabName !== 'logs' && tabName !== 'thoughts') {
+                if (tabName !== 'overview' && tabName !== 'workflows' && tabName !== 'tools' && tabName !== 'agents' && tabName !== 'metrics' && tabName !== 'reasoning' && tabName !== 'logs' && tabName !== 'thoughts' && tabName !== 'smartscrape') {
                     contentDiv.innerHTML = '<div class="loading">Loading...</div>';
                 }
-                
-                switch(tabName) {
+
+                switch (tabName) {
                     case 'overview':
                         await loadOverviewData();
                         break;
@@ -1217,16 +1324,16 @@
                             // Debug: Check what's actually in the tab
                             console.log('logs-tab innerHTML length:', logsTabEl.innerHTML.length);
                             console.log('logs-tab innerHTML preview:', logsTabEl.innerHTML.substring(0, 500));
-                            
+
                             // Check if logs-compact exists
                             let logsCompactEl = document.getElementById('logs-compact');
                             console.log('logs-compact exists before fix:', !!logsCompactEl);
-                            
+
                             // If it doesn't exist, the template might not have rendered it
                             // Try to find it within logs-tab
                             logsCompactEl = logsTabEl.querySelector('#logs-compact');
                             console.log('logs-compact found via querySelector:', !!logsCompactEl);
-                            
+
                             // If still not found, create it manually
                             if (!logsCompactEl) {
                                 console.log('Creating logs-compact element manually');
@@ -1241,20 +1348,20 @@
                                     console.log('Created logs-compact element');
                                 }
                             }
-                            
+
                             // Now try to load logs - wait for logs.js to load with retries
                             // Use getOrCreateLogsContainer to ensure element exists
                             let retries = 0;
                             const maxRetries = 10;
                             const checkAndLoad = async () => {
                                 // Get element fresh each time (in case it was created)
-                                const el = typeof window.getOrCreateLogsContainer === 'function' 
-                                    ? window.getOrCreateLogsContainer() 
+                                const el = typeof window.getOrCreateLogsContainer === 'function'
+                                    ? window.getOrCreateLogsContainer()
                                     : document.getElementById('logs-compact');
-                                
-                                const loadLogsFn = typeof window.loadLogs === 'function' ? window.loadLogs : 
-                                                   typeof loadLogs === 'function' ? loadLogs : null;
-                                
+
+                                const loadLogsFn = typeof window.loadLogs === 'function' ? window.loadLogs :
+                                    typeof loadLogs === 'function' ? loadLogs : null;
+
                                 if (el && loadLogsFn) {
                                     console.log('Calling loadLogs function, element found:', !!el);
                                     await loadLogsFn();
@@ -1289,7 +1396,7 @@
                         await loadThoughtsTab();
                         break;
                 }
-                
+
                 tabDataLoaded[tabName] = true;
             } catch (error) {
                 console.error(`Error loading ${tabName} data:`, error);
@@ -1298,7 +1405,7 @@
         }
 
         // Refresh current tab (make globally accessible)
-        window.refreshCurrentTab = function() {
+        window.refreshCurrentTab = function () {
             tabDataLoaded[currentTab] = false;
             loadTabData(currentTab);
         }
@@ -1308,48 +1415,48 @@
             console.log('=== LOAD OVERVIEW DATA CALLED ===');
             console.log('Loading overview data...');
             console.log('Function execution started');
-            
+
             // Wait a bit for DOM to be fully ready
             await new Promise(resolve => setTimeout(resolve, 100));
-            
+
             console.log('Looking for elements...');
             console.log('Document ready state:', document.readyState);
             console.log('All elements with id containing "status":', document.querySelectorAll('[id*="status"]'));
             console.log('All elements with id containing "stats":', document.querySelectorAll('[id*="stats"]'));
-            
+
             // Check if overview-tab exists and is visible
             const overviewTab = document.getElementById('overview-tab');
             console.log('Overview tab found:', !!overviewTab);
             console.log('Overview tab display style:', overviewTab ? getComputedStyle(overviewTab).display : 'N/A');
             console.log('Overview tab visibility:', overviewTab ? getComputedStyle(overviewTab).visibility : 'N/A');
-            
+
             // Try different approaches to find elements
             console.log('Trying getElementById...');
             const systemStatusDiv = document.getElementById('system-status');
             const quickStatsDiv = document.getElementById('quick-stats');
             const databaseStatusDiv = document.getElementById('database-status');
             const newsContentDiv = document.getElementById('news-content');
-            
+
             console.log('Trying querySelector...');
             const systemStatusDiv2 = document.querySelector('#system-status');
             const quickStatsDiv2 = document.querySelector('#quick-stats');
             const databaseStatusDiv2 = document.querySelector('#database-status');
             const newsContentDiv2 = document.querySelector('#news-content');
-            
+
             console.log('querySelector results:', {
                 systemStatusDiv2: !!systemStatusDiv2,
                 quickStatsDiv2: !!quickStatsDiv2,
                 databaseStatusDiv2: !!databaseStatusDiv2,
                 newsContentDiv2: !!newsContentDiv2
             });
-            
+
             console.log('Elements found:', {
                 systemStatusDiv: !!systemStatusDiv,
                 quickStatsDiv: !!quickStatsDiv,
                 databaseStatusDiv: !!databaseStatusDiv,
                 newsContentDiv: !!newsContentDiv
             });
-            
+
             try {
                 console.log('Making API call to /api/status...');
                 // Load system status (backend can take up to 11 seconds when services are down: 5s service timeout + 6s collection)
@@ -1357,9 +1464,9 @@
                 console.log('Status response received:', statusResponse.status);
                 console.log('Status data:', statusResponse.data);
                 const status = statusResponse.data;
-                
+
                 console.log('About to update system status div...');
-                
+
                 const services = status.services || {};
                 const displayNames = {
                     fsm: 'FSM Server',
@@ -1369,7 +1476,8 @@
                     neo4j: 'Neo4j',
                     principles: 'Principles Server',
                     redis: 'Redis',
-                    'vector-db': 'Weaviate'
+                    'vector-db': 'Weaviate',
+                    scraper: 'Scraper Service'
                 };
                 const items = Object.keys(services).map(key => {
                     const svc = services[key] || {};
@@ -1485,20 +1593,20 @@
                             <h4>BBC News (${newsEvents.length})</h4>
                             <ul style="margin:0; padding-left:18px; line-height:1.4;">
                                 ${newsEvents.slice(0, 20).map(event => {
-                                    const t = (event.title && event.title.trim().length>0) ? event.title.trim() : (event.text||'').split('\n')[0].slice(0,140);
-                                    const u = (event.metadata && event.metadata.url) ? event.metadata.url : (event.url||'');
-                                    return u ? `<li><a href="${u}" target="_blank" rel="noopener">${t}</a></li>` : `<li>${t}</li>`;
-                                }).join('')}
+                    const t = (event.title && event.title.trim().length > 0) ? event.title.trim() : (event.text || '').split('\n')[0].slice(0, 140);
+                    const u = (event.metadata && event.metadata.url) ? event.metadata.url : (event.url || '');
+                    return u ? `<li><a href="${u}" target="_blank" rel="noopener">${t}</a></li>` : `<li>${t}</li>`;
+                }).join('')}
                             </ul>
                         </div>
                         <div class="card">
                             <h4>Wikipedia Events (${wikiEvents.length})</h4>
                             <ul style="margin:0; padding-left:18px; line-height:1.4;">
                                 ${wikiEvents.slice(0, 20).map(event => {
-                                    const t = (event.title && event.title.trim().length>0) ? event.title.trim() : (event.metadata && event.metadata.title) ? event.metadata.title : (event.text||'').split('\n')[0].slice(0,140);
-                                    const u = (event.metadata && event.metadata.url) ? event.metadata.url : (event.url||'');
-                                    return u ? `<li><a href="${u}" target="_blank" rel="noopener">${t}</a></li>` : `<li>${t}</li>`;
-                                }).join('')}
+                    const t = (event.title && event.title.trim().length > 0) ? event.title.trim() : (event.metadata && event.metadata.title) ? event.metadata.title : (event.text || '').split('\n')[0].slice(0, 140);
+                    const u = (event.metadata && event.metadata.url) ? event.metadata.url : (event.url || '');
+                    return u ? `<li><a href="${u}" target="_blank" rel="noopener">${t}</a></li>` : `<li>${t}</li>`;
+                }).join('')}
                             </ul>
                         </div>
                     </div>
@@ -1506,7 +1614,7 @@
 
                 // Load LLM queue stats
                 loadLLMQueueStats();
-                
+
                 // Set up auto-refresh for LLM queue stats (every 5 seconds)
                 if (llmQueueStatsInterval) {
                     clearInterval(llmQueueStatsInterval);
@@ -1532,7 +1640,7 @@
                 const stats = response.data;
                 console.log('[LLM Queue] Stats received:', stats);
                 console.log('[LLM Queue] Active workers:', stats.active_workers, 'Max workers:', stats.max_workers);
-                
+
                 // Determine status color based on queue fullness
                 const highPercent = stats.high_priority_percent || 0;
                 const lowPercent = stats.low_priority_percent || 0;
@@ -1541,15 +1649,15 @@
                     if (percent >= 70) return '#f39c12'; // Orange
                     return '#27ae60'; // Green
                 };
-                
+
                 const highColor = getStatusColor(highPercent);
                 const lowColor = getStatusColor(lowPercent);
-                
+
                 // Build status indicator with more context
                 let statusIndicator = '';
                 if (stats.auto_disabled) {
                     // Show why it's still disabled (queue needs to drop to 50% to re-enable)
-                    const statusText = lowPercent > 50 
+                    const statusText = lowPercent > 50
                         ? `🛑 Auto-Disabled (Queue at ${lowPercent.toFixed(1)}%, will re-enable at 50%)`
                         : `🛑 Auto-Disabled (Re-enabling soon...)`;
                     statusIndicator = `<div style="background: #e74c3c; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-bottom: 8px;">${statusText}</div>`;
@@ -1565,7 +1673,7 @@
                     }
                     statusIndicator = `<div style="background: #27ae60; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-bottom: 8px;">${healthStatus}</div>`;
                 }
-                
+
                 const statsHtml = `
                     ${statusIndicator}
                     <div style="display: flex; justify-content: space-between; margin-bottom: 12px; padding: 8px 0; border-bottom: 1px solid #ecf0f1;">
@@ -1605,7 +1713,7 @@
                     const errorMsg = error.response?.status === 503 || error.code === 'ECONNABORTED'
                         ? 'HDN server not available or timeout'
                         : error.message || 'Unknown error';
-                    statsElement.innerHTML = 
+                    statsElement.innerHTML =
                         `<div style="color: #7f8c8d; padding: 12px; text-align: center;">
                             <div style="font-size: 0.9em;">⚠️ LLM Queue stats unavailable</div>
                             <div style="font-size: 0.75em; margin-top: 4px; color: #95a5a6;">${errorMsg}</div>
@@ -1682,7 +1790,7 @@
                 // Attach artifact viewers for workflows pane
                 Array.from(list.querySelectorAll('.btn-wf-artifacts')).forEach(btn => {
                     btn.addEventListener('click', async () => {
-                        const wid = String(btn.getAttribute('data-wid')||'');
+                        const wid = String(btn.getAttribute('data-wid') || '');
                         if (!wid) return;
                         const artId = `wf-artifacts-${encodeURIComponent(wid)}`;
                         const listEl = document.getElementById(artId);
@@ -1702,18 +1810,18 @@
                                 const href = `/api/file/${encodeURIComponent(name)}`;
                                 const cid = `wf-preview-${encodeURIComponent(wid)}-${idx}`;
                                 return `<li style=\"margin-bottom:6px;\">\n` +
-                                       `<a href=\"${href}\" target=\"_blank\" rel=\"noopener\">${name}</a>${size}\n` +
-                                       `<button data-fn=\"${encodeURIComponent(name)}\" data-ct=\"${encodeURIComponent(f.content_type||'')}\" data-href=\"${href}\" data-target=\"${cid}\" class=\"btn-view-art\" style=\"margin-left:10px;background:#28a745;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;\">View</button>\n` +
-                                       `<div id=\"${cid}\" style=\"margin-top:8px; display:none; border:1px solid #eee; border-radius:6px; padding:8px; background:#fafafa;\"></div>` +
-                                       `</li>`;
+                                    `<a href=\"${href}\" target=\"_blank\" rel=\"noopener\">${name}</a>${size}\n` +
+                                    `<button data-fn=\"${encodeURIComponent(name)}\" data-ct=\"${encodeURIComponent(f.content_type || '')}\" data-href=\"${href}\" data-target=\"${cid}\" class=\"btn-view-art\" style=\"margin-left:10px;background:#28a745;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;\">View</button>\n` +
+                                    `<div id=\"${cid}\" style=\"margin-top:8px; display:none; border:1px solid #eee; border-radius:6px; padding:8px; background:#fafafa;\"></div>` +
+                                    `</li>`;
                             }).join('') + '</ul>';
 
                             Array.from(listEl.querySelectorAll('.btn-view-art')).forEach(vbtn => {
                                 vbtn.addEventListener('click', () => {
-                                    const fn = decodeURIComponent(vbtn.getAttribute('data-fn')||'');
-                                    const ct = decodeURIComponent(vbtn.getAttribute('data-ct')||'');
-                                    const href = vbtn.getAttribute('data-href')||'';
-                                    const tgtId = vbtn.getAttribute('data-target')||'';
+                                    const fn = decodeURIComponent(vbtn.getAttribute('data-fn') || '');
+                                    const ct = decodeURIComponent(vbtn.getAttribute('data-ct') || '');
+                                    const href = vbtn.getAttribute('data-href') || '';
+                                    const tgtId = vbtn.getAttribute('data-target') || '';
                                     const tgt = document.getElementById(tgtId);
                                     if (!tgt) return;
                                     tgt.style.display = 'block';
@@ -1725,7 +1833,7 @@
                                     } else if (ct.startsWith('text/') || /\\.(txt|md|py|js|go|json|yaml|yml|html|css)$/.test(lower)) {
                                         tgt.innerHTML = '<div style=\"color:#666;\">Loading...</div>';
                                         fetch(href).then(r => r.text()).then(text => {
-                                            const escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                                            const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                                             tgt.innerHTML = `<pre style=\"white-space:pre-wrap;word-break:break-word;font-family:monospace;\">${escaped}</pre>`;
                                         }).catch(err => {
                                             tgt.innerHTML = `<div class=\"error\">Failed to load: ${err.message}</div>`;
@@ -1760,7 +1868,7 @@
                                 const ids = (p.data && Array.isArray(p.data.workflow_ids)) ? p.data.workflow_ids : [];
                                 const idSet = new Set(ids.map(String));
                                 filtered = workflows.filter(wf => idSet.has(String(wf.id || wf.workflow_id || '')));
-                            } catch (_) {}
+                            } catch (_) { }
                         }
                         workflows = filtered;
                     }
@@ -1794,7 +1902,7 @@
         // Memory loading
         async function loadMemory() {
             const contentDiv = document.getElementById('memory-tab');
-            
+
             try {
                 // Prefer explicit input; else selected from dropdown
                 let session = document.getElementById('mem-session')?.value?.trim() || '';
@@ -1809,9 +1917,9 @@
                     if (input) input.value = session;
                 }
                 const query = document.getElementById('mem-query')?.value || '*';
-                
+
                 const qs = session ? `?session_id=${encodeURIComponent(session)}&q=${encodeURIComponent(query)}` : `?q=${encodeURIComponent(query)}`;
-                
+
                 const [summaryResponse, episodesResponse] = await Promise.all([
                     axios.get(`/api/memory/summary${qs}`, { timeout: 5000 }).catch(() => ({ data: {} })),
                     axios.get(`/api/memory/episodes${qs}`, { timeout: 5000 }).catch(() => ({ data: [] }))
@@ -1822,7 +1930,7 @@
 
                 // Helpers
                 const safeText = (v) => (typeof v === 'string' ? v : (v ? JSON.stringify(v) : ''));
-                const truncate = (s, n=120) => (s && s.length > n ? s.slice(0, n-1) + '…' : (s || ''));
+                const truncate = (s, n = 120) => (s && s.length > n ? s.slice(0, n - 1) + '…' : (s || ''));
                 const prettyTime = (ts) => {
                     if (!ts) return '';
                     const d = new Date(ts * 1000);
@@ -1846,9 +1954,9 @@
                             <tbody>
                                 ${goals.slice(0, 20).map(g => `
                                     <tr>
-                                        <td title="${safeText(g.id)}">${safeText(g.id).slice(0,12)}${safeText(g.id).length>12?'…':''}</td>
+                                        <td title="${safeText(g.id)}">${safeText(g.id).slice(0, 12)}${safeText(g.id).length > 12 ? '…' : ''}</td>
                                         <td>${safeText(g.name || g.description || '(unnamed)')}</td>
-                                        <td><span class="status-${(g.status||'unknown').toLowerCase()}">${(g.status||'UNKNOWN').toUpperCase()}</span></td>
+                                        <td><span class="status-${(g.status || 'unknown').toLowerCase()}">${(g.status || 'UNKNOWN').toUpperCase()}</span></td>
                                         <td>${safeText(g.created_at ? new Date(g.created_at).toLocaleString() : '')}</td>
                                     </tr>
                                 `).join('')}
@@ -1873,11 +1981,11 @@
                 const episodesList = episodes.length ? `
                     <ul class="list">
                         ${episodes.slice(0, 10).map(e => {
-                            const title = e.title || e.metadata?.title || e.event || '';
-                            const text = e.text || e.summary || e.description || '';
-                            const ts = e.timestamp || e.created_at || e.time || '';
-                            const url = e.url || e.metadata?.url || '';
-                            return `
+                    const title = e.title || e.metadata?.title || e.event || '';
+                    const text = e.text || e.summary || e.description || '';
+                    const ts = e.timestamp || e.created_at || e.time || '';
+                    const url = e.url || e.metadata?.url || '';
+                    return `
                                 <li>
                                     <div class="item-head">
                                         <span class="item-title">${safeText(title) || truncate(safeText(text), 60) || '(untitled)'}</span>
@@ -1886,7 +1994,7 @@
                                     ${text ? `<div class="item-sub">${truncate(safeText(text), 140)}</div>` : ''}
                                     ${url ? `<div class="item-link"><a href="${url}" target="_blank" rel="noopener">Open</a></div>` : ''}
                                 </li>`;
-                        }).join('')}
+                }).join('')}
                     </ul>
                 ` : '<div class="loading">No recent episodes</div>';
 
@@ -1899,7 +2007,7 @@
                     if (k === 'language_python_success_rate_successes') return 'Python success count';
                     if (k === 'execution_type_traditional_execution_success_rate_successes') return 'Traditional execution successes';
                     // Generic: strip known prefixes and beautify
-                    const cleaned = k.replace(/^task_/,'Task: ').replace(/_/g,' ');
+                    const cleaned = k.replace(/^task_/, 'Task: ').replace(/_/g, ' ');
                     return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
                 };
                 const renderValue = (k, v) => {
@@ -1914,8 +2022,8 @@
                     const entries = Object.entries(obj);
                     if (!entries.length) return '<div class="loading">No beliefs</div>';
                     // Keep stable order but float important fields first
-                    const priority = ['last_task','last_execution_time'];
-                    entries.sort((a,b)=>{
+                    const priority = ['last_task', 'last_execution_time'];
+                    entries.sort((a, b) => {
                         const ai = priority.indexOf(a[0]);
                         const bi = priority.indexOf(b[0]);
                         if (ai !== -1 || bi !== -1) return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
@@ -1926,7 +2034,7 @@
                           <table class="kv-table">
                             <thead><tr><th>Metric</th><th>Value</th></tr></thead>
                             <tbody>
-                              ${entries.map(([k,v])=>`
+                              ${entries.map(([k, v]) => `
                                 <tr>
                                   <td>${labelize(k)}</td>
                                   <td>${renderValue(k, v)}</td>
@@ -1977,7 +2085,7 @@
                         </div>
                     </div>
                 `;
-                
+
             } catch (error) {
                 contentDiv.innerHTML = `<div class="error">Error loading memory: ${error.message}</div>`;
             }
@@ -2004,15 +2112,15 @@
                     const prev = byId.get(sess);
                     if (!prev || ts > prev.ts) byId.set(sess, { id: sess, ts });
                 }
-                const list = Array.from(byId.values()).sort((a,b)=>b.ts-a.ts).slice(0, 50);
+                const list = Array.from(byId.values()).sort((a, b) => b.ts - a.ts).slice(0, 50);
                 if (list.length === 0) {
                     hint.textContent = 'No recent sessions found. Trigger an action to create one.';
                     return;
                 }
                 // Populate options
-                sel.innerHTML = '<option value="">Select recent session...</option>' + list.map(x=>`<option value="${x.id}">${x.id}</option>`).join('');
+                sel.innerHTML = '<option value="">Select recent session...</option>' + list.map(x => `<option value="${x.id}">${x.id}</option>`).join('');
                 // Prefer a tools_ or goal_ session as default
-                const preferred = list.find(x=>/^tools_/i.test(x.id)) || list.find(x=>/^goal_/i.test(x.id)) || list[0];
+                const preferred = list.find(x => /^tools_/i.test(x.id)) || list.find(x => /^goal_/i.test(x.id)) || list[0];
                 sel.value = preferred.id;
                 // Mirror into the text input for visibility
                 const input = document.getElementById('mem-session');
@@ -2023,14 +2131,14 @@
             }
         }
 
-            // Goals loading
-            async function loadGoals() {
+        // Goals loading
+        async function loadGoals() {
             const contentDiv = document.getElementById('goals-tab');
-            
+
             try {
                 const response = await axios.get('/api/goals/agent_1/active', { timeout: 5000 });
                 const goals = response.data || [];
-                
+
                 if (goals.length === 0) {
                     contentDiv.innerHTML = '<div class="loading">No active goals</div>';
                     return;
@@ -2053,24 +2161,24 @@
                         </div>
                     </div>
                 `).join('');
-                
+
             } catch (error) {
                 contentDiv.innerHTML = `<div class="error">Error loading goals: ${error.message}</div>`;
             }
         }
 
-            // Goal details modal
-            window.viewGoal = async function(goalId) {
-                try {
-                    const resp = await axios.get(`/api/goal/${goalId}`, { timeout: 8000 });
-                    const goal = resp.data || {};
-                    const modal = document.createElement('div');
-                    modal.className = 'modal';
-                    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center;';
-                    const ctx = goal.context || {};
-                    const session = ctx.session_id || '';
-                    const project = ctx.project_id || '';
-                    modal.innerHTML = `
+        // Goal details modal
+        window.viewGoal = async function (goalId) {
+            try {
+                const resp = await axios.get(`/api/goal/${goalId}`, { timeout: 8000 });
+                const goal = resp.data || {};
+                const modal = document.createElement('div');
+                modal.className = 'modal';
+                modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center;';
+                const ctx = goal.context || {};
+                const session = ctx.session_id || '';
+                const project = ctx.project_id || '';
+                modal.innerHTML = `
                         <div style="background:#fff;max-width:800px;width:90%;padding:20px;border-radius:8px;">
                             <div style="display:flex;justify-content:space-between;align-items:center;">
                                 <h3>Goal ${goalId}</h3>
@@ -2088,51 +2196,51 @@
                             </div>
                         </div>
                     `;
-                    document.body.appendChild(modal);
-                } catch (e) {
-                    alert(`Failed to fetch goal: ${e.message}`);
-                }
+                document.body.appendChild(modal);
+            } catch (e) {
+                alert(`Failed to fetch goal: ${e.message}`);
             }
+        }
 
-            // Execute goal via backend (async)
-            window.executeGoalNow = async function(goalId, sessionId = '', projectId = '') {
-                try {
-                    const payload = {};
-                    if (sessionId || projectId) {
-                        payload.context = {};
-                        if (sessionId) payload.context.session_id = sessionId;
-                        if (projectId) payload.context.project_id = projectId;
-                    }
-                    const resp = await axios.post(`/api/goal/${goalId}/execute`, payload, { 
-                        timeout: 5000,
-                        headers: { 'X-Request-Source': 'ui' }
-                    });
-                    // Toast
-                    alert(`Execution started for goal ${goalId}: ${resp.data?.status || 'processing'}`);
-                    // Short poll to reflect status and link to workflows when available
-                    setTimeout(async () => {
-                        try { await loadGoals(); } catch(_) {}
-                        try {
-                            const wf = await axios.get('/api/workflows', { timeout: 8000 });
-                            const list = Array.isArray(wf.data) ? wf.data : [];
-                            if (list.length > 0) {
-                                console.log('Recent workflows:', list.slice(0,3));
-                            }
-                        } catch(_) {}
-                    }, 2000);
-                } catch (e) {
-                    alert(`Failed to execute goal: ${e.message}`);
+        // Execute goal via backend (async)
+        window.executeGoalNow = async function (goalId, sessionId = '', projectId = '') {
+            try {
+                const payload = {};
+                if (sessionId || projectId) {
+                    payload.context = {};
+                    if (sessionId) payload.context.session_id = sessionId;
+                    if (projectId) payload.context.project_id = projectId;
                 }
+                const resp = await axios.post(`/api/goal/${goalId}/execute`, payload, {
+                    timeout: 5000,
+                    headers: { 'X-Request-Source': 'ui' }
+                });
+                // Toast
+                alert(`Execution started for goal ${goalId}: ${resp.data?.status || 'processing'}`);
+                // Short poll to reflect status and link to workflows when available
+                setTimeout(async () => {
+                    try { await loadGoals(); } catch (_) { }
+                    try {
+                        const wf = await axios.get('/api/workflows', { timeout: 8000 });
+                        const list = Array.isArray(wf.data) ? wf.data : [];
+                        if (list.length > 0) {
+                            console.log('Recent workflows:', list.slice(0, 3));
+                        }
+                    } catch (_) { }
+                }, 2000);
+            } catch (e) {
+                alert(`Failed to execute goal: ${e.message}`);
             }
+        }
 
         // Projects loading
         async function loadProjects() {
             const contentDiv = document.getElementById('projects-tab');
-            
+
             try {
                 const response = await axios.get('/api/projects', { timeout: 5000 });
                 const projects = response.data || [];
-                
+
                 if (projects.length === 0) {
                     contentDiv.innerHTML = '<div class="loading">No projects found</div>';
                     return;
@@ -2140,13 +2248,13 @@
 
                 contentDiv.innerHTML = projects.map(project => {
                     // Check if this is a system project that shouldn't be deletable
-                    const isSystemProject = project.name === 'Goals' || 
-                                          project.name === 'FMS' || 
-                                          project.id.includes('goals') || 
-                                          project.id.includes('fms') ||
-                                          project.id.includes('system') ||
-                                          project.name?.toLowerCase().includes('system');
-                    
+                    const isSystemProject = project.name === 'Goals' ||
+                        project.name === 'FMS' ||
+                        project.id.includes('goals') ||
+                        project.id.includes('fms') ||
+                        project.id.includes('system') ||
+                        project.name?.toLowerCase().includes('system');
+
                     return `
                         <div class="workflow-item">
                             <div class="step-header">
@@ -2156,15 +2264,15 @@
                             <div class="step-description">${project.description || 'No description'}</div>
                             <div style="margin-top: 10px;">
                                 <button class="btn" onclick="openProject('${project.id}')">Open</button>
-                                ${isSystemProject ? 
-                                    '<button class="btn btn-secondary" disabled title="System projects cannot be deleted">Delete</button>' : 
-                                    `<button class="btn btn-danger" onclick="deleteProject('${project.id}')">Delete</button>`
-                                }
+                                ${isSystemProject ?
+                            '<button class="btn btn-secondary" disabled title="System projects cannot be deleted">Delete</button>' :
+                            `<button class="btn btn-danger" onclick="deleteProject('${project.id}')">Delete</button>`
+                        }
                             </div>
                         </div>
                     `;
                 }).join('');
-                
+
             } catch (error) {
                 contentDiv.innerHTML = `<div class="error">Error loading projects: ${error.message}</div>`;
             }
@@ -2177,7 +2285,7 @@
             if (!artDiv) return;
             if (!artDiv.dataset.initialized) {
                 artDiv.dataset.initialized = 'true';
-                try { await loadAllArtifacts(); } catch (_) {}
+                try { await loadAllArtifacts(); } catch (_) { }
             }
         }
 
@@ -2216,9 +2324,9 @@
                 // Attach preview handlers
                 Array.from(container.querySelectorAll('.btn-view-art')).forEach(btn => {
                     btn.addEventListener('click', () => {
-                        const href = btn.getAttribute('data-href')||'';
-                        const ct = decodeURIComponent(btn.getAttribute('data-ct')||'');
-                        const tgt = document.getElementById(btn.getAttribute('data-target')||'');
+                        const href = btn.getAttribute('data-href') || '';
+                        const ct = decodeURIComponent(btn.getAttribute('data-ct') || '');
+                        const tgt = document.getElementById(btn.getAttribute('data-target') || '');
                         if (!tgt) return;
                         tgt.style.display = 'block';
                         if (ct.startsWith('image/')) {
@@ -2228,7 +2336,7 @@
                         } else {
                             tgt.innerHTML = '<div style="color:#666;">Loading...</div>';
                             fetch(href).then(r => r.text()).then(text => {
-                                const escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                                const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                                 tgt.innerHTML = `<pre style="white-space:pre-wrap;word-break:break-word;font-family:monospace;">${escaped}</pre>`;
                             }).catch(err => {
                                 tgt.innerHTML = `<div class="error">Failed to load: ${err.message}</div>`;
@@ -2301,9 +2409,9 @@
                 // Attach preview handlers
                 Array.from(container.querySelectorAll('.btn-view-art')).forEach(btn => {
                     btn.addEventListener('click', () => {
-                        const href = btn.getAttribute('data-href')||'';
-                        const ct = decodeURIComponent(btn.getAttribute('data-ct')||'');
-                        const tgt = document.getElementById(btn.getAttribute('data-target')||'');
+                        const href = btn.getAttribute('data-href') || '';
+                        const ct = decodeURIComponent(btn.getAttribute('data-ct') || '');
+                        const tgt = document.getElementById(btn.getAttribute('data-target') || '');
                         if (!tgt) return;
                         tgt.style.display = 'block';
                         if (ct.startsWith('image/')) {
@@ -2313,7 +2421,7 @@
                         } else {
                             tgt.innerHTML = '<div style="color:#666;">Loading...</div>';
                             fetch(href).then(r => r.text()).then(text => {
-                                const escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                                const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                                 tgt.innerHTML = `<pre style=\"white-space:pre-wrap;word-break:break-word;font-family:monospace;\">${escaped}</pre>`;
                             }).catch(err => {
                                 tgt.innerHTML = `<div class="error">Failed to load: ${err.message}</div>`;
@@ -2342,7 +2450,7 @@
                     return;
                 }
                 const latest = ids[ids.length - 1];
-                (document.getElementById('art-workflow')||{}).value = latest;
+                (document.getElementById('art-workflow') || {}).value = latest;
                 await loadArtifacts();
             } catch (err) {
                 container.innerHTML = `<div class="error">Error fetching project workflows: ${err.message}</div>`;
@@ -2375,12 +2483,12 @@
                     const trContainer = document.getElementById('reasoning-traces');
                     const exps = Array.isArray(r.data.explanations) ? r.data.explanations : [];
                     const trs = Array.isArray(t.data.traces) ? t.data.traces : [];
-                    expContainer.innerHTML = exps.length ? exps.slice(0,5).map(e=>{ // Reduced from 20 to 5
-                        const pretty = typeof e==='string' ? e : JSON.stringify(e, null, 2);
+                    expContainer.innerHTML = exps.length ? exps.slice(0, 5).map(e => { // Reduced from 20 to 5
+                        const pretty = typeof e === 'string' ? e : JSON.stringify(e, null, 2);
                         return `<pre class=\"json-display\">${pretty}</pre>`;
                     }).join('') : '<div class=\"loading\">No explanations</div>';
-                    trContainer.innerHTML = trs.length ? trs.slice(0,10).map(e=>{ // Reduced from 20 to 10
-                        const pretty = typeof e==='string' ? e : JSON.stringify(e, null, 2);
+                    trContainer.innerHTML = trs.length ? trs.slice(0, 10).map(e => { // Reduced from 20 to 10
+                        const pretty = typeof e === 'string' ? e : JSON.stringify(e, null, 2);
                         return `<pre class=\"json-display\">${pretty}</pre>`;
                     }).join('') : '<div class=\"loading\">No traces</div>';
                 } catch (err) {
@@ -2431,8 +2539,8 @@
                 const hyC = document.getElementById('reasoning-hypotheses');
 
                 const safe = (v) => typeof v === 'string' ? v : (v ? JSON.stringify(v) : '');
-                const trunc = (s, n=160) => (s && s.length>n ? s.slice(0,n-1)+'…' : (s||''));
-                const prettyTs = (ts) => ts ? (isNaN(+ts) ? new Date(ts).toLocaleString() : new Date(+ts*1000).toLocaleString()) : '';
+                const trunc = (s, n = 160) => (s && s.length > n ? s.slice(0, n - 1) + '…' : (s || ''));
+                const prettyTs = (ts) => ts ? (isNaN(+ts) ? new Date(ts).toLocaleString() : new Date(+ts * 1000).toLocaleString()) : '';
                 const renderCards = (items, get) => {
                     const cards = items.map((x) => {
                         const { title, text, ts, url, meta } = get(x) || {};
@@ -2540,8 +2648,8 @@
                     const hypCards = hypotheses.slice(0, 10).map(h => { // Reduced from 50 to 10
                         const title = h.description || h.title || h.id || '';
                         const status = (h.status || 'unknown').toString().toLowerCase();
-                        const conf = (typeof h.confidence === 'number') ? `${(h.confidence*100).toFixed(0)}%` : safe(h.confidence);
-                        const created = h.created_at ? (isNaN(+h.created_at) ? new Date(h.created_at).toLocaleString() : new Date(+h.created_at*1000).toLocaleString()) : '';
+                        const conf = (typeof h.confidence === 'number') ? `${(h.confidence * 100).toFixed(0)}%` : safe(h.confidence);
+                        const created = h.created_at ? (isNaN(+h.created_at) ? new Date(h.created_at).toLocaleString() : new Date(+h.created_at * 1000).toLocaleString()) : '';
                         const domain = h.domain || '';
                         const facts = Array.isArray(h.facts) ? h.facts.length : 0;
                         const constraints = Array.isArray(h.constraints) ? h.constraints.length : 0;
@@ -2575,7 +2683,7 @@
                     }, interval);
                 }
             } catch (err) {
-                const ids = ['reasoning-traces','reasoning-explanations','reasoning-beliefs','reasoning-curiosity','reasoning-hypotheses'];
+                const ids = ['reasoning-traces', 'reasoning-explanations', 'reasoning-beliefs', 'reasoning-curiosity', 'reasoning-hypotheses'];
                 for (const id of ids) {
                     const el = document.getElementById(id);
                     if (el) el.innerHTML = '<div class="execution-error">Failed to load</div>';
@@ -2603,7 +2711,7 @@
 
         // Update timestamp
         function updateTimestamp() {
-            document.getElementById('last-updated').textContent = 
+            document.getElementById('last-updated').textContent =
                 `Last updated: ${new Date().toLocaleString()}`;
         }
 
@@ -2612,7 +2720,7 @@
             const toolMetricsDiv = document.getElementById('tool-metrics-content');
             const safetyDiv = document.getElementById('safety-content');
             const toolsListDiv = document.getElementById('tools-list-content');
-            
+
             try {
                 // Load tool metrics and compute aggregates from array
                 const metricsResponse = await axios.get('/api/tools/metrics', { timeout: 5000 }).catch((e) => {
@@ -2656,7 +2764,7 @@
                         </div>
                     </div>
                 `;
-                
+
                 // Load safety data and compute aggregates from tool metrics
                 const safetyResponse = await axios.get('/api/tools/metrics', { timeout: 5000 }).catch(() => ({ data: {} }));
                 const rawSafety = safetyResponse.data || {};
@@ -2690,7 +2798,7 @@
                         </div>
                     </div>
                 `;
-                
+
                 // Load blocked content summary (derived from tool metrics); optionally fetch recent calls
                 const blockedItems = blockedRequests; // count of blocked actions
                 let lastBlocked = '';
@@ -2703,7 +2811,7 @@
                             lastBlocked = new Date().toLocaleString();
                         }
                     }
-                } catch(_) {}
+                } catch (_) { }
 
                 // Tools list with individual stats
                 const [toolsRes, allMetricsRes] = await Promise.all([
@@ -2716,11 +2824,11 @@
                         return { data: { metrics: [] } };
                     })
                 ]);
-                
+
                 // Debug: Log raw API responses
                 console.log('[Tools UI] Tools API response:', toolsRes.data);
                 console.log('[Tools UI] Tools API status:', toolsRes.status, toolsRes.statusText);
-                
+
                 // Check for error response
                 if (toolsRes.data && toolsRes.data.error) {
                     console.error('[Tools UI] ❌ API returned error:', toolsRes.data.error);
@@ -2730,14 +2838,14 @@
                     if (toolsListDiv) toolsListDiv.innerHTML = `<div class="error">Cannot load tools: Redis connection failed. Check Monitor UI logs.</div>`;
                     return;
                 }
-                
+
                 console.log('[Tools UI] Tools API response type:', typeof toolsRes.data);
                 console.log('[Tools UI] Tools API response keys:', toolsRes.data ? Object.keys(toolsRes.data) : 'null');
                 console.log('[Tools UI] toolsRes.data.tools:', toolsRes.data?.tools);
                 console.log('[Tools UI] toolsRes.data.tools type:', typeof toolsRes.data?.tools);
                 console.log('[Tools UI] toolsRes.data.tools is array:', Array.isArray(toolsRes.data?.tools));
                 console.log('[Tools UI] Metrics API response:', allMetricsRes.data);
-                
+
                 let tools = (toolsRes.data && toolsRes.data.tools) ? toolsRes.data.tools : [];
                 console.log('[Tools UI] Parsed tools array length:', tools.length);
                 if (!Array.isArray(tools)) {
@@ -2746,7 +2854,7 @@
                 }
                 const allMetricsRaw = Array.isArray(allMetricsRes.data?.metrics) ? allMetricsRes.data.metrics : [];
                 const allMetrics = allMetricsRaw.filter(it => !excludeIds.includes(it.tool_id));
-                
+
                 console.log('[Tools UI] Found', tools.length, 'tools and', allMetrics.length, 'metrics');
                 if (tools.length === 0) {
                     console.warn('[Tools UI] ⚠️ No tools found! Check API response above.');
@@ -2761,7 +2869,7 @@
                     total_calls: m.total_calls
                 })));
                 console.log('[Tools UI] Raw metrics array:', JSON.stringify(allMetrics, null, 2));
-                
+
                 // Warn if no metrics found but tools exist
                 if (tools.length > 0 && allMetrics.length === 0) {
                     console.warn('[Tools UI] ⚠️ No metrics found in Redis. This could mean:');
@@ -2770,18 +2878,18 @@
                     console.warn('  3. Redis connection issue');
                     console.warn('  Check HDN server logs for tool metrics initialization.');
                 }
-                
+
                 const idToMetrics = Object.create(null);
                 for (const m of allMetrics) {
                     if (!m.tool_id) continue;
-                    
+
                     // Normalize tool_id for matching (handle case sensitivity and whitespace)
                     const normalizedId = String(m.tool_id).trim().toLowerCase();
-                    
+
                     // Store with multiple key variations for flexible matching
                     idToMetrics[normalizedId] = m;
                     idToMetrics[m.tool_id] = m; // Original case
-                    
+
                     // Also try without "tool_" prefix if present
                     if (normalizedId.startsWith('tool_')) {
                         const withoutPrefix = normalizedId.substring(5);
@@ -2792,7 +2900,7 @@
                         idToMetrics['tool_' + normalizedId] = m;
                     }
                 }
-                
+
                 // Debug: Show what we're matching against
                 console.log('[Tools UI] Built idToMetrics map with keys:', Object.keys(idToMetrics));
                 console.log('[Tools UI] Metrics details:', allMetrics.map(m => ({
@@ -2812,23 +2920,23 @@
                 const hideEphemeral = !!(hideEphemeralChk && hideEphemeralChk.checked);
 
                 const ephemeralIds = new Set([
-                    'tool_ls','tool_exec','tool_file_read','tool_file_write','tool_docker_list','tool_codegen'
+                    'tool_ls', 'tool_exec', 'tool_file_read', 'tool_file_write', 'tool_docker_list', 'tool_codegen'
                 ]);
 
                 console.log('[Tools UI] Before filtering:', tools.length, 'tools');
                 console.log('[Tools UI] Filter settings - origin:', origin, 'hideEphemeral:', hideEphemeral);
-                
+
                 tools = tools.filter(t => {
                     // origin filter by created_by: 'system' | 'agent'
-                    if (origin === 'system' && String((t.created_by||'')).toLowerCase() !== 'system') {
+                    if (origin === 'system' && String((t.created_by || '')).toLowerCase() !== 'system') {
                         console.log('[Tools UI] Filtered out (origin):', t.id, 'created_by:', t.created_by);
                         return false;
                     }
-                    if (origin === 'agent' && String((t.created_by||'')).toLowerCase() !== 'agent') {
+                    if (origin === 'agent' && String((t.created_by || '')).toLowerCase() !== 'agent') {
                         console.log('[Tools UI] Filtered out (origin):', t.id, 'created_by:', t.created_by);
                         return false;
                     }
-                    if (hideEphemeral && ephemeralIds.has(String(t.id||''))) {
+                    if (hideEphemeral && ephemeralIds.has(String(t.id || ''))) {
                         console.log('[Tools UI] Filtered out (ephemeral):', t.id);
                         return false;
                     }
@@ -2841,7 +2949,7 @@
                     console.error('[Tools UI] ❌ tools-list-content div not found! Cannot render tools.');
                     return;
                 }
-                
+
                 console.log('[Tools UI] Rendering tools:', tools.length, 'tools after filtering');
                 if (tools.length === 0) {
                     console.warn('[Tools UI] No tools to display after filtering');
@@ -2849,86 +2957,86 @@
                     console.warn('[Tools UI] Check filter settings above');
                     toolsListDiv.innerHTML = '<div class="loading">No tools registered (check filters)</div>';
                 } else {
-                        toolsListDiv.innerHTML = tools.map(t => {
-                            // Try exact match first, then normalized match
-                            const toolId = String(t.id || '').trim();
-                            const normalizedId = toolId.toLowerCase();
-                            let m = idToMetrics[toolId] || idToMetrics[normalizedId];
-                            
-                            // Fallback: try matching by tool name if ID doesn't match
-                            if (!m && t.name) {
-                                const toolName = String(t.name).trim().toLowerCase();
-                                for (const metric of allMetrics) {
-                                    const metricName = String(metric.tool_name || '').trim().toLowerCase();
-                                    if (metricName === toolName) {
-                                        m = metric;
-                                        console.log(`[Tools UI] Matched tool "${t.name}" by name instead of ID`);
-                                        break;
-                                    }
+                    toolsListDiv.innerHTML = tools.map(t => {
+                        // Try exact match first, then normalized match
+                        const toolId = String(t.id || '').trim();
+                        const normalizedId = toolId.toLowerCase();
+                        let m = idToMetrics[toolId] || idToMetrics[normalizedId];
+
+                        // Fallback: try matching by tool name if ID doesn't match
+                        if (!m && t.name) {
+                            const toolName = String(t.name).trim().toLowerCase();
+                            for (const metric of allMetrics) {
+                                const metricName = String(metric.tool_name || '').trim().toLowerCase();
+                                if (metricName === toolName) {
+                                    m = metric;
+                                    console.log(`[Tools UI] Matched tool "${t.name}" by name instead of ID`);
+                                    break;
                                 }
                             }
-                            
-                            // Default to empty object if no match
-                            if (!m) {
-                                m = {};
-                            }
+                        }
+
+                        // Default to empty object if no match
+                        if (!m) {
+                            m = {};
+                        }
+                        const total = Number(m.total_calls || 0);
+                        const succ = Number(m.success_calls || 0);
+                        const fail = Number(m.failure_calls || 0);
+                        const blocked = Number(m.blocked_calls || 0);
+                        const rate = total > 0 ? ((succ / total) * 100).toFixed(1) + '%' : '0%';
+                        const hasMetrics = total > 0;
+
+                        // Debug: log matching details (only for tools with metrics or mismatches)
+                        const matched = !!(idToMetrics[toolId] || idToMetrics[normalizedId]);
+                        if (hasMetrics) {
+                            console.log(`[Tools UI] ✓ Tool "${t.name}" (ID: "${toolId}") has ${total} calls`);
+                        }
+
+                        return `
+                            <div class=\"workflow-item\" style=\"${hasMetrics ? 'border-left: 3px solid #28a745; background: #f8fff9;' : ''}\">\n` +
+                            `<div class=\"step-header\">\n` +
+                            `<span class=\"step-name\">${escapeHtml(t.name || t.id)}</span>\n` +
+                            `<span class=\"step-status status-completed\">${rate}</span>\n` +
+                            `${hasMetrics ? '<span style="margin-left:8px; font-size:11px; color:#28a745; font-weight:bold;">● IN USE</span>' : ''}\n` +
+                            `</div>\n` +
+                            `<div class=\"step-description\">${escapeHtml(t.description || '')}</div>\n` +
+                            `<div style=\"font-size:11px; color:#666; margin-top:4px;\">ID: <code style=\"background:#f0f0f0; padding:2px 4px; border-radius:2px;\">${escapeHtml(toolId)}</code></div>\n` +
+                            `<div class=\"grid\" style=\"margin-top:6px; grid-template-columns: repeat(4, minmax(0,1fr)); gap:8px;\">\n` +
+                            `<div class=\"stat-item\"><div class=\"stat-value\" style=\"${hasMetrics ? 'font-weight:bold; color:#007bff;' : ''}\">${total}</div><div class=\"stat-label\">Total</div></div>\n` +
+                            `<div class=\"stat-item\"><div class=\"stat-value\" style=\"color:${succ > 0 ? '#28a745' : '#999'};\">${succ}</div><div class=\"stat-label\">Success</div></div>\n` +
+                            `<div class=\"stat-item\"><div class=\"stat-value\" style=\"color:${fail > 0 ? '#dc3545' : '#999'};\">${fail}</div><div class=\"stat-label\">Failed</div></div>\n` +
+                            `<div class=\"stat-item\"><div class=\"stat-value\" style=\"color:${blocked > 0 ? '#ffc107' : '#999'};\">${blocked}</div><div class=\"stat-label\">Blocked</div></div>\n` +
+                            `</div>\n` +
+                            `${hasMetrics && m.last_called ? `<div style=\"font-size:10px; color:#666; margin-top:4px;\">Last used: ${new Date(m.last_called).toLocaleString()}</div>` : ''}\n` +
+                            `</div>`;
+                    }).join('');
+
+                    // Also show metrics for tools that aren't in the registered tools list
+                    // Use allTools (before filtering) for comparison, not the filtered tools array
+                    // Filter out ephemeral/internal tools that are expected to have metrics
+                    const unregisteredMetrics = allMetrics.filter(m => {
+                        const metricToolId = String(m.tool_id || '').trim();
+                        // Skip if this is an ephemeral/internal tool (these are expected to have metrics and may be filtered from display)
+                        if (ephemeralIds.has(metricToolId)) {
+                            return false; // Don't show ephemeral tools in "Internal Tools" section
+                        }
+                        // Check against ALL tools (before filtering), not just the filtered list
+                        return !allTools.some(t => String(t.id || '').trim() === metricToolId);
+                    });
+
+                    if (unregisteredMetrics.length > 0) {
+                        const unregisteredHtml = `
+                                <div style="margin-top:30px; padding-top:20px; border-top:2px solid #ddd;">
+                                    <h3 style="font-size:14px; color:#ff9800; margin-bottom:10px;">⚠️ Internal Tools (Not in Registry)</h3>
+                                    <p style="font-size:12px; color:#666; margin-bottom:10px;">These tools have usage metrics but aren't in the registered tools list:</p>
+                                    ${unregisteredMetrics.map(m => {
                             const total = Number(m.total_calls || 0);
                             const succ = Number(m.success_calls || 0);
                             const fail = Number(m.failure_calls || 0);
                             const blocked = Number(m.blocked_calls || 0);
                             const rate = total > 0 ? ((succ / total) * 100).toFixed(1) + '%' : '0%';
-                            const hasMetrics = total > 0;
-                            
-                            // Debug: log matching details (only for tools with metrics or mismatches)
-                            const matched = !!(idToMetrics[toolId] || idToMetrics[normalizedId]);
-                            if (hasMetrics) {
-                                console.log(`[Tools UI] ✓ Tool "${t.name}" (ID: "${toolId}") has ${total} calls`);
-                            }
-                            
                             return `
-                            <div class=\"workflow-item\" style=\"${hasMetrics ? 'border-left: 3px solid #28a745; background: #f8fff9;' : ''}\">\n` +
-                                   `<div class=\"step-header\">\n` +
-                                   `<span class=\"step-name\">${escapeHtml(t.name || t.id)}</span>\n` +
-                                   `<span class=\"step-status status-completed\">${rate}</span>\n` +
-                                   `${hasMetrics ? '<span style="margin-left:8px; font-size:11px; color:#28a745; font-weight:bold;">● IN USE</span>' : ''}\n` +
-                                   `</div>\n` +
-                                   `<div class=\"step-description\">${escapeHtml(t.description || '')}</div>\n` +
-                                   `<div style=\"font-size:11px; color:#666; margin-top:4px;\">ID: <code style=\"background:#f0f0f0; padding:2px 4px; border-radius:2px;\">${escapeHtml(toolId)}</code></div>\n` +
-                                   `<div class=\"grid\" style=\"margin-top:6px; grid-template-columns: repeat(4, minmax(0,1fr)); gap:8px;\">\n` +
-                                   `<div class=\"stat-item\"><div class=\"stat-value\" style=\"${hasMetrics ? 'font-weight:bold; color:#007bff;' : ''}\">${total}</div><div class=\"stat-label\">Total</div></div>\n` +
-                                   `<div class=\"stat-item\"><div class=\"stat-value\" style=\"color:${succ > 0 ? '#28a745' : '#999'};\">${succ}</div><div class=\"stat-label\">Success</div></div>\n` +
-                                   `<div class=\"stat-item\"><div class=\"stat-value\" style=\"color:${fail > 0 ? '#dc3545' : '#999'};\">${fail}</div><div class=\"stat-label\">Failed</div></div>\n` +
-                                   `<div class=\"stat-item\"><div class=\"stat-value\" style=\"color:${blocked > 0 ? '#ffc107' : '#999'};\">${blocked}</div><div class=\"stat-label\">Blocked</div></div>\n` +
-                                   `</div>\n` +
-                                   `${hasMetrics && m.last_called ? `<div style=\"font-size:10px; color:#666; margin-top:4px;\">Last used: ${new Date(m.last_called).toLocaleString()}</div>` : ''}\n` +
-                                   `</div>`;
-                        }).join('');
-                        
-                        // Also show metrics for tools that aren't in the registered tools list
-                        // Use allTools (before filtering) for comparison, not the filtered tools array
-                        // Filter out ephemeral/internal tools that are expected to have metrics
-                        const unregisteredMetrics = allMetrics.filter(m => {
-                            const metricToolId = String(m.tool_id || '').trim();
-                            // Skip if this is an ephemeral/internal tool (these are expected to have metrics and may be filtered from display)
-                            if (ephemeralIds.has(metricToolId)) {
-                                return false; // Don't show ephemeral tools in "Internal Tools" section
-                            }
-                            // Check against ALL tools (before filtering), not just the filtered list
-                            return !allTools.some(t => String(t.id || '').trim() === metricToolId);
-                        });
-                        
-                        if (unregisteredMetrics.length > 0) {
-                            const unregisteredHtml = `
-                                <div style="margin-top:30px; padding-top:20px; border-top:2px solid #ddd;">
-                                    <h3 style="font-size:14px; color:#ff9800; margin-bottom:10px;">⚠️ Internal Tools (Not in Registry)</h3>
-                                    <p style="font-size:12px; color:#666; margin-bottom:10px;">These tools have usage metrics but aren't in the registered tools list:</p>
-                                    ${unregisteredMetrics.map(m => {
-                                        const total = Number(m.total_calls || 0);
-                                        const succ = Number(m.success_calls || 0);
-                                        const fail = Number(m.failure_calls || 0);
-                                        const blocked = Number(m.blocked_calls || 0);
-                                        const rate = total > 0 ? ((succ / total) * 100).toFixed(1) + '%' : '0%';
-                                        return `
                                         <div class="workflow-item" style="border-left: 3px solid #ff9800; background: #fff8e1; margin-bottom:10px;">
                                             <div class="step-header">
                                                 <span class="step-name">${escapeHtml(m.tool_name || m.tool_id || 'Unknown')}</span>
@@ -2945,13 +3053,13 @@
                                             </div>
                                             ${m.last_called ? `<div style="font-size:10px; color:#666; margin-top:4px;">Last used: ${new Date(m.last_called).toLocaleString()}</div>` : ''}
                                         </div>`;
-                                    }).join('')}
+                        }).join('')}
                                 </div>
                             `;
-                            toolsListDiv.innerHTML += unregisteredHtml;
-                        }
+                        toolsListDiv.innerHTML += unregisteredHtml;
                     }
-                
+                }
+
             } catch (error) {
                 toolMetricsDiv.innerHTML = `<div class="error">Error loading tool metrics: ${error.message}</div>`;
                 safetyDiv.innerHTML = `<div class="error">Error loading safety data: ${error.message}</div>`;
@@ -2963,7 +3071,7 @@
         let toolsChatSessionId = null;
 
         // Execute natural language input
-        window.executeNaturalLanguage = async function() {
+        window.executeNaturalLanguage = async function () {
             console.log('=== EXECUTE NATURAL LANGUAGE CALLED ===');
             const input = document.getElementById('nl-input').value.trim();
             const project = document.getElementById('project-input').value.trim();
@@ -2972,32 +3080,32 @@
             const conversationOnlyCheckbox = document.getElementById('conversation-only');
             const forceKnowledge = !!(forceKnowledgeCheckbox && forceKnowledgeCheckbox.checked);
             const conversationOnly = !!(conversationOnlyCheckbox && conversationOnlyCheckbox.checked);
-            
+
             console.log('Input:', input);
             console.log('Project:', project);
             console.log('Result div found:', !!resultDiv);
-            
+
             if (!input) {
                 console.log('No input provided');
                 resultDiv.innerHTML = '<div class="error">Please enter a request</div>';
                 return;
             }
-            
+
             // Detect if request is code-related
             const codeKeywords = ['code', 'program', 'function', 'script', 'write', 'create', 'generate', 'implement', 'build', 'compile', 'execute', 'run'];
             const inputLower = input.toLowerCase();
-            const isCodeRequest = codeKeywords.some(keyword => inputLower.includes(keyword)) || 
-                                  inputLower.includes('python') || inputLower.includes('javascript') || 
-                                  inputLower.includes('go ') || inputLower.includes('java ') ||
-                                  inputLower.includes('rust') || inputLower.includes('c++');
-            
+            const isCodeRequest = codeKeywords.some(keyword => inputLower.includes(keyword)) ||
+                inputLower.includes('python') || inputLower.includes('javascript') ||
+                inputLower.includes('go ') || inputLower.includes('java ') ||
+                inputLower.includes('rust') || inputLower.includes('c++');
+
             try {
                 console.log('Setting loading state...');
                 resultDiv.innerHTML = '<div class="loading">Executing request...</div>';
-                
+
                 let response;
                 let sessionId = toolsChatSessionId || null;
-                
+
                 if (isCodeRequest) {
                     // Code-related requests use intelligent execution
                     // Detect language from user input (check Rust FIRST before Go to avoid false matches)
@@ -3005,7 +3113,7 @@
                     let detectedLang = "python"; // Default to Python
                     // Check for Rust first (before Go, since "go" is a common word)
                     // More comprehensive Rust detection - check for "rust" anywhere in the input
-                    if (inputLower.includes("rust") || inputLower.includes("rust program") || 
+                    if (inputLower.includes("rust") || inputLower.includes("rust program") ||
                         inputLower.includes("rust code") || inputLower.includes(".rs") ||
                         inputLower.includes(" in rust") || inputLower.includes("create a rust") ||
                         inputLower.includes("write a rust") || inputLower.includes("build a rust") ||
@@ -3024,7 +3132,7 @@
                     console.log('🔍 [UI] Detected code request, input:', input);
                     console.log('🔍 [UI] Detected language:', detectedLang);
                     console.log('🔍 [UI] Using /api/v1/intelligent/execute with language:', detectedLang);
-                    
+
                     const requestPayload = {
                         task_name: "artifact_task",
                         description: input,
@@ -3038,9 +3146,9 @@
                         max_retries: 3
                     };
                     console.log('🔍 [UI] Request payload:', JSON.stringify(requestPayload, null, 2));
-                    
+
                     response = await axios.post('/api/v1/intelligent/execute', requestPayload, { timeout: 300000 });
-                    
+
                     console.log('🔍 [UI] Intelligent execution response:', response.data);
                     if (response.data.generated_code) {
                         console.log('🔍 [UI] Response generated_code.language:', response.data.generated_code.language);
@@ -3055,7 +3163,7 @@
                         resultDiv.innerHTML = `<div class="error">Error displaying response: ${error.message}</div>`;
                     }
                     // Refresh projects if available
-                    try { await loadProjects(); } catch (e) {}
+                    try { await loadProjects(); } catch (e) { }
                 } else {
                     // Non-code requests use chat API with thinking enabled
                     console.log('Detected non-code request, using /api/v1/chat with thinking...');
@@ -3075,13 +3183,13 @@
                         session_id: sessionId || undefined,
                         context
                     }, { timeout: 180000 });
-                    
+
                     // Persist session for follow-up questions
                     sessionId = response.data.session_id || sessionId;
                     toolsChatSessionId = sessionId;
                     console.log('Chat response:', response.data);
                     console.log('Session ID:', sessionId);
-                    
+
                     // Display chat response
                     const responseText = response.data.response || 'No response received';
                     const confidence = response.data.confidence || 0;
@@ -3102,7 +3210,7 @@
                             </div>
                         </div>
                     `;
-                    
+
                     // Refresh session list and auto-select this session
                     if (sessionId && typeof loadThoughtsSessions === 'function') {
                         await loadThoughtsSessions();
@@ -3116,12 +3224,12 @@
                         }
                     }
                 }
-                
+
             } catch (error) {
                 // Suppress noisy axios console errors; render user-friendly UI instead
                 // console.error('Error executing natural language request:', error);
                 // console.error('Error details:', { message: error.message, code: error.code, status: error.response?.status, statusText: error.response?.statusText, data: error.response?.data });
-                
+
                 if (error.code === 'ERR_NETWORK') {
                     resultDiv.innerHTML = `
                         <div class="workflow-item">
@@ -3147,20 +3255,20 @@
         }
 
         // Perform RAG search
-        window.performRAGSearch = async function() {
+        window.performRAGSearch = async function () {
             const query = document.getElementById('rag-query').value.trim();
             const limit = document.getElementById('rag-limit').value;
             const collection = document.getElementById('rag-collection')?.value || 'AgiWiki';
             const resultDiv = document.getElementById('rag-results');
-            
+
             if (!query) {
                 resultDiv.innerHTML = '<div class="error">Please enter a search query</div>';
                 return;
             }
-            
+
             try {
                 resultDiv.innerHTML = '<div class="loading">Searching...</div>';
-                
+
                 const response = await axios.get(`/api/rag/search?q=${encodeURIComponent(query)}&limit=${limit}&collection=${encodeURIComponent(collection)}`, { timeout: 10000 });
                 // Normalize response shape: accept array or common wrappers, plus backend's { result: { points: [...] } }
                 const raw = response.data;
@@ -3176,52 +3284,52 @@
                 } else if (raw?.hits) {
                     results = raw.hits;
                 }
-                
+
                 if (results.length === 0) {
                     resultDiv.innerHTML = '<div class="loading">No results found</div>';
                     return;
                 }
-                
+
                 const qLower = query.toLowerCase();
                 const filtered = results.filter((r) => {
                     const p = (r && typeof r === 'object' && 'payload' in r) ? (r.payload || {}) : (r || {});
                     const txt = (p && (p.text || p.summary || '')) + '';
                     const metadataStr = (p && p.metadata) ? (typeof p.metadata === 'string' ? p.metadata : JSON.stringify(p.metadata)) : '';
                     const combinedText = txt + ' ' + metadataStr;
-                    
+
                     // Filter out system/internal entries
                     const isTimer = /timer_tick/i.test(txt) || /news:fsm:timer_tick/i.test(txt);
                     const isFailed = (p && p.outcome && String(p.outcome).toLowerCase() === 'failed') ||
-                                     (p && p.result && typeof p.result.status === 'number' && p.result.status >= 400) ||
-                                     /server busy/i.test(txt);
-                    
+                        (p && p.result && typeof p.result.status === 'number' && p.result.status >= 400) ||
+                        /server busy/i.test(txt);
+
                     // Filter out execution plans, task interpretations, and system noise
-                    const isExecutionPlan = /execution_plan/i.test(combinedText) || 
-                                           /interpreted_at/i.test(combinedText) ||
-                                           /session_id/i.test(combinedText) ||
-                                           /structured task/i.test(combinedText) ||
-                                           /execute_goal_plan/i.test(combinedText) ||
-                                           /task_name/i.test(combinedText) ||
-                                           /\"tasks\":\[/i.test(combinedText) ||
-                                           /\"interpretation\"/i.test(combinedText) ||
-                                           /\"execution_plan\"/i.test(combinedText);
-                    
+                    const isExecutionPlan = /execution_plan/i.test(combinedText) ||
+                        /interpreted_at/i.test(combinedText) ||
+                        /session_id/i.test(combinedText) ||
+                        /structured task/i.test(combinedText) ||
+                        /execute_goal_plan/i.test(combinedText) ||
+                        /task_name/i.test(combinedText) ||
+                        /\"tasks\":\[/i.test(combinedText) ||
+                        /\"interpretation\"/i.test(combinedText) ||
+                        /\"execution_plan\"/i.test(combinedText);
+
                     // Filter out FSM/episode metadata noise
                     const isSystemNoise = /\"outcome\":\"success\"/i.test(combinedText) ||
-                                          /\"project_id\":\"fsm/i.test(combinedText) ||
-                                          /\"id\":\"ep_/i.test(combinedText) ||
-                                          /\"result\":\{/i.test(combinedText) && /\"interpretation\"/i.test(combinedText);
-                    
+                        /\"project_id\":\"fsm/i.test(combinedText) ||
+                        /\"id\":\"ep_/i.test(combinedText) ||
+                        /\"result\":\{/i.test(combinedText) && /\"interpretation\"/i.test(combinedText);
+
                     // Filter out API/system events
                     const isSystemEvent = /\"source\":\"api:/i.test(combinedText) ||
-                                         /\"event_id\":\"evt_/i.test(combinedText);
-                    
+                        /\"event_id\":\"evt_/i.test(combinedText);
+
                     // Require actual content (title or meaningful text)
                     const hasContent = (p && (p.title || p.text || p.summary));
-                    
+
                     // For AgiEpisodes, prefer Wikipedia articles
                     const isWikipedia = /\"source\":\"wikipedia\"/i.test(metadataStr);
-                    
+
                     // Exclude if it's system noise, but allow Wikipedia articles
                     if (isTimer || isFailed || isExecutionPlan || isSystemNoise || isSystemEvent) {
                         // Allow Wikipedia articles even if they have some system fields
@@ -3229,7 +3337,7 @@
                             return false;
                         }
                     }
-                    
+
                     return hasContent;
                 });
 
@@ -3255,54 +3363,54 @@
                         </div>
                         <div class="rag-results-grid">
                             ${filtered.map((result, index) => {
-                                // Normalize shape: points from backend vs raw Weaviate items
-                                const isPoint = result && typeof result === 'object' && 'payload' in result;
-                                const payload = isPoint ? (result.payload || {}) : (result || {});
+                    // Normalize shape: points from backend vs raw Weaviate items
+                    const isPoint = result && typeof result === 'object' && 'payload' in result;
+                    const payload = isPoint ? (result.payload || {}) : (result || {});
 
-                                // Parse metadata if it's a JSON string (for AgiWiki/AgiEpisodes)
-                                let metadataObj = {};
-                                if (payload?.metadata) {
-                                    if (typeof payload.metadata === 'string') {
-                                        try {
-                                            metadataObj = JSON.parse(payload.metadata);
-                                        } catch (e) {
-                                            // Not JSON, ignore
-                                        }
-                                    } else if (typeof payload.metadata === 'object') {
-                                        metadataObj = payload.metadata;
-                                    }
-                                }
+                    // Parse metadata if it's a JSON string (for AgiWiki/AgiEpisodes)
+                    let metadataObj = {};
+                    if (payload?.metadata) {
+                        if (typeof payload.metadata === 'string') {
+                            try {
+                                metadataObj = JSON.parse(payload.metadata);
+                            } catch (e) {
+                                // Not JSON, ignore
+                            }
+                        } else if (typeof payload.metadata === 'object') {
+                            metadataObj = payload.metadata;
+                        }
+                    }
 
-                                // Compute score safely
-                                let score = 'N/A';
-                                if (typeof result?.score === 'number') {
-                                    score = result.score.toFixed(3);
-                                } else if (typeof result?._additional?.score === 'number') {
-                                    score = Number(result._additional.score).toFixed(3);
-                                } else if (typeof result?._additional?.distance === 'number') {
-                                    score = (1 - Number(result._additional.distance)).toFixed(3);
-                                }
+                    // Compute score safely
+                    let score = 'N/A';
+                    if (typeof result?.score === 'number') {
+                        score = result.score.toFixed(3);
+                    } else if (typeof result?._additional?.score === 'number') {
+                        score = Number(result._additional.score).toFixed(3);
+                    } else if (typeof result?._additional?.distance === 'number') {
+                        score = (1 - Number(result._additional.distance)).toFixed(3);
+                    }
 
-                                // Extract title and URL - check payload first, then metadata
-                                const title = payload?.title || metadataObj?.title || payload?.name || '';
-                                const source = payload?.source || metadataObj?.source || '';
-                                const url = payload?.url || metadataObj?.url || '';
-                                const ts = payload?.timestamp || metadataObj?.timestamp || payload?.created_at || '';
-                                const textRaw = payload?.text || payload?.summary || (typeof payload === 'string' ? payload : JSON.stringify(payload));
-                                const text = (textRaw || '').slice(0, 600);
-                                
-                                // Format JSON content for better readability
-                                let formattedText = text;
-                                try {
-                                    if (text.startsWith('{') || text.startsWith('[')) {
-                                        const parsed = JSON.parse(text);
-                                        formattedText = JSON.stringify(parsed, null, 2);
-                                    }
-                                } catch (e) {
-                                    // Keep original text if not valid JSON
-                                }
-                                
-                                return `
+                    // Extract title and URL - check payload first, then metadata
+                    const title = payload?.title || metadataObj?.title || payload?.name || '';
+                    const source = payload?.source || metadataObj?.source || '';
+                    const url = payload?.url || metadataObj?.url || '';
+                    const ts = payload?.timestamp || metadataObj?.timestamp || payload?.created_at || '';
+                    const textRaw = payload?.text || payload?.summary || (typeof payload === 'string' ? payload : JSON.stringify(payload));
+                    const text = (textRaw || '').slice(0, 600);
+
+                    // Format JSON content for better readability
+                    let formattedText = text;
+                    try {
+                        if (text.startsWith('{') || text.startsWith('[')) {
+                            const parsed = JSON.parse(text);
+                            formattedText = JSON.stringify(parsed, null, 2);
+                        }
+                    } catch (e) {
+                        // Keep original text if not valid JSON
+                    }
+
+                    return `
                                 <div class="rag-result-card">
                                     <div class="rag-card-header">
                                         <div class="rag-card-title">
@@ -3325,22 +3433,22 @@
                                     </div>
                                 </div>
                             `;
-                        }).join('')}
+                }).join('')}
                         </div>
                     </div>
                 `;
-                
+
             } catch (error) {
                 resultDiv.innerHTML = `<div class="error">Error performing RAG search: ${error.message}</div>`;
             }
         }
 
         // Placeholder functions for goal and project actions
-        window.executeGoal = function(goalId) {
+        window.executeGoal = function (goalId) {
             alert(`Execute goal ${goalId} - Not implemented yet`);
         }
 
-        window.deleteGoal = async function(goalId) {
+        window.deleteGoal = async function (goalId) {
             if (!confirm(`Delete goal ${goalId}?`)) {
                 return;
             }
@@ -3365,12 +3473,12 @@
             }
         }
 
-        window.openProject = async function(projectId) {
+        window.openProject = async function (projectId) {
             try {
                 // Fetch project details
                 const response = await axios.get(`/api/projects/${projectId}`, { timeout: 10000 });
                 const project = response.data;
-                
+
                 // Create a modal or detailed view
                 const modal = document.createElement('div');
                 modal.style.cssText = `
@@ -3378,7 +3486,7 @@
                     background: rgba(0,0,0,0.8); z-index: 1000; display: flex; 
                     align-items: center; justify-content: center;
                 `;
-                
+
                 modal.innerHTML = `
                     <div style="background: white; padding: 20px; border-radius: 8px; max-width: 80%; max-height: 80%; overflow-y: auto;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
@@ -3402,19 +3510,19 @@
                         </div>
                     </div>
                 `;
-                
+
                 modal.className = 'modal';
                 document.body.appendChild(modal);
-                
+
                 // Load workflows for this project
                 await loadProjectWorkflows(projectId);
-                
+
             } catch (error) {
                 alert(`Error opening project: ${error.message}`);
             }
         }
-        
-        window.loadProjectWorkflows = async function(projectId) {
+
+        window.loadProjectWorkflows = async function (projectId) {
             try {
                 // Fetch workflow IDs for the project via Monitor proxy → HDN
                 const resp = await axios.get(`/api/projects/${encodeURIComponent(projectId)}/workflows`, { timeout: 10000 });
@@ -3463,7 +3571,7 @@
                                 const cid = `preview-${wid}-${idx}`;
                                 return `<li style="margin-bottom:6px;">
                                     <a href="${href}" target="_blank" rel="noopener">${name}</a>${size}
-                                    <button data-fn="${encodeURIComponent(name)}" data-ct="${encodeURIComponent(f.content_type||'')}" data-href="${href}" data-target="${cid}"
+                                    <button data-fn="${encodeURIComponent(name)}" data-ct="${encodeURIComponent(f.content_type || '')}" data-href="${href}" data-target="${cid}"
                                         class="btn-view-art" style="margin-left:10px;background:#28a745;color:#fff;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;">View</button>
                                     <div id="${cid}" style="margin-top:8px; display:none; border:1px solid #eee; border-radius:6px; padding:8px; background:#fafafa;"></div>
                                 </li>`;
@@ -3472,10 +3580,10 @@
                             // Attach inline preview behavior
                             Array.from(listEl.querySelectorAll('.btn-view-art')).forEach(vbtn => {
                                 vbtn.addEventListener('click', () => {
-                                    const fn = decodeURIComponent(vbtn.getAttribute('data-fn')||'');
-                                    const ct = decodeURIComponent(vbtn.getAttribute('data-ct')||'');
-                                    const href = vbtn.getAttribute('data-href')||'';
-                                    const tgtId = vbtn.getAttribute('data-target')||'';
+                                    const fn = decodeURIComponent(vbtn.getAttribute('data-fn') || '');
+                                    const ct = decodeURIComponent(vbtn.getAttribute('data-ct') || '');
+                                    const href = vbtn.getAttribute('data-href') || '';
+                                    const tgtId = vbtn.getAttribute('data-target') || '';
                                     const tgt = document.getElementById(tgtId);
                                     if (!tgt) return;
                                     tgt.style.display = 'block';
@@ -3529,13 +3637,13 @@
             try {
                 const response = await axios.get('/api/v1/chat/sessions', { timeout: 5000 });
                 const data = response.data;
-                
+
                 const sessionSelect = document.getElementById('thoughts-session-select');
                 if (!sessionSelect) return;
-                
+
                 const currentValue = sessionSelect.value;
                 sessionSelect.innerHTML = '<option value="">Select a session...</option>';
-                
+
                 if (data.sessions && Array.isArray(data.sessions) && data.sessions.length > 0) {
                     // Load history for each session to show preview
                     const sessionPromises = data.sessions.map(async (sessionId) => {
@@ -3554,16 +3662,16 @@
                             return { sessionId, preview: sessionId };
                         }
                     });
-                    
+
                     const sessionsWithPreview = await Promise.all(sessionPromises);
-                    
+
                     sessionsWithPreview.forEach(({ sessionId, preview }) => {
                         const option = document.createElement('option');
                         option.value = sessionId;
                         option.textContent = preview;
                         sessionSelect.appendChild(option);
                     });
-                    
+
                     // Restore previous selection if it still exists
                     if (currentValue) {
                         sessionSelect.value = currentValue;
@@ -3575,20 +3683,20 @@
                 console.error('Failed to load sessions:', error);
                 const sessionSelect = document.getElementById('thoughts-session-select');
                 const container = document.getElementById('thoughts-container');
-                
+
                 if (sessionSelect) {
                     sessionSelect.innerHTML = '<option value="">Error loading sessions</option>';
                 }
-                
+
                 // Show helpful error message in the container
                 if (container) {
                     let errorMsg = 'Failed to load sessions. ';
                     let errorDetails = '';
-                    
+
                     if (error.response) {
                         const status = error.response.status;
                         const data = error.response.data || {};
-                        
+
                         if (status === 404 || status === 503) {
                             errorMsg = 'Conversational API not available. ';
                             errorDetails = data.error || data.details || 'The HDN server\'s conversational layer may not be initialized.';
@@ -3611,7 +3719,7 @@
                     } else {
                         errorMsg += error.message || 'Unknown error occurred.';
                     }
-                    
+
                     container.innerHTML = `<div class="error" style="padding: 20px; background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 8px; margin: 15px 0;">
                         <strong>⚠️ ${error.response?.status === 404 || error.response?.status === 503 ? 'Service Unavailable' : 'Connection Error'}</strong><br>
                         ${errorMsg}
@@ -3624,45 +3732,45 @@
         async function loadThoughts() {
             const container = document.getElementById('thoughts-container');
             if (!container) return;
-            
+
             const sessionSelect = document.getElementById('thoughts-session-select');
             const limitInput = document.getElementById('thoughts-limit');
-            
+
             const sessionId = sessionSelect ? sessionSelect.value : '';
             const limit = limitInput ? limitInput.value || '50' : '50';
-            
+
             if (!sessionId) {
                 container.innerHTML = '<div class="no-thoughts">Please select a session to view thoughts.</div>';
                 return;
             }
-            
+
             container.innerHTML = '<div class="loading">Loading thoughts...</div>';
-            
+
             try {
                 const response = await axios.get(`/api/v1/chat/sessions/${sessionId}/thoughts?limit=${limit}`, { timeout: 10000 });
                 const data = response.data;
-                
+
                 if (data.error) {
                     container.innerHTML = `<div class="error">Error: ${data.error}</div>`;
                     return;
                 }
-                
+
                 const thoughts = data.thoughts || [];
-                
+
                 if (thoughts.length === 0) {
                     container.innerHTML = '<div class="no-thoughts">No thoughts available for this session.</div>';
                     return;
                 }
-                
+
                 // Create thoughts list
                 const thoughtsList = document.createElement('div');
                 thoughtsList.className = 'thoughts-list';
-                
+
                 thoughts.forEach(thought => {
                     const thoughtCard = createThoughtCard(thought);
                     thoughtsList.appendChild(thoughtCard);
                 });
-                
+
                 container.innerHTML = '';
                 container.appendChild(thoughtsList);
             } catch (error) {
@@ -3681,7 +3789,7 @@
                 } else {
                     errorMsg += error.message || 'Unknown error occurred.';
                 }
-                
+
                 container.innerHTML = `<div class="error" style="padding: 20px; background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 8px; margin: 15px 0;">
                     <strong>⚠️ Error</strong><br>
                     ${errorMsg}
@@ -3692,13 +3800,13 @@
         function createThoughtCard(thought) {
             const card = document.createElement('div');
             const thoughtType = (thought.type || 'thinking').toLowerCase();
-            
+
             // Check if this thought uses MCP tools (database queries)
             // Check multiple possible fields where tool info might be stored
             const toolUsed = thought.tool_used || thought.toolUsed || '';
             const contentLower = (thought.content || thought.thought || '').toLowerCase();
             const action = (thought.action || '').toLowerCase();
-            
+
             // Debug: log thought data to console (remove in production)
             if (toolUsed || contentLower.includes('mcp') || contentLower.includes('neo4j') || contentLower.includes('weaviate')) {
                 console.log('🔍 Thought with potential MCP tool:', {
@@ -3708,20 +3816,20 @@
                     metadata: thought.metadata
                 });
             }
-            
+
             // Check if tool name starts with mcp_ or if content/action mentions MCP/database tools
-            let isMCPTool = toolUsed.startsWith('mcp_') || 
-                             toolUsed.includes('mcp_') ||
-                             contentLower.includes('mcp_') ||
-                             contentLower.includes('neo4j') ||
-                             contentLower.includes('weaviate') ||
-                             contentLower.includes('database') ||
-                             contentLower.includes('knowledge base') ||
-                             contentLower.includes('query') && (contentLower.includes('concept') || contentLower.includes('graph')) ||
-                             action.includes('mcp_') ||
-                             action.includes('neo4j') ||
-                             action.includes('weaviate');
-            
+            let isMCPTool = toolUsed.startsWith('mcp_') ||
+                toolUsed.includes('mcp_') ||
+                contentLower.includes('mcp_') ||
+                contentLower.includes('neo4j') ||
+                contentLower.includes('weaviate') ||
+                contentLower.includes('database') ||
+                contentLower.includes('knowledge base') ||
+                contentLower.includes('query') && (contentLower.includes('concept') || contentLower.includes('graph')) ||
+                action.includes('mcp_') ||
+                action.includes('neo4j') ||
+                action.includes('weaviate');
+
             // Also check metadata for tool information
             let metadataTool = '';
             if (thought.metadata) {
@@ -3730,20 +3838,20 @@
                     isMCPTool = true;
                 }
             }
-            
+
             const isDatabaseQuery = isMCPTool;
-            
+
             // Add MCP/database class for styling
             let cardClasses = `thought-card ${thoughtType}`;
             if (isDatabaseQuery) {
                 cardClasses += ' database-query';
             }
             card.className = cardClasses;
-            
+
             const timestamp = thought.timestamp ? new Date(thought.timestamp).toLocaleString() : 'Unknown time';
             const confidence = Math.round((thought.confidence || 0) * 100);
             const content = thought.content || thought.thought || 'No content';
-            
+
             // Determine database badge text based on tool
             let databaseBadge = '';
             let toolDisplayName = '';
@@ -3751,7 +3859,7 @@
                 let dbType = 'Database';
                 const effectiveToolName = toolUsed || metadataTool || '';
                 const allText = (toolUsed + ' ' + contentLower + ' ' + action + ' ' + metadataTool).toLowerCase();
-                
+
                 if (allText.includes('neo4j') || toolUsed.includes('get_concept') || toolUsed.includes('find_related') || toolUsed.includes('query_neo4j')) {
                     dbType = 'Neo4j';
                 } else if (allText.includes('weaviate') || toolUsed.includes('search_weaviate')) {
@@ -3760,20 +3868,20 @@
                     // If it's an MCP tool but we can't determine the DB, show Database
                     dbType = 'Database';
                 }
-                
+
                 // Create a human-readable tool name
                 if (effectiveToolName) {
                     // Remove mcp_ prefix and format nicely
                     toolDisplayName = effectiveToolName.replace(/^mcp_/, '').replace(/_/g, ' ');
                     // Capitalize first letter of each word
-                    toolDisplayName = toolDisplayName.split(' ').map(word => 
+                    toolDisplayName = toolDisplayName.split(' ').map(word =>
                         word.charAt(0).toUpperCase() + word.slice(1)
                     ).join(' ');
                 }
-                
+
                 databaseBadge = `<span class="database-badge" title="Using ${dbType} knowledge base via ${effectiveToolName || 'MCP tool'}">🗄️ ${dbType}</span>`;
             }
-            
+
             card.innerHTML = `
                 <div class="thought-header">
                     <span class="thought-type">${thoughtType}</span>
@@ -3835,7 +3943,7 @@
                     <div class="confidence-fill" style="width: ${confidence}%"></div>
                 </div>
             `;
-            
+
             return card;
         }
 
@@ -3846,26 +3954,26 @@
             const sendBtn = document.getElementById('thoughts-chat-send');
             const statusDiv = document.getElementById('thoughts-chat-status');
             const message = input.value.trim();
-            
+
             if (!message) return;
-            
+
             input.disabled = true;
             sendBtn.disabled = true;
             statusDiv.textContent = 'Sending message...';
             statusDiv.style.color = '#6c757d';
-            
+
             try {
                 // Generate a session ID if we don't have one selected
                 let sessionId = document.getElementById('thoughts-session-select').value;
                 if (!sessionId) {
                     sessionId = 'chat_' + Date.now();
                 }
-                
+
                 const response = await axios.post('/api/chat', {
                     message: message,
                     session_id: sessionId
                 }, { timeout: 180000 }); // 3 minutes - chat makes multiple LLM calls
-                
+
                 // Display the response
                 const responseDiv = document.getElementById('thoughts-chat-response');
                 const responseText = document.getElementById('thoughts-chat-response-text');
@@ -3882,26 +3990,26 @@
                     responseText.textContent = responseContent;
                     responseDiv.style.display = 'block';
                 }
-                
+
                 statusDiv.textContent = 'Message sent! Loading thoughts...';
                 statusDiv.style.color = '#28a745';
-                
+
                 // Clear input
                 input.value = '';
-                
+
                 // Update session selector and load thoughts
                 await loadThoughtsSessions();
                 const sessionSelect = document.getElementById('thoughts-session-select');
                 if (sessionSelect) {
                     sessionSelect.value = sessionId;
                 }
-                
+
                 // Wait a moment for thoughts to be generated, then load them
                 setTimeout(async () => {
                     await loadThoughts();
                     statusDiv.textContent = 'Message sent! Check the thoughts below.';
                 }, 2000);
-                
+
             } catch (error) {
                 console.error('Failed to send chat message:', error);
                 statusDiv.textContent = 'Error: ' + (error.response?.data?.error || error.message || 'Failed to send message');
@@ -3916,17 +4024,17 @@
         window.loadThoughtsSessions = loadThoughtsSessions;
         window.sendThoughtsChatMessage = sendThoughtsChatMessage;
 
-        window.deleteProject = async function(projectId) {
+        window.deleteProject = async function (projectId) {
             console.log('Delete project called with ID:', projectId);
-            
+
             // Create a custom confirmation dialog
             const confirmed = await showConfirmDialog(
-                'Delete Project', 
+                'Delete Project',
                 `Are you sure you want to delete project "${projectId}"? This action cannot be undone.`,
                 'Delete',
                 'Cancel'
             );
-            
+
             if (confirmed) {
                 console.log('User confirmed deletion');
                 try {
@@ -3959,14 +4067,14 @@
                     background: rgba(0,0,0,0.8); z-index: 10000; display: flex; 
                     align-items: center; justify-content: center;
                 `;
-                
+
                 // Create dialog box
                 const dialog = document.createElement('div');
                 dialog.style.cssText = `
                     background: white; padding: 30px; border-radius: 8px; 
                     max-width: 400px; width: 90%; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
                 `;
-                
+
                 dialog.innerHTML = `
                     <h3 style="margin: 0 0 15px 0; color: #2c3e50;">${title}</h3>
                     <p style="margin: 0 0 20px 0; color: #666; line-height: 1.4;">${message}</p>
@@ -3981,21 +4089,21 @@
                         ">${confirmText}</button>
                     </div>
                 `;
-                
+
                 modal.appendChild(dialog);
                 document.body.appendChild(modal);
-                
+
                 // Add event listeners
                 document.getElementById('confirm-ok').onclick = () => {
                     document.body.removeChild(modal);
                     resolve(true);
                 };
-                
+
                 document.getElementById('confirm-cancel').onclick = () => {
                     document.body.removeChild(modal);
                     resolve(false);
                 };
-                
+
                 // Close on escape key
                 const handleEscape = (e) => {
                     if (e.key === 'Escape') {
@@ -4009,17 +4117,17 @@
         }
 
         // Initialize dashboard
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             console.log('=== DOM CONTENT LOADED ===');
             console.log('Tabbed Dashboard initialized');
-            
+
             // Check if elements exist immediately
             console.log('Immediate element check:');
             console.log('system-status:', !!document.getElementById('system-status'));
             console.log('quick-stats:', !!document.getElementById('quick-stats'));
             console.log('database-status:', !!document.getElementById('database-status'));
             console.log('news-content:', !!document.getElementById('news-content'));
-            
+
             // Add a small delay to ensure all elements are ready
             setTimeout(() => {
                 console.log('=== TIMEOUT CALLBACK EXECUTING ===');
@@ -4051,7 +4159,7 @@
                             sel.value = options[1];
                         }
                         sel.disabled = false;
-                        try { refreshReasoningFull(); } catch {}
+                        try { refreshReasoningFull(); } catch { }
                     })();
                 } catch (e) { console.warn('domain discovery failed', e); }
             }, 100);
@@ -4076,7 +4184,7 @@
                         const options = ['General', ...list.filter(x => typeof x === 'string' && x.trim() && !existing.has(x))];
                         sel.innerHTML = options.map(d => `<option value="${d}">${d}</option>`).join('');
                         if (options.length > 1) sel.value = options[1];
-                        try { refreshReasoningFull(); } catch {}
+                        try { refreshReasoningFull(); } catch { }
                     } catch (err) {
                         console.warn('manual domain discovery failed', err);
                     } finally {
@@ -4097,7 +4205,7 @@
         // Display execution response in a user-friendly format
         function displayExecutionResponse(data) {
             console.log('Displaying execution response:', data);
-            
+
             const resultDiv = document.getElementById('tools-result');
             if (!resultDiv) {
                 console.error('Result div not found');
@@ -4141,7 +4249,7 @@
                     }
                 }
             }
-            
+
             if (outputText !== null) {
                 const trimmed = outputText.trim();
                 if (trimmed) {
@@ -4207,11 +4315,11 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
         async function loadAgents() {
             const contentDiv = document.getElementById('agents-content');
             if (!contentDiv) return;
-            
+
             try {
                 const response = await axios.get('/api/agents', { timeout: 5000 });
                 const agents = response.data?.agents || [];
-                
+
                 if (agents.length === 0) {
                     contentDiv.innerHTML = `
                         <div style="text-align: center; padding: 40px;">
@@ -4225,9 +4333,9 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
                 contentDiv.innerHTML = `
                     <div class="grid" style="grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 15px;">
                         ${agents.map(agent => {
-                            const status = agent.status || 'unknown';
-                            const scheduled = agent.scheduled || false;
-                            return `
+                    const status = agent.status || 'unknown';
+                    const scheduled = agent.scheduled || false;
+                    return `
                                 <div class="card" style="position: relative;">
                                     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
                                         <h4 style="margin: 0;">${escapeHtml(agent.name || agent.id)}</h4>
@@ -4242,10 +4350,10 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
                                         <div><strong>Role:</strong> ${escapeHtml(agent.role || 'N/A')}</div>
                                         <div><strong>Goal:</strong> ${escapeHtml(agent.goal || 'N/A')}</div>
                                         <div><strong>Scheduled:</strong> ${scheduled ? '✅ Yes' : '❌ No'}</div>
-                                        ${agent.tools && agent.tools.length > 0 ? 
-                                            `<div><strong>Tools:</strong> ${agent.tools.slice(0, 3).join(', ')}${agent.tools.length > 3 ? '...' : ''}</div>` : 
-                                            ''
-                                        }
+                                        ${agent.tools && agent.tools.length > 0 ?
+                            `<div><strong>Tools:</strong> ${agent.tools.slice(0, 3).join(', ')}${agent.tools.length > 3 ? '...' : ''}</div>` :
+                            ''
+                        }
                                     </div>
                                     <div style="display: flex; gap: 8px; margin-top: 15px; flex-wrap: wrap;">
                                         <button class="btn" onclick="viewAgent('${agent.id}')">View</button>
@@ -4255,7 +4363,7 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
                                     </div>
                                 </div>
                             `;
-                        }).join('')}
+                }).join('')}
                     </div>
                 `;
             } catch (error) {
@@ -4264,7 +4372,7 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
         }
 
         // Agent wizard
-        window.showAgentWizard = function() {
+        window.showAgentWizard = function () {
             const modal = document.createElement('div');
             modal.className = 'modal';
             modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center;overflow-y:auto;padding:20px;';
@@ -4339,7 +4447,7 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
                 .split(',')
                 .map(t => t.trim())
                 .filter(t => t);
-            
+
             const agentData = {
                 id: document.getElementById('agent-id').value.trim(),
                 name: document.getElementById('agent-name').value.trim(),
@@ -4458,7 +4566,7 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
         }
 
         // View agent details
-        window.viewAgent = async function(agentId) {
+        window.viewAgent = async function (agentId) {
             try {
                 const resp = await axios.get(`/api/agents/${encodeURIComponent(agentId)}`, { timeout: 5000 });
                 const agent = resp.data;
@@ -4481,13 +4589,13 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
         }
 
         // Execute agent
-        window.executeAgent = async function(agentId) {
+        window.executeAgent = async function (agentId) {
             const input = prompt('Enter input for agent execution (or leave empty):');
             if (input === null) return; // User cancelled
-            
+
             try {
-                const resp = await axios.post(`/api/agents/${encodeURIComponent(agentId)}/execute`, 
-                    { input: input || '' }, 
+                const resp = await axios.post(`/api/agents/${encodeURIComponent(agentId)}/execute`,
+                    { input: input || '' },
                     { timeout: 120000 } // 2 minute timeout
                 );
                 const modal = document.createElement('div');
@@ -4510,7 +4618,7 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
         }
 
         // View agent status
-        window.viewAgentStatus = async function(agentId) {
+        window.viewAgentStatus = async function (agentId) {
             try {
                 const resp = await axios.get(`/api/agents/${encodeURIComponent(agentId)}/status`, { timeout: 5000 });
                 const status = resp.data;
@@ -4533,14 +4641,14 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
         }
 
         // View agent execution history
-        window.viewAgentExecutions = async function(agentId) {
+        window.viewAgentExecutions = async function (agentId) {
             try {
                 const resp = await axios.get(`/api/agents/${encodeURIComponent(agentId)}/executions?limit=50`, { timeout: 5000 });
                 const executions = resp.data?.executions || [];
                 const modal = document.createElement('div');
                 modal.className = 'modal';
                 modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center;overflow-y:auto;padding:20px;';
-                
+
                 // Helper function to truncate large JSON strings
                 const truncateResult = (result) => {
                     if (!result) return null;
@@ -4550,19 +4658,19 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
                     }
                     return str;
                 };
-                
+
                 modal.innerHTML = `
                     <div style="background:#fff;max-width:1000px;width:100%;padding:30px;border-radius:8px;max-height:90vh;overflow-y:auto;">
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
                             <h2>Execution History: ${escapeHtml(agentId)}</h2>
                             <button class="btn btn-danger" onclick="this.closest('.modal').remove()">✕ Close</button>
                         </div>
-                        ${executions.length === 0 ? 
-                            '<p>No executions found.</p>' :
-                            executions.map((exec, idx) => {
-                                const resultStr = exec.result ? truncateResult(exec.result) : null;
-                                const isTruncated = exec.result && JSON.stringify(exec.result, null, 2).length > 5000;
-                                return `
+                        ${executions.length === 0 ?
+                        '<p>No executions found.</p>' :
+                        executions.map((exec, idx) => {
+                            const resultStr = exec.result ? truncateResult(exec.result) : null;
+                            const isTruncated = exec.result && JSON.stringify(exec.result, null, 2).length > 5000;
+                            return `
                                 <div class="workflow-item" style="margin-bottom:15px;border:1px solid #ddd;padding:15px;border-radius:4px;">
                                     <div class="step-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
                                         <span class="step-name">${exec.id || `Execution ${idx + 1}`}</span>
@@ -4586,8 +4694,8 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
                                     ` : ''}
                                 </div>
                             `;
-                            }).join('')
-                        }
+                        }).join('')
+                    }
                     </div>
                 `;
                 document.body.appendChild(modal);
@@ -4595,9 +4703,9 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
                 alert(`Failed to load execution history: ${error.message}`);
             }
         }
-        
+
         // View full execution result in a separate modal
-        window.viewFullExecutionResult = async function(executionId, agentId) {
+        window.viewFullExecutionResult = async function (executionId, agentId) {
             try {
                 const resp = await axios.get(`/api/agents/${encodeURIComponent(agentId)}/executions/${encodeURIComponent(executionId)}`, { timeout: 10000 });
                 const exec = resp.data;
@@ -4620,5 +4728,6 @@ last step output: ${data.validation_steps && data.validation_steps.length > 0 ? 
         }
     </script>
 </body>
+
 </html>
 {{ end }}

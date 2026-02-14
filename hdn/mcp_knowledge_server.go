@@ -1262,8 +1262,11 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 			return nil, fmt.Errorf("url parameter required")
 		}
 
-		// Check if typescript_config is provided - if so, parse and execute directly
-		if tsConfig, ok := args["typescript_config"].(string); ok && tsConfig != "" {
+		// Check if typescript_config is provided OR if HTML is requested - if so, use Playwright scraper
+		tsConfig, _ := args["typescript_config"].(string)
+		getHTML, _ := args["get_html"].(bool)
+
+		if (tsConfig != "") || getHTML {
 			isAsync, _ := args["async"].(bool)
 
 			// Handle extractions parameter
@@ -1276,7 +1279,8 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 				}
 			}
 
-			return s.scrapeWithConfig(ctx, url, tsConfig, isAsync, extractions, false, nil)
+			// Returns detailed result including HTML if requested
+			return s.scrapeWithConfig(ctx, url, tsConfig, isAsync, extractions, getHTML, nil)
 		}
 
 		// Use the html-scraper binary tool for better content extraction
@@ -1544,6 +1548,9 @@ func (s *MCPKnowledgeServer) browseWeb(ctx context.Context, args map[string]inte
 		timeout = int(t)
 	}
 
+	screenshotPath, _ := args["screenshot"].(string)
+	getHTML, _ := args["get_html"].(bool)
+
 	// Parse actions if provided (optional - LLM will generate if not provided)
 	var actions []map[string]interface{}
 	if actionsRaw, ok := args["actions"].([]interface{}); ok && len(actionsRaw) > 0 {
@@ -1593,32 +1600,63 @@ func (s *MCPKnowledgeServer) browseWeb(ctx context.Context, args map[string]inte
 		if s.llmClient == nil {
 			log.Printf("⚠️ [BROWSE-WEB] LLM client not available, cannot generate actions from instructions")
 		} else {
+			// Update progress early
+			if screenshotPath != "" {
+				saveProgress(screenshotPath, "Analyzing page structure...", -1, -1, "")
+			}
 			log.Printf("🤖 [BROWSE-WEB] Generating actions from instructions using LLM...")
 
 			// First, get the page HTML to analyze
-			log.Printf("🌐 [BROWSE-WEB] Fetching page HTML for analysis...")
-			// Use shorter timeout for HTML fetch - we just need the HTML structure, not full rendering
-			htmlCtx, htmlCancel := context.WithTimeout(ctx, 20*time.Second)
-			defer htmlCancel()
-			getHTMLCmd := exec.CommandContext(htmlCtx, browserBin,
-				"-url", url,
-				"-actions", "[]", // Empty actions - just navigate
-				"-timeout", "15", // Reduced from 30 to 15 for faster HTML fetch
-				"-html", // Return HTML
-				"-fast", // Use fast mode for HTML-only operations
-			)
+			var htmlOutputStr string
+			var skipFetch bool
 
-			htmlOutputStr, stderrHTML, err := runCommandWithLiveOutput(htmlCtx, getHTMLCmd, "🔍 [BROWSE-WEB][HTML]")
-			if err != nil {
-				if errors.Is(htmlCtx.Err(), context.DeadlineExceeded) {
-					log.Printf("⚠️ [BROWSE-WEB] HTML fetch timed out after 20s")
-				} else {
-					log.Printf("⚠️ [BROWSE-WEB] Failed to get page HTML: %v, will proceed without it", err)
+			// OPTIMIZATION: If HTML was provided in arguments, use it directly
+			providedHTML, _ := args["page_html"].(string)
+			if providedHTML != "" {
+				log.Printf("📄 [BROWSE-WEB] Using provided page HTML (%d bytes) for action generation", len(providedHTML))
+				htmlMap := map[string]interface{}{"success": true, "html": providedHTML}
+				jsonBytes, _ := json.Marshal(htmlMap)
+				htmlOutputStr = string(jsonBytes)
+				skipFetch = true
+
+				// Update progress with provided HTML
+				if screenshotPath != "" {
+					saveProgress(screenshotPath, "Generating action plan...", -1, -1, providedHTML)
 				}
-				if stderrHTML != "" {
-					log.Printf("🔍 [BROWSE-WEB][HTML] stderr:\n%s", stderrHTML)
+			}
+
+			if !skipFetch {
+				log.Printf("🌐 [BROWSE-WEB] Fetching page HTML for analysis...")
+				if screenshotPath != "" {
+					saveProgress(screenshotPath, "Fetching live page...", -1, -1, "")
 				}
-			} else {
+				// Use shorter timeout for HTML fetch - we just need the HTML structure, not full rendering
+				htmlCtx, htmlCancel := context.WithTimeout(ctx, 20*time.Second)
+				defer htmlCancel()
+				getHTMLCmd := exec.CommandContext(htmlCtx, browserBin,
+					"-url", url,
+					"-actions", "[]", // Empty actions - just navigate
+					"-timeout", "15", // Reduced from 30 to 15 for faster HTML fetch
+					"-html", // Return HTML
+					"-fast", // Use fast mode for HTML-only operations
+				)
+
+				var stderrHTML string
+				var err error
+				htmlOutputStr, stderrHTML, err = runCommandWithLiveOutput(htmlCtx, getHTMLCmd, "🔍 [BROWSE-WEB][HTML]")
+				if err != nil {
+					if errors.Is(htmlCtx.Err(), context.DeadlineExceeded) {
+						log.Printf("⚠️ [BROWSE-WEB] HTML fetch timed out after 20s")
+					} else {
+						log.Printf("⚠️ [BROWSE-WEB] Failed to get page HTML: %v, will proceed without it", err)
+					}
+					if stderrHTML != "" {
+						log.Printf("🔍 [BROWSE-WEB][HTML] stderr:\n%s", stderrHTML)
+					}
+				}
+			}
+
+			if htmlOutputStr != "" {
 				// Extract JSON from output - look for the browser result JSON object
 				// The browser tool outputs JSON with fields: success, url, title, extracted, html
 				outputStr := htmlOutputStr
@@ -1626,11 +1664,11 @@ func (s *MCPKnowledgeServer) browseWeb(ctx context.Context, args map[string]inte
 				// Try to find JSON that looks like our browser result (contains "success" and "html" fields)
 				// Look for the pattern: {"success":... which is the actual result
 				resultPattern := `{"success"`
-				resultStart := strings.LastIndex(outputStr, resultPattern)
+				resultStart := strings.Index(outputStr, resultPattern)
 
 				if resultStart == -1 {
-					// Fallback: look for any JSON object at the end
-					resultStart = strings.LastIndex(outputStr, "{")
+					// Fallback: look for any JSON object
+					resultStart = strings.Index(outputStr, "{")
 				}
 
 				if resultStart == -1 {
@@ -1684,6 +1722,10 @@ func (s *MCPKnowledgeServer) browseWeb(ctx context.Context, args map[string]inte
 							if _, hasSuccess := htmlResult["success"]; hasSuccess {
 								if html, ok := htmlResult["html"].(string); ok && html != "" {
 									log.Printf("📄 [BROWSE-WEB] Got page HTML: %d bytes", len(html))
+									// Update progress for planning
+									if screenshotPath != "" {
+										saveProgress(screenshotPath, "Planning interaction sequence...", -1, -1, html)
+									}
 									// Use LLM to generate actions from HTML and instructions
 									actions, err = s.generateActionsFromInstructions(ctx, url, instructions, html)
 									if err != nil {
@@ -1707,106 +1749,174 @@ func (s *MCPKnowledgeServer) browseWeb(ctx context.Context, args map[string]inte
 		}
 	}
 
-	// Convert actions to JSON
-	actionsJSON, err := json.Marshal(actions)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal actions: %w", err)
-	}
+	var lastErr error
+	var successfulActions []map[string]interface{}
 
-	// Execute command with live output and timeout
-	toolCtx, toolCancel := context.WithTimeout(ctx, time.Duration(timeout+15)*time.Second)
-	defer toolCancel()
-	runCmd := exec.CommandContext(toolCtx, browserBin,
-		"-url", url,
-		"-actions", string(actionsJSON),
-		"-timeout", fmt.Sprintf("%d", timeout),
-	)
+	// SELF-HEALING LOOP: Try up to 3 times to complete the task by re-planning if actions fail
+	for attempt := 0; attempt < 3; attempt++ {
+		toolCtx, toolCancel := context.WithTimeout(ctx, time.Duration(timeout+15)*time.Second)
 
-	stdoutStr, stderrStr, runErr := runCommandWithLiveOutput(toolCtx, runCmd, "🔍 [BROWSE-WEB][TOOL]")
-	if runErr != nil {
-		if errors.Is(toolCtx.Err(), context.DeadlineExceeded) {
-			return nil, fmt.Errorf("browser execution timed out after %ds", timeout+15)
+		if attempt > 0 {
+			log.Printf("🔄 [BROWSE-WEB] Healing attempt %d/3...", attempt)
 		}
-		// Include stderr in error message for debugging
-		return nil, fmt.Errorf("browser execution failed: %v - stdout: %s - stderr: %s", runErr, stdoutStr, stderrStr)
-	}
 
-	// Log stderr (contains debug output) in case anything was buffered
-	if stderrStr != "" {
-		log.Printf("🔍 [BROWSE-WEB] Browser tool debug output:\n%s", stderrStr)
-	}
-	// Extract JSON from output (may have log messages mixed in)
-	// Look for the last complete JSON object in the output
-	outputStr := stdoutStr
+		// Convert CURRENT actions to JSON
+		actionsJSON, err := json.Marshal(actions)
+		if err != nil {
+			toolCancel()
+			return nil, fmt.Errorf("failed to marshal actions: %w", err)
+		}
 
-	// Find the last opening brace
-	jsonStart := strings.LastIndex(outputStr, "{")
-	if jsonStart == -1 {
-		return nil, fmt.Errorf("failed to find JSON object in browser output")
-	}
+		browserArgs := []string{
+			"-url", url,
+			"-actions", string(actionsJSON),
+			"-timeout", fmt.Sprintf("%d", 15),
+			"-fast",
+		}
+		if screenshotPath != "" {
+			browserArgs = append(browserArgs, "-screenshot", screenshotPath)
+		}
+		if getHTML {
+			browserArgs = append(browserArgs, "-html")
+		}
 
-	// Find the matching closing brace by counting braces
-	braceCount := 0
-	jsonEnd := -1
-	for i := jsonStart; i < len(outputStr); i++ {
-		if outputStr[i] == '{' {
-			braceCount++
-		} else if outputStr[i] == '}' {
-			braceCount--
-			if braceCount == 0 {
-				jsonEnd = i
-				break
+		runCmd := exec.CommandContext(toolCtx, browserBin, browserArgs...)
+		stdoutStr, stderrStr, runErr := runCommandWithLiveOutput(toolCtx, runCmd, "🔍 [BROWSE-WEB][TOOL]")
+		toolCancel() // Cancel context immediately after command finishes
+
+		// Log stderr
+		if stderrStr != "" {
+			log.Printf("🔍 [BROWSE-WEB] Browser tool debug output (attempt %d):\n%s", attempt, stderrStr)
+		}
+
+		// Extract JSON from result
+		outputStr := stdoutStr
+		jsonStart := strings.Index(outputStr, "{")
+		if jsonStart == -1 {
+			log.Printf("⚠️ [BROWSE-WEB] Attempt %d: No JSON found in output (stdout len: %d)", attempt, len(stdoutStr))
+			// If it's the last attempt and we have no JSON, return error
+			if attempt == 2 {
+				return nil, fmt.Errorf("failed to find JSON object in browser output after 3 attempts. Last stdout: %s", stdoutStr)
+			}
+			lastErr = fmt.Errorf("no JSON found in output")
+			continue
+		}
+
+		// Find matching closing brace
+		braceCount := 0
+		jsonEnd := -1
+		inString := false
+		escapeNext := false
+		for i := jsonStart; i < len(outputStr); i++ {
+			if escapeNext {
+				escapeNext = false
+				continue
+			}
+			if outputStr[i] == '\\' {
+				escapeNext = true
+				continue
+			}
+			if outputStr[i] == '"' && !escapeNext {
+				inString = !inString
+				continue
+			}
+			if !inString {
+				if outputStr[i] == '{' {
+					braceCount++
+				} else if outputStr[i] == '}' {
+					braceCount--
+					if braceCount == 0 {
+						jsonEnd = i
+						break
+					}
+				}
 			}
 		}
-	}
 
-	if jsonEnd == -1 {
-		return nil, fmt.Errorf("failed to find complete JSON object in browser output")
-	}
-
-	jsonStr := outputStr[jsonStart : jsonEnd+1]
-
-	// Parse JSON result
-	var result map[string]interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
-		// Try cleaning the JSON string (remove any non-ASCII characters that might interfere)
-		cleaned := strings.Map(func(r rune) rune {
-			// Keep ASCII printable characters, newlines, tabs, and common JSON characters
-			if (r >= 32 && r <= 126) || r == '\n' || r == '\t' || r == '\r' {
-				return r
+		if jsonEnd == -1 {
+			if attempt == 2 {
+				return nil, fmt.Errorf("failed to find complete JSON in browser output")
 			}
-			return -1
-		}, jsonStr)
-		if err2 := json.Unmarshal([]byte(cleaned), &result); err2 != nil {
-			return nil, fmt.Errorf("failed to parse browser result: %w (cleaned also failed: %v) - json preview: %s", err, err2, jsonStr[:min(200, len(jsonStr))])
+			continue
 		}
-	}
 
-	// Check if execution was successful
-	if success, ok := result["success"].(bool); ok && !success {
-		if errMsg, ok := result["error"].(string); ok {
-			return nil, fmt.Errorf("browser execution failed: %s", errMsg)
+		jsonStr := outputStr[jsonStart : jsonEnd+1]
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
+			lastErr = err
+			continue
 		}
-		return nil, fmt.Errorf("browser execution failed")
-	}
 
-	// Return extracted data in MCP content format
-	extracted := result["extracted"]
-	if extracted == nil {
-		extracted = make(map[string]interface{})
-	}
+		// Check if it failed at a specific step
+		status, _ := result["status"].(string)
+		if status == "Failed" {
+			failedStepIdx, _ := result["failed_step"].(float64)
+			idx := int(failedStepIdx)
+			log.Printf("⚠️ [BROWSE-WEB] Action %d failed. Attempting to heal...", idx)
 
-	return map[string]interface{}{
-		"content": []map[string]interface{}{
-			{
-				"type": "text",
-				"text": fmt.Sprintf("Successfully browsed to %s\n\nExtracted data:\n%s", url, formatExtractedData(extracted)),
+			// Capture the ones that worked
+			if idx > 0 {
+				successfulActions = append(successfulActions, actions[:idx]...)
+			}
+
+			// Get current HTML to plan repair
+			currentHTML, _ := result["html"].(string)
+			if currentHTML == "" {
+				return nil, fmt.Errorf("action %d failed and no HTML returned for healing", idx)
+			}
+
+			// Call LLM with the *current* state to get a REPAIR plan
+			log.Printf("🤖 [BROWSE-WEB] Asking LLM for repair actions starting from failed step...")
+			failedAction, _ := json.Marshal(actions[idx])
+			repairPrompt := fmt.Sprintf(`### SELF-HEAL REQUEST ###
+The previous action sequence failed. 
+FAILED ACTION: %s
+ERROR: %v
+
+Original Goal: %s
+
+INSTRUCTION: 
+1. Analyze why the previous action failed using the provided HTML.
+2. Provide a NEW sequence of actions to RECOVER and COMPLETE the task.
+3. Your response MUST be a complete plan from this current state to the goal.
+4. Do not just return one step. Return ALL remaining steps.`, string(failedAction), result["error"], instructions)
+
+			repairActions, err := s.generateActionsFromInstructions(ctx, url, repairPrompt, currentHTML)
+			if err != nil {
+				return nil, fmt.Errorf("healing failed — LLM could not generate repair plan: %v", err)
+			}
+
+			// New sequence is Successful Steps + Repair Steps
+			actions = append(successfulActions, repairActions...)
+			lastErr = fmt.Errorf("step %d failed: %v", idx, result["error"])
+			continue // Try again with the healed sequence
+		}
+
+		// If success!
+		if runErr != nil && status != "Failed" {
+			return nil, fmt.Errorf("browser execution failed: %v", runErr)
+		}
+
+		extracted := result["extracted"]
+		if extracted == nil {
+			extracted = make(map[string]interface{})
+		}
+
+		return map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": fmt.Sprintf("Successfully browsed to %s\n\nExtracted data:\n%s", url, formatExtractedData(extracted)),
+				},
 			},
-		},
-		"extracted": extracted,
-		"url":       url,
-		"title":     result["title"],
-	}, nil
+			"extracted": extracted,
+			"url":       url,
+			"title":     result["title"],
+			"html":      result["html"],
+		}, nil
+	}
+
+	return nil, fmt.Errorf("max healing attempts reached. Last error: %v", lastErr)
 }
 
 // formatExtractedData formats extracted data as a readable string
@@ -1830,15 +1940,33 @@ func formatExtractedData(data interface{}) string {
 func extractFormStructure(html string) string {
 	var info strings.Builder
 
+	// IDENTIFY MAIN CALCULATOR FIELDS
+	calcKeywords := []string{"from", "to", "origin", "destination", "start", "end", "calc", "emission", "depart", "arrive", "address"}
+
 	// Extract input fields with their attributes - be more specific
 	inputRe := regexp.MustCompile(`(?i)<input[^>]*>`)
 	inputs := inputRe.FindAllString(html, -1)
 	if len(inputs) > 0 {
 		info.WriteString("Input fields found (use these EXACT selectors):\n")
 		for i, input := range inputs {
-			if i < 15 { // Show more inputs
+			// Check if this input seems like a calculator field
+			isCalcHint := false
+			inputLower := strings.ToLower(input)
+			for _, kw := range calcKeywords {
+				if strings.Contains(inputLower, kw) {
+					isCalcHint = true
+					break
+				}
+			}
+
+			if i < 20 { // Show more inputs
 				// Extract key attributes
 				var attrs []string
+				hint := ""
+				if isCalcHint {
+					hint = " [Likely Calculator Field]"
+				}
+
 				if idMatch := regexp.MustCompile(`(?i)id=["']([^"']+)["']`).FindStringSubmatch(input); len(idMatch) > 1 {
 					attrs = append(attrs, fmt.Sprintf("id='%s' → selector: #%s", idMatch[1], idMatch[1]))
 				}
@@ -1855,14 +1983,14 @@ func extractFormStructure(html string) string {
 					}
 				}
 				if len(attrs) > 0 {
-					info.WriteString(fmt.Sprintf("  Input %d: %s\n", i+1, strings.Join(attrs, ", ")))
+					info.WriteString(fmt.Sprintf("  Input %d:%s %s\n", i+1, hint, strings.Join(attrs, ", ")))
 				} else {
 					info.WriteString(fmt.Sprintf("  Input %d: %s (no clear identifiers)\n", i+1, input[:min(80, len(input))]))
 				}
 			}
 		}
-		if len(inputs) > 15 {
-			info.WriteString(fmt.Sprintf("  ... and %d more inputs\n", len(inputs)-15))
+		if len(inputs) > 20 {
+			info.WriteString(fmt.Sprintf("  ... and %d more inputs\n", len(inputs)-20))
 		}
 	}
 
@@ -2093,6 +2221,17 @@ func runCommandWithLiveOutput(ctx context.Context, cmd *exec.Cmd, logPrefix stri
 
 	return stdoutBuf.String(), stderrBuf.String(), waitErr
 }
+func saveProgress(path string, status string, step int, total int, html string) {
+	progressPath := path + ".progress"
+	prog := map[string]interface{}{
+		"status": status,
+		"step":   step,
+		"total":  total,
+		"html":   html,
+	}
+	data, _ := json.Marshal(prog)
+	_ = os.WriteFile(progressPath, data, 0644)
+}
 
 // generateActionsFromInstructions uses LLM to generate browser actions from natural language instructions
 func (s *MCPKnowledgeServer) generateActionsFromInstructions(ctx context.Context, url, instructions, pageHTML string) ([]map[string]interface{}, error) {
@@ -2142,10 +2281,10 @@ func (s *MCPKnowledgeServer) generateActionsFromInstructions(ctx context.Context
 		selectorListStr = "\n\nWARNING: No clear selectors found. Look in the Form Elements section below for selectors.\n"
 	}
 
-	prompt := fmt.Sprintf(`You are a JSON generator. Your ONLY job is to return a valid JSON array. Nothing else.
-
+	prompt := fmt.Sprintf(`You are a JSON generator. Your ONLY job is to return a valid JSON array of browser actions to achieve the user's goal.
+	
 URL: %s
-User Task: %s
+User Goal: %s
 %s
 Available Form Elements (for reference):
 %s
@@ -2153,22 +2292,23 @@ Available Form Elements (for reference):
 Page HTML (for reference):
 %s
 
-INSTRUCTIONS:
-1. Look at "Available Form Elements" above
-2. Find selectors that match the user task
-3. Return ONLY a JSON array starting with [ and ending with ]
-4. Each action object must have: "type", "selector", optionally "value", "wait_for", "timeout"
-5. Action types: "wait", "fill", "click", "select", "extract"
-6. MUST start with: {"type":"wait","selector":"body","timeout":5}
-7. MUST use selectors from "Available Form Elements" list - copy them exactly
-8. DO NOT invent selectors - if not in the list, don't use it
-9. After each fill, add: {"type":"wait","selector":"body","timeout":1}
-10. After click, wait for results: {"type":"wait","wait_for":"SELECTOR","timeout":15}
+STRATEGY INSTRUCTIONS:
+1. PREFER SIMPLE SELECTORS: Use #id or input[name='name'] if available. Avoid long brittle CSS paths like "div > div > ul > li".
+2. AUTOCOMPLETE HANDLING: If a field has an autocomplete dropdown:
+   a. "fill" the field
+   b. "wait" 1 second
+   c. "click" the suggestion using a text selector like "text=/Southampton/i" or a class that looks like a dropdown item.
+3. FAVOR MAIN FORM FIELDS: Do NOT use site-wide search boxes (often in header) for filling calculator data. Use fields marked as "[Likely Calculator Field]" or which have IDs related to the goal.
+4. STABILITY: Start with: {"type":"wait","selector":"body","timeout":2}.
+5. NAVIGATION: After clicking a submit button or link that loads a new page, follow with a "wait" action using "wait_for" and a generous "timeout" (15s).
+6. EXTRACTION: The last action should often be "extract" if the user wants info.
 
-REQUIRED OUTPUT FORMAT (copy this structure, replace REAL_SELECTOR with actual selectors from list):
-[{"type":"wait","selector":"body","timeout":5},{"type":"wait","wait_for":"REAL_SELECTOR","timeout":10},{"type":"fill","selector":"REAL_SELECTOR","value":"Southampton"},{"type":"wait","selector":"body","timeout":1},{"type":"fill","selector":"REAL_SELECTOR","value":"Newcastle"},{"type":"wait","selector":"body","timeout":1},{"type":"click","selector":"REAL_SELECTOR"},{"type":"wait","wait_for":"REAL_SELECTOR","timeout":15},{"type":"extract","extract":{"co2_emissions":"REAL_SELECTOR"}}]
+JSON FORMAT:
+Return ONLY a JSON array [{}, {}]. No markdown, no text.
+Allowed fields: "type" (wait, fill, click, select, extract), "selector" (CSS or text=/.../i), "value" (for fill/select), "wait_for" (for wait), "timeout" (for wait).
 
-CRITICAL: Return ONLY the JSON array. No text before. No text after. No explanations. No emojis. Just the JSON array starting with [ and ending with ].`, url, instructions, selectorListStr, formInfo, htmlPreview)
+EXAMPLE:
+[{"type":"wait","selector":"body","timeout":2},{"type":"fill","selector":"#from","value":"London"},{"type":"wait","selector":"body","timeout":1},{"type":"click","selector":"text=/Heathrow/i"},{"type":"click","selector":"#submit"},{"type":"wait","wait_for":".result","timeout":15}]`, url, instructions, selectorListStr, formInfo, htmlPreview)
 
 	// Call LLM with timeout context (3 minutes for large HTML processing)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -2220,12 +2360,11 @@ CRITICAL: Return ONLY the JSON array. No text before. No text after. No explanat
 				potentialJSON := response[firstBracket : lastBracket+1]
 				log.Printf("🔍 [BROWSE-WEB] Found potential JSON (length: %d), first 200 chars: %s", len(potentialJSON), potentialJSON[:min(200, len(potentialJSON))])
 				// Try to parse it
-				var test []interface{}
-				if err := json.Unmarshal([]byte(potentialJSON), &test); err == nil {
+				if _, err := tryParseJSON(potentialJSON); err == nil {
 					log.Printf("✅ [BROWSE-WEB] Successfully parsed extracted JSON!")
 					jsonStr = potentialJSON
 				} else {
-					log.Printf("❌ [BROWSE-WEB] Extracted JSON failed to parse: %v", err)
+					log.Printf("❌ [BROWSE-WEB] Extracted JSON still failed to parse: %v", err)
 				}
 			}
 		}
@@ -2269,152 +2408,123 @@ CRITICAL: Return ONLY the JSON array. No text before. No text after. No explanat
 
 // extractJSONFromResponse extracts JSON array from LLM response (handles markdown code blocks)
 func extractJSONFromResponse(response string) string {
-	// Remove markdown code blocks if present
-	response = strings.TrimSpace(response)
+	trimmed := strings.TrimSpace(response)
 
-	// Remove common prefixes that LLM adds before JSON (case-insensitive)
+	// Remove common prefixes
 	prefixes := []string{"SOURCES:", "Here is", "Here's", "The JSON", "JSON:", "Actions:", "Here are", "Koffie:", "Koffie", "Coffee:", "Coffee"}
+	jsonCandidate := trimmed
 	for _, prefix := range prefixes {
-		// Case-insensitive prefix check
-		responseLower := strings.ToLower(response)
-		prefixLower := strings.ToLower(prefix)
-		if strings.HasPrefix(responseLower, prefixLower) {
-			// Find the first [ after the prefix
-			afterPrefix := response[len(prefix):]
-			startIdx := strings.Index(afterPrefix, "[")
-			if startIdx != -1 {
-				response = afterPrefix[startIdx:]
+		lower := strings.ToLower(jsonCandidate)
+		pLower := strings.ToLower(prefix)
+		if strings.HasPrefix(lower, pLower) {
+			after := jsonCandidate[len(prefix):]
+			idx := strings.Index(after, "[")
+			if idx != -1 {
+				jsonCandidate = after[idx:]
 				break
 			}
 		}
 	}
 
-	// Also handle colon-separated prefixes (e.g., "Koffie: [")
-	if idx := strings.Index(response, ": ["); idx != -1 {
-		// Check if it's a known prefix pattern
-		beforeColon := strings.TrimSpace(response[:idx])
-		if len(beforeColon) < 20 { // Reasonable prefix length
-			response = response[idx+2:] // Skip ": "
+	// Handle markdown code fences
+	if strings.Contains(jsonCandidate, "```") {
+		re := regexp.MustCompile("(?s)```(?:json)?\n?(.*?)\n?```")
+		match := re.FindStringSubmatch(jsonCandidate)
+		if len(match) > 1 {
+			return strings.TrimSpace(match[1])
 		}
 	}
 
-	// Remove markdown code fences (```json ... ``` or ``` ... ```)
-	if strings.Contains(response, "```") {
-		lines := strings.Split(response, "\n")
-		var jsonLines []string
-		inCodeBlock := false
-		for _, line := range lines {
-			if strings.HasPrefix(strings.TrimSpace(line), "```") {
-				inCodeBlock = !inCodeBlock
-				continue
-			}
-			if inCodeBlock {
-				jsonLines = append(jsonLines, line)
-			} else if !inCodeBlock && strings.TrimSpace(line) != "" {
-				// If not in code block but line is not empty, might be JSON
-				jsonLines = append(jsonLines, line)
-			}
-		}
-		if len(jsonLines) > 0 {
-			response = strings.Join(jsonLines, "\n")
-		}
+	// Fallback: find first [ and last ]
+	start := strings.Index(jsonCandidate, "[")
+	end := strings.LastIndex(jsonCandidate, "]")
+	if start != -1 && end != -1 && end > start {
+		return strings.TrimSpace(jsonCandidate[start : end+1])
 	}
 
-	// Remove any text before the first [
-	// LLM sometimes adds explanation before the JSON
-	startIdx := strings.Index(response, "[")
-	if startIdx == -1 {
-		// Try to find JSON object instead
-		startIdx = strings.Index(response, "{")
-		if startIdx == -1 {
-			return ""
-		}
-		// If we found {, wrap it in array
-		// But first, let's try to find [ anyway by looking for common patterns
-		// Look for "type" which is in our action objects
-		typeIdx := strings.Index(response, `"type"`)
-		if typeIdx != -1 {
-			// Look backwards for [
-			for i := typeIdx; i >= 0; i-- {
-				if response[i] == '[' {
-					startIdx = i
-					break
-				}
-			}
-		}
-		if startIdx == -1 {
-			return ""
-		}
+	return jsonCandidate
+}
+
+// tryParseJSON attempts to parse JSON, and if it fails, tries to repair common LLM errors
+func tryParseJSON(jsonStr string) (string, error) {
+	var test interface{}
+	// First try: Plain parse
+	if err := json.Unmarshal([]byte(jsonStr), &test); err == nil {
+		return jsonStr, nil
 	}
 
-	// Remove everything before the JSON array
-	if startIdx > 0 {
-		response = response[startIdx:]
+	// Second try: Basic cleaning
+	cleaned := strings.TrimSpace(jsonStr)
+	if err := json.Unmarshal([]byte(cleaned), &test); err == nil {
+		return cleaned, nil
 	}
 
-	// Find matching closing bracket (respecting string boundaries)
+	// Third try: Repairing unclosed strings and brackets
+	repaired := repairJSON(cleaned)
+	if err := json.Unmarshal([]byte(repaired), &test); err == nil {
+		return repaired, nil
+	}
+
+	return "", fmt.Errorf("failed to parse JSON after repair")
+}
+
+// repairJSON attempts to fix common LLM mistakes like unclosed quotes or missing brackets
+func repairJSON(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+
+	// 1. Fix unclosed quotes at end of lines or before commas/braces
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		quoteCount := strings.Count(line, "\"")
+		if quoteCount%2 != 0 {
+			// Odd number of quotes - likely missing a closing quote
+			trimmed := strings.TrimRight(line, " \t\r,}]")
+			lines[i] = trimmed + "\"" + line[len(trimmed):]
+		}
+	}
+	s = strings.Join(lines, "\n")
+
+	// 2. Remove trailing commas before closing braces/brackets
+	s = regexp.MustCompile(`,(\s*[\]\}])`).ReplaceAllString(s, "$1")
+
+	// 3. Balance brackets and braces
 	depth := 0
-	endIdx := -1
-	inString := false
-	escapeNext := false
-
-	for i := 0; i < len(response); i++ {
-		char := response[i]
-
-		if escapeNext {
-			escapeNext = false
-			continue
-		}
-
-		if char == '\\' {
-			escapeNext = true
-			continue
-		}
-
-		if char == '"' {
-			inString = !inString
-			continue
-		}
-
-		if !inString {
-			if char == '[' {
-				depth++
-			} else if char == ']' {
-				depth--
-				if depth == 0 {
-					endIdx = i
-					break
-				}
-			}
+	for _, char := range s {
+		if char == '{' {
+			depth++
+		} else if char == '}' {
+			depth--
 		}
 	}
-
-	if endIdx >= 0 && endIdx < len(response) {
-		jsonStr := response[0 : endIdx+1]
-		// Validate it's valid JSON by trying to parse it
-		var test []interface{}
-		err := json.Unmarshal([]byte(jsonStr), &test)
-		if err == nil {
-			return jsonStr
-		}
-		// If parsing failed, log the error and try to fix common issues
-		log.Printf("⚠️ [BROWSE-WEB] JSON parse error: %v, attempting to fix...", err)
-		// Try removing trailing text after ]
-		if endIdx+1 < len(response) {
-			// Maybe there's more text after the JSON
-			return jsonStr
-		}
-		return jsonStr
+	for depth > 0 {
+		s += "}"
+		depth--
 	}
 
-	return ""
+	depth = 0
+	for _, char := range s {
+		if char == '[' {
+			depth++
+		} else if char == ']' {
+			depth--
+		}
+	}
+	for depth > 0 {
+		s += "]"
+		depth--
+	}
+
+	return s
 }
 
 // queryViaHDN queries Neo4j via HDN's knowledge query endpoint
 func (s *MCPKnowledgeServer) queryViaHDN(ctx context.Context, cypherQuery string) (interface{}, error) {
 	queryURL := s.hdnURL + "/api/v1/knowledge/query"
 	if s.hdnURL == "" {
-		queryURL = "http://localhost:8080/api/v1/knowledge/query"
+		queryURL = "http://localhost:8081/api/v1/knowledge/query"
 	} else {
 		// If connecting to ourselves (Kubernetes service DNS or same host), use localhost
 		// This prevents connection issues when MCP server tries to call HDN via service DNS
@@ -2424,7 +2534,7 @@ func (s *MCPKnowledgeServer) queryViaHDN(ctx context.Context, cypherQuery string
 			if err == nil {
 				port := parsedURL.Port()
 				if port == "" {
-					port = "8080" // Default HDN port
+					port = "8081" // Default HDN port
 				}
 				queryURL = fmt.Sprintf("http://localhost:%s/api/v1/knowledge/query", port)
 				log.Printf("🔧 [MCP-KNOWLEDGE] Detected self-connection for HDN query, using localhost: %s", queryURL)

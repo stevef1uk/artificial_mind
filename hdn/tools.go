@@ -381,14 +381,14 @@ func (s *APIServer) handleDiscoverTools(w http.ResponseWriter, r *http.Request) 
 
 	// Telegram send tool
 	telegramTool := Tool{
-		ID:          "tool_telegram_send",
-		Name:        "Telegram Send",
-		Description: "Send message via Telegram Bot API",
-		InputSchema: map[string]string{"message": "string", "chat_id": "string", "parse_mode": "string"},
+		ID:           "tool_telegram_send",
+		Name:         "Telegram Send",
+		Description:  "Send message via Telegram Bot API",
+		InputSchema:  map[string]string{"message": "string", "chat_id": "string", "parse_mode": "string"},
 		OutputSchema: map[string]string{"success": "bool", "message_id": "int"},
-		Permissions: []string{"net:read"},
-		SafetyLevel: "low",
-		CreatedBy:   "system",
+		Permissions:  []string{"net:read"},
+		SafetyLevel:  "low",
+		CreatedBy:    "system",
 	}
 	_ = s.registerTool(ctx, telegramTool)
 	found = append(found, telegramTool)
@@ -688,8 +688,9 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("[HDN-DEBUG] Switching on id: '%s' (len=%d)", id, len(id))
 	switch id {
-	case "mcp_query_neo4j", "mcp_search_weaviate", "mcp_get_concept", "mcp_find_related_concepts", "mcp_search_avatar_context", "mcp_save_avatar_context", "mcp_scrape_url", "mcp_execute_code", "mcp_read_file", "mcp_read_google_data":
+	case "mcp_query_neo4j", "mcp_search_weaviate", "mcp_get_concept", "mcp_find_related_concepts", "mcp_search_avatar_context", "mcp_save_avatar_context", "mcp_scrape_url", "mcp_execute_code", "mcp_read_file", "mcp_read_google_data", "mcp_browse_web", "mcp_smart_scrape", "mcp_get_scrape_status", "mcp_save_episode":
 		if s.mcpKnowledgeServer == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "MCP knowledge server not available"})

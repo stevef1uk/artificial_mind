@@ -1225,11 +1225,15 @@ func (m *MonitorService) getSystemStatus(c *gin.Context) {
 	go func() {
 		results <- serviceResult{key: "nats", info: m.checkNATS()}
 	}()
+	go func() {
+		// Scraper runs on HDN but user wants to monitor it separately
+		results <- serviceResult{key: "scraper", info: m.checkService("Scraper Service", m.hdnURL+"/health")}
+	}()
 
 	// Collect all results (wait up to 4 seconds for all checks to complete)
 	timeout := time.After(4 * time.Second)
 	collected := 0
-	expectedServices := []string{"hdn", "principles", "fsm", "goal_manager", "redis", "neo4j", "vector-db", "nats"}
+	expectedServices := []string{"hdn", "principles", "fsm", "goal_manager", "redis", "neo4j", "vector-db", "nats", "scraper"}
 	timeoutReached := false
 
 	for collected < len(expectedServices) && !timeoutReached {
@@ -1276,6 +1280,7 @@ func (m *MonitorService) getSystemStatus(c *gin.Context) {
 		"neo4j":        {"error", "Neo4j is not responding"},
 		"vector-db":    {"error", "Vector database is not responding"},
 		"nats":         {"warning", "NATS is not responding"},
+		"scraper":      {"warning", "Scraper service is not responding"},
 	}
 
 	for key, alertConfig := range serviceAlerts {

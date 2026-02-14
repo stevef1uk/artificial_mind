@@ -1,6 +1,7 @@
 {{ define "dashboard.html" }}
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -57,9 +58,17 @@
             margin-right: 8px;
         }
 
-        .status-healthy { background-color: #27ae60; }
-        .status-unhealthy { background-color: #e74c3c; }
-        .status-degraded { background-color: #f39c12; }
+        .status-healthy {
+            background-color: #27ae60;
+        }
+
+        .status-unhealthy {
+            background-color: #e74c3c;
+        }
+
+        .status-degraded {
+            background-color: #f39c12;
+        }
 
         .grid {
             display: grid;
@@ -176,10 +185,25 @@
             text-transform: uppercase;
         }
 
-        .status-running { background: #d4edda; color: #155724; }
-        .status-completed { background: #d1ecf1; color: #0c5460; }
-        .status-failed { background: #f8d7da; color: #721c24; }
-        .status-pending { background: #fff3cd; color: #856404; }
+        .status-running {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-completed {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .status-failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-pending {
+            background: #fff3cd;
+            color: #856404;
+        }
 
         .progress-bar {
             width: 100%;
@@ -294,7 +318,7 @@
         }
 
         .step-item:hover {
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
         .step-item.completed {
@@ -315,7 +339,8 @@
             border-top: 1px solid #eee;
         }
 
-        .workflow-link, .project-link {
+        .workflow-link,
+        .project-link {
             display: inline-block;
             padding: 4px 8px;
             margin-right: 8px;
@@ -326,7 +351,8 @@
             font-size: 12px;
         }
 
-        .workflow-link:hover, .project-link:hover {
+        .workflow-link:hover,
+        .project-link:hover {
             background: #0056b3;
             color: white;
         }
@@ -435,7 +461,7 @@
         }
 
         .file-item:hover {
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
         .file-icon {
@@ -604,12 +630,31 @@
             background: #229954;
             transform: translateY(-2px);
         }
-        
-        .status-achieved { color: #28a745; font-weight: 600; }
-        .status-failed { color: #dc3545; font-weight: 600; }
-        .status-pending { color: #ffc107; font-weight: 600; }
-        .status-completed { color: #28a745; font-weight: 600; }
-        .status-active { color: #007bff; font-weight: 600; }
+
+        .status-achieved {
+            color: #28a745;
+            font-weight: 600;
+        }
+
+        .status-failed {
+            color: #dc3545;
+            font-weight: 600;
+        }
+
+        .status-pending {
+            color: #ffc107;
+            font-weight: 600;
+        }
+
+        .status-completed {
+            color: #28a745;
+            font-weight: 600;
+        }
+
+        .status-active {
+            color: #007bff;
+            font-weight: 600;
+        }
 
         .btn:disabled {
             background: #bdc3c7;
@@ -729,8 +774,13 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         .loading {
@@ -772,22 +822,35 @@
             padding: 2px 0;
         }
 
-        .log-level-info { color: #3498db; }
-        .log-level-warning { color: #f39c12; }
-        .log-level-error { color: #e74c3c; }
-        .log-level-critical { color: #e74c3c; font-weight: bold; }
+        .log-level-info {
+            color: #3498db;
+        }
+
+        .log-level-warning {
+            color: #f39c12;
+        }
+
+        .log-level-error {
+            color: #e74c3c;
+        }
+
+        .log-level-critical {
+            color: #e74c3c;
+            font-weight: bold;
+        }
 
         @media (max-width: 768px) {
             .grid {
                 grid-template-columns: 1fr;
             }
-            
+
             .header h1 {
                 font-size: 2rem;
             }
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="header">
@@ -802,7 +865,7 @@
         </div>
 
         <div class="grid">
-            
+
 
             <!-- Execution Trends (moved into first row position) -->
             <div class="card">
@@ -837,6 +900,11 @@
             </div>
 
 
+            <!-- Smart Scrape Studio -->
+            <div class="card full-width" style="height: 850px; padding: 0; overflow: hidden; border-radius: 15px;">
+                <iframe src="/static/smart_scrape/" style="width: 100%; height: 100%; border: none;"></iframe>
+            </div>
+
             {{ template "logs.html" . }}
 
             <!-- Natural Language Input Card (full-width, below status boxes) -->
@@ -844,7 +912,9 @@
                 <h3>🗣️ Natural Language Input</h3>
                 <div id="natural-language-input">
                     <div class="input-group">
-                        <textarea id="nl-input" placeholder="Describe what you want to do... (e.g., 'Find the first 20 primes and show me a graph of distribution')" rows="3"></textarea>
+                        <textarea id="nl-input"
+                            placeholder="Describe what you want to do... (e.g., 'Find the first 20 primes and show me a graph of distribution')"
+                            rows="3"></textarea>
                         <div class="button-group">
                             <button id="interpret-btn" class="btn btn-primary">Interpret</button>
                             <button id="execute-btn" class="btn btn-success">Execute</button>
@@ -860,18 +930,22 @@
                     <div id="nl-response" class="nl-response" style="display: none;">
                         <div class="response-content"></div>
                     </div>
-                    
+
                     <!-- Live Thinking Panel -->
-                    <div id="thinking-panel" class="thinking-panel" style="display: none; margin-top: 16px; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; background: #f9f9f9;">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                    <div id="thinking-panel" class="thinking-panel"
+                        style="display: none; margin-top: 16px; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; background: #f9f9f9;">
+                        <div
+                            style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                             <h4 style="margin: 0; color: #333;">🧠 AI Thinking Process</h4>
                             <div style="display: flex; align-items: center; gap: 8px;">
                                 <span id="thinking-status" style="font-size: 12px; color: #666;">Not connected</span>
-                                <button id="thinking-refresh-btn" style="padding: 4px 8px; font-size: 12px; cursor: pointer;">Refresh</button>
+                                <button id="thinking-refresh-btn"
+                                    style="padding: 4px 8px; font-size: 12px; cursor: pointer;">Refresh</button>
                             </div>
                         </div>
                         <div id="thinking-content" style="max-height: 300px; overflow-y: auto; font-size: 14px;">
-                            <div class="no-thoughts">No thinking data available. Execute a command to see the AI's reasoning process.</div>
+                            <div class="no-thoughts">No thinking data available. Execute a command to see the AI's
+                                reasoning process.</div>
                         </div>
                     </div>
                 </div>
@@ -905,7 +979,7 @@
 
             {{ template "fsm.html" . }}
 
-            
+
         </div>
 
         <div class="timestamp" id="last-updated">
@@ -915,35 +989,35 @@
 
     <script>
         // Global error handler
-        window.addEventListener('error', function(e) {
+        window.addEventListener('error', function (e) {
             console.error('Global JavaScript error:', e.error);
             const banner = document.getElementById('banner-status');
             if (banner) {
                 banner.innerHTML = '<div style="color: #e74c3c;">JavaScript Error: ' + e.error.message + '</div>';
             }
         });
-        
+
         // Increase axios timeout for long-running execute calls
-        
+
 
         // Initialize daily summary on load
         document.addEventListener('DOMContentLoaded', () => {
             try {
                 const today = new Date();
                 const yyyy = today.getUTCFullYear();
-                const mm = String(today.getUTCMonth()+1).padStart(2,'0');
-                const dd = String(today.getUTCDate()).padStart(2,'0');
+                const mm = String(today.getUTCMonth() + 1).padStart(2, '0');
+                const dd = String(today.getUTCDate()).padStart(2, '0');
                 document.getElementById('ds-date').value = `${yyyy}-${mm}-${dd}`;
-            } catch {}
+            } catch { }
             loadDailySummaryLatest();
         });
         if (axios && axios.defaults) {
             axios.defaults.timeout = 300000; // 5 minutes
             axios.defaults.headers.common['X-Request-Source'] = 'ui'; // Reserve execution slot for UI
         }
-        
+
         // Helper function for fetch requests with UI header
-        window.uiFetch = function(url, options = {}) {
+        window.uiFetch = function (url, options = {}) {
             const headers = {
                 'X-Request-Source': 'ui',
                 ...options.headers
@@ -969,7 +1043,7 @@
                 if (confEl) confEl.textContent = (isFinite(conf) ? conf.toFixed(2) : '—');
                 if (actEl) {
                     if (actions.length) {
-                        actEl.innerHTML = actions.map(a => `<span class="action">${(a||'').toString()}</span>`).join(' ');
+                        actEl.innerHTML = actions.map(a => `<span class="action">${(a || '').toString()}</span>`).join(' ');
                     } else {
                         actEl.textContent = '—';
                     }
@@ -985,7 +1059,7 @@
         }
 
         // Initialize the dashboard
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             console.log('Dashboard initialized');
             // Add a small delay to ensure all elements are ready
             setTimeout(() => {
@@ -1005,7 +1079,7 @@
             // Load initial reasoning data and set up auto-refresh
             refreshReasoning();
             setupReasoningAutoRefresh();
-            
+
             // Load daily summary if function exists
             if (typeof loadDailySummaryLatest === 'function') {
                 loadDailySummaryLatest();
@@ -1028,62 +1102,62 @@
         function getGeneratedCode(currentStep) {
             if (currentStep.includes('Generating Python code')) {
                 return "import pandas as pd\n" +
-                       "import numpy as np\n" +
-                       "import matplotlib.pyplot as plt\n" +
-                       "import seaborn as sns\n\n" +
-                       "# Load and preprocess sales data\n" +
-                       "def load_sales_data(file_path):\n" +
-                       "    df = pd.read_csv(file_path)\n" +
-                       "    df['date'] = pd.to_datetime(df['date'])\n" +
-                       "    df['month'] = df['date'].dt.month\n" +
-                       "    return df\n\n" +
-                       "# Clean missing values\n" +
-                       "def clean_data(df):\n" +
-                       "    df = df.dropna(subset=['sales_amount'])\n" +
-                       "    df['sales_amount'] = df['sales_amount'].fillna(df['sales_amount'].mean())\n" +
-                       "    return df\n\n" +
-                       "print(\"Data analysis pipeline initialized...\")";
+                    "import numpy as np\n" +
+                    "import matplotlib.pyplot as plt\n" +
+                    "import seaborn as sns\n\n" +
+                    "# Load and preprocess sales data\n" +
+                    "def load_sales_data(file_path):\n" +
+                    "    df = pd.read_csv(file_path)\n" +
+                    "    df['date'] = pd.to_datetime(df['date'])\n" +
+                    "    df['month'] = df['date'].dt.month\n" +
+                    "    return df\n\n" +
+                    "# Clean missing values\n" +
+                    "def clean_data(df):\n" +
+                    "    df = df.dropna(subset=['sales_amount'])\n" +
+                    "    df['sales_amount'] = df['sales_amount'].fillna(df['sales_amount'].mean())\n" +
+                    "    return df\n\n" +
+                    "print(\"Data analysis pipeline initialized...\")";
             } else if (currentStep.includes('Executing data preprocessing')) {
                 return "# Loading sales_data.csv...\n" +
-                       "df = load_sales_data('sales_data.csv')\n" +
-                       "print(f\"Loaded {len(df)} records\")\n\n" +
-                       "# Cleaning missing values...\n" +
-                       "df_clean = clean_data(df)\n" +
-                       "print(f\"Cleaned data: {len(df_clean)} records\")\n\n" +
-                       "# Basic statistics\n" +
-                       "print(\"\\nData Summary:\")\n" +
-                       "print(df_clean.describe())";
+                    "df = load_sales_data('sales_data.csv')\n" +
+                    "print(f\"Loaded {len(df)} records\")\n\n" +
+                    "# Cleaning missing values...\n" +
+                    "df_clean = clean_data(df)\n" +
+                    "print(f\"Cleaned data: {len(df_clean)} records\")\n\n" +
+                    "# Basic statistics\n" +
+                    "print(\"\\nData Summary:\")\n" +
+                    "print(df_clean.describe())";
             } else if (currentStep.includes('Running statistical analysis')) {
                 return "# Calculate monthly trends\n" +
-                       "monthly_sales = df_clean.groupby('month')['sales_amount'].sum()\n\n" +
-                       "# Generate visualizations\n" +
-                       "plt.figure(figsize=(12, 6))\n" +
-                       "plt.plot(monthly_sales.index, monthly_sales.values, marker='o')\n" +
-                       "plt.title('Monthly Sales Trends')\n" +
-                       "plt.xlabel('Month')\n" +
-                       "plt.ylabel('Sales Amount')\n" +
-                       "plt.grid(True)\n" +
-                       "plt.show()\n\n" +
-                       "# Statistical analysis\n" +
-                       "correlation = df_clean['sales_amount'].corr(df_clean['month'])\n" +
-                       "print(f\"Sales-Month Correlation: {correlation:.3f}\")";
+                    "monthly_sales = df_clean.groupby('month')['sales_amount'].sum()\n\n" +
+                    "# Generate visualizations\n" +
+                    "plt.figure(figsize=(12, 6))\n" +
+                    "plt.plot(monthly_sales.index, monthly_sales.values, marker='o')\n" +
+                    "plt.title('Monthly Sales Trends')\n" +
+                    "plt.xlabel('Month')\n" +
+                    "plt.ylabel('Sales Amount')\n" +
+                    "plt.grid(True)\n" +
+                    "plt.show()\n\n" +
+                    "# Statistical analysis\n" +
+                    "correlation = df_clean['sales_amount'].corr(df_clean['month'])\n" +
+                    "print(f\"Sales-Month Correlation: {correlation:.3f}\")";
             } else if (currentStep.includes('Report generated')) {
                 return "# Report generation completed\n" +
-                       "report_data = {\n" +
-                       "    'total_sales': df_clean['sales_amount'].sum(),\n" +
-                       "    'avg_monthly_sales': monthly_sales.mean(),\n" +
-                       "    'growth_rate': ((monthly_sales.iloc[-1] - monthly_sales.iloc[0]) / monthly_sales.iloc[0]) * 100,\n" +
-                       "    'correlation': correlation\n" +
-                       "}\n\n" +
-                       "# Save to PDF\n" +
-                       "from reportlab.pdfgen import canvas\n" +
-                       "c = canvas.Canvas(\"sales_analysis_report.pdf\")\n" +
-                       "c.drawString(100, 750, \"Sales Analysis Report\")\n" +
-                       "c.drawString(100, 700, f\"Total Sales: ${report_data['total_sales']:,.2f}\")\n" +
-                       "c.drawString(100, 650, f\"Average Monthly: ${report_data['avg_monthly_sales']:,.2f}\")\n" +
-                       "c.drawString(100, 600, f\"Growth Rate: {report_data['growth_rate']:.1f}%\")\n" +
-                       "c.save()\n\n" +
-                       "print(\"Report saved as sales_analysis_report.pdf\")";
+                    "report_data = {\n" +
+                    "    'total_sales': df_clean['sales_amount'].sum(),\n" +
+                    "    'avg_monthly_sales': monthly_sales.mean(),\n" +
+                    "    'growth_rate': ((monthly_sales.iloc[-1] - monthly_sales.iloc[0]) / monthly_sales.iloc[0]) * 100,\n" +
+                    "    'correlation': correlation\n" +
+                    "}\n\n" +
+                    "# Save to PDF\n" +
+                    "from reportlab.pdfgen import canvas\n" +
+                    "c = canvas.Canvas(\"sales_analysis_report.pdf\")\n" +
+                    "c.drawString(100, 750, \"Sales Analysis Report\")\n" +
+                    "c.drawString(100, 700, f\"Total Sales: ${report_data['total_sales']:,.2f}\")\n" +
+                    "c.drawString(100, 650, f\"Average Monthly: ${report_data['avg_monthly_sales']:,.2f}\")\n" +
+                    "c.drawString(100, 600, f\"Growth Rate: {report_data['growth_rate']:.1f}%\")\n" +
+                    "c.save()\n\n" +
+                    "print(\"Report saved as sales_analysis_report.pdf\")";
             }
             return "// Code generation in progress...";
         }
@@ -1261,12 +1335,12 @@
                     loadMemory(),
                     loadLLMQueueStats()
                 ];
-                
+
                 // Add loadLogs only if it exists
                 if (typeof loadLogs === 'function') {
                     promises.push(loadLogs());
                 }
-                
+
                 await Promise.all(promises);
                 updateTimestamp();
                 console.log('All data refreshed successfully');
@@ -1302,7 +1376,7 @@
         }
 
         function sortByCreatedAtDesc(items) {
-            return items.slice().sort((a,b) => {
+            return items.slice().sort((a, b) => {
                 const ta = Date.parse(a.created_at || a.timestamp || 0) || 0;
                 const tb = Date.parse(b.created_at || b.timestamp || 0) || 0;
                 return tb - ta;
@@ -1357,9 +1431,9 @@
                 beliefs = dedupById(beliefs);
                 // Additional UI de-duplication: collapse entries with identical normalized text+source within a short window
                 const seen = new Set();
-                const norm = s => (s||'').toLowerCase().replace(/\s+/g,' ').trim();
+                const norm = s => (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
                 beliefs = beliefs.filter(b => {
-                    const key = `${norm(b.statement||b.id)}|${norm(b.source||'')}`;
+                    const key = `${norm(b.statement || b.id)}|${norm(b.source || '')}`;
                     if (seen.has(key)) return false;
                     seen.add(key);
                     return true;
@@ -1424,9 +1498,9 @@
                 hypotheses = dedupById(hypotheses);
                 // Additional UI de-duplication: collapse entries with identical normalized description+domain+confidence
                 const seen = new Set();
-                const norm = s => (s||'').toLowerCase().replace(/\s+/g,' ').trim();
+                const norm = s => (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
                 hypotheses = hypotheses.filter(h => {
-                    const key = `${norm(h.description||h.id)}|${norm(h.domain||'')}|${(h.confidence||0).toFixed(2)}`;
+                    const key = `${norm(h.description || h.id)}|${norm(h.domain || '')}|${(h.confidence || 0).toFixed(2)}`;
                     if (seen.has(key)) return false;
                     seen.add(key);
                     return true;
@@ -1459,14 +1533,14 @@
             try {
                 const goalFilter = getGoalFilter();
                 let resp;
-                
+
                 // If no goal filter or empty, use the fallback endpoint for recent explanations
                 if (!goalFilter || goalFilter.trim() === '') {
                     resp = await axios.get('/api/reasoning/explanations');
                 } else {
                     resp = await axios.get(`/api/reasoning/explanations/${encodeURIComponent(goalFilter)}`);
                 }
-                
+
                 let explanations = resp.data.explanations || [];
                 explanations = dedupById(explanations);
                 explanations = sortByCreatedAtDesc(explanations).slice(0, 50);
@@ -1487,7 +1561,7 @@
                     if (e.session_id) {
                         links += `<span class="session-id">Session: ${e.session_id}</span>`;
                     }
-                    
+
                     return `
                         <div class="step-item">
                             <div class="step-description">
@@ -1556,7 +1630,7 @@
                     await axios.get(`/api/goals/${encodeURIComponent(agent)}/active`);
                     await axios.get(`/api/goal/${encodeURIComponent(gid)}`);
                     // Working memory (handled by existing loadMemory/summary flows if present)
-                } catch (_) {}
+                } catch (_) { }
             }, 5000);
         }
 
@@ -1565,11 +1639,11 @@
             try {
                 const container = document.getElementById('goals-active');
                 if (!container) return;
-                
+
                 // Fetch self-model goals
                 const ms = await axios.get('/api/memory/summary');
                 const smGoals = Array.isArray(ms.data?.goals) ? ms.data.goals : [];
-                
+
                 // Fetch Goal Manager active goals (best-effort)
                 let gmGoals = [];
                 try {
@@ -1584,8 +1658,8 @@
                         updated_at: g.updated_at,
                         source: 'goal_manager'
                     }));
-                } catch (_) {}
-                
+                } catch (_) { }
+
                 // Normalize self-model goals
                 const smNorm = smGoals.map(g => ({
                     id: g.id,
@@ -1595,17 +1669,17 @@
                     updated_at: g.updated_at,
                     source: 'self_model'
                 }));
-                
+
                 // Merge unique by id (prefer self-model entry if duplicate)
                 const byId = new Map();
                 gmGoals.forEach(g => byId.set(g.id, g));
                 smNorm.forEach(g => byId.set(g.id, g));
-                
+
                 // Only pending/active
                 let merged = Array.from(byId.values()).filter(g => (g.status === 'pending' || g.status === 'active'));
                 // Filter out interpreter-only text replies surfaced as pseudo-goals
                 merged = merged.filter(g => (String(g.name || '').toLowerCase() !== 'text response'));
-                
+
                 if (!merged.length) {
                     container.innerHTML = `<div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                         <div class="loading">No pending or active goals</div>
@@ -1613,7 +1687,7 @@
                     </div>`;
                     return;
                 }
-                
+
                 container.innerHTML = `
                     <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                         <div style="font-weight:600;">Active Goals</div>
@@ -1623,7 +1697,7 @@
                     <div class="step-item">
                         <div class="step-header">
                             <span class="step-name">${g.name || g.id}</span>
-                            <span class="step-status status-${(g.status||'').toLowerCase()}">${(g.status||'').toUpperCase()}</span>
+                            <span class="step-status status-${(g.status || '').toLowerCase()}">${(g.status || '').toUpperCase()}</span>
                         </div>
                         <div class="step-meta" style="font-size:0.85em; color:#666; margin:4px 0;">
                             ${g.created_at ? `Created: ${new Date(g.created_at).toLocaleString()}` : ''}
@@ -1676,7 +1750,7 @@
                             <div class="step-item">
                                 <div class="step-header">
                                     <span class="step-name">Status</span>
-                                    <span class="step-status">${(d.status||'').toUpperCase()}</span>
+                                    <span class="step-status">${(d.status || '').toUpperCase()}</span>
                                 </div>
                                 <div class="step-actions" style="margin-top:6px; display:flex; gap:8px;">
                                     <button class="btn btn-success goal-achieve" data-goal-id="${d.id}">Execute & Achieve</button>
@@ -1708,13 +1782,13 @@
                     if (wfId) {
                         const filesRes = await axios.get(`/api/workflow/${encodeURIComponent(wfId)}/files`);
                         const files = Array.isArray(filesRes.data) ? filesRes.data : [];
-                        const hasOutput = files.find(f => (f.filename||'').toLowerCase() === 'output.txt');
+                        const hasOutput = files.find(f => (f.filename || '').toLowerCase() === 'output.txt');
                         let preview = '';
                         if (hasOutput) {
                             try {
                                 const out = await axios.get(`/api/workflow/${encodeURIComponent(wfId)}/files/output.txt`, { responseType: 'text' });
                                 preview = String(out.data || '').slice(0, 600);
-                            } catch (_) {}
+                            } catch (_) { }
                         }
                         const container = document.getElementById('goal-details');
                         if (container) {
@@ -1729,7 +1803,7 @@
                                             <span class="step-status">${wfId}</span>
                                         </div>
                                         ${hasOutput ? `<div class="step-actions"><button class="btn" onclick="window.open('/api/workflow/${wfId}/files/output.txt','_blank')">Open output.txt</button></div>` : ''}
-                                        ${preview ? `<pre class="code-block" style="max-height:200px;overflow:auto;">${preview.replace(/</g,'&lt;')}</pre>` : ''}
+                                        ${preview ? `<pre class="code-block" style="max-height:200px;overflow:auto;">${preview.replace(/</g, '&lt;')}</pre>` : ''}
                                     </div>
                                 </div>`;
                             container.appendChild(section);
@@ -1772,10 +1846,10 @@
                                         try {
                                             const actEl = document.getElementById('goal-exec-action');
                                             const artEl = document.getElementById('goal-exec-artifacts');
-                                            const action = actEl ? String(actEl.value||'').trim() : '';
+                                            const action = actEl ? String(actEl.value || '').trim() : '';
                                             const artifacts_wrapper = !!(artEl && artEl.checked);
                                             const payload = action ? { action, artifacts_wrapper } : { artifacts_wrapper };
-                                            const r = await axios.post(`/api/goal/${encodeURIComponent(goalId)}/execute`, payload, { 
+                                            const r = await axios.post(`/api/goal/${encodeURIComponent(goalId)}/execute`, payload, {
                                                 timeout: 10000,
                                                 headers: { 'X-Request-Source': 'ui' }
                                             });
@@ -1799,7 +1873,7 @@
                                                 } else if (e && e.message) {
                                                     msg += "\n" + e.message;
                                                 }
-                                            } catch(_) {}
+                                            } catch (_) { }
                                             alert(msg);
                                         } finally {
                                             ex.disabled = false;
@@ -1823,7 +1897,7 @@
                                 } else if (e && e.message) {
                                     msg += "\n" + e.message;
                                 }
-                            } catch(_) {}
+                            } catch (_) { }
                             alert(msg);
                         } finally {
                             btn.disabled = false;
@@ -1840,12 +1914,12 @@
             // Find the button and disable it during execution
             const button = document.querySelector(`button[data-goal-id="${goalId}"]`);
             const originalText = button ? button.textContent : 'Execute & Achieve';
-            
+
             if (button) {
                 button.disabled = true;
                 button.textContent = 'Executing...';
             }
-            
+
             try {
                 // Try self-model first
                 const memoryResponse = await axios.get('/api/memory/summary');
@@ -1881,19 +1955,19 @@
                 } else {
                     taskDescription = String(goalId);
                 }
-                
+
                 // Execute the task using the new async goal execution endpoint
                 const executeResponse = await axios.post(`/api/goal/${encodeURIComponent(goalId)}/execute`, {
                     action: taskDescription,
                     artifacts_wrapper: false
-                }, { 
+                }, {
                     timeout: 10000,
                     headers: { 'X-Request-Source': 'ui' }
                 });
-                
+
                 if (executeResponse.data && executeResponse.data.success) {
                     alert('✅ Goal execution started successfully! The execution is running in the background. You can monitor progress in the Workflows tab.');
-                    
+
                     // Refresh the displays
                     await loadGoals();
                     await loadGoalDetails(goalId);
@@ -1913,7 +1987,7 @@
             }
         }
         // Delegate goal actions
-        document.addEventListener('click', function(e) {
+        document.addEventListener('click', function (e) {
             const t = e.target;
             if (!t || !t.classList) return;
             if (t.classList.contains('goal-view')) {
@@ -1944,19 +2018,19 @@
                 const response = await axios.get('/api/memory/episodes?q=*&limit=50');
                 // Handle both array response and wrapped response
                 const episodes = Array.isArray(response.data) ? response.data : (response.data.episodes || []);
-                
+
                 // Extract unique session IDs from episodes
                 const sessionIds = [...new Set(episodes
                     .map(ep => ep.session_id)
                     .filter(id => id && id.trim() !== '')
                 )].slice(0, 10); // Show last 10 unique sessions
-                
+
                 const sessionList = document.getElementById('session-list');
                 if (sessionIds.length === 0) {
                     sessionList.innerHTML = '<div style="color: #999; font-style: italic;">No sessions found. Try executing a task first.</div>';
                 } else {
                     sessionList.innerHTML = '<div style="margin-bottom: 5px; font-weight: bold;">Recent Sessions (click to use):</div>' +
-                        sessionIds.map(sessionId => 
+                        sessionIds.map(sessionId =>
                             `<div onclick="document.getElementById('mem-session').value='${sessionId}'; loadMemory();" 
                                  style="cursor: pointer; padding: 4px 8px; margin: 2px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 4px; display: inline-block; font-family: monospace; font-size: 0.8em;">
                                  ${sessionId}
@@ -1976,13 +2050,13 @@
                 const q = (document.getElementById('mem-query') || {}).value || '';
                 const qs = session ? `?session_id=${encodeURIComponent(session)}` : '';
                 console.log('loadMemory: Session:', session, 'Query:', q);
-                
+
                 // Update current session display
                 const currentSessionDisplay = document.getElementById('current-session-display');
                 if (currentSessionDisplay) {
                     currentSessionDisplay.textContent = session || 'None';
                 }
-                
+
                 const sum = await axios.get(`/api/memory/summary${qs}`);
                 console.log('loadMemory: Memory response received:', sum.data);
                 const data = sum.data || {};
@@ -1994,10 +2068,10 @@
                 }
                 const goals = Array.isArray(data.goals) ? data.goals : [];
                 document.getElementById('mem-goals').innerHTML = goals.length ? goals.map(g => `
-                    <div class="step-item ${((g.status||'').toLowerCase()==='completed')?'completed':''}">
+                    <div class="step-item ${((g.status || '').toLowerCase() === 'completed') ? 'completed' : ''}">
                         <div class="step-header">
-                            <span class="step-name">${g.name||g.id}</span>
-                            <span class="step-status">${(g.status||'').toUpperCase()}</span>
+                            <span class="step-name">${g.name || g.id}</span>
+                            <span class="step-status">${(g.status || '').toUpperCase()}</span>
                         </div>
                         <div class="step-description">Created: ${g.created_at ? new Date(g.created_at).toLocaleString() : ''}</div>
                     </div>`).join('') : '<div class="loading">No goals</div>';
@@ -2018,24 +2092,24 @@
                     if (q) params.push(`q=${encodeURIComponent(q)}`);
                     if (session) params.push(`session_id=${encodeURIComponent(session)}`);
                     if (params.length) epURL += `?${params.join('&')}`;
-                    
+
                     const eps = await axios.get(epURL, { timeout: 5000 }).catch(err => {
                         console.error('Episodes request failed:', err);
                         return { data: [] };
                     });
-                    
+
                     const episodes = Array.isArray(eps.data) ? eps.data : [];
                     let epHtml = episodes.length ? episodes.map(e => `
                         <div class="step-item">
                             <div class="step-header">
-                                <span class="step-name">${(e.text||'').slice(0,60)}</span>
-                                <span class="step-status">${(e.outcome||'').toUpperCase()}</span>
+                                <span class="step-name">${(e.text || '').slice(0, 60)}</span>
+                                <span class="step-status">${(e.outcome || '').toUpperCase()}</span>
                             </div>
-                            <div class="step-description">${e.session_id ? 'Session: '+e.session_id+' · ' : ''}${e.timestamp || ''}</div>
+                            <div class="step-description">${e.session_id ? 'Session: ' + e.session_id + ' · ' : ''}${e.timestamp || ''}</div>
                             ${e.tags && e.tags.length ? `<div class="step-output">Tags: ${e.tags.join(', ')}</div>` : ''}
                         </div>`).join('') : '<div class="loading">No episodes</div>';
-                    
-                    if ((!episodes || episodes.length===0) && data && data.episodic_enabled === false) {
+
+                    if ((!episodes || episodes.length === 0) && data && data.episodic_enabled === false) {
                         epHtml = '<div class="loading">No episodes (episodic memory disabled). Set RAG_ADAPTER_URL and restart.</div>';
                     }
                     document.getElementById('mem-episodes').innerHTML = epHtml;
@@ -2059,7 +2133,7 @@
                 const response = await axios.get('/api/llm/queue/stats', { timeout: 5000 });
                 const stats = response.data;
                 console.log('[LLM Queue] Stats received:', stats);
-                
+
                 // Determine status color based on queue fullness
                 const highPercent = stats.high_priority_percent || 0;
                 const lowPercent = stats.low_priority_percent || 0;
@@ -2068,10 +2142,10 @@
                     if (percent >= 70) return '#f39c12'; // Orange
                     return '#27ae60'; // Green
                 };
-                
+
                 const highColor = getStatusColor(highPercent);
                 const lowColor = getStatusColor(lowPercent);
-                
+
                 // Build status indicator
                 let statusIndicator = '';
                 if (stats.auto_disabled) {
@@ -2081,7 +2155,7 @@
                 } else {
                     statusIndicator = '<div style="background: #27ae60; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-bottom: 8px;">✅ Active</div>';
                 }
-                
+
                 const statsHtml = `
                     ${statusIndicator}
                     <div class="metric" style="margin-bottom: 12px;">
@@ -2117,7 +2191,7 @@
                 console.error('[LLM Queue] Error loading queue stats:', error);
                 const statsElement = document.getElementById('llm-queue-stats');
                 if (statsElement) {
-                    statsElement.innerHTML = 
+                    statsElement.innerHTML =
                         '<div style="color: #e74c3c;">Error loading LLM queue stats: ' + error.message + '</div>';
                 }
             }
@@ -2128,7 +2202,7 @@
             try {
                 const response = await axios.get('/api/status', { timeout: 12000 });
                 const data = response.data;
-                
+
                 // Update system status
                 const statusHtml = `
                     <div class="service-item">
@@ -2199,7 +2273,7 @@
             try {
                 const response = await axios.get('/api/workflows');
                 allWorkflows = response.data;
-                
+
                 if (allWorkflows.length === 0) {
                     document.getElementById('workflows').innerHTML = '<div style="text-align: center; color: #7f8c8d;">No workflows found</div>';
                     return;
@@ -2222,13 +2296,13 @@
                     const completedSteps = workflow.completed_steps || 0;
                     const failedSteps = workflow.failed_steps || 0;
                     const currentStep = workflow.current_step || 'Unknown';
-                    
+
                     // Calculate time elapsed
                     const started = new Date(workflow.started_at);
                     const now = new Date();
                     const elapsed = Math.floor((now - started) / 1000);
                     const elapsedText = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`;
-                    
+
                     workflowsHtml += `
                         <div class="workflow-item" data-workflow-id="${workflow.id}">
                             <div class="workflow-header">
@@ -2294,9 +2368,9 @@
                                         <h6>Generated Files:</h6>
                                         <div class="file-list">
                                             ${workflow.files.map(file => {
-                                                const fileIcon = getFileIcon(file.filename, file.content_type);
-                                                const fileAction = getFileAction(file.filename, file.content_type);
-                                                return `
+                        const fileIcon = getFileIcon(file.filename, file.content_type);
+                        const fileAction = getFileAction(file.filename, file.content_type);
+                        return `
                                                     <div class="file-item">
                                                         <span class="file-icon">${fileIcon}</span>
                                                         <span class="file-name">${file.filename}</span>
@@ -2304,7 +2378,7 @@
                                                         <button class="btn btn-sm btn-outline-primary" onclick="${fileAction}('${file.filename}', '${workflow.id}')">${getActionText(file.content_type)}</button>
                                                     </div>
                                                 `;
-                                            }).join('')}
+                    }).join('')}
                                         </div>
                                     </div>
                                 ` : ''}
@@ -2332,24 +2406,24 @@
         function filterWorkflows() {
             const searchInput = document.getElementById('workflow-search');
             const searchTerm = searchInput.value.toLowerCase().trim();
-            
+
             if (!searchTerm) {
                 renderWorkflows(allWorkflows);
                 return;
             }
-            
+
             const filteredWorkflows = allWorkflows.filter(workflow => {
                 const taskName = (workflow.task_name || '').toLowerCase();
                 const status = (workflow.status || '').toLowerCase();
                 const description = (workflow.description || '').toLowerCase();
                 const currentStep = (workflow.current_step || '').toLowerCase();
-                
-                return taskName.includes(searchTerm) || 
-                       status.includes(searchTerm) || 
-                       description.includes(searchTerm) ||
-                       currentStep.includes(searchTerm);
+
+                return taskName.includes(searchTerm) ||
+                    status.includes(searchTerm) ||
+                    description.includes(searchTerm) ||
+                    currentStep.includes(searchTerm);
             });
-            
+
             if (filteredWorkflows.length === 0) {
                 document.getElementById('workflows').innerHTML = '<div style="text-align: center; color: #7f8c8d;">No workflows match your search</div>';
             } else {
@@ -2362,7 +2436,7 @@
             try {
                 const filesRes = await axios.get(`/api/workflow/${encodeURIComponent(workflowId)}/files`);
                 const files = Array.isArray(filesRes.data) ? filesRes.data : [];
-                const names = files.map(f => String(f.filename||'').toLowerCase());
+                const names = files.map(f => String(f.filename || '').toLowerCase());
                 // Prefer output.txt; otherwise show first text-like file
                 let target = '';
                 if (names.includes('output.txt')) target = 'output.txt';
@@ -2370,7 +2444,7 @@
                 else if (names.includes('stdout.txt')) target = 'stdout.txt';
                 else {
                     const textLike = files.find(f => {
-                        const n = String(f.filename||'').toLowerCase();
+                        const n = String(f.filename || '').toLowerCase();
                         return n.endsWith('.txt') || n.endsWith('.log');
                     });
                     if (textLike) target = textLike.filename;
@@ -2379,13 +2453,13 @@
                 if (target) {
                     try {
                         const txt = await axios.get(`/api/workflow/${encodeURIComponent(workflowId)}/files/${encodeURIComponent(target)}`, { responseType: 'text' });
-                        body = String(txt.data||'').slice(0, 5000);
+                        body = String(txt.data || '').slice(0, 5000);
                     } catch (_) { body = ''; }
                 }
                 if (!body) {
                     body = 'No error artifact found for this workflow.';
                 }
-                showModal('Error details - ' + workflowId, `<pre class=\"code-block\" style=\"max-height:60vh;overflow:auto;\">${body.replace(/</g,'&lt;')}</pre>`);
+                showModal('Error details - ' + workflowId, `<pre class=\"code-block\" style=\"max-height:60vh;overflow:auto;\">${body.replace(/</g, '&lt;')}</pre>`);
             } catch (e) {
                 showModal('Error details - ' + workflowId, '<div class=\"execution-error\">Failed to load error details</div>');
             }
@@ -2396,7 +2470,7 @@
             try {
                 const response = await axios.get('/api/metrics');
                 const metrics = response.data;
-                
+
                 // Update execution chart
                 updateExecutionChart(metrics);
 
@@ -2432,7 +2506,7 @@
                     const updated = p.updated_at ? new Date(p.updated_at).toLocaleString() : '';
                     const status = (p.status || '').toUpperCase();
                     const statusClass = status === 'ACTIVE' ? 'status-running' : (status === 'PAUSED' ? 'status-paused' : 'status-completed');
-                    const isGoals = (String(p.name||p.id||'').toLowerCase() === 'goals');
+                    const isGoals = (String(p.name || p.id || '').toLowerCase() === 'goals');
                     const desc = String(p.description || (isGoals ? latestGoalDesc : '') || '').trim();
                     html += `
                         <div class="workflow-item" data-project-id="${p.id}">
@@ -2450,7 +2524,7 @@
                                     ${p.next_action ? `<div class="step-output"><strong>Next:</strong> ${p.next_action}</div>` : ''}
                                     <div class="step-actions">
                                         <button class="btn btn-primary" onclick="viewProject('${p.id}')">View Details</button>
-                                        ${(() => { const nm = String(p.name||p.id||'').toLowerCase(); return (nm==='goals'||nm==='fsm-agent-agent_1') ? '' : `<button class="btn btn-danger" onclick="deleteProject('${p.id}')">Delete</button>` })()}
+                                        ${(() => { const nm = String(p.name || p.id || '').toLowerCase(); return (nm === 'goals' || nm === 'fsm-agent-agent_1') ? '' : `<button class="btn btn-danger" onclick="deleteProject('${p.id}')">Delete</button>` })()}
                                     </div>
                                 </div>
                             </div>
@@ -2534,11 +2608,11 @@
                             function stepRow(s) {
                                 const name = s.capability_id || s.step_type || s.id;
                                 const deps = (s.dependencies && s.dependencies.length) ? ` · deps: ${s.dependencies.join(', ')}` : '';
-                                return `<div class=\"step-item ${s.status === 'completed' ? 'completed' : (s.status === 'failed' ? 'error' : '')}\">`+
-                                       `<div class=\"step-header\"><span class=\"step-name\">${name}</span>`+
-                                       `<span class=\"step-status\">${(s.status || '').toUpperCase()}</span></div>`+
-                                       `<div class=\"step-description\">${s.step_type || ''}${deps}</div>`+
-                                       `</div>`;
+                                return `<div class=\"step-item ${s.status === 'completed' ? 'completed' : (s.status === 'failed' ? 'error' : '')}\">` +
+                                    `<div class=\"step-header\"><span class=\"step-name\">${name}</span>` +
+                                    `<span class=\"step-status\">${(s.status || '').toUpperCase()}</span></div>` +
+                                    `<div class=\"step-description\">${s.step_type || ''}${deps}</div>` +
+                                    `</div>`;
                             }
 
                             activitiesHtml = `
@@ -2554,12 +2628,12 @@
                                 </div>`;
                         }
 
-                        return `<div class=\"step-item\">`+
-                               `<div class=\"step-header\"><span class=\"step-name\">${id}</span></div>`+
-                               `${projHtml}`+
-                               `${activitiesHtml}`+
-                               `<div class=\"workflow-item\"><div class=\"workflow-header\"><span class=\"workflow-name\">Artifacts</span></div><div class=\"workflow-details\">${filesHtml}</div></div>`+
-                               `</div>`
+                        return `<div class=\"step-item\">` +
+                            `<div class=\"step-header\"><span class=\"step-name\">${id}</span></div>` +
+                            `${projHtml}` +
+                            `${activitiesHtml}` +
+                            `<div class=\"workflow-item\"><div class=\"workflow-header\"><span class=\"workflow-name\">Artifacts</span></div><div class=\"workflow-details\">${filesHtml}</div></div>` +
+                            `</div>`
                     } catch (e) {
                         return `<div class=\"step-item\"><div class=\"step-header\"><span class=\"step-name\">${id}</span></div><div class=\"loading\">Details unavailable</div></div>`
                     }
@@ -2613,7 +2687,7 @@
                                         try {
                                             const filesRes = await axios.get(`/api/workflow/${encodeURIComponent(wfId)}/files`);
                                             const files = Array.isArray(filesRes.data) ? filesRes.data : [];
-                                            const hasAnalysis = files.some(f => (f.filename||'').toLowerCase() === 'analysis.md');
+                                            const hasAnalysis = files.some(f => (f.filename || '').toLowerCase() === 'analysis.md');
                                             if (hasAnalysis || attempts > 60) {
                                                 clearInterval(poll);
                                                 if (hasAnalysis) {
@@ -2623,7 +2697,7 @@
                                                 }
                                                 btn.disabled = false;
                                             }
-                                        } catch (e) {}
+                                        } catch (e) { }
                                     }, 2000);
                                 } else {
                                     if (statusEl) statusEl.textContent = 'Failed to start';
@@ -2642,7 +2716,7 @@
         }
 
         // Delegate clicks for file open buttons
-        document.addEventListener('click', function(e) {
+        document.addEventListener('click', function (e) {
             const t = e.target;
             if (t && t.classList && t.classList.contains('open-file-btn')) {
                 const wf = t.getAttribute('data-workflow') || '';
@@ -2653,7 +2727,7 @@
             }
         });
 
-        
+
 
         // Load capabilities grouped by domain
         async function loadCapabilities() {
@@ -2670,7 +2744,7 @@
                     container.innerHTML = '<div style="text-align: center; color: #7f8c8d;">No capabilities found</div>';
                     return;
                 }
-                
+
                 console.log('loadCapabilities: Processing data with', Object.keys(data).length, 'domains');
 
                 let html = '';
@@ -2680,7 +2754,7 @@
                     const seen = new Set();
                     const uniqueCaps = [];
                     caps.forEach(c => {
-                        const key = `${c.task||''}|${c.language||''}|${(c.code||'').slice(0,64)}`;
+                        const key = `${c.task || ''}|${c.language || ''}|${(c.code || '').slice(0, 64)}`;
                         if (!seen.has(key)) { seen.add(key); uniqueCaps.push(c); }
                     });
                     html += `
@@ -2701,9 +2775,9 @@
                                         ${c.code ? `
                                             <div class="step-actions" style="margin-top:6px;">
                                                 <button class="btn btn-sm btn-outline-primary cap-open-btn" 
-                                                    data-cap-task="${(c.task||'').replace(/"/g, '&quot;')}" 
-                                                    data-cap-lang="${(c.language||'').replace(/"/g, '&quot;')}" 
-                                                    data-cap-code="${(c.code||'').replace(/"/g, '&quot;')}">
+                                                    data-cap-task="${(c.task || '').replace(/"/g, '&quot;')}" 
+                                                    data-cap-lang="${(c.language || '').replace(/"/g, '&quot;')}" 
+                                                    data-cap-code="${(c.code || '').replace(/"/g, '&quot;')}">
                                                     Open
                                                 </button>
                                             </div>
@@ -2788,12 +2862,12 @@
 
         // Update timestamp
         function updateTimestamp() {
-            document.getElementById('last-updated').textContent = 
+            document.getElementById('last-updated').textContent =
                 `Last updated: ${new Date().toLocaleString()}`;
         }
 
         // Natural Language Input Functionality
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             const interpretBtn = document.getElementById('interpret-btn');
             const executeBtn = document.getElementById('execute-btn');
             const goalCreateBtn = document.getElementById('goal-create-btn');
@@ -2810,7 +2884,7 @@
                 goalCreateBtn.addEventListener('click', handleCreateGoal);
             }
             if (nlInput) {
-                nlInput.addEventListener('keydown', function(e) {
+                nlInput.addEventListener('keydown', function (e) {
                     if (e.ctrlKey && e.key === 'Enter') {
                         handleExecute();
                     }
@@ -2827,7 +2901,7 @@
 
             const interpretBtn = document.getElementById('interpret-btn');
             const nlResponse = document.getElementById('nl-response');
-            
+
             // Show loading state
             interpretBtn.disabled = true;
             interpretBtn.innerHTML = '<span class="loading-spinner"></span> Interpreting...';
@@ -2847,33 +2921,33 @@
                 context: {},
                 session_id: sidInterpret
             }, { timeout: timeout })
-            .then(response => {
-                // Check if this is an asynchronous response
-                if (response.data.status === 'processing') {
-                    displayAsyncProcessingResponse(response.data);
-                    // Poll for completion
-                    pollInterpretationResult(response.data.session_id);
-                } else {
-                    displayFlexibleInterpretationResponse(response.data);
-                    
-                    // Show thinking panel for this session
-                    if (response.data && response.data.session_id) {
-                        showThinkingPanel(response.data.session_id);
+                .then(response => {
+                    // Check if this is an asynchronous response
+                    if (response.data.status === 'processing') {
+                        displayAsyncProcessingResponse(response.data);
+                        // Poll for completion
+                        pollInterpretationResult(response.data.session_id);
+                    } else {
+                        displayFlexibleInterpretationResponse(response.data);
+
+                        // Show thinking panel for this session
+                        if (response.data && response.data.session_id) {
+                            showThinkingPanel(response.data.session_id);
+                        }
+
+                        // Auto-refresh memory panel for this session
+                        if (typeof loadMemory === 'function') {
+                            loadMemory();
+                        }
                     }
-                    
-                    // Auto-refresh memory panel for this session
-                    if (typeof loadMemory === 'function') {
-                        loadMemory();
-                    }
-                }
-            })
-            .catch(error => {
-                displayError('Interpretation failed', error);
-            })
-            .finally(() => {
-                interpretBtn.disabled = false;
-                interpretBtn.innerHTML = 'Interpret';
-            });
+                })
+                .catch(error => {
+                    displayError('Interpretation failed', error);
+                })
+                .finally(() => {
+                    interpretBtn.disabled = false;
+                    interpretBtn.innerHTML = 'Interpret';
+                });
         }
 
         function handleExecute() {
@@ -2885,7 +2959,7 @@
 
             const executeBtn = document.getElementById('execute-btn');
             const nlResponse = document.getElementById('nl-response');
-            
+
             // Show loading state
             executeBtn.disabled = true;
             executeBtn.innerHTML = '<span class="loading-spinner"></span> Executing...';
@@ -2907,7 +2981,7 @@
             const inputLower = input.toLowerCase();
             let detectedLang = "python"; // Default to Python
             // Check for Rust first (before Go, since "go" is a common word)
-            if (inputLower.includes("rust") || inputLower.includes("rust program") || 
+            if (inputLower.includes("rust") || inputLower.includes("rust program") ||
                 inputLower.includes("rust code") || inputLower.includes(".rs") ||
                 inputLower.includes(" in rust") || inputLower.includes("create a rust") ||
                 inputLower.includes("write a rust") || inputLower.includes("build a rust")) {
@@ -2934,52 +3008,52 @@
                 max_retries: 3,
                 timeout: 120
             }, { timeout: timeout })
-            .then(response => {
-                // console.log('About to call displayExecutionResponse with:', response.data);
-                displayExecutionResponse(response.data);
-                
-                // Show thinking panel for this session
-                if (response.data && response.data.session_id) {
-                    showThinkingPanel(response.data.session_id);
-                }
-                
-                // Refresh workflows to show new execution
-                setTimeout(() => {
-                    loadWorkflows();
-                    if (typeof loadMemory === 'function') {
-                        loadMemory();
+                .then(response => {
+                    // console.log('About to call displayExecutionResponse with:', response.data);
+                    displayExecutionResponse(response.data);
+
+                    // Show thinking panel for this session
+                    if (response.data && response.data.session_id) {
+                        showThinkingPanel(response.data.session_id);
                     }
-                }, 1000);
-            })
-            .catch(error => {
-                // If the browser timed out but the server continued, refresh workflows and show a friendlier note
-                const msg = (error && error.message) || '';
-                if (msg.includes('Network Error') || msg.includes('timeout')) {
-                    // Start lightweight polling and show running message instead of error
-                    const responseContent = document.querySelector('.response-content');
-                    responseContent.innerHTML = `
+
+                    // Refresh workflows to show new execution
+                    setTimeout(() => {
+                        loadWorkflows();
+                        if (typeof loadMemory === 'function') {
+                            loadMemory();
+                        }
+                    }, 1000);
+                })
+                .catch(error => {
+                    // If the browser timed out but the server continued, refresh workflows and show a friendlier note
+                    const msg = (error && error.message) || '';
+                    if (msg.includes('Network Error') || msg.includes('timeout')) {
+                        // Start lightweight polling and show running message instead of error
+                        const responseContent = document.querySelector('.response-content');
+                        responseContent.innerHTML = `
                         <div class="nl-response" style="border-left: 4px solid #3498db; padding-left: 10px;">
                             <h4>⏳ Execution running</h4>
                             <p>The operation is still in progress. The dashboard will auto-refresh workflows every few seconds.</p>
                         </div>
                     `;
-                    loadWorkflows();
-                    let attempts = 0;
-                    const poll = setInterval(() => {
-                        attempts++;
                         loadWorkflows();
-                    if (attempts > 120) { // ~6 minutes
-                        clearInterval(poll);
+                        let attempts = 0;
+                        const poll = setInterval(() => {
+                            attempts++;
+                            loadWorkflows();
+                            if (attempts > 120) { // ~6 minutes
+                                clearInterval(poll);
+                            }
+                        }, 3000);
+                    } else {
+                        displayError('Execution failed', error);
                     }
-                    }, 3000);
-                } else {
-                    displayError('Execution failed', error);
-                }
-            })
-            .finally(() => {
-                executeBtn.disabled = false;
-                executeBtn.innerHTML = 'Execute';
-            });
+                })
+                .finally(() => {
+                    executeBtn.disabled = false;
+                    executeBtn.innerHTML = 'Execute';
+                });
         }
 
         async function handleCreateGoal() {
@@ -2993,7 +3067,7 @@
             btn.textContent = 'Creating...';
             try {
                 const response = await axios.post('/api/goals/create_from_nl', {
-                    agent_id: (document.getElementById('goals-agent')||{}).value || 'agent_1',
+                    agent_id: (document.getElementById('goals-agent') || {}).value || 'agent_1',
                     description: input,
                     priority: 'medium'
                 }, {
@@ -3026,25 +3100,25 @@
 
         function displayInterpretationResponse(data) {
             const responseContent = document.querySelector('.response-content');
-            
+
             if (data.success && data.tasks) {
                 let html = '<h4>🧠 Flexible Natural Language Processing</h4>';
                 html += '<div class="flexible-response">';
-                
+
                 data.tasks.forEach((task, index) => {
                     html += `
                         <div class="task-item">
                             <h4>${index + 1}. ${task.task_name}</h4>
                             <p><strong>Description:</strong> ${task.description}</p>
                             <p><strong>Language:</strong> ${task.language}</p>
-                            ${task.context && Object.keys(task.context).length > 0 ? 
-                                `<div class="task-context"><strong>Context:</strong> ${JSON.stringify(task.context, null, 2)}</div>` : 
-                                ''
-                            }
+                            ${task.context && Object.keys(task.context).length > 0 ?
+                            `<div class="task-context"><strong>Context:</strong> ${JSON.stringify(task.context, null, 2)}</div>` :
+                            ''
+                        }
                         </div>
                     `;
                 });
-                
+
                 html += '</div>';
                 html += `<p><em>Session ID: ${data.session_id}</em></p>`;
                 html += '<div class="flexible-info">💡 This response was generated using flexible natural language processing, allowing the LLM to choose the most appropriate response type.</div>';
@@ -3056,13 +3130,13 @@
 
         function displayFlexibleInterpretationResponse(data) {
             const responseContent = document.querySelector('.response-content');
-            
+
             if (data.success) {
                 let html = `<div class="success">✅ ${data.message}</div>`;
-                
+
                 // Display response type
                 html += `<div class="response-type">🧠 Response Type: <strong>${data.response_type}</strong></div>`;
-                
+
                 // Handle different response types
                 if (data.tool_call) {
                     html += '<div class="tool-call">';
@@ -3075,7 +3149,7 @@
                     }
                     html += '</div>';
                 }
-                
+
                 if (data.code_artifact) {
                     html += '<div class="code-artifact">';
                     html += '<h4>💻 Code Artifact:</h4>';
@@ -3084,7 +3158,7 @@
                     html += '<pre><code>' + data.code_artifact.code + '</code></pre>';
                     html += '</div>';
                 }
-                
+
                 if (data.structured_task) {
                     html += '<div class="structured-task">';
                     html += '<h4>📋 Structured Task:</h4>';
@@ -3100,14 +3174,14 @@
                     }
                     html += '</div>';
                 }
-                
+
                 if (data.text_response) {
                     html += '<div class="text-response">';
                     html += '<h4>💬 Text Response:</h4>';
                     html += `<p>${data.text_response}</p>`;
                     html += '</div>';
                 }
-                
+
                 // Show tool execution result if available
                 if (data.tool_execution_result) {
                     html += '<div class="tool-execution-result">';
@@ -3121,7 +3195,7 @@
                     }
                     html += '</div>';
                 }
-                
+
                 html += `<p><em>Session ID: ${data.session_id}</em></p>`;
                 responseContent.innerHTML = html;
             } else {
@@ -3131,7 +3205,7 @@
 
         function displayAsyncProcessingResponse(data) {
             const responseContent = document.querySelector('.response-content');
-            
+
             let html = '<div class="async-processing">';
             html += '<div class="processing-indicator">';
             html += '<span class="loading-spinner"></span>';
@@ -3141,17 +3215,17 @@
             html += `<div class="session-info">Session ID: ${data.session_id}</div>`;
             html += '<div class="processing-note">This request is being processed in the background. Results will appear here when ready.</div>';
             html += '</div>';
-            
+
             responseContent.innerHTML = html;
         }
 
         function pollInterpretationResult(sessionId) {
             const maxAttempts = 60; // Poll for up to 10 minutes (60 * 10 seconds)
             let attempts = 0;
-            
+
             const pollInterval = setInterval(() => {
                 attempts++;
-                
+
                 // Check if we've exceeded max attempts
                 if (attempts > maxAttempts) {
                     clearInterval(pollInterval);
@@ -3159,40 +3233,40 @@
                     responseContent.innerHTML = '<div class="error">Processing timeout - the request may still be processing in the background.</div>';
                     return;
                 }
-                
+
                 // Make a new request to check for results
                 axios.post('/api/interpret', {
                     input: '', // Empty input for status check
                     context: {},
                     session_id: sessionId
                 }, { timeout: 10000 })
-                .then(response => {
-                    // If we get a response with tasks, processing is complete
-                    if (response.data.success && response.data.tasks && response.data.tasks.length > 0) {
-                        clearInterval(pollInterval);
-                        displayFlexibleInterpretationResponse(response.data);
-                        // Auto-refresh memory panel for this session
-                        if (typeof loadMemory === 'function') {
-                            loadMemory();
+                    .then(response => {
+                        // If we get a response with tasks, processing is complete
+                        if (response.data.success && response.data.tasks && response.data.tasks.length > 0) {
+                            clearInterval(pollInterval);
+                            displayFlexibleInterpretationResponse(response.data);
+                            // Auto-refresh memory panel for this session
+                            if (typeof loadMemory === 'function') {
+                                loadMemory();
+                            }
                         }
-                    }
-                    // If we get an error, stop polling
-                    else if (!response.data.success) {
-                        clearInterval(pollInterval);
-                        displayFlexibleInterpretationResponse(response.data);
-                    }
-                    // Otherwise, continue polling (still processing)
-                })
-                .catch(error => {
-                    // On error, continue polling unless it's a clear failure
-                    console.log('Polling attempt failed, continuing...', error);
-                });
+                        // If we get an error, stop polling
+                        else if (!response.data.success) {
+                            clearInterval(pollInterval);
+                            displayFlexibleInterpretationResponse(response.data);
+                        }
+                        // Otherwise, continue polling (still processing)
+                    })
+                    .catch(error => {
+                        // On error, continue polling unless it's a clear failure
+                        console.log('Polling attempt failed, continuing...', error);
+                    });
             }, 10000); // Poll every 10 seconds
         }
 
         function displayExecutionResponse(data) {
             const responseContent = document.querySelector('.response-content');
-            
+
             // Debug logging (can be disabled in production)
             // console.log('displayExecutionResponse called with:', data);
             // console.log('responseContent element:', responseContent);
@@ -3200,33 +3274,33 @@
             // console.log('data.result:', data.result);
             // console.log('data.generated_code:', data.generated_code);
             // console.log('data.validation_steps:', data.validation_steps);
-            
+
             // Check if this is a chained execution response first
             if (data.success && data.result && data.validation_steps && data.validation_steps.some(step => step.step === 'chained_execution')) {
                 console.log('Detected chained execution response, formatting...');
                 let resultText = data.result;
-                
+
                 // Format chained execution results for better readability
                 if ((resultText.includes('\\n') || resultText.includes('\n')) && resultText.includes('{')) {
                     const splitter = resultText.includes('\\n') ? '\\n' : '\n';
                     const lines = resultText.split(splitter);
                     if (lines.length >= 2) {
                         resultText = `🔗 Chained Execution Result:\n\n` +
-                                   `📄 Step 1 (Python): ${lines[0]}\n` +
-                                   `📄 Step 2 (Go): ${lines[1]}`;
+                            `📄 Step 1 (Python): ${lines[0]}\n` +
+                            `📄 Step 2 (Go): ${lines[1]}`;
                     }
                 }
-                
+
                 // Also handle the case where we have a JSON object followed by a number
                 if (resultText.includes('{') && resultText.includes('}') && resultText.includes('\n')) {
                     const lines = resultText.split('\n');
                     if (lines.length >= 2 && lines[0].includes('{') && lines[1].match(/^\d+$/)) {
                         resultText = `🔗 Chained Execution Result:\n\n` +
-                                   `📄 Step 1 (Python): ${lines[0]}\n` +
-                                   `📄 Step 2 (Go): ${lines[1]}`;
+                            `📄 Step 1 (Python): ${lines[0]}\n` +
+                            `📄 Step 2 (Go): ${lines[1]}`;
                     }
                 }
-                
+
                 responseContent.innerHTML = `<div class="task-item">
                     <h4>🚀 Chained Execution Results:</h4>
                     <div style="background: #f0f9ff; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9;">
@@ -3235,19 +3309,19 @@
                 </div>`;
                 return;
             }
-            
+
             // Handle regular execution response (not chained)
             if (data.success && data.result && data.generated_code) {
                 console.log('Detected regular execution response, formatting...');
                 let html = '<h4>🚀 Execution Results:</h4>';
-                
+
                 // Show task description
                 html += `<div class="task-item">
                     <h4>📋 Task: ${data.generated_code.description || 'Code Generation'}</h4>
                     <p><strong>Language:</strong> ${data.generated_code.language || 'Unknown'}</p>
                     <p><strong>Status:</strong> ✅ Success</p>
                 </div>`;
-                
+
                 // Show the actual result (clean output)
                 if (data.result) {
                     let resultText = data.result;
@@ -3276,7 +3350,7 @@
                         </div>
                     </div>`;
                 }
-                
+
                 // Show the generated code
                 if (data.generated_code && data.generated_code.code) {
                     html += `<div class="task-item">
@@ -3286,22 +3360,22 @@
                         </div>
                     </div>`;
                 }
-                
+
                 responseContent.innerHTML = html;
                 return;
             }
-            
+
             // Handle intelligent execution response (new format)
             if (data.success && data.result && data.generated_code) {
                 let html = '<h4>🚀 Execution Results:</h4>';
-                
+
                 // Show task description
                 html += `<div class="task-item">
                     <h4>📋 Task: ${data.generated_code.description || 'Code Generation'}</h4>
                     <p><strong>Language:</strong> ${data.generated_code.language || 'Unknown'}</p>
                     <p><strong>Status:</strong> ✅ Success</p>
                 </div>`;
-                
+
                 // Show the actual result (clean output)
                 if (data.result) {
                     let resultText = '';
@@ -3313,7 +3387,7 @@
                             resultText = lastStep.output.trim();
                         }
                     }
-                    
+
                     // Fallback to result field if no validation output
                     if (!resultText) {
                         // Handle both array and string results
@@ -3337,18 +3411,18 @@
                         const lines = resultText.split(splitter);
                         if (lines.length >= 2) {
                             resultText = `🔗 Chained Execution Result:\n\n` +
-                                       `📄 Step 1 (Python): ${lines[0]}\n` +
-                                       `📄 Step 2 (Go): ${lines[1]}`;
+                                `📄 Step 1 (Python): ${lines[0]}\n` +
+                                `📄 Step 2 (Go): ${lines[1]}`;
                         }
                     }
-                    
+
                     // Also handle the case where we have a JSON object followed by a number
                     if (resultText.includes('{') && resultText.includes('}') && resultText.includes('\n')) {
                         const lines = resultText.split('\n');
                         if (lines.length >= 2 && lines[0].includes('{') && lines[1].match(/^\d+$/)) {
                             resultText = `🔗 Chained Execution Result:\n\n` +
-                                       `📄 Step 1 (Python): ${lines[0]}\n` +
-                                       `📄 Step 2 (Go): ${lines[1]}`;
+                                `📄 Step 1 (Python): ${lines[0]}\n` +
+                                `📄 Step 2 (Go): ${lines[1]}`;
                         }
                     }
 
@@ -3388,7 +3462,7 @@
                         </div>
                     </div>`;
                 }
-                
+
                 // Show generated code (collapsible)
                 if (data.generated_code && data.generated_code.code) {
                     const codeLang = data.generated_code.language || 'code';
@@ -3400,7 +3474,7 @@
                         </details>
                     </div>`;
                 }
-                
+
                 // Show execution time
                 if (data.execution_time_ms) {
                     const seconds = (data.execution_time_ms / 1000).toFixed(1);
@@ -3408,11 +3482,11 @@
                         <p><em>⏱️ Execution time: ${seconds} seconds</em></p>
                     </div>`;
                 }
-                
+
                 responseContent.innerHTML = html;
                 return;
             }
-            
+
             // Check if this is a chained execution response that wasn't caught above
             if (data.success && data.result && data.validation_steps && data.validation_steps.some(step => step.step === 'chained_execution')) {
                 console.log('Detected chained execution response, formatting...');
@@ -3420,28 +3494,28 @@
                 console.log('Contains newline:', data.result.includes('\n'));
                 console.log('Contains JSON:', data.result.includes('{'));
                 let resultText = data.result;
-                
+
                 // Format chained execution results for better readability
                 if ((resultText.includes('\\n') || resultText.includes('\n')) && resultText.includes('{')) {
                     const splitter = resultText.includes('\\n') ? '\\n' : '\n';
                     const lines = resultText.split(splitter);
                     if (lines.length >= 2) {
                         resultText = `🔗 Chained Execution Result:\n\n` +
-                                   `📄 Step 1 (Python): ${lines[0]}\n` +
-                                   `📄 Step 2 (Go): ${lines[1]}`;
+                            `📄 Step 1 (Python): ${lines[0]}\n` +
+                            `📄 Step 2 (Go): ${lines[1]}`;
                     }
                 }
-                
+
                 // Also handle the case where we have a JSON object followed by a number
                 if (resultText.includes('{') && resultText.includes('}') && resultText.includes('\n')) {
                     const lines = resultText.split('\n');
                     if (lines.length >= 2 && lines[0].includes('{') && lines[1].match(/^\d+$/)) {
                         resultText = `🔗 Chained Execution Result:\n\n` +
-                                   `📄 Step 1 (Python): ${lines[0]}\n` +
-                                   `📄 Step 2 (Go): ${lines[1]}`;
+                            `📄 Step 1 (Python): ${lines[0]}\n` +
+                            `📄 Step 2 (Go): ${lines[1]}`;
                     }
                 }
-                
+
                 responseContent.innerHTML = `<div class="task-item">
                     <h4>🚀 Chained Execution Results:</h4>
                     <div style="background: #f0f9ff; padding: 15px; border-radius: 8px; border-left: 4px solid #0ea5e9;">
@@ -3450,23 +3524,23 @@
                 </div>`;
                 return;
             }
-            
+
             // Handle flexible interpretation response (old format)
             if (data.success && data.interpretation && data.execution_plan) {
                 let html = '<h4>🚀 Execution Results:</h4>';
-                
+
                 // Show interpretation summary
                 html += `<div class="task-item">
                     <h4>📋 Interpretation Summary</h4>
                     <p>Successfully interpreted ${data.interpretation.tasks.length} task(s)</p>
                     <p><em>${data.message}</em></p>
                 </div>`;
-                
+
                 // Show execution results in a user-friendly way
                 data.execution_plan.forEach((result, index) => {
                     const statusClass = result.success ? 'execution-success' : 'execution-error';
                     const statusIcon = result.success ? '✅' : '❌';
-                    
+
                     html += `
                         <div class="task-item">
                             <h4>${statusIcon} Task ${index + 1}: ${result.task.task_name}</h4>
@@ -3489,7 +3563,7 @@
                         </div>
                     `;
                 });
-                
+
                 responseContent.innerHTML = html;
             } else {
                 responseContent.innerHTML = `<div class="execution-error">Execution failed: ${data.message || 'Unknown error'}</div>`;
@@ -3508,10 +3582,10 @@
 
         function displayError(title, error) {
             const responseContent = document.querySelector('.response-content');
-            const errorMessage = error.response ? 
-                error.response.data.error || error.response.data.message || 'Unknown error' : 
+            const errorMessage = error.response ?
+                error.response.data.error || error.response.data.message || 'Unknown error' :
                 error.message || 'Unknown error';
-            
+
             responseContent.innerHTML = `
                 <div class="execution-error">
                     <h4>❌ ${title}</h4>
@@ -3521,7 +3595,7 @@
         }
 
         // Delegate: open capability code modal
-        document.addEventListener('click', function(e) {
+        document.addEventListener('click', function (e) {
             const t = e.target;
             if (t && t.classList && t.classList.contains('cap-open-btn')) {
                 const task = t.getAttribute('data-cap-task') || '';
@@ -3551,7 +3625,7 @@
         function initThinkingPanel() {
             const thinkingPanel = document.getElementById('thinking-panel');
             const thinkingRefreshBtn = document.getElementById('thinking-refresh-btn');
-            
+
             if (thinkingRefreshBtn) {
                 thinkingRefreshBtn.addEventListener('click', refreshThinking);
             }
@@ -3565,7 +3639,7 @@
                 thinkingPanel.style.display = 'block';
                 updateThinkingStatus('Monitoring session: ' + sessionId);
                 refreshThinking();
-                
+
                 // Start auto-refresh every 3 seconds
                 if (thinkingRefreshInterval) {
                     clearInterval(thinkingRefreshInterval);
@@ -3580,7 +3654,7 @@
             if (thinkingPanel) {
                 thinkingPanel.style.display = 'none';
                 currentSessionId = null;
-                
+
                 if (thinkingRefreshInterval) {
                     clearInterval(thinkingRefreshInterval);
                     thinkingRefreshInterval = null;
@@ -3591,11 +3665,11 @@
         // Refresh thinking data
         async function refreshThinking() {
             if (!currentSessionId) return;
-            
+
             try {
                 const response = await uiFetch(`/api/v1/chat/sessions/${currentSessionId}/history?limit=10`);
                 const data = await response.json();
-                
+
                 if (data.history && data.history.length > 0) {
                     displayThinkingData(data.history);
                     updateThinkingStatus('Connected - ' + data.history.length + ' entries');
@@ -3613,18 +3687,18 @@
         function displayThinkingData(history) {
             const thinkingContent = document.getElementById('thinking-content');
             if (!thinkingContent) return;
-            
+
             if (history.length === 0) {
                 thinkingContent.innerHTML = '<div class="no-thoughts">No thinking data available. Execute a command to see the AI\'s reasoning process.</div>';
                 return;
             }
-            
+
             let html = '';
             history.forEach(entry => {
                 const timestamp = new Date(entry.timestamp).toLocaleString();
                 const userMessage = entry.metadata?.user_message || 'No user message';
                 const aiResponse = entry.response || 'No AI response';
-                
+
                 html += `
                     <div style="margin-bottom: 16px; padding: 12px; border: 1px solid #ddd; border-radius: 6px; background: white;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 12px; color: #666;">
@@ -3652,7 +3726,7 @@
                     </div>
                 `;
             });
-            
+
             thinkingContent.innerHTML = html;
         }
 
@@ -3665,7 +3739,7 @@
         }
 
         // Helper function for fetch requests with UI header
-        window.uiFetch = function(url, options = {}) {
+        window.uiFetch = function (url, options = {}) {
             const headers = {
                 'X-Request-Source': 'ui',
                 ...options.headers
@@ -3674,7 +3748,7 @@
         };
 
         // Initialize thinking panel on page load
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             initThinkingPanel();
         });
     </script>
@@ -3684,8 +3758,10 @@
     <script src="/static/js/rag_search.js"></script>
     <script src="/static/js/qdrant_stats.js"></script>
 </body>
+
 </html>
 {{ template "tools.html" . }}
 {{ template "safety.html" . }}
+
 </html>
 {{ end }}

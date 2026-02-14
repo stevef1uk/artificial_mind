@@ -45,7 +45,7 @@ func main() {
 	var (
 		configPath = flag.String("config", "config.json", "Path to configuration file")
 		domainPath = flag.String("domain", "domain.json", "Path to domain file")
-		port       = flag.Int("port", 8080, "Port to run the server on")
+		port       = flag.Int("port", 8081, "Port to run the server on")
 		mode       = flag.String("mode", "server", "Mode: server, cli, principles-test, or test-llm")
 	)
 	flag.Parse()
@@ -66,7 +66,7 @@ func main() {
 	applyEnvOverrides(config)
 
 	// Override port if specified
-	if *port != 8080 {
+	if *port != 8081 {
 		config.Server.Port = *port
 	}
 
@@ -310,7 +310,7 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 	// Get HDN base URL from environment variable, fallback to localhost for local development
 	hdnBaseURL := getenvTrim("HDN_URL")
 	if hdnBaseURL == "" {
-		hdnBaseURL = "http://localhost:8080" // Default for local development
+		hdnBaseURL = "http://localhost:8081" // Default for local development
 	}
 	log.Printf("✅ [HDN] Using HDN base URL: %s", hdnBaseURL)
 
