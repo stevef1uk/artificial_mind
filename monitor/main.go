@@ -35,6 +35,7 @@ type MonitorService struct {
 	neo4jURL        string
 	weaviateURL     string
 	natsURL         string
+	scraperURL      string
 	executionMethod string
 }
 
@@ -291,6 +292,11 @@ func NewMonitorService() *MonitorService {
 		}
 	}
 
+	scraperURL := strings.TrimSpace(os.Getenv("PLAYWRIGHT_SCRAPER_URL"))
+	if scraperURL == "" {
+		scraperURL = "http://localhost:8085"
+	}
+
 	m := &MonitorService{
 		redisClient:   redisClient,
 		hdnURL:        hdnURL,
@@ -300,6 +306,7 @@ func NewMonitorService() *MonitorService {
 		neo4jURL:      neo4jURL,
 		weaviateURL:   weaviateURL,
 		natsURL:       natsURL,
+		scraperURL:    scraperURL,
 	}
 	// Start LLM worker
 	m.runLLMWorker()
@@ -555,6 +562,10 @@ func main() {
 
 	// FSM proxy (embed FSM UI/API under the monitor)
 	r.Any("/api/fsm/*path", monitor.proxyFSM)
+
+	// Scraper/CodeGen proxy
+	r.Any("/api/scraper/*path", monitor.proxyScraper)
+	r.Any("/api/codegen/*path", monitor.proxyScraper)
 
 	// Natural Language Interpreter Routes
 	r.POST("/api/interpret", monitor.interpretNaturalLanguage)
@@ -6569,6 +6580,10 @@ func (m *MonitorService) startCuriosityGoalConsumer() {
 			// Process curiosity goals for each domain (including system_coherence for coherence resolution)
 			domains := []string{"General", "Networking", "Math", "Programming", "system_coherence"}
 
+			if m.redisClient == nil {
+				continue
+			}
+
 			for _, domain := range domains {
 				// Get up to 2 pending curiosity goals for this domain
 				key := fmt.Sprintf("reasoning:curiosity_goals:%s", domain)
@@ -6674,6 +6689,10 @@ func (m *MonitorService) convertCuriosityGoalToTask(goal map[string]interface{},
 // startAutoExecutor runs in background to execute one Goal Manager task at a time
 func (m *MonitorService) startAutoExecutor() {
 	log.Println("🚀 Starting auto-executor...")
+
+	if m.redisClient == nil {
+		log.Println("⚠️  Redis not connected, auto-executor will wait...")
+	}
 
 	// Check every 60 seconds for tasks to execute
 	ticker := time.NewTicker(60 * time.Second)

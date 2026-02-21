@@ -2,13 +2,18 @@ FROM golang:1.23-bookworm
 
 WORKDIR /app
 
-# Install system dependencies for Playwright
+# Install system dependencies for Playwright + Node.js for codegen
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     tzdata \
     chromium \
     docker.io \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
+
+# Install @playwright/test globally so npx playwright codegen works
+RUN npm install -g @playwright/test
 
 # Copy module files
 COPY services/playwright_scraper/go.mod services/playwright_scraper/go.sum ./

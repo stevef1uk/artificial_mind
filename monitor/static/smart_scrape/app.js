@@ -35,7 +35,12 @@ const apiCmdStart = document.getElementById('api-cmd-start');
 const apiCmdPoll = document.getElementById('api-cmd-poll');
 
 // --- STATE ---
-const scraperBaseUrl = 'http://localhost:8085';
+// In development, this can be http://localhost:8085
+// In production/k3s, we proxy through the monitor itself (/api/scraper or /api/codegen)
+const scraperBaseUrl = (window.location.hostname === 'localhost' && window.location.port === '8085')
+    ? 'http://localhost:8085'
+    : window.location.origin;
+
 let codegenSessionId = localStorage.getItem('smart_scrape_codegen_id') || null;
 let codegenNovncUrl = localStorage.getItem('smart_scrape_codegen_url') || null;
 let lastResult = null;

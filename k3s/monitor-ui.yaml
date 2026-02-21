@@ -41,6 +41,8 @@ spec:
               value: "http://goal-manager.agi.svc.cluster.local:8090"
             - name: NATS_URL
               value: "http://nats.agi.svc.cluster.local:8223"
+            - name: PLAYWRIGHT_SCRAPER_URL
+              value: "http://playwright-scraper.agi.svc.cluster.local:8085"
             - name: NEO4J_URL
               value: "http://neo4j.agi.svc.cluster.local:7474"
             - name: NEO4J_USER
