@@ -13,7 +13,8 @@ The **Smart Scrape Studio** is now prominently featured in your monitor dashboar
 ### What It Does:
 - 🌐 **Scrape any website** with natural language instructions
 - 🎯 **Extract specific data** without coding
-- 🤖 **Deploy as Agent** for automatic scheduled scraping
+- 🤖 **Deploy as Agent** - (Note: Feature prioritized for API usage)
+- 📋 **Extract API Commands** - Get curl commands for any configured scrape
 - 📊 **Visualize results** in real-time
 
 ---
@@ -93,7 +94,7 @@ The Smart Scrape Studio is connected to the **Go Playwright Scraper** running on
 ## Next Steps
 
 1. **Try it now**: Click the 🕸️ SMART SCRAPE STUDIO button
-2. **Deploy an agent**: Set frequency (daily/hourly) for recurring scrapes
+2. **Automate**: Click 📋 **Show API Commands** to get the curl commands for your CI/CD or scripts
 3. **Integrate with HDN**: Use results in your workflows
 
 ---

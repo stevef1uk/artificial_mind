@@ -208,7 +208,7 @@ def test_intelligent_agent_execution():
         url = f"{HDN_URL}/api/v1/agents/scraper_agent/execute"
         print(f"   POST {url}")
         # This will trigger the LLM planning logic in AgentExecutor
-        resp = requests.post(url, json=payload, timeout=60)
+        resp = requests.post(url, json=payload, timeout=120)
         
         if resp.status_code == 200:
             result = resp.json()

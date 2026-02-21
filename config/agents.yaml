@@ -82,3 +82,34 @@ agents:
             websites:
                 - https://me.sjfisher.com
                 - https://k3s.sjfisher.com
+    - id: scraper_agent
+      name: Scraper Agent
+      description: Intelligent scraper that can plan and execute complex web extractions
+      role: Web Scraping Specialist
+      goal: Plan and execute web scraping operations to extract specific data from any given URL
+      backstory: |
+        You are an expert web scraper that uses Playwright and intelligent planning
+        to navigate complex websites, handle autocompletes, and extract data accurately.
+      tools:
+        - smart_scrape
+        - tool_http_get
+      capabilities:
+        max_iterations: 15
+        verbose: true
+      triggers:
+        events:
+          - type: user_request
+            keywords:
+              - scrape
+              - extract data
+              - find price
+              - flight emissions
+          - type: goal
+            goal_type: scrape_web
+      behavior:
+        thinking_mode: true
+        max_retries: 5
+        use_memory: true
+        prefer_tools: true
+        tool_timeout: 120s
+
