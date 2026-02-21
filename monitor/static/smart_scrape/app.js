@@ -499,16 +499,35 @@ showApiBtn.addEventListener('click', () => {
     }
     payload.get_html = false;
 
+    // Use file-based approach to safely handle scripts with special chars/quotes
     const payloadStr = JSON.stringify(payload, null, 2);
-    const startCmd = `curl -X POST http://localhost:8085/scrape/start \\
-  -H "Content-Type: application/json" \\
-  -d '${payloadStr}'`;
-    const pollCmd = `curl http://localhost:8085/scrape/job?job_id=JOB_ID`;
+    const serverHost = (window.location.hostname !== 'localhost' && window.location.hostname !== '')
+        ? window.location.hostname
+        : 'YOUR_SERVER_IP';
+
+    const startCmd = [
+        '# 1. Save payload to file (handles special characters safely):',
+        "cat > /tmp/scrape_payload.json << 'ENDJSON'",
+        payloadStr,
+        'ENDJSON',
+        '',
+        '# 2. Start the scrape (note: run on the Linux server, not Mac):',
+        `curl -s -X POST http://${serverHost}:8085/scrape/start \\`,
+        '  -H "Content-Type: application/json" \\',
+        '  -d @/tmp/scrape_payload.json'
+    ].join('\n');
+
+    const pollCmd = [
+        '# 3. Poll for result — replace JOB_ID with the id from step 2:',
+        'JOB_ID="paste-job-id-here"',
+        `curl -s "http://${serverHost}:8085/scrape/job?job_id=$JOB_ID" | python3 -m json.tool`
+    ].join('\n');
 
     apiCmdStart.textContent = startCmd;
     apiCmdPoll.textContent = pollCmd;
     apiCommandsPanel.classList.toggle('hidden');
 });
+
 
 document.getElementById('copy-cmd-start').addEventListener('click', () => {
     navigator.clipboard.writeText(apiCmdStart.textContent)
