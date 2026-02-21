@@ -4,8 +4,9 @@ FROM golang:1.25-alpine AS builder
 WORKDIR /app
 COPY services/playwright_scraper/go.mod services/playwright_scraper/go.sum ./
 RUN go mod download
-COPY services/playwright_scraper/main.go ./
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o scraper main.go
+COPY services/playwright_scraper/*.go ./
+COPY services/playwright_scraper/scraper_pkg/ ./scraper_pkg/
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o scraper .
 
 # Stage 2: Secure packaging stage
 FROM alpine:latest AS secure-build
