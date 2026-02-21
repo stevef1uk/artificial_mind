@@ -291,7 +291,9 @@ func applyTemplateVariables(tsConfig string, variables map[string]string) string
 			continue
 		}
 		replacerArgs = append(replacerArgs, "{{"+key+"}}", value)
+		replacerArgs = append(replacerArgs, "{{ "+key+" }}", value)
 		replacerArgs = append(replacerArgs, "${"+key+"}", value)
+		replacerArgs = append(replacerArgs, "${ "+key+" }", value)
 	}
 	if len(replacerArgs) == 0 {
 		return tsConfig
