@@ -178,3 +178,16 @@ secure/*
 scraper-local
 playwright_venv/
 *.tar
+
+# =============================================================================
+# PLAYWRIGHT SCRAPER SERVICE
+# =============================================================================
+# Compiled binaries
+services/playwright_scraper/scraper
+services/playwright_scraper/playwright_scraper
+llm_playwright_generator
+
+# Runtime data
+failed_jobs/
+monitor/static/smart_scrape/screenshots/
+
