@@ -7,17 +7,19 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     tzdata \
     chromium \
+    docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy module files
 COPY services/playwright_scraper/go.mod services/playwright_scraper/go.sum ./
 RUN go mod download
 
-# Copy source
-COPY services/playwright_scraper/main.go ./
+# Copy all source files
+COPY services/playwright_scraper/*.go ./
+COPY services/playwright_scraper/scraper_pkg ./scraper_pkg
 
 # Build binary
-RUN go build -o scraper main.go
+RUN go build -o scraper .
 
 # Install Playwright browsers/deps via the binary/library
 # (The code does this at startup, but pre-installing deps is good)

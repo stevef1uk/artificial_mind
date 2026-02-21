@@ -305,8 +305,7 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 			},
 		},
 		{
-			Name:        "get_concept",
-			Description: "Get a specific concept from the Neo4j knowledge graph by name and domain.",
+			Name: "get_concept",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -315,8 +314,7 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 						"description": "Name of the concept",
 					},
 					"domain": map[string]interface{}{
-						"type":        "string",
-						"description": "Domain of the concept (optional)",
+						"type": "string",
 					},
 				},
 				"required": []string{"name"},
@@ -735,7 +733,7 @@ func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig
 	log.Printf("⏳ [MCP-SCRAPE] Job %s started, polling for results...", startResp.JobID)
 
 	// Poll for results (with timeout)
-	pollTimeout := 90 * time.Second
+	pollTimeout := 300 * time.Second // 5 minutes to allow for form navigation + second-pass recovery
 	pollInterval := 2 * time.Second
 	startTime := time.Now()
 
@@ -2216,8 +2214,9 @@ func runCommandWithLiveOutput(ctx context.Context, cmd *exec.Cmd, logPrefix stri
 	go readPipe(stdoutPipe, &stdoutBuf, false)
 	go readPipe(stderrPipe, &stderrBuf, true)
 
-	waitErr := cmd.Wait()
+	// Wait for readers to finish first to avoid "file already closed" when cmd.Wait closes them
 	wg.Wait()
+	waitErr := cmd.Wait()
 
 	return stdoutBuf.String(), stderrBuf.String(), waitErr
 }
@@ -2281,34 +2280,31 @@ func (s *MCPKnowledgeServer) generateActionsFromInstructions(ctx context.Context
 		selectorListStr = "\n\nWARNING: No clear selectors found. Look in the Form Elements section below for selectors.\n"
 	}
 
-	prompt := fmt.Sprintf(`You are a JSON generator. Your ONLY job is to return a valid JSON array of browser actions to achieve the user's goal.
+	prompt := fmt.Sprintf(`You are an expert browser automation agent. Your goal is to generate a JSON array of actions to achieve the user's mission.
 	
 URL: %s
 User Goal: %s
 %s
-Available Form Elements (for reference):
+Available Form Elements:
 %s
 
-Page HTML (for reference):
-%s
-
-STRATEGY INSTRUCTIONS:
-1. PREFER SIMPLE SELECTORS: Use #id or input[name='name'] if available. Avoid long brittle CSS paths like "div > div > ul > li".
-2. AUTOCOMPLETE HANDLING: If a field has an autocomplete dropdown:
-   a. "fill" the field
+STRATEGY RULES:
+1. **STABILITY FIRST**: Use #id, name='...', or placeholder='...' selectors. They are more stable than classes or text.
+2. **SPELLING MATTERS**: If you click an autocomplete suggestion, use the EXACT text you saw in the HTML or dropdown. (e.g., if you typed "Paris", the dropdown might say "Paris - Charles de Gaulle (CDG)").
+3. **DROPDOWN FLOW**: To handle autocompletes:
+   a. "fill" the input
    b. "wait" 1 second
-   c. "click" the suggestion using a text selector like "text=/Southampton/i" or a class that looks like a dropdown item.
-3. FAVOR MAIN FORM FIELDS: Do NOT use site-wide search boxes (often in header) for filling calculator data. Use fields marked as "[Likely Calculator Field]" or which have IDs related to the goal.
-4. STABILITY: Start with: {"type":"wait","selector":"body","timeout":2}.
-5. NAVIGATION: After clicking a submit button or link that loads a new page, follow with a "wait" action using "wait_for" and a generous "timeout" (15s).
-6. EXTRACTION: The last action should often be "extract" if the user wants info.
+   c. "click" the correctly spelled option from the list.
+4. **CO2/CALCULATORS**: For flight calculators, look for "From", "To", "One-way/Return", and "Passengers".
+5. **NO HALLUCIDATIONS**: ONLY use selectors or text fragments actually visible in the provided HTML or form elements list.
 
 JSON FORMAT:
-Return ONLY a JSON array [{}, {}]. No markdown, no text.
-Allowed fields: "type" (wait, fill, click, select, extract), "selector" (CSS or text=/.../i), "value" (for fill/select), "wait_for" (for wait), "timeout" (for wait).
+Return ONLY a JSON array [{}, {}].
+Allowed "type": wait, fill, click, select, extract.
+Selector: Use CSS or "text=Exact Text". Regex "text=/.../i" is allowed only if exact match fails.
 
 EXAMPLE:
-[{"type":"wait","selector":"body","timeout":2},{"type":"fill","selector":"#from","value":"London"},{"type":"wait","selector":"body","timeout":1},{"type":"click","selector":"text=/Heathrow/i"},{"type":"click","selector":"#submit"},{"type":"wait","wait_for":".result","timeout":15}]`, url, instructions, selectorListStr, formInfo, htmlPreview)
+[{"type":"wait","selector":"body","timeout":2},{"type":"fill","selector":"#from","value":"Paris"},{"type":"wait","timeout":1},{"type":"click","selector":"text=/Charles de Gaulle/i"}]`, url, instructions, selectorListStr, formInfo)
 
 	// Call LLM with timeout context (3 minutes for large HTML processing)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -3961,10 +3957,16 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 	planCtx, planCancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer planCancel()
 
-	config, err := s.planScrapeWithLLM(planCtx, cleanedHTML, goal, userConfig)
+	// Build a compact actionable snapshot (only forms/inputs/buttons) so the LLM
+	// focuses on navigation interactions. The LLM will plan navigation only
+	// in this first pass; extraction patterns are planned on the final page.
+	actionableHTML := s.buildActionableSnapshot(cleanedHTML)
+	navGoal := "[NAVIGATION_ONLY]\n" + goal
+	config, err := s.planScrapeWithLLM(planCtx, actionableHTML, navGoal, userConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to plan scrape with LLM: %v", err)
 	}
+	config.TypeScriptConfig = s.sanitizeNavigationScript(config.TypeScriptConfig, actionableHTML, goal)
 
 	// Merge user results if provided
 	if userConfig != nil {
@@ -4048,6 +4050,10 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 			results["page_title"] = title
 		}
 		results["page_url"] = url
+		results["cleaned_html"] = cleanedHTML
+		if cookies, ok := innerResult["cookies"]; ok {
+			results["cookies"] = cookies
+		}
 
 		// Apply extraction patterns to cleanedHTML
 		foundAny := false
@@ -4114,6 +4120,7 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 	isPostNavigation := config.TypeScriptConfig != ""
 
 	// Check if any extractions were requested but NOT found
+	// Second-pass should ONLY trigger when extractions were attempted but failed, not when missing entirely
 	missingExtractions := false
 	if len(config.Extractions) > 0 {
 		for key := range config.Extractions {
@@ -4123,17 +4130,21 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 			}
 		}
 	}
+	// Note: If LLM doesn't provide extractions with navigation, that's a prompt issue, not a second-pass trigger
 
 	if isPostNavigation && missingExtractions {
 		finalHTML, _ := finalInnerResult["cleaned_html"].(string)
 		if finalHTML != "" {
 			log.Printf("🔍 [MCP-SMART-SCRAPE] Navigation succeeded but extractions failed. Performing second-pass planning on final page...")
 
+			extractionHTML := s.buildExtractionSnapshot(finalHTML, goal)
+			log.Printf("🧩 [MCP-SMART-SCRAPE] Extraction snapshot size: %d chars", len(extractionHTML))
+
 			// Plan specialized extractions for the final page HTML
 			// Use a very specific goal for the second pass to avoid re-navigation loops
 			secondPassGoal := fmt.Sprintf("RECOVERY MODE: Navigation is already complete. The data you need should be in the HTML snapshot below. DO NOT provide any navigation JS. Just find the correct regex for: %s", goal)
 
-			secondPassConfig, err := s.planScrapeWithLLM(planCtx, finalHTML, secondPassGoal, &ScrapeConfig{
+			secondPassConfig, err := s.planScrapeWithLLM(planCtx, extractionHTML, secondPassGoal, &ScrapeConfig{
 				TypeScriptConfig: "// NAVIGATION ALREADY COMPLETED - DO NOT ADD COMMANDS HERE",
 				Extractions:      config.Extractions, // Pass existing as hints
 			})
@@ -4216,9 +4227,23 @@ func (s *MCPKnowledgeServer) planScrapeWithLLM(ctx context.Context, html string,
 
 	// Normalize HTML for LLM - remove destructive replacement that breaks regex matching
 	// Since we have a 32k token window (~131k chars), 120k is a safe limit to avoid losing the system prompt
-	if len(html) > 120000 {
-		html = html[:120000] + "...(truncated)"
-		log.Printf("⚠️ [MCP-SMART-SCRAPE] HTML still exceeding 120k limit, truncated")
+	maxHTML := 120000
+	if strings.HasPrefix(goal, "[NAVIGATION_ONLY]") {
+		maxHTML = 20000
+	}
+	if len(html) > maxHTML {
+		html = html[:maxHTML] + "...(truncated)"
+		log.Printf("⚠️ [MCP-SMART-SCRAPE] HTML still exceeding %d limit, truncated", maxHTML)
+	}
+	// Detect navigation-only mode: caller may prefix the goal with [NAVIGATION_ONLY]
+	// to instruct the LLM to only generate Playwright JS for navigation and
+	// NOT generate extraction regexes (those will be planned on the final page).
+	navigationOnly := false
+	if strings.HasPrefix(goal, "[NAVIGATION_ONLY]") {
+		navigationOnly = true
+		// strip the marker before including the goal in prompts
+		goal = strings.TrimPrefix(goal, "[NAVIGATION_ONLY]")
+		goal = strings.TrimSpace(goal)
 	}
 
 	// Debug: Show sample of cleaned HTML to help troubleshoot extraction issues
@@ -4277,10 +4302,22 @@ MODERN WEB PATTERNS (Custom Tags & Data Attributes):
 12. Match partial attribute values: "data-field='[^']*price[^']*'"
 
 INTERACTIVE PATTERNS (Autocompletes & Dropdowns):
-13. If an input field triggers a dropdown (e.g. role='combobox', 'autocomplete' attribute, or nearby 'ul'), YOU MUST:
-    - Type a partial value: await page.locator('selector').fill('partial')
-    - Wait for suggestion: await page.waitForTimeout(1000)
-    - Click the SPECIFIC suggestion: await page.locator('li[role="option"]').first().click() OR await page.locator('.autocomplete-suggestion').first().click()
+13. CRITICAL: If you detect Stimulus.js autocomplete fields (data-controller, data-action attributes) OR visible input fields (id, name containing 'from', 'to', 'airport', 'destination', etc.), ALWAYS INCLUDE INITIALIZATION WAIT:
+    - Always start with: await page.waitForLoadState('networkidle');  // Wait for JS controllers to initialize
+    - For airport/airline codes: Type the CODE (e.g. 'SHA' for Shanghai, not 'Shanghai')
+    - Wait for dropdown to appear: await page.waitForTimeout(2000);  // Allow XHR for suggestions
+    - Click FIRST suggestion (DO NOT use text() predicates): 
+      * await page.locator('ul li, [role="option"], .dropdown li').first().click();
+    - CRITICAL: DO NOT use page.waitForNavigation() with autocomplete clicks - dropdowns update in-place without navigating
+    - NEVER wrap autocomplete clicks in Promise.all([page.waitForNavigation(), ...]) - this will hang forever
+    CRITICAL DO NOT DO: 
+    - XPath with text() like xpath=//li[text()="value"] - these fail on Stimulus controllers
+    - page.waitForNavigation() for dropdown selections - they don't navigate
+    EXAMPLE (Correct airport selection pattern):
+    await page.locator('input#flight_calculator_from').fill('CDG');
+    await page.waitForTimeout(2000);
+    await page.locator('ul li').first().click();
+    // Repeat for "To" field with 'LHR'
 14. For standard <select> elements:
     - Use .selectOption('internal_value') where 'internal_value' is the value attribute of the <option> tag.
     - NEVER use .fill() on a <select>.
@@ -4290,22 +4327,34 @@ INTERACTIVE PATTERNS (Autocompletes & Dropdowns):
 NAVIGATION RULES:
 16. If the GOAL requires calculating, searching, or filtering data NOT present in the HTML SNAPSHOT (e.g., "Calculate emissions...", "Find price of..."), you MUST provide JS commands in "typescript_config" to reach the result.
 17. DO NOT leave "typescript_config" empty for calculation goals. This is a fatal error.
-18. ALWAYS wait after submitting a form: If you click a submit button, add await page.waitForTimeout(3000) to ensure the results page loads.
+18. ALWAYS wait after submitting a form: If you click a submit button, use **await page.waitForTimeout(3000)** to let results load. DO NOT use page.waitForNavigation() for submit buttons - many forms update in-place with AJAX instead of navigating.
+19. CRITICAL EXTRACTION RULE: When you provide navigation JS in "typescript_config", you MUST ALSO provide extraction patterns in the "extractions" field for the RESULT PAGE data. Even if you can't see the result page yet, provide your best guess at extraction patterns based on the goal (e.g., for "CO2 emissions", try patterns like "CO2.*?([0-9,.]+)\\s*(kg|t)", "emissions.*?([0-9,.]+)", etc.). DO NOT leave "extractions" empty when navigating to get data.
 
-CALCULATION RULE:
-19. If the goal is to CALCULATE or SEARCH, assume the result is NOT in the current HTML. You must fill the form (handling autocompletes if any) and click the submit button.
+- Use double quotes for the JSON wrapper and single quotes for JS strings: "await page.click('selector');"
 
-SYNTAX RULES:
-20. Each JS command in "typescript_config" MUST be a separate awaited statement ending with a semicolon.
-    - ❌ BAD: await page.click('...').click()
-    - ✅ GOOD: await page.click('...'); 
-21. NEVER chain methods like .click() or .waitForTimeout() to a promise that doesn't return the page object.
-22. Use double quotes for the JSON wrapper and single quotes for JS strings: "await page.click('selector');"
+FATAL FORMAT ERROR WARNING:
+- NEVER EVER use nested objects like "calculation_logic" or "interaction_logic": { "step1": ... } inside "typescript_config".
+- "typescript_config" MUST be either a SINGLE STRING of JS code OR a FLAT ARRAY of step objects.
+- ❌ BAD (Object): "typescript_config": { "calculate": { "click": "..." } }
+- ✅ GOOD (String): "typescript_config": "await page.click('...');"
+- ✅ GOOD (Array): "typescript_config": { "steps": [ { "action": "click", "selector": "..." } ] }
+
+REGEX FATAL ERROR WARNING:
+- NEVER EVER use lookarounds like (?=...) or (?<=...). These will CRASH the Go backend.
+- If you need to match after a label, include the label in the regex and use the capturing group for the data.
+- ✅ GOOD: "Price:\\\\s*([0-9,.]+)"
+- ❌ FATAL ERROR: "(?<=Price:\\\\s*)[0-9,.]+"
 
 THINKING PROCESS:
 - STEP 1: Does the goal require user interaction (typing, clicking, selecting)?
-- STEP 2: If YES, write the JS sequence in "typescript_config".
+- STEP 2: If YES, write the JS sequence in "typescript_config". 
 - STEP 3: Identify only the patterns for the FINAL result page after navigation.
+
+CALCULATION RULE:
+- If the GOAL is to "calculate", "search", or "find" something that requires filling a form:
+- YOU MUST PROVIDE "await page.fill('...', '...');" and "await page.click('...');" commands.
+- DO NOT just provide a "commit" click. You must fill the inputs first with the values from the GOAL.
+- DO NOT USE PLACEHOLDERS like {{value}}. Use the actual values from the GOAL (e.g. CDG, LHR).
 
 STRATEGY:
 - Look for custom HTML tags (anything not standard like div/span/p)
@@ -4315,14 +4364,36 @@ STRATEGY:
 - For forms, check if fields are autocompletes that require clicking a suggestion to 'lock' the value.
 - If the goal data isn't in the snapshot, plan the navigation to get there.
 
-Output ONLY the JSON object. Do NOT wrap in markdown code blocks like ` + "```json" + `. Start the response with '{'.`
+Output ONLY the JSON object. Start the response with '{'.`
+
+	if navigationOnly {
+		systemPrompt = `You are an expert web scraper configuration generator.
+
+NAVIGATION-ONLY MODE:
+- The HTML snapshot contains only actionable elements (forms, inputs, buttons).
+- Return a JSON object with "typescript_config" as a string of Playwright commands.
+- DO NOT provide extraction regexes; return "extractions": {} or omit it.
+- Fill required inputs using values from the GOAL, click submit, and wait for results to load.
+
+Output ONLY valid JSON.`
+	}
+
+	// Detect form type to add appropriate hints
+	formTypeHint := ""
+	htmlLower := strings.ToLower(html)
+	if strings.Contains(htmlLower, "from") && strings.Contains(htmlLower, "to") &&
+		(strings.Contains(htmlLower, "flight") || strings.Contains(htmlLower, "airport") || strings.Contains(htmlLower, "destination")) {
+		formTypeHint = "\n### FORM TYPE DETECTED: Flight Calculator\nIMPORTANT: This form uses Stimulus.js autocomplete controllers. You MUST:\n1. Start with: await page.waitForLoadState('networkidle'); // Essential for JS controller initialization\n2. For airport fields: Use airport CODES (e.g., 'SHA' for Shanghai, not the full name)\n3. Fill input, wait for dropdown: await page.waitForTimeout(2000);\n4. Click the first matching option from dropdown\n"
+	}
 
 	userPrompt := fmt.Sprintf(`### GOAL
 %s
 
 ### HTML SNAPSHOT (Truncated)
 %s
-`, goal, html)
+%s`, goal, html, formTypeHint)
+
+	log.Printf("🧾 [MCP-SMART-SCRAPE] Prompt sizes: system=%d chars, user=%d chars, total=%d chars", len(systemPrompt), len(userPrompt), len(systemPrompt)+len(userPrompt))
 
 	if hint != nil {
 		userPrompt += "\n### USER HINTS (PROBABLE REGEX):\n"
@@ -4391,17 +4462,22 @@ INSTRUCTIONS:
 			if err := json.Unmarshal([]byte(cleanedResponse), &rawMap); err == nil {
 				// Successfully parsed into map, now map to struct
 
-				// Handle both "extractions" and "extraction_instructions"
+				// Handle both "extractions", "extraction_instructions", and "data_extraction"
 				var extractions map[string]interface{}
 				if ex, ok := rawMap["extractions"].(map[string]interface{}); ok {
 					extractions = ex
 				} else if ex, ok := rawMap["extraction_instructions"].(map[string]interface{}); ok {
 					extractions = ex
+				} else if ex, ok := rawMap["data_extraction"].(map[string]interface{}); ok {
+					extractions = ex
 				} else {
 					// RESILIENCE: If no wrapper, assume root keys (excluding meta keys) are extractions
 					extractions = make(map[string]interface{})
 					for k, v := range rawMap {
-						if k != "typescript_config" && k != "goal" && k != "explanation" && k != "summary" {
+						kLower := strings.ToLower(k)
+						if kLower != "typescript_config" && kLower != "goal" && kLower != "explanation" &&
+							kLower != "summary" && kLower != "data_extraction" && kLower != "extractions" &&
+							kLower != "extraction_instructions" && kLower != "thought" && kLower != "steps" {
 							extractions[k] = v
 						}
 					}
@@ -4430,8 +4506,18 @@ INSTRUCTIONS:
 						}
 					}
 				}
+
+				// RESILIENCE: Handle typescript_config as string or object anywhere in the response
 				if ts, ok := rawMap["typescript_config"].(string); ok {
 					config.TypeScriptConfig = ts
+				} else if tsObj, ok := rawMap["typescript_config"].(map[string]interface{}); ok {
+					// Handle known keys or flat objects
+					log.Printf("🩹 [MCP-SMART-SCRAPE] Converting typescript_config object to JS string...")
+					config.TypeScriptConfig = convertStepsToJS(tsObj)
+				} else {
+					// ULTIMATE RESILIENCE: Search for anything named 'typescript_config' or 'interactions' or 'steps' recursively
+					log.Printf("🩹 [MCP-SMART-SCRAPE] TypeScript config not at root, searching recursively...")
+					config.TypeScriptConfig = findJSInObject(rawMap)
 				}
 				parseErr = nil
 			} else {
@@ -4506,6 +4592,16 @@ INSTRUCTIONS:
 		return nil, fmt.Errorf("failed to parse LLM planning response: %v (response was: %s)", parseErr, response)
 	}
 
+	// If this was a navigation-only planning pass, ensure extractions are empty
+	if navigationOnly {
+		if config.Extractions == nil {
+			config.Extractions = make(map[string]string)
+		} else {
+			// clear any accidental extraction patterns
+			config.Extractions = make(map[string]string)
+		}
+	}
+
 	return &config, nil
 }
 
@@ -4555,14 +4651,158 @@ func (s *MCPKnowledgeServer) callExternalHDNTool(ctx context.Context, toolID str
 }
 
 // cleanHTMLForPlanning simplifies HTML to make it more digestible for the planning LLM
+// convertStepsToJS takes a JSON object (often generated by larger models) and converts it to Playwright JS
+// convertStepsToJS takes a JSON object (often generated by larger models) and converts it to Playwright JS
+func convertStepsToJS(tsObj map[string]interface{}) string {
+	var js string
+
+	// Case 1: Structured array under "steps", "actions", or "interaction_logic"
+	var steps []interface{}
+	var ok bool
+
+	if val, found := tsObj["steps"]; found {
+		steps, ok = val.([]interface{})
+	}
+	if !ok {
+		if val, found := tsObj["actions"]; found {
+			steps, ok = val.([]interface{})
+		}
+	}
+	if !ok {
+		if val, found := tsObj["interaction_logic"]; found {
+			steps, ok = val.([]interface{})
+		}
+	}
+	if !ok {
+		if val, found := tsObj["interactions"]; found {
+			steps, ok = val.([]interface{})
+		}
+	}
+
+	if ok && len(steps) > 0 {
+		log.Printf("🩹 [MCP-SMART-SCRAPE] Converting structured steps array to JS...")
+		for _, s := range steps {
+			step, ok := s.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			// RESILIENCE: If the model provided a raw command string
+			if cmd, ok := step["command"].(string); ok && cmd != "" {
+				js += cmd + "\n"
+				continue
+			}
+			if cmd, ok := step["code"].(string); ok && cmd != "" {
+				js += cmd + "\n"
+				continue
+			}
+			if cmd, ok := step["js"].(string); ok && cmd != "" {
+				js += cmd + "\n"
+				continue
+			}
+			if cmd, ok := step["javascript"].(string); ok && cmd != "" {
+				js += cmd + "\n"
+				continue
+			}
+
+			action, _ := step["action"].(string)
+			if action == "" {
+				action, _ = step["type"].(string)
+			}
+			selector, _ := step["selector"].(string)
+			if selector == "" {
+				selector, _ = step["target"].(string)
+			}
+			value, _ := step["value"].(string)
+
+			// Normalize action name
+			action = strings.ToLower(strings.TrimSpace(action))
+
+			switch action {
+			case "fill", "type", "fill_input":
+				js += fmt.Sprintf("await page.locator('%s').fill('%s');\n", selector, value)
+			case "click":
+				js += fmt.Sprintf("await page.locator('%s').click();\n", selector)
+			case "selectoption", "select_option":
+				js += fmt.Sprintf("await page.locator('%s').selectOption('%s');\n", selector, value)
+			case "wait":
+				js += "await page.waitForTimeout(1000);\n"
+			case "waitfortimeout", "wait_fortimeout":
+				js += fmt.Sprintf("await page.waitForTimeout(%v);\n", value)
+			}
+		}
+	} else {
+		// Case 2: Flat object or nested object with dynamic keys
+		log.Printf("🩹 [MCP-SMART-SCRAPE] Non-array typescript_config detected, attempting recursive extraction...")
+		js = extractStringsFromObject(tsObj)
+	}
+	return js
+}
+
+// extractStringsFromObject recursively finds all string values in an object and joins them
+// findJSInObject recursively searches for anything that looks like a JS plan
+func findJSInObject(obj map[string]interface{}) string {
+	for k, v := range obj {
+		if isJSKey(k) {
+			if s, ok := v.(string); ok && s != "" {
+				return s
+			}
+			if nest, ok := v.(map[string]interface{}); ok {
+				return convertStepsToJS(nest)
+			}
+			if arr, ok := v.([]interface{}); ok {
+				return convertStepsToJS(map[string]interface{}{"steps": arr})
+			}
+		}
+		if nest, ok := v.(map[string]interface{}); ok {
+			if found := findJSInObject(nest); found != "" {
+				return found
+			}
+		}
+	}
+	return ""
+}
+
+func isJSKey(k string) bool {
+	k = strings.ToLower(k)
+	return k == "typescript_config" || k == "steps" || k == "actions" || k == "interaction_logic" || k == "interactions" || k == "calculation_logic" || k == "navigation"
+}
+
+func extractStringsFromObject(obj map[string]interface{}) string {
+	var js string
+	for k, v := range obj {
+		kLower := strings.ToLower(k)
+		// Skip meta keys
+		if kLower == "goal" || kLower == "explanation" || kLower == "summary" || kLower == "thought" {
+			continue
+		}
+
+		if s, ok := v.(string); ok && s != "" {
+			js += s + "\n"
+		} else if nested, ok := v.(map[string]interface{}); ok {
+			js += extractStringsFromObject(nested)
+		} else if arr, ok := v.([]interface{}); ok {
+			for _, item := range arr {
+				if s, ok := item.(string); ok {
+					js += s + "\n"
+				} else if m, ok := item.(map[string]interface{}); ok {
+					js += extractStringsFromObject(m)
+				}
+			}
+		}
+	}
+	return js
+}
+
 func cleanHTMLForPlanning(html string) string {
-	// 1. Remove script, style, svg, and other noise tags with their content
-	// CRITICAL: Must use non-greedy matching (.*?) to avoid eating everything between the first and last tag
-	tagsToRemove := []string{"script", "style", "svg", "path", "link", "meta", "noscript", "iframe", "head"}
+	// 1. Remove noise tags with their content
+	tagsToRemove := []string{"script", "style", "svg", "path", "link", "meta", "noscript", "iframe", "head", "header", "footer", "nav", "aside", "form"}
+	// Note: We keep "form" if we need to see inputs, but actually MyClimate uses a lot of wrappers.
+	// Wait, don't remove "form" if the goal is to fill a form!
+	tagsToRemove = []string{"script", "style", "svg", "path", "link", "meta", "noscript", "iframe", "head", "header", "footer", "nav", "aside"}
 	for _, tag := range tagsToRemove {
 		re := regexp.MustCompile(`(?is)<` + tag + `[^>]*>.*?</` + tag + `>`)
 		html = re.ReplaceAllString(html, "")
-		// Also handle self-closing tags
 		re = regexp.MustCompile(`(?is)<` + tag + `[^>]*/>`)
 		html = re.ReplaceAllString(html, "")
 	}
@@ -4571,18 +4811,19 @@ func cleanHTMLForPlanning(html string) string {
 	re := regexp.MustCompile(`(?s)<!--.*?-->`)
 	html = re.ReplaceAllString(html, "")
 
-	// 3. Strip extremely noisy attributes that provide no value for scraping/selection
-	noisyAttrs := []string{
-		"data-reactid", "data-tracking", "data-ylk", "data-test-id", "data-rapid-context",
-		"data-image-id", "data-beacons", "data-rapid-param", "data-rapid", "data-analytics",
-		"onclick", "onmouseover", "onmouseout", "onload", "onfocus", "onblur",
-		"style", "rel", "target", "width", "height", "tabindex",
-		"viewbox", "d", "clip-rule", "fill", "stroke", "xmlns", "version",
-	}
-	for _, attr := range noisyAttrs {
-		re = regexp.MustCompile(`(?i)\s` + attr + `=(?:'[^']*'|"[^"]*")`)
-		html = re.ReplaceAllString(html, "")
-	}
+	// 3. Keep ONLY critical attributes for selection/identification
+	// whitelist: id, class, name, value, type, placeholder, href, data-*, aria-label
+	reAttr := regexp.MustCompile(`(?i)\s([a-z0-9-]+)=(?:'[^']*'|"[^"]*"|[^\s>]+)`)
+	html = reAttr.ReplaceAllStringFunc(html, func(fullMatch string) string {
+		attr := strings.ToLower(strings.TrimSpace(fullMatch))
+		whitelist := []string{"id=", "class=", "name=", "value=", "type=", "placeholder=", "href=", "data-", "aria-label="}
+		for _, w := range whitelist {
+			if strings.HasPrefix(attr, w) {
+				return fullMatch
+			}
+		}
+		return ""
+	})
 
 	// 4. Compact multiple spaces and newlines
 	re = regexp.MustCompile(`\n+`)
@@ -4605,11 +4846,239 @@ func sanitizeJSONResponse(js string) string {
 		js = js[first : last+1]
 	}
 
+	// 2.5. Replace backtick-delimited strings with quoted JSON strings
+	// This handles cases like: "typescript_config": `await page.click('...')`
+	reBacktick := regexp.MustCompile("`([^`]*)`")
+	js = reBacktick.ReplaceAllStringFunc(js, func(m string) string {
+		inner := strings.Trim(m, "`")
+		inner = strings.ReplaceAll(inner, "\\", "\\\\")
+		inner = strings.ReplaceAll(inner, "\"", "\\\"")
+		inner = strings.ReplaceAll(inner, "\n", "\\n")
+		return "\"" + inner + "\""
+	})
+
 	// 3. Fix backslash-escaped single quotes (LLM often thinks JSON needs these)
 	js = strings.ReplaceAll(js, "\\'", "'")
+	js = strings.ReplaceAll(js, "\\\\'", "'") // Fix double-escaped ones too
 
-	// 4. Robust: remove trailing commas before closing braces/brackets
+	// 4. Fix over-escaped brackets like \\[ and \\] which are invalid JSON escape sequences
+	js = strings.ReplaceAll(js, "\\\\[", "[")
+	js = strings.ReplaceAll(js, "\\\\]", "]")
+	js = strings.ReplaceAll(js, "\\\\[", "[") // handles double-escaped too
+
+	// 5. Robust: remove trailing commas before closing braces/brackets
 	js = regexp.MustCompile(`,\s*([}\]])`).ReplaceAllString(js, "$1")
 
+	// 5. Fix literal newlines in JSON strings (LLM sometimes leaves them unescaped)
+	reNewline := regexp.MustCompile(`"(?:[^"\\]|\\.)*"`)
+	js = reNewline.ReplaceAllStringFunc(js, func(s string) string {
+		return strings.ReplaceAll(s, "\n", "\\n")
+	})
+
 	return strings.TrimSpace(js)
+}
+
+// buildActionableSnapshot extracts only actionable elements (forms, inputs, selects,
+// buttons, labels, anchors) from a larger HTML snapshot so the LLM can focus
+// on navigation interactions. Falls back to cleaned full HTML if nothing found.
+func (s *MCPKnowledgeServer) buildActionableSnapshot(html string) string {
+	// Prefer extracting actionable controls from the most relevant form if present
+	reForm := regexp.MustCompile(`(?is)<form[^>]*>.*?</form>`)
+	forms := reForm.FindAllString(html, -1)
+	if len(forms) > 0 {
+		// regex to extract actionable tags inside the form
+		reControl := regexp.MustCompile(`(?is)<(?:input|select|button|textarea|label|a)[^>]*?(?:>.*?</(?:input|select|button|textarea|label|a)>|/>)`)
+
+		bestScore := -1
+		bestForm := ""
+		bestControls := []string{}
+
+		for _, f := range forms {
+			controls := reControl.FindAllString(f, -1)
+			score := len(controls)
+			lower := strings.ToLower(f)
+			if strings.Contains(lower, "flight_calculator") {
+				score += 10
+			}
+			if strings.Contains(lower, "flight") {
+				score += 3
+			}
+			if strings.Contains(lower, "calculator") {
+				score += 3
+			}
+			if strings.Contains(lower, "from") && strings.Contains(lower, "to") {
+				score += 2
+			}
+
+			if score > bestScore {
+				bestScore = score
+				bestForm = f
+				bestControls = controls
+			}
+		}
+
+		if len(bestControls) > 0 {
+			snippet := strings.Join(bestControls, "\n")
+			if len(snippet) > 10000 {
+				snippet = snippet[:10000] + "...(truncated)"
+			}
+			return cleanHTMLForPlanning(snippet)
+		}
+		if bestForm != "" {
+			return cleanHTMLForPlanning(bestForm)
+		}
+
+		// if no individual controls found, fall back to returning full form blocks
+		joined := strings.Join(forms, "\n")
+		return cleanHTMLForPlanning(joined)
+	}
+
+	// Otherwise extract small actionable elements
+	re := regexp.MustCompile(`(?is)<(?:input|select|button|textarea|label|a)[^>]*?(?:>.*?</(?:input|select|button|textarea|label|a)>|/>)`)
+	matches := re.FindAllString(html, -1)
+	if len(matches) > 0 {
+		snippet := strings.Join(matches, "\n")
+		if len(snippet) > 20000 {
+			snippet = snippet[:20000] + "...(truncated)"
+		}
+		return cleanHTMLForPlanning(snippet)
+	}
+
+	// Fallback: return the general cleaned HTML
+	return cleanHTMLForPlanning(html)
+}
+
+// sanitizeNavigationScript applies general-purpose fixes to LLM-produced
+// navigation JS by using the actionable HTML snapshot and goal text.
+func (s *MCPKnowledgeServer) sanitizeNavigationScript(js, actionableHTML, goal string) string {
+	if strings.TrimSpace(js) == "" {
+		return js
+	}
+
+	// Replace click on input[name=...][value=...] with selectOption when a select exists.
+	selectNames := map[string]struct{}{}
+	reSelect := regexp.MustCompile(`(?is)<select[^>]*\bname=['"]([^'"]+)['"]`)
+	for _, m := range reSelect.FindAllStringSubmatch(actionableHTML, -1) {
+		if len(m) > 1 {
+			selectNames[m[1]] = struct{}{}
+		}
+	}
+	reClickInputValue := regexp.MustCompile(`page\.click\(\s*['"]input\[name=['"]([^'"]+)['"]\]\[value=['"]([^'"]+)['"]\]['"]\s*\)`)
+	js = reClickInputValue.ReplaceAllStringFunc(js, func(m string) string {
+		subs := reClickInputValue.FindStringSubmatch(m)
+		if len(subs) != 3 {
+			return m
+		}
+		name := subs[1]
+		value := subs[2]
+		if _, ok := selectNames[name]; ok {
+			return fmt.Sprintf("await page.selectOption('select[name=\"%s\"]', '%s');", name, value)
+		}
+		return m
+	})
+
+	// Ensure a submit action exists for calculate/search/find goals.
+	goalLower := strings.ToLower(goal)
+	needsSubmit := strings.Contains(goalLower, "calculate") || strings.Contains(goalLower, "submit") || strings.Contains(goalLower, "search") || strings.Contains(goalLower, "find")
+	if needsSubmit {
+		hasSubmit := strings.Contains(js, "type=\\\"submit\\\"") || strings.Contains(js, "type='submit'") || strings.Contains(js, "keyboard.press('Enter')") || strings.Contains(js, "keyboard.press(\"Enter\")")
+		if !hasSubmit {
+			js = strings.TrimSpace(js) + "\n" + "await page.locator('input[type=\"submit\"], button[type=\"submit\"]').first().click();\nawait page.waitForTimeout(3000);"
+			log.Printf("🧽 [MCP-SMART-SCRAPE] Added generic submit click to navigation script")
+		}
+
+		const fallbackMarker = "MCP_SUBMIT_FALLBACK"
+		if !strings.Contains(js, fallbackMarker) {
+			fallback := "\n" + "/* " + fallbackMarker + " */\n" +
+				"const __mcpInitialUrl = page.url();\n" +
+				"try { await page.waitForLoadState('networkidle'); } catch (e) {}\n" +
+				"await page.waitForTimeout(1500);\n" +
+				"const __mcpHasResults = await page.locator('[id*=\"result\"], .result, .results, [data-testid*=\"result\"]').first().count();\n" +
+				"const __mcpHasForm = await page.locator('form').first().count();\n" +
+				"if (page.url() === __mcpInitialUrl && __mcpHasResults === 0 && __mcpHasForm > 0) {\n" +
+				"  try { await page.locator('input[type=\"submit\"], button[type=\"submit\"], .submit-form, .btn-primary').first().click(); } catch (e) {}\n" +
+				"  try { await page.waitForLoadState('networkidle'); } catch (e) {}\n" +
+				"  await page.waitForTimeout(1500);\n" +
+				"}\n" +
+				"if (page.url() === __mcpInitialUrl && __mcpHasResults === 0 && __mcpHasForm > 0) {\n" +
+				"  try { await page.locator('form').first().evaluate((f) => f.submit()); } catch (e) {}\n" +
+				"  try { await page.waitForLoadState('networkidle'); } catch (e) {}\n" +
+				"  await page.waitForTimeout(1500);\n" +
+				"}\n" +
+				"if (page.url() === __mcpInitialUrl && __mcpHasResults === 0 && __mcpHasForm > 0) {\n" +
+				"  try { await page.keyboard.press('Enter'); } catch (e) {}\n" +
+				"  await page.waitForTimeout(1500);\n" +
+				"}\n"
+			js = strings.TrimSpace(js) + fallback
+			log.Printf("🧽 [MCP-SMART-SCRAPE] Added submit fallback verification to navigation script")
+		}
+	}
+
+	return js
+}
+
+// buildExtractionSnapshot reduces HTML to likely result sections based on ids mentioned in the goal.
+// Falls back to a truncated cleaned HTML when no matching ids are found.
+func (s *MCPKnowledgeServer) buildExtractionSnapshot(html string, goal string) string {
+	// Find any id=... mentions in the goal text
+	ids := map[string]struct{}{}
+	reGoalID := regexp.MustCompile(`(?i)id=([a-z0-9_-]+)`) // simple id=flight_calc_details
+	for _, m := range reGoalID.FindAllStringSubmatch(goal, -1) {
+		if len(m) > 1 {
+			ids[m[1]] = struct{}{}
+		}
+	}
+
+	if len(ids) > 0 {
+		blocks := []string{}
+		seen := map[string]struct{}{}
+		for id := range ids {
+			// Try to capture the full element by id first
+			reByID := regexp.MustCompile(fmt.Sprintf(`(?is)<[^>]*\bid=['"]%s['"][^>]*>.*?</[^>]+>`, regexp.QuoteMeta(id)))
+			if match := reByID.FindString(html); match != "" {
+				if _, ok := seen[match]; !ok {
+					blocks = append(blocks, match)
+					seen[match] = struct{}{}
+				}
+				continue
+			}
+			// Fallback: take a window around the id attribute occurrence
+			needle := fmt.Sprintf("id=\"%s\"", id)
+			idx := strings.Index(html, needle)
+			if idx == -1 {
+				needle = fmt.Sprintf("id='%s'", id)
+				idx = strings.Index(html, needle)
+			}
+			if idx != -1 {
+				start := idx - 1000
+				if start < 0 {
+					start = 0
+				}
+				end := idx + 2000
+				if end > len(html) {
+					end = len(html)
+				}
+				window := html[start:end]
+				if _, ok := seen[window]; !ok {
+					blocks = append(blocks, window)
+					seen[window] = struct{}{}
+				}
+			}
+		}
+
+		if len(blocks) > 0 {
+			snippet := strings.Join(blocks, "\n")
+			if len(snippet) > 20000 {
+				snippet = snippet[:20000] + "...(truncated)"
+			}
+			return cleanHTMLForPlanning(snippet)
+		}
+	}
+
+	// Fallback: return a truncated cleaned HTML
+	snippet := cleanHTMLForPlanning(html)
+	if len(snippet) > 20000 {
+		snippet = snippet[:20000] + "...(truncated)"
+	}
+	return snippet
 }

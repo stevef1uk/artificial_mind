@@ -66,6 +66,8 @@
             display: flex;
             background: #f8f9fa;
             border-bottom: 1px solid #e9ecef;
+            flex-wrap: wrap;
+            gap: 2px;
         }
 
         .tab-button {
@@ -90,6 +92,27 @@
             color: #007bff;
             border-bottom-color: #007bff;
             background: white;
+        }
+
+        /* Highlight special buttons */
+        .tab-button-special {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white !important;
+            font-weight: 600;
+            border-radius: 6px 6px 0 0;
+            margin: 2px 4px 0 4px;
+            border-bottom-color: transparent !important;
+        }
+
+        .tab-button-special:hover {
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+            color: white;
+        }
+
+        .tab-button-special.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white !important;
+            border-bottom-color: white !important;
         }
 
         .tab-content {
@@ -780,7 +803,7 @@
                 <button class="tab-button" onclick="switchTab('agents')">🤖 Agents</button>
                 <button class="tab-button" onclick="switchTab('metrics')">📦 Artefacts</button>
                 <button class="tab-button" onclick="switchTab('logs')">📝 Logs</button>
-                <button class="tab-button" onclick="switchTab('smartscrape')">🕸️ Smart Scrape</button>
+                <button class="tab-button tab-button-special" onclick="switchTab('smartscrape')">🕸️ SMART SCRAPE STUDIO</button>
             </div>
 
             <!-- Overview Tab -->
@@ -1195,7 +1218,12 @@
             <!-- Smart Scrape Tab -->
             <div id="smartscrape-tab" class="tab-content">
                 <div class="card full-width" style="height: 850px; padding: 0; overflow: hidden; border-radius: 15px;">
-                    <iframe src="/static/smart_scrape/" style="width: 100%; height: 100%; border: none;"></iframe>
+                    <div id="smartscrape-loading" style="display: flex; align-items: center; justify-content: center; height: 100%; background: #f8f9fa; flex-direction: column;">
+                        <div style="font-size: 2rem; margin-bottom: 20px;">🕸️</div>
+                        <div style="color: #6c757d; font-size: 1.1rem; margin-bottom: 10px;">Loading Smart Scrape Studio...</div>
+                        <div class="spinner"></div>
+                    </div>
+                    <iframe id="smartscrape-iframe" src="/static/smart_scrape/" style="width: 100%; height: 100%; border: none; display: none;" onload="document.getElementById('smartscrape-loading').style.display='none'; this.style.display='block';"></iframe>
                 </div>
             </div>
         </div>

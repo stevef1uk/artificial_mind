@@ -37,6 +37,7 @@ MONITOR_BIN := $(BIN_DIR)/monitor-ui
 FSM_BIN := $(BIN_DIR)/fsm-server
 GOAL_BIN := $(BIN_DIR)/goal-manager
 TELEGRAM_BOT_BIN := $(BIN_DIR)/telegram-bot
+SCRAPER_BIN := $(BIN_DIR)/playwright-scraper
 TOOLS_DIR := tools
 
 # Go build flags
@@ -120,7 +121,7 @@ help-cross:
 
 # Build all components
 .PHONY: build
-build: build-principles build-hdn build-monitor build-fsm build-goal build-telegram-bot build-tools build-wiki-bootstrapper build-wiki-summarizer build-news-ingestor build-nats-demos build-nats-test validate-safety
+build: build-principles build-hdn build-monitor build-fsm build-goal build-telegram-bot build-tools build-scraper-binary build-wiki-bootstrapper build-wiki-summarizer build-news-ingestor build-nats-demos build-nats-test validate-safety
 
 # Build NATS demos
 .PHONY: build-nats-demos
@@ -172,6 +173,14 @@ build-hdn:
 	@mkdir -p $(BIN_DIR)
 	@cd $(HDN_DIR) && $(GO_ENV) GO111MODULE=on go build -tags neo4j $(GO_BUILD_FLAGS) ../$(HDN_BIN) .
 	@echo "✅ HDN server built: $(HDN_BIN)"
+
+# Build Playwright scraper binary
+.PHONY: build-scraper-binary
+build-scraper-binary:
+	@echo "🔨 Building Playwright scraper binary..."
+	@mkdir -p $(BIN_DIR)
+	@cd $(SCRAPER_DIR) && $(GO_ENV) GO111MODULE=on go build $(GO_BUILD_FLAGS) ../../$(BIN_DIR)/playwright-scraper .
+	@echo "✅ Playwright scraper built: $(SCRAPER_BIN)"
 
 # Build HDN server with Neo4j support (build tag)
 .PHONY: build-hdn-neo4j
@@ -540,10 +549,49 @@ stop-scraper:
 	@docker rm scraper-test 2>/dev/null || echo "Scraper container not found"
 	@echo "✅ Scraper stopped"
 
+# Build scraper Docker image for development (with Playwright dependencies)
+.PHONY: build-scraper-dev
+build-scraper-dev:
+	@echo "🐳 Building Playwright scraper dev image (with Playwright dependencies)..."
+	@docker build \
+		-t playwright-scraper:dev \
+		-f $(SCRAPER_DIR)/Dockerfile.dev \
+		.
+	@echo "✅ Scraper dev image built: playwright-scraper:dev"
+
+# Start scraper service in development mode
+.PHONY: start-scraper-dev
+start-scraper-dev:
+	@echo "🚀 Starting Playwright scraper service (dev mode with codegen support)..."
+	@docker stop playwright-scraper 2>/dev/null || true
+	@docker rm playwright-scraper 2>/dev/null || true
+	@docker run -d --name playwright-scraper -p 8085:8080 \
+		-v /var/run/docker.sock:/var/run/docker.sock \
+		-e PORT=8080 \
+		-e CODEGEN_MODE=container \
+		-e "CODEGEN_NOVNC_URL=http://localhost:7000/vnc.html?autoconnect=1&resize=remote" \
+		playwright-scraper:dev
+	@echo "⏳ Waiting for service to start..."
+	@sleep 3
+	@curl -sf http://localhost:8085/health > /dev/null && echo "✅ Scraper dev service started on port 8085" || (echo "❌ Failed to start scraper"; docker logs playwright-scraper --tail 20; exit 1)
+
+# Stop scraper dev service
+.PHONY: stop-scraper-dev
+stop-scraper-dev:
+	@echo "🛑 Stopping Playwright scraper dev service..."
+	@docker stop playwright-scraper 2>/dev/null || echo "Scraper not running"
+	@docker rm playwright-scraper 2>/dev/null || echo "Scraper container not found"
+	@echo "✅ Scraper dev stopped"
+
 # Restart scraper service
 .PHONY: restart-scraper
 restart-scraper: stop-scraper build-scraper-test start-scraper
 	@echo "✅ Scraper restarted"
+
+# Restart scraper dev service
+.PHONY: restart-scraper-dev
+restart-scraper-dev: stop-scraper-dev build-scraper-dev start-scraper-dev
+	@echo "✅ Scraper dev restarted"
 
 # Test scraper service (all transport types)
 .PHONY: test-scraper
@@ -877,7 +925,7 @@ plan-scrape: build-scrape-planner
 build-scraper-local:
 	@echo "🔨 Building Scraper Service (Local)..."
 	@mkdir -p $(BIN_DIR)
-	@cd $(SCRAPER_DIR) && GO111MODULE=on go build $(GO_BUILD_FLAGS) ../../$(BIN_DIR)/playwright-scraper main.go
+	@cd $(SCRAPER_DIR) && GO111MODULE=on go build $(GO_BUILD_FLAGS) -o $(CURDIR)/$(BIN_DIR)/playwright-scraper .
 	@echo "✅ Scraper Service built: $(BIN_DIR)/playwright-scraper"
 
 # Run Scraper Local

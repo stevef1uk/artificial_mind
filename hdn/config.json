@@ -1,13 +1,13 @@
 {
-  "llm_provider": "ollama",
-  "llm_api_key": "",
+  "llm_provider": "openai",
+  "llm_api_key": "not-needed",
   "mcp_endpoint": "mock://localhost:3000/mcp",
   "settings": {
     "model": "qwen2.5-coder:7b",
     "temperature": "0.7",
     "max_tokens": "4096",
-    "llm_timeout_seconds": "300",
-    "ollama_base_url": "http://192.168.1.53:11434"
+    "llm_timeout_seconds": "600",
+    "openai_url": "http://localhost:11434"
   },
   "server": {
     "port": 8081,

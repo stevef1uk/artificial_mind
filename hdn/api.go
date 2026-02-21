@@ -1073,6 +1073,12 @@ func (s *APIServer) setupRoutes() {
 	// Health check
 	s.router.HandleFunc("/health", s.handleHealth).Methods("GET")
 
+	// Scraper proxy routes (HDN -> Playwright scraper)
+	s.router.HandleFunc("/api/v1/scraper/myclimate/flight", s.handleScraperMyClimateFlight).Methods("POST", "OPTIONS")
+	s.router.HandleFunc("/api/v1/scraper/generic", s.handleScraperGeneric).Methods("POST", "OPTIONS")
+	s.router.HandleFunc("/api/v1/scraper/agent/deploy", s.handleScraperAgentDeploy).Methods("POST", "OPTIONS")
+	s.router.HandleFunc("/api/v1/scraper/health", s.handleScraperHealth).Methods("GET", "OPTIONS")
+
 	// Memory consolidation
 	s.router.HandleFunc("/api/v1/memory/consolidate", s.handleTriggerConsolidation).Methods("POST")
 

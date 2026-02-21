@@ -20,54 +20,71 @@
 
             <div class="form-group">
                 <label for="url-input">Target URL</label>
+                <input type="url" id="url-input" placeholder="https://example.com"
+                    value="https://news.ycombinator.com">
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="form-group">
+                <label for="goal-input">What to Extract?</label>
+                <textarea id="goal-input" rows="4"
+                    placeholder="e.g., Extract all news titles and their scores from the page..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>Record Script (Codegen)</label>
                 <div class="input-wrapper">
-                    <input type="url" id="url-input" placeholder="https://example.com"
-                        value="https://news.ycombinator.com">
-                    <button id="analyze-btn" class="primary-btn">
-                        <span>🔍 Analyze Page</span>
-                        <div id="loading-indicator" class="spinner hidden"></div>
-                    </button>
+                    <button id="codegen-start-btn" class="secondary-btn">▶ Start Codegen</button>
+                    <button id="codegen-status-btn" class="secondary-btn">⟳ Check Status</button>
+                    <button id="codegen-load-btn" class="secondary-btn">⬇ Load Script</button>
                 </div>
+                <div id="codegen-status" class="selector-display">No codegen session</div>
+            </div>
+
+            <div class="form-group">
+                <label for="script-input">Recorded Script</label>
+                <textarea id="script-input" rows="6"
+                    placeholder="Paste or load codegen output here..."></textarea>
+                <button id="script-test-btn" class="secondary-btn" style="margin-top: 10px;">🧪 Test Script</button>
+            </div>
+
+            <div id="script-preview" class="results-box hidden">
+                <h3>🧾 Script Preview</h3>
+                <pre id="script-preview-content" class="script-preview"></pre>
+            </div>
+
+            <div class="form-group">
+                <label for="extractions-input">Extraction Rules (JSON)</label>
+                <textarea id="extractions-input" rows="4"
+                    placeholder='{"price": "Price: (\\d+\\.\\d{2})", "title": "h1.title"}'></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="variables-input">Variables (JSON)</label>
+                <textarea id="variables-input" rows="4"
+                    placeholder='{"FROM":"London Heathrow","TO":"Paris Charles de Gaule","AIRCRAFT":"Boeing 737","PASSENGERS":"1"}'></textarea>
+            </div>
+
+            <div class="form-group">
+                <button id="extract-btn" class="primary-btn">
+                    <span>🚀 EXTRACT NOW</span>
+                    <div id="loading-indicator" class="spinner hidden"></div>
+                </button>
+            </div>
+
+            <div id="results-container" class="results-box hidden">
+                <h3>📊 Results</h3>
+                <div id="results-content" style="max-height: 200px; overflow-y: auto;">
+                </div>
+                <button id="results-copy-btn" class="text-btn">📋 Copy Results</button>
+                <button id="results-clear-btn" class="text-btn">✕ Clear</button>
             </div>
 
             <div class="divider"></div>
 
             <div class="form-group">
-                <label>Browser Interaction</label>
-                <p class="helper-text">Instruct the agent (e.g., "Click Login", "Search for shoes").</p>
-                <div class="input-wrapper">
-                    <input type="text" id="instruction-input" placeholder="What should I do?">
-                    <button id="execute-instruction-btn" class="secondary-btn">
-                        <span>▶️ Execute</span>
-                    </button>
-                    <button id="stop-execution-btn" class="secondary-btn"
-                        style="background-color: #ef4444; margin-left: 8px;">
-                        <span>⏹️ Stop</span>
-                    </button>
-                </div>
-                <div id="interaction-loading" class="status-message hidden">
-                    <div class="spinner" style="display:inline-block; margin-right:8px;"></div>
-                    <span>Thinking...</span>
-                </div>
-            </div>
-
-            <div class="divider"></div>
-
-            <div class="form-group">
-                <label for="goal-input">Extraction Goal</label>
-                <textarea id="goal-input" rows="3"
-                    placeholder="e.g., Extract all news titles and their points..."></textarea>
-            </div>
-
-            <div class="form-group">
-                <label>Selected Element</label>
-                <div id="selected-selector" class="selector-display">None</div>
-            </div>
-
-            <div class="divider"></div>
-
-            <div class="form-group">
-                <label for="agent-name">Agent Name</label>
+                <label for="agent-name">Save as Agent (Optional)</label>
                 <input type="text" id="agent-name" placeholder="My_Scraper_Agent">
             </div>
 
@@ -80,29 +97,24 @@
                 </select>
             </div>
 
-            <button id="create-agent-btn" class="accent-btn" disabled>🚀 Deploy Scraper Agent</button>
+            <button id="create-agent-btn" class="accent-btn">🤖 Deploy as Agent</button>
             <div id="status-message" class="status-message hidden"></div>
         </aside>
 
         <main class="preview-area">
             <div class="preview-header">
-                <h2>WORKSPACE PREVIEW</h2>
-                <div class="preview-controls">
-                    <button id="sync-selector-btn" class="text-btn" style="color: #22c55e;">⚡ Sync Selector</button>
-                    <button id="toggle-view-btn" class="text-btn">🔄 Switch to Interaction View</button>
-                </div>
+                <h2>RESULTS & PREVIEW</h2>
             </div>
-            <div class="iframe-container">
-                <iframe id="page-preview" sandbox="allow-scripts allow-same-origin"></iframe>
-                <img id="screenshot-preview" class="hidden" src="" alt="Session Screenshot">
-                <div id="placeholder-message" class="placeholder">
-                    <div>🌐</div>
-                    <p>Enter a URL to begin the analysis</p>
+            <div id="main-results" class="preview-content">
+                <div class="placeholder">
+                    <div>🕸️</div>
+                    <p>Enter URL and extraction goal, then click "EXTRACT NOW"</p>
+                    <p style="font-size: 0.9em; color: #999;">Results will appear here</p>
                 </div>
             </div>
         </main>
     </div>
-    <script src="app.js?v=20260214-1300"></script>
+    <script src="app.js?v=20260216-0824"></script>
 </body>
 
 </html>

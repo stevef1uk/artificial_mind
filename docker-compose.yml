@@ -4,13 +4,13 @@ services:
   redis:
     image: redis:7-alpine
     container_name: agi-redis
-    command: ["redis-server", "--appendonly", "yes"]
+    command: [ "redis-server", "--appendonly", "yes" ]
     ports:
       - "6379:6379"
     volumes:
       - ./data/redis:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -19,7 +19,7 @@ services:
     image: semitechnologies/weaviate:latest
     container_name: agi-weaviate
     ports:
-      - "8080:8080"   # HTTP
+      - "8080:8080" # HTTP
     volumes:
       - ./data/weaviate:/var/lib/weaviate
     environment:
@@ -30,7 +30,7 @@ services:
       - ENABLE_MODULES=text2vec-cohere,text2vec-huggingface,text2vec-palm,text2vec-openai,generative-openai,generative-cohere,generative-palm,ref2vec-centroid,reranker-cohere,qna-openai
       - CLUSTER_HOSTNAME=node1
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/v1/meta"]
+      test: [ "CMD", "wget", "-qO-", "http://localhost:8080/v1/meta" ]
       interval: 5s
       timeout: 3s
       retries: 60
@@ -45,15 +45,15 @@ services:
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*
       - NEO4J_dbms_security_procedures_allowlist=apoc.*
     ports:
-      - "7474:7474"  # HTTP UI
-      - "7687:7687"  # Bolt
+      - "7474:7474" # HTTP UI
+      - "7687:7687" # Bolt
     volumes:
       - ./data/neo4j/data:/data
       - ./data/neo4j/logs:/logs
       - ./data/neo4j/import:/var/lib/neo4j/import
       # Remove plugins mount to prevent startup scripts from copying APOC and editing conf
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:7474"]
+      test: [ "CMD", "wget", "-qO-", "http://localhost:7474" ]
       interval: 10s
       timeout: 5s
       retries: 60
@@ -61,15 +61,27 @@ services:
   nats:
     image: nats:2.10-alpine
     container_name: agi-nats
-    command: ["--jetstream", "--http_port", "8223", "--port", "4222"]
+    command: [ "--jetstream", "--http_port", "8223", "--port", "4222" ]
     ports:
-      - "4222:4222"  # NATS Core
-      - "8223:8223"  # NATS HTTP Monitoring
+      - "4222:4222" # NATS Core
+      - "8223:8223" # NATS HTTP Monitoring
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8223/varz"]
+      test: [ "CMD", "wget", "-qO-", "http://localhost:8223/varz" ]
       interval: 5s
       timeout: 3s
       retries: 20
+
+  codegen:
+    image: test-codegen:latest
+    container_name: agi-codegen
+    environment:
+      - CODEGEN_URL=${CODEGEN_URL:-https://example.com}
+      - OUTPUT_PATH=/output/codegen.ts
+    ports:
+      - "7000:6080"
+    volumes:
+      - ./data/codegen:/output
+    shm_size: "1gb"
 
 # NOTE: CrewAI RagTool is expected to run as a separate service that connects to Weaviate.
 # Configure it to use http://weaviate:8080 as its vectordb endpoint.
@@ -79,4 +91,5 @@ volumes:
   redis-data:
   weaviate-data:
   neo4j-data:
+
 

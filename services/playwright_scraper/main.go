@@ -36,6 +36,7 @@ type ScrapeRequest struct {
 	URL              string            `json:"url"`
 	TypeScriptConfig string            `json:"typescript_config"`
 	Extractions      map[string]string `json:"extractions,omitempty"`
+	Variables        map[string]string `json:"variables,omitempty"`
 	GetHTML          bool              `json:"get_html,omitempty"`
 	Cookies          []pw.Cookie       `json:"cookies,omitempty"` // Session persistence
 }
@@ -46,6 +47,7 @@ type ScrapeJob struct {
 	URL              string                 `json:"url"`
 	TypeScriptConfig string                 `json:"typescript_config"`
 	Extractions      map[string]string      `json:"extractions,omitempty"`
+	Variables        map[string]string      `json:"variables,omitempty"`
 	GetHTML          bool                   `json:"get_html,omitempty"`
 	Cookies          []pw.Cookie            `json:"cookies,omitempty"`
 	Status           string                 `json:"status"`
@@ -81,7 +83,7 @@ func NewJobStore() *JobStore {
 	}
 }
 
-func (s *JobStore) Create(url, tsConfig string, extractions map[string]string, getHTML bool, cookies []pw.Cookie) *ScrapeJob {
+func (s *JobStore) Create(url, tsConfig string, extractions map[string]string, variables map[string]string, getHTML bool, cookies []pw.Cookie) *ScrapeJob {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -90,6 +92,7 @@ func (s *JobStore) Create(url, tsConfig string, extractions map[string]string, g
 		URL:              url,
 		TypeScriptConfig: tsConfig,
 		Extractions:      extractions,
+		Variables:        variables,
 		GetHTML:          getHTML,
 		Cookies:          cookies,
 		Status:           JobStatusPending,
@@ -236,8 +239,9 @@ func (s *ScraperService) executeJob(job *ScrapeJob) (map[string]interface{}, err
 		}
 	})
 
+	resolvedConfig := applyTemplateVariables(job.TypeScriptConfig, job.Variables)
 	// Parse TypeScript config
-	operations, err := parseTypeScriptConfig(job.TypeScriptConfig)
+	operations, err := parseTypeScriptConfig(resolvedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse TypeScript config: %v", err)
 	}
@@ -250,6 +254,13 @@ func (s *ScraperService) executeJob(job *ScrapeJob) (map[string]interface{}, err
 
 func parseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
 	var operations []PlaywrightOperation
+
+	// Log first 500 chars of the config for debugging
+	preview := tsConfig
+	if len(preview) > 500 {
+		preview = preview[:500] + "..."
+	}
+	log.Printf("📝 TypeScript config (first 500 chars): %s", preview)
 
 	// Parse operations in order by finding all 'await page.' patterns
 	// stop at semicolon, newline, or end of string
@@ -264,6 +275,27 @@ func parseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
 	}
 
 	return operations, nil
+}
+
+func applyTemplateVariables(tsConfig string, variables map[string]string) string {
+	if tsConfig == "" || len(variables) == 0 {
+		return tsConfig
+	}
+
+	replacerArgs := make([]string, 0, len(variables)*4)
+	for key, value := range variables {
+		if key == "" {
+			continue
+		}
+		replacerArgs = append(replacerArgs, "{{"+key+"}}", value)
+		replacerArgs = append(replacerArgs, "${"+key+"}", value)
+	}
+	if len(replacerArgs) == 0 {
+		return tsConfig
+	}
+
+	replacer := strings.NewReplacer(replacerArgs...)
+	return replacer.Replace(tsConfig)
 }
 
 func parseOperation(line string) PlaywrightOperation {
@@ -290,6 +322,21 @@ func parseOperation(line string) PlaywrightOperation {
 	// getByText with .click() (no .first())
 	if matches := regexp.MustCompile(`await\s+page\.getByText\(['"](.+?)['"]\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "getByTextClick", Text: matches[1]}
+	}
+
+	// page.fill() - direct fill on selector
+	if matches := regexp.MustCompile(`await\s+page\.fill\(['"](.+?)['"]\s*,\s*['"](.+?)['"]\s*\)`).FindStringSubmatch(line); len(matches) > 2 {
+		return PlaywrightOperation{Type: "locatorFill", Selector: matches[1], Value: matches[2]}
+	}
+
+	// page.click() - direct click on selector
+	if matches := regexp.MustCompile(`await\s+page\.click\(['"](.+?)['"]\s*\)`).FindStringSubmatch(line); len(matches) > 1 {
+		return PlaywrightOperation{Type: "locator", Selector: matches[1]}
+	}
+
+	// page.selectOption() - direct select on selector
+	if matches := regexp.MustCompile(`await\s+page\.selectOption\(['"](.+?)['"]\s*,\s*['"](.+?)['"]\s*\)`).FindStringSubmatch(line); len(matches) > 2 {
+		return PlaywrightOperation{Type: "locatorSelectOptionFirst", Selector: matches[1], Value: matches[2]}
 	}
 
 	// locator with .first().locator().fill()
@@ -350,6 +397,21 @@ func parseOperation(line string) PlaywrightOperation {
 		return PlaywrightOperation{Type: "locator", Selector: matches[1]}
 	}
 
+	// page.focus() - focus on selector
+	if matches := regexp.MustCompile(`await\s+page\.focus\(['"](.+?)['"]\s*\)`).FindStringSubmatch(line); len(matches) > 1 {
+		return PlaywrightOperation{Type: "locator", Selector: matches[1]}
+	}
+
+	// page.waitForNavigation() - wait for page load
+	if strings.Contains(line, "waitForNavigation") {
+		return PlaywrightOperation{Type: "wait", TimeoutMS: 3000}
+	}
+
+	// Promise.all() - skip, it will be handled as individual operations
+	if strings.Contains(line, "Promise.all") {
+		return PlaywrightOperation{}
+	}
+
 	// keyboard.press
 	if matches := regexp.MustCompile(`await\s+page\.keyboard\.press\(['"]([^'"]+)['"]\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "keyboardPress", Value: matches[1]}
@@ -368,6 +430,132 @@ func parseOperation(line string) PlaywrightOperation {
 	}
 
 	return PlaywrightOperation{}
+}
+
+func collectFallbackValues(operations []PlaywrightOperation) ([]string, []string) {
+	var fillValues []string
+	var selectValues []string
+
+	for _, op := range operations {
+		switch op.Type {
+		case "getByRoleFill", "locatorFill", "locatorFillAtIndex", "scopedLocatorFillFirst", "scopedLocatorFillNth":
+			value := strings.TrimSpace(op.Value)
+			if value != "" {
+				fillValues = append(fillValues, value)
+			}
+		case "locatorSelectOptionFirst":
+			value := strings.TrimSpace(op.Value)
+			if value != "" {
+				selectValues = append(selectValues, value)
+			}
+		}
+	}
+
+	return fillValues, selectValues
+}
+
+func applyGenericFillFallback(page pw.Page, fillValues []string, selectValues []string) (int, int, error) {
+	if len(fillValues) == 0 && len(selectValues) == 0 {
+		return 0, 0, nil
+	}
+
+	// Ensure slices are not nil - JavaScript needs arrays, not null
+	if fillValues == nil {
+		fillValues = []string{}
+	}
+	if selectValues == nil {
+		selectValues = []string{}
+	}
+
+	result, err := page.Evaluate(`(values, selectValues) => {
+		// Defensive: ensure inputs are arrays
+		if (!Array.isArray(values)) values = [];
+		if (!Array.isArray(selectValues)) selectValues = [];
+
+		const isVisible = (el) => {
+			const style = window.getComputedStyle(el);
+			return style && style.display !== 'none' && style.visibility !== 'hidden' && el.offsetParent !== null;
+		};
+
+		const inputs = Array.from(document.querySelectorAll('input, textarea')).filter((el) => {
+			if (!isVisible(el)) return false;
+			const type = (el.getAttribute('type') || '').toLowerCase();
+			if (['hidden', 'submit', 'button', 'checkbox', 'radio', 'file'].includes(type)) return false;
+			if (el.disabled || el.readOnly) return false;
+			return true;
+		});
+
+		let filled = 0;
+		for (let i = 0; i < inputs.length && filled < values.length; i++) {
+			const el = inputs[i];
+			if (el.value && el.value.trim() !== '') continue;
+			const v = values[filled];
+			if (typeof v !== 'string' || v.trim() === '') continue;
+			el.focus();
+			el.value = v;
+			el.dispatchEvent(new Event('input', { bubbles: true }));
+			el.dispatchEvent(new Event('change', { bubbles: true }));
+			filled++;
+		}
+
+		const selects = Array.from(document.querySelectorAll('select')).filter((el) => isVisible(el) && !el.disabled);
+		let selected = 0;
+		for (let i = 0; i < selects.length && selected < selectValues.length; i++) {
+			const sel = selects[i];
+			const target = selectValues[selected];
+			let applied = false;
+			if (typeof target === 'string' && target.trim() !== '') {
+				const opt = Array.from(sel.options || []).find((o) => o.value === target || (o.textContent || '').trim() === target);
+				if (opt) {
+					sel.value = opt.value;
+					applied = true;
+				}
+			}
+
+			if (!applied && sel.options && sel.options.length > 1) {
+				sel.selectedIndex = 1;
+				applied = true;
+			}
+
+			if (applied) {
+				sel.dispatchEvent(new Event('change', { bubbles: true }));
+				selected++;
+			}
+		}
+
+		return { filled, selected, inputs: inputs.length, selects: selects.length };
+	}`, fillValues, selectValues)
+	if err != nil {
+		return 0, 0, fmt.Errorf("generic fallback evaluate failed: %v", err)
+	}
+
+	if result == nil {
+		return 0, 0, fmt.Errorf("generic fallback evaluate returned nil result")
+	}
+
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		return 0, 0, fmt.Errorf("unexpected fallback result type: %T", result)
+	}
+
+	return asInt(resultMap["filled"]), asInt(resultMap["selected"]), nil
+}
+
+func asInt(value interface{}) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int32:
+		return int(v)
+	case int64:
+		return int(v)
+	case float32:
+		return int(v)
+	case float64:
+		return int(v)
+	default:
+		return 0
+	}
 }
 
 func executePlaywrightOperations(url string, operations []PlaywrightOperation, extractions map[string]string, getHTML bool, cookies []pw.Cookie) (map[string]interface{}, error) {
@@ -455,7 +643,13 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 	}
 	defer page.Close()
 
-	page.SetDefaultTimeout(120000) // 120 seconds
+	defaultTimeoutMS := 30000
+	if envTimeout := os.Getenv("SCRAPE_ACTION_TIMEOUT_MS"); envTimeout != "" {
+		if parsed, err := strconv.Atoi(envTimeout); err == nil && parsed > 0 {
+			defaultTimeoutMS = parsed
+		}
+	}
+	page.SetDefaultTimeout(float64(defaultTimeoutMS))
 
 	waitUntil := pw.WaitUntilStateLoad
 	if os.Getenv("SCRAPE_WAIT_UNTIL") == "networkidle" {
@@ -467,6 +661,8 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 	}); err != nil {
 		return nil, fmt.Errorf("failed to navigate: %v", err)
 	}
+
+	initialURL := page.URL()
 
 	// Execute operations
 	for i, op := range operations {
@@ -680,6 +876,75 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 		}
 	}
 
+	fillValues, selectValues := collectFallbackValues(operations)
+	if len(operations) > 0 && page.URL() == initialURL {
+		resultCount, _ := page.Locator("[id*='result'], .result, .results, [data-testid*='result']").Count()
+		log.Printf("🔍 Generic fallback check: fillValues=%d, selectValues=%d, resultCount=%d", len(fillValues), len(selectValues), resultCount)
+		if resultCount == 0 && (len(fillValues) > 0 || len(selectValues) > 0) {
+			filled, selected, err := applyGenericFillFallback(page, fillValues, selectValues)
+			if err != nil {
+				log.Printf("   ⚠️ Generic fallback fill failed: %v", err)
+			} else if filled > 0 || selected > 0 {
+				log.Printf("🛟 Generic fallback filled %d inputs and %d selects", filled, selected)
+				time.Sleep(500 * time.Millisecond)
+			}
+		}
+	}
+
+	// Submit fallback with explicit timeout and snapshot on failure.
+	if len(operations) > 0 && page.URL() == initialURL {
+		formCount, _ := page.Locator("form").Count()
+		submitCount, _ := page.Locator("input[type='submit'], button[type='submit'], .submit-form, .btn-primary").Count()
+		resultCount, _ := page.Locator("[id*='result'], .result, .results, [data-testid*='result']").Count()
+		if formCount > 0 && submitCount > 0 && resultCount == 0 {
+			log.Printf("🧽 Submit fallback: URL unchanged (%s), attempting alternate submit paths", initialURL)
+			fallbackDeadline := time.Now().Add(15 * time.Second)
+			attempt := 0
+			snapshotHTML := ""
+			for attempt < 3 && time.Now().Before(fallbackDeadline) {
+				attempt++
+				switch attempt {
+				case 1:
+					if err := page.Locator("input[type='submit'], button[type='submit'], .submit-form, .btn-primary").First().Click(); err != nil {
+						log.Printf("   ⚠️ Submit fallback click failed: %v", err)
+					}
+				case 2:
+					if _, err := page.Evaluate(`() => { const f = document.querySelector('form'); if (f) f.submit(); }`); err != nil {
+						log.Printf("   ⚠️ Submit fallback form.submit() failed: %v", err)
+					}
+				case 3:
+					if err := page.Keyboard().Press("Enter"); err != nil {
+						log.Printf("   ⚠️ Submit fallback Enter failed: %v", err)
+					}
+				}
+
+				time.Sleep(1500 * time.Millisecond)
+				snapshotHTML, _ = page.Content()
+				if len(snapshotHTML) > 20000 {
+					snapshotHTML = snapshotHTML[:20000] + "...(truncated)"
+				}
+				log.Printf("📸 Submit snapshot captured (%d chars)", len(snapshotHTML))
+
+				if page.URL() != initialURL {
+					break
+				}
+				resultCount, _ = page.Locator("[id*='result'], .result, .results, [data-testid*='result']").Count()
+				if resultCount > 0 {
+					break
+				}
+			}
+			if page.URL() == initialURL {
+				resultCount, _ = page.Locator("[id*='result'], .result, .results, [data-testid*='result']").Count()
+				if resultCount == 0 {
+					return nil, &SnapshotError{
+						Err:  fmt.Errorf("submit fallback did not transition from %s within 15s", initialURL),
+						HTML: snapshotHTML,
+					}
+				}
+			}
+		}
+	}
+
 	// Wait for final state
 	page.WaitForLoadState(pw.PageWaitForLoadStateOptions{State: pw.LoadStateNetworkidle})
 
@@ -799,6 +1064,9 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 // HTTP Handlers
 
 func (s *ScraperService) handleStartScrape(w http.ResponseWriter, r *http.Request) {
+	if handleCORSPreflight(w, r) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -810,14 +1078,25 @@ func (s *ScraperService) handleStartScrape(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if req.URL == "" {
+	// Use URL from request, but fall back to extracting from config if missing
+	jobURL := req.URL
+	if jobURL == "" {
+		// Attempt to extract from config (simple regex)
+		re := regexp.MustCompile(`page\.goto\(['"](.*?)['"]`)
+		matches := re.FindStringSubmatch(req.TypeScriptConfig)
+		if len(matches) > 1 {
+			jobURL = matches[1]
+		}
+	}
+
+	if jobURL == "" {
 		http.Error(w, "Missing url", http.StatusBadRequest)
 		return
 	}
 
 	// Create job
 	log.Printf("📥 ScrapeRequest received with %d cookies", len(req.Cookies))
-	job := s.store.Create(req.URL, req.TypeScriptConfig, req.Extractions, req.GetHTML, req.Cookies)
+	job := s.store.Create(jobURL, req.TypeScriptConfig, req.Extractions, req.Variables, req.GetHTML, req.Cookies)
 
 	// Queue for processing
 	s.jobQueue <- job.ID
@@ -834,6 +1113,9 @@ func (s *ScraperService) handleStartScrape(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *ScraperService) handleGetJob(w http.ResponseWriter, r *http.Request) {
+	if handleCORSPreflight(w, r) {
+		return
+	}
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -945,6 +1227,43 @@ func saveSnapshot(jobID, html string) {
 }
 
 func main() {
+	// Initialize Playwright
+	log.Println("🔧 Installing Playwright browser (one-time setup)...")
+	err := pw.Install(&pw.RunOptions{})
+	if err != nil {
+		log.Printf("⚠️  Playwright installation warning: %v (continuing anyway)", err)
+	} else {
+		log.Println("✅ Playwright installed")
+	}
+
+	// Start Playwright
+	playwright, err := pw.Run()
+	if err != nil {
+		// Log warning but continue - some operations don't need browser
+		log.Printf("⚠️  Playwright initialization warning: %v (some features unavailable)", err)
+	} else {
+		defer playwright.Stop()
+
+		// Launch browser
+		browser, err := playwright.Chromium.Launch()
+		if err != nil {
+			log.Printf("⚠️  Browser launch warning: %v (MyClimate/Generic scraper features unavailable)", err)
+		} else {
+			defer browser.Close()
+
+			// Initialize logger
+			logger := &SimpleServiceLogger{}
+
+			// Initialize MyClimate handlers
+			initMyClimateHandlers(http.DefaultServeMux, browser, logger)
+			log.Println("✅ MyClimate handlers initialized")
+
+			// Initialize generic scraper handlers
+			initGenericHandlers(http.DefaultServeMux, browser, logger)
+			log.Println("✅ Generic scraper handlers initialized")
+		}
+	}
+
 	// Create scraper service with 3 worker threads
 	service := NewScraperService(3)
 	service.Start()
@@ -957,7 +1276,6 @@ func main() {
 	// STAGE 2: Fix endpoint
 	http.HandleFunc("/scrape/fix", service.handleFixJob)
 
-	// Start server
 	// Start server
 	port := os.Getenv("PORT")
 	if port == "" {
