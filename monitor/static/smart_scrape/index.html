@@ -20,8 +20,7 @@
 
             <div class="form-group">
                 <label for="url-input">Target URL</label>
-                <input type="url" id="url-input" placeholder="https://example.com"
-                    value="https://news.ycombinator.com">
+                <input type="url" id="url-input" placeholder="https://example.com" value="https://news.ycombinator.com">
             </div>
 
             <div class="divider"></div>
@@ -30,6 +29,13 @@
                 <label for="goal-input">What to Extract?</label>
                 <textarea id="goal-input" rows="4"
                     placeholder="e.g., Extract all news titles and their scores from the page..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <button id="extract-btn" class="accent-btn">
+                    <span>🚀 EXTRACT NOW</span>
+                    <div id="loading-indicator" class="spinner hidden"></div>
+                </button>
             </div>
 
             <div class="form-group">
@@ -44,9 +50,11 @@
 
             <div class="form-group">
                 <label for="script-input">Recorded Script</label>
-                <textarea id="script-input" rows="6"
-                    placeholder="Paste or load codegen output here..."></textarea>
-                <button id="script-test-btn" class="secondary-btn" style="margin-top: 10px;">🧪 Test Script</button>
+                <textarea id="script-input" rows="6" placeholder="Paste or load codegen output here..."></textarea>
+                <button id="script-test-btn" class="secondary-btn" style="margin-top: 10px;">
+                    <span>🧪 Test Script</span>
+                    <div class="spinner hidden"></div>
+                </button>
             </div>
 
             <div id="script-preview" class="results-box hidden">
@@ -66,12 +74,6 @@
                     placeholder='{"FROM":"London Heathrow","TO":"Paris Charles de Gaule","AIRCRAFT":"Boeing 737","PASSENGERS":"1"}'></textarea>
             </div>
 
-            <div class="form-group">
-                <button id="extract-btn" class="primary-btn">
-                    <span>🚀 EXTRACT NOW</span>
-                    <div id="loading-indicator" class="spinner hidden"></div>
-                </button>
-            </div>
 
             <div id="results-container" class="results-box hidden">
                 <h3>📊 Results</h3>
@@ -104,6 +106,10 @@
         <main class="preview-area">
             <div class="preview-header">
                 <h2>RESULTS & PREVIEW</h2>
+                <div class="view-tabs hidden" id="view-tabs">
+                    <button id="tab-interactive" class="tab-btn active">🌐 Interactive</button>
+                    <button id="tab-raw" class="tab-btn">📄 Raw JSON</button>
+                </div>
             </div>
             <div id="main-results" class="preview-content">
                 <div class="placeholder">
@@ -112,9 +118,15 @@
                     <p style="font-size: 0.9em; color: #999;">Results will appear here</p>
                 </div>
             </div>
+
+            <div id="preview-container" class="iframe-container hidden">
+                <div class="extraction-hint">💡 <b>Tip:</b> Click on any text or element in the preview below to
+                    automatically add it to your Extraction Rules.</div>
+                <iframe id="page-preview"></iframe>
+            </div>
         </main>
     </div>
-    <script src="app.js?v=20260216-0824"></script>
+    <script src="app.js?v=20260221-1308"></script>
 </body>
 
 </html>

@@ -171,9 +171,8 @@ button:active {
 .accent-btn {
     background: linear-gradient(135deg, #4caf50, #2e7d32);
     color: #fff;
-    padding: 16px;
+    padding: 14px;
     width: 100%;
-    margin-top: 24px;
     font-size: 1rem;
     box-shadow: 0 8px 25px rgba(76, 175, 80, 0.2);
 }
@@ -218,15 +217,73 @@ button:active {
     flex-direction: column;
     background: #000;
     box-shadow: inset 20px 0 50px rgba(0, 0, 0, 0.5);
+    height: 100vh;
+    overflow: hidden;
+}
+
+.preview-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    height: calc(100vh - 60px);
 }
 
 .preview-header {
-    padding: 16px 24px;
-    background: rgba(20, 20, 30, 0.9);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    height: 60px;
+    padding: 0 24px;
+    background: rgba(20, 20, 30, 0.95);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-shrink: 0;
+}
+
+.view-tabs {
+    display: flex;
+    background: rgba(0, 0, 0, 0.4);
+    padding: 4px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.tab-btn {
+    padding: 8px 16px;
+    font-size: 0.8rem;
+    border-radius: 8px;
+    color: #888;
+    background: transparent;
+    transition: all 0.2s ease;
+    border: none;
+    cursor: pointer;
+}
+
+.tab-btn:hover {
+    color: #fff;
+}
+
+.tab-btn.active {
+    background: rgba(76, 175, 80, 0.2);
+    color: #4caf50;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.extraction-hint {
+    position: absolute;
+    top: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    padding: 8px 20px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    z-index: 100;
+    border: 1px solid #4caf50;
+    backdrop-filter: blur(10px);
+    pointer-events: none;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+    white-space: nowrap;
 }
 
 .preview-header h2 {
@@ -242,13 +299,13 @@ button:active {
     background: #fff;
     margin: 20px;
     border-radius: 16px;
-    overflow-y: auto;
-    /* Enable scrolling for tall content */
-    overflow-x: hidden;
+    overflow: hidden;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    display: flex;
 }
 
 iframe#page-preview {
+    flex: 1;
     width: 100%;
     height: 100%;
     border: none;
@@ -260,6 +317,32 @@ iframe#page-preview {
     height: auto;
     display: block;
     background: #1a1a1a;
+}
+
+.result-card {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 24px;
+    margin-bottom: 24px;
+}
+
+.result-card h3 {
+    margin-top: 0;
+    color: #4caf50;
+    margin-bottom: 16px;
+}
+
+.result-data pre {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 16px;
+    border-radius: 12px;
+    overflow: visible;
+    color: #e0e0e0;
+    font-family: 'Fira Code', monospace;
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+    word-break: break-all;
 }
 
 .placeholder {
@@ -295,6 +378,22 @@ iframe#page-preview {
     to {
         transform: rotate(360deg);
     }
+}
+
+.loading-full {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #aaa;
+    gap: 20px;
+}
+
+.spinner.large {
+    width: 60px;
+    height: 60px;
+    border-width: 5px;
 }
 
 .status-message {
