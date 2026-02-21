@@ -28,10 +28,11 @@ const variablesInput = document.getElementById('variables-input');
 const scriptPreview = document.getElementById('script-preview');
 const scriptPreviewContent = document.getElementById('script-preview-content');
 
-const agentName = document.getElementById('agent-name');
-const scheduleSelect = document.getElementById('schedule-select');
-const createBtn = document.getElementById('create-agent-btn');
 const statusMsg = document.getElementById('status-message');
+const showApiBtn = document.getElementById('show-api-btn');
+const apiCommandsPanel = document.getElementById('api-commands-panel');
+const apiCmdStart = document.getElementById('api-cmd-start');
+const apiCmdPoll = document.getElementById('api-cmd-poll');
 
 // --- STATE ---
 const scraperBaseUrl = 'http://localhost:8085';
@@ -482,45 +483,41 @@ scriptTestBtn.addEventListener('click', async () => {
     }
 });
 
-createBtn.addEventListener('click', async () => {
-    const name = agentName.value.trim();
-    if (!name) {
-        showStatus('Agent name is required', 'error');
-        return;
-    }
-    const url = urlInput.value.trim();
-    const instructions = goalInput ? goalInput.value.trim() : '';
-
+showApiBtn.addEventListener('click', () => {
+    const url = urlInput.value.trim() || 'https://your-target-url.com';
+    const extractions = extractionsInput.value.trim();
     const script = scriptInput.value.trim();
-    const variables = parseJsonField(variablesInput, 'Variables');
-    const extractions = parseJsonField(extractionsInput, 'Extractions');
-    createBtn.disabled = true;
-    showStatus('Deploying agent...', 'info');
-    try {
-        const resp = await fetch(scraperBaseUrl + '/api/scraper/agent/deploy', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name,
-                url,
-                instructions,
-                typescript_config: script || undefined,
-                variables: variables || undefined,
-                extractions: extractions || undefined,
-                frequency: scheduleSelect.value
-            })
-        });
-        if (!resp.ok) {
-            const errData = await resp.json().catch(() => ({}));
-            throw new Error(errData.error || 'Deployment failed: ' + resp.status);
-        }
-        showStatus('Agent "' + name + '" deployed successfully!', 'success');
-        agentName.value = '';
-    } catch (err) {
-        showStatus(err.message, 'error');
-    } finally {
-        createBtn.disabled = false;
+    const variables = variablesInput.value.trim();
+
+    const payload = { url };
+    if (extractions) {
+        try { payload.extractions = JSON.parse(extractions); } catch (e) { }
     }
+    if (script) payload.typescript_config = script;
+    if (variables) {
+        try { payload.variables = JSON.parse(variables); } catch (e) { }
+    }
+    payload.get_html = false;
+
+    const payloadStr = JSON.stringify(payload, null, 2);
+    const startCmd = `curl -X POST http://localhost:8085/scrape/start \\
+  -H "Content-Type: application/json" \\
+  -d '${payloadStr}'`;
+    const pollCmd = `curl http://localhost:8085/scrape/job?job_id=JOB_ID`;
+
+    apiCmdStart.textContent = startCmd;
+    apiCmdPoll.textContent = pollCmd;
+    apiCommandsPanel.classList.toggle('hidden');
+});
+
+document.getElementById('copy-cmd-start').addEventListener('click', () => {
+    navigator.clipboard.writeText(apiCmdStart.textContent)
+        .then(() => showStatus('Start command copied!', 'success'));
+});
+
+document.getElementById('copy-cmd-poll').addEventListener('click', () => {
+    navigator.clipboard.writeText(apiCmdPoll.textContent)
+        .then(() => showStatus('Poll command copied!', 'success'));
 });
 
 resultsCopyBtn.addEventListener('click', () => {

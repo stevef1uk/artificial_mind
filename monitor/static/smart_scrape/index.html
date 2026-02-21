@@ -94,20 +94,21 @@
             <div class="divider"></div>
 
             <div class="form-group">
-                <label for="agent-name">Save as Agent (Optional)</label>
-                <input type="text" id="agent-name" placeholder="My_Scraper_Agent">
+                <button id="show-api-btn" class="secondary-btn" style="width:100%;">📋 Show API Commands</button>
             </div>
 
-            <div class="form-group">
-                <label for="schedule-select">Frequency</label>
-                <select id="schedule-select">
-                    <option value="once">Run Once</option>
-                    <option value="hourly">Hourly</option>
-                    <option value="daily">Daily</option>
-                </select>
+            <div id="api-commands-panel" class="results-box hidden" style="font-size:0.78rem;">
+                <h3 style="color:#63dc8c;margin-top:0;">📡 API Commands</h3>
+                <p style="color:var(--text-muted);margin:0 0 8px;">Run this to start the extraction:</p>
+                <pre id="api-cmd-start"
+                    style="background:rgba(0,0,0,0.4);padding:10px;border-radius:8px;white-space:pre-wrap;word-break:break-all;color:#e0e0e0;"></pre>
+                <button class="text-btn" id="copy-cmd-start" style="margin-bottom:12px;">📋 Copy</button>
+                <p style="color:var(--text-muted);margin:0 0 8px;">Then poll for results (replace JOB_ID):</p>
+                <pre id="api-cmd-poll"
+                    style="background:rgba(0,0,0,0.4);padding:10px;border-radius:8px;white-space:pre-wrap;word-break:break-all;color:#e0e0e0;"></pre>
+                <button class="text-btn" id="copy-cmd-poll">📋 Copy</button>
             </div>
 
-            <button id="create-agent-btn" class="accent-btn">🤖 Deploy as Agent</button>
             <div id="status-message" class="status-message hidden"></div>
         </aside>
 
@@ -137,7 +138,7 @@
             </div>
         </main>
     </div>
-    <script src="app.js?v=20260221-1712"></script>
+    <script src="app.js?v=20260221-1724"></script>
 </body>
 
 </html>
