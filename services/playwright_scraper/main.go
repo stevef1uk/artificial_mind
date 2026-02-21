@@ -1249,12 +1249,15 @@ func saveSnapshot(jobID, html string) {
 
 func main() {
 	// Initialize Playwright
-	log.Println("🔧 Installing Playwright browser (one-time setup)...")
-	err := pw.Install(&pw.RunOptions{})
+	log.Println("🔧 Installing Playwright Chromium browser (one-time setup)...")
+	// Only install chromium to save time and space, especially on RPI
+	err := pw.Install(&pw.RunOptions{
+		Browsers: []string{"chromium"},
+	})
 	if err != nil {
 		log.Printf("⚠️  Playwright installation warning: %v (continuing anyway)", err)
 	} else {
-		log.Println("✅ Playwright installed")
+		log.Println("✅ Playwright Chromium installed")
 	}
 
 	// Start Playwright
