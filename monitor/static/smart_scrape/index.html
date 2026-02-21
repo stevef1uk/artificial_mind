@@ -25,36 +25,44 @@
 
             <div class="divider"></div>
 
+            <h2 class="section-title">🎯 EXTRACT</h2>
+            <p class="section-hint">Enter CSS selectors or regex for the data you want. No script needed for simple
+                pages.</p>
+
             <div class="form-group">
-                <label for="goal-input">What to Extract?</label>
-                <textarea id="goal-input" rows="4"
-                    placeholder="e.g., Extract all news titles and their scores from the page..."></textarea>
+                <label for="extractions-input">Extraction Rules (CSS selectors or regex)</label>
+                <textarea id="extractions-input" rows="4"
+                    placeholder='{"title": "h1", "price": "span.price", "date": "time.posted"}'></textarea>
             </div>
 
             <div class="form-group">
                 <button id="extract-btn" class="accent-btn" style="margin-top: 10px;">
-                    <span>🚀 EXTRACT NOW</span>
+                    <span>🎯 Extract Data</span>
                     <div class="spinner hidden"></div>
                 </button>
+                <p class="section-hint" style="margin-top:6px;">Applies selectors to the URL. Works without a script for
+                    simple pages.</p>
             </div>
+            <div class="divider"></div>
+
+            <h2 class="section-title">🛠️ ADVANCED: Script + Extract</h2>
+            <p class="section-hint">Need to click through pages before extracting? Record a script first, then run it
+                with your selectors above.</p>
 
             <div class="form-group">
-                <label>Record Script (Codegen)</label>
+                <label>Step 1: Record Navigation (Codegen)</label>
                 <div class="input-wrapper">
                     <button id="codegen-start-btn" class="secondary-btn">▶ Start Codegen</button>
-                    <button id="codegen-status-btn" class="secondary-btn">⟳ Check Status</button>
-                    <button id="codegen-load-btn" class="secondary-btn">⬇ Load Script</button>
+                    <button id="codegen-status-btn" class="secondary-btn">⟳ Status</button>
+                    <button id="codegen-load-btn" class="secondary-btn">⬇ Load</button>
                 </div>
                 <div id="codegen-status" class="selector-display">No codegen session</div>
             </div>
 
             <div class="form-group">
-                <label for="script-input">Recorded Script</label>
-                <textarea id="script-input" rows="6" placeholder="Paste or load codegen output here..."></textarea>
-                <button id="script-test-btn" class="secondary-btn" style="margin-top: 10px;">
-                    <span>🧪 Test Script</span>
-                    <div class="spinner hidden"></div>
-                </button>
+                <label for="script-input">Step 2: Recorded Script (optional)</label>
+                <textarea id="script-input" rows="5"
+                    placeholder="Leave empty to just apply selectors to the URL directly..."></textarea>
             </div>
 
             <div id="script-preview" class="results-box hidden">
@@ -63,15 +71,15 @@
             </div>
 
             <div class="form-group">
-                <label for="extractions-input">Extraction Rules (JSON)</label>
-                <textarea id="extractions-input" rows="4"
-                    placeholder='{"price": "Price: (\\d+\\.\\d{2})", "title": "h1.title"}'></textarea>
+                <label for="variables-input">Variables (JSON)</label>
+                <textarea id="variables-input" rows="3" placeholder='{"FROM":"London","TO":"Paris"}'></textarea>
             </div>
 
             <div class="form-group">
-                <label for="variables-input">Variables (JSON)</label>
-                <textarea id="variables-input" rows="4"
-                    placeholder='{"FROM":"London Heathrow","TO":"Paris Charles de Gaule","AIRCRAFT":"Boeing 737","PASSENGERS":"1"}'></textarea>
+                <button id="script-test-btn" class="secondary-btn" style="margin-top: 4px;">
+                    <span>🧪 Run Script + Extract</span>
+                    <div class="spinner hidden"></div>
+                </button>
             </div>
 
 
@@ -129,7 +137,7 @@
             </div>
         </main>
     </div>
-    <script src="app.js?v=20260221-1610"></script>
+    <script src="app.js?v=20260221-1712"></script>
 </body>
 
 </html>

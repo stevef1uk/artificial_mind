@@ -242,6 +242,8 @@ func initGenericHandlers(mux *http.ServeMux, browser pw.Browser, logger scraper_
 	log.Println("  ✓ /api/codegen/status")
 	mux.HandleFunc("/api/codegen/result", handleCodegenResult)
 	log.Println("  ✓ /api/codegen/result")
+	mux.HandleFunc("/api/codegen/latest", handleCodegenLatest)
+	log.Println("  ✓ /api/codegen/latest")
 
 	// Workflow-based scraper endpoint
 	mux.HandleFunc("/api/scraper/workflow", func(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,7 @@
 // --- ELEMENTS ---
 const urlInput = document.getElementById('url-input');
-const goalInput = document.getElementById('goal-input');
+const goalInput = document.getElementById('goal-input'); // may be null after UI redesign
+
 const extractBtn = document.getElementById('extract-btn');
 const mainResults = document.getElementById('main-results');
 const resultsContainer = document.getElementById('results-container');
@@ -70,22 +71,56 @@ function resetPreviewArea() {
 
 function renderSimpleResult(title, data) {
     lastResult = data;
-    resultsContainer.classList.remove('hidden');
-    resultsContent.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
 
+    // Separate extracted fields from metadata/html noise
+    const SKIP_KEYS = new Set(['cleaned_html', 'html', 'full_html', 'cookies', 'page_url', 'page_title']);
+    const extracted = {};
+    const meta = {};
+    for (const [k, v] of Object.entries(data)) {
+        if (SKIP_KEYS.has(k)) meta[k] = v;
+        else extracted[k] = v;
+    }
+
+    const hasExtracted = Object.keys(extracted).length > 0;
     const html = data.cleaned_html || data.html || data.full_html;
 
+    // Build result display
+    let html_out = `<div class="result-card">`;
+    html_out += `<h3>✅ ${title}</h3>`;
+
+    if (hasExtracted) {
+        html_out += `<div class="extracted-fields">`;
+        for (const [k, v] of Object.entries(extracted)) {
+            html_out += `<div class="extracted-row"><span class="field-name">${k}</span><span class="field-value">${String(v)}</span></div>`;
+        }
+        html_out += `</div>`;
+    } else {
+        html_out += `<p style="color:var(--text-muted);font-size:0.85rem;">⚠️ No fields extracted — check your CSS selectors match the page structure.</p>`;
+    }
+
+    // Page metadata (collapsed)
+    html_out += `<details style="margin-top:12px;"><summary style="cursor:pointer;color:var(--text-muted);font-size:0.8rem;">📄 Page info & raw data</summary>`;
+    html_out += `<pre style="font-size:0.75rem;max-height:200px;overflow:auto;">${JSON.stringify({ page_url: data.page_url, page_title: data.page_title, ...extracted }, null, 2)}</pre>`;
+    html_out += `</details>`;
+    html_out += `</div>`;
+
+    mainResults.innerHTML = html_out;
+    mainResults.classList.remove('hidden');
+
+    // Update sidebar results
+    resultsContainer.classList.remove('hidden');
+    resultsContent.innerHTML = `<pre>${JSON.stringify(hasExtracted ? extracted : data, null, 2)}</pre>`;
+
+    // Show iframe preview if HTML available
     if (html) {
         viewTabs.classList.remove('hidden');
         renderIframe(html, data.page_url || urlInput.value.trim());
         switchView('interactive');
     } else {
         viewTabs.classList.add('hidden');
-        switchView('raw');
     }
-
-    mainResults.innerHTML = '<div class="result-card"><h3>✅ ' + title + '</h3><div class="result-data"><pre>' + JSON.stringify(data, null, 2) + '</pre></div></div>';
 }
+
 
 function switchView(view) {
     currentView = view;
@@ -283,26 +318,25 @@ closePreviewBtn.addEventListener('click', () => resetPreviewArea());
 
 extractBtn.addEventListener('click', async () => {
     const url = urlInput.value.trim();
-    const instructions = goalInput.value.trim();
     if (!url) {
         alert('Please enter a target URL first.');
         showStatus('URL is required', 'error');
         return;
     }
-    if (!instructions) {
-        alert('Please enter "What to Extract?" instructions (Goal-based).');
-        showStatus('Instructions are required', 'error');
+    const extractions = parseJsonField(extractionsInput, 'Extractions') || {};
+    if (Object.keys(extractions).length === 0) {
+        showStatus('Add at least one extraction rule (CSS selector or regex)', 'error');
         return;
     }
     extractBtn.disabled = true;
     const spinner = extractBtn.querySelector('.spinner');
     if (spinner) spinner.classList.remove('hidden');
-    showLoadingState('🚀 Executing Smart Scrape...');
+    showLoadingState('🎯 Extracting data...');
     try {
         const resp = await fetch(scraperBaseUrl + '/scrape/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url, instructions, get_html: true })
+            body: JSON.stringify({ url, extractions, get_html: true })
         });
         if (!resp.ok) throw new Error('Server returned ' + resp.status);
         const data = await resp.json();
@@ -310,7 +344,7 @@ extractBtn.addEventListener('click', async () => {
         if (job.status === 'failed') {
             throw new Error(job.error || 'Extraction failed');
         }
-        renderSimpleResult('Smart Scrape Results', job.result);
+        renderSimpleResult('Extraction Results', job.result);
         showStatus('Extraction successful!', 'success');
     } catch (err) {
         showStatus(err.message, 'error');
@@ -359,17 +393,37 @@ codegenStatusBtn.addEventListener('click', () => {
 });
 
 codegenLoadBtn.addEventListener('click', async () => {
-    if (!codegenSessionId) {
-        showStatus('No active codegen session', 'info');
-        return;
-    }
     showStatus('Loading recorded script...', 'info');
     try {
-        const resp = await fetch(scraperBaseUrl + '/api/codegen/result?id=' + codegenSessionId);
-        if (!resp.ok) throw new Error('Failed to load script: ' + resp.status);
-        const script = await resp.text();
-        scriptInput.value = script;
-        showStatus('Script loaded into editor', 'success');
+        let script = null;
+
+        // 1. Try loading by session ID first
+        if (codegenSessionId) {
+            const resp = await fetch(scraperBaseUrl + '/api/codegen/result?id=' + codegenSessionId);
+            if (resp.ok) {
+                script = await resp.text();
+            }
+        }
+
+        // 2. Fallback: load the most recently recorded script
+        if (!script) {
+            const resp = await fetch(scraperBaseUrl + '/api/codegen/latest');
+            if (resp.ok) {
+                script = await resp.text();
+                const modified = resp.headers.get('X-Script-Modified') || '';
+                const filename = resp.headers.get('X-Script-File') || 'latest script';
+                showStatus(`Loaded latest script: ${filename} (${modified ? new Date(modified).toLocaleTimeString() : ''})`, 'success');
+            } else {
+                throw new Error('No recorded scripts found. Please record a session first.');
+            }
+        }
+
+        if (script && script.trim()) {
+            scriptInput.value = script;
+            showStatus('✅ Script loaded into editor', 'success');
+        } else {
+            throw new Error('Script is empty — recording may not have completed.');
+        }
     } catch (err) {
         showStatus(err.message, 'error');
     }
@@ -377,23 +431,20 @@ codegenLoadBtn.addEventListener('click', async () => {
 
 scriptTestBtn.addEventListener('click', async () => {
     const url = urlInput.value.trim();
-    const script = scriptInput.value.trim();
+    const script = scriptInput.value.trim(); // optional
     if (!url) {
         alert('Please enter a target URL first.');
         showStatus('URL is required', 'error');
         return;
     }
-    if (!script) {
-        alert('Please enter or load a Recorded Script first.');
-        showStatus('Script is required', 'error');
-        return;
-    }
     const variables = parseJsonField(variablesInput, 'Variables') || {};
     const extractions = parseJsonField(extractionsInput, 'Extractions') || {};
-    const validation = validateVariablesAgainstScript(script, variables);
-    if (validation.missing.length > 0) {
-        showStatus('Missing variables: ' + validation.missing.join(', '), 'error');
-        return;
+    if (script) {
+        const validation = validateVariablesAgainstScript(script, variables);
+        if (validation.missing.length > 0) {
+            showStatus('Missing variables: ' + validation.missing.join(', '), 'error');
+            return;
+        }
     }
     scriptTestBtn.disabled = true;
     const spinner = scriptTestBtn.querySelector('.spinner');
@@ -405,6 +456,8 @@ scriptTestBtn.addEventListener('click', async () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 url,
+                instructions: goalInput ? goalInput.value.trim() : '',
+
                 typescript_config: script,
                 variables,
                 extractions,
@@ -436,7 +489,8 @@ createBtn.addEventListener('click', async () => {
         return;
     }
     const url = urlInput.value.trim();
-    const instructions = goalInput.value.trim();
+    const instructions = goalInput ? goalInput.value.trim() : '';
+
     const script = scriptInput.value.trim();
     const variables = parseJsonField(variablesInput, 'Variables');
     const extractions = parseJsonField(extractionsInput, 'Extractions');

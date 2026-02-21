@@ -341,3 +341,55 @@ func getenvDefault(key, fallback string) string {
 	}
 	return val
 }
+
+// handleCodegenLatest returns the most recently modified .ts file in the output directory
+func handleCodegenLatest(w http.ResponseWriter, r *http.Request) {
+	if handleCORSPreflight(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	outputDir := getenvDefault("CODEGEN_OUTPUT_DIR", filepath.Join(os.TempDir(), "agi_codegen"))
+	entries, err := os.ReadDir(outputDir)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Cannot read output dir: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	var latestPath string
+	var latestMod time.Time
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".ts") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(latestMod) {
+			latestMod = info.ModTime()
+			latestPath = filepath.Join(outputDir, e.Name())
+		}
+	}
+
+	if latestPath == "" {
+		http.Error(w, "No recorded scripts found", http.StatusNotFound)
+		return
+	}
+
+	data, err := os.ReadFile(latestPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read script: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	setCORSHeaders(w)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Script-File", filepath.Base(latestPath))
+	w.Header().Set("X-Script-Modified", latestMod.Format(time.RFC3339))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}

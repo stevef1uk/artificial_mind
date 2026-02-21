@@ -1,0 +1,26 @@
+{
+  "name": "generic_news_scraper",
+  "url": "https://news.ycombinator.com",
+  "wait_until": "networkidle",
+  "actions": [
+    {
+      "name": "Wait for page load",
+      "action": "wait",
+      "wait": 2000
+    }
+  ],
+  "extractions": {
+    "stories": {
+      "pattern": "^[0-9]+\\.",
+      "type": "array"
+    },
+    "titles": {
+      "selector": ".titleline > a",
+      "type": "array"
+    },
+    "scores": {
+      "pattern": "([0-9]+)\\s+points",
+      "type": "array"
+    }
+  }
+}

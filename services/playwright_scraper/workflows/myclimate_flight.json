@@ -1,0 +1,63 @@
+{
+  "name": "MyClimate Flight Calculator",
+  "description": "Scrapes flight emissions from MyClimate CO2 calculator",
+  "url": "https://co2.myclimate.org/en/flight_calculators/new",
+  "wait_until": "networkidle",
+  "actions": [
+    {
+      "name": "Dismiss Consent Dialog",
+      "action": "click",
+      "selector": "button:has-text(\"Accept\")",
+      "optional": true,
+      "timeout": 2000,
+      "wait": 1000
+    },
+    {
+      "name": "Fill From Airport",
+      "action": "fill",
+      "selector": "input[id=\"flight_calculator_from\"]",
+      "value": "${from}"
+    },
+    {
+      "name": "Select From Dropdown",
+      "action": "keyboard",
+      "selector": "input[id=\"flight_calculator_from\"]",
+      "keys": ["ArrowDown", "Enter"],
+      "wait": 1500
+    },
+    {
+      "name": "Fill To Airport",
+      "action": "fill",
+      "selector": "input[id=\"flight_calculator_to\"]",
+      "value": "${to}"
+    },
+    {
+      "name": "Select To Dropdown",
+      "action": "keyboard",
+      "selector": "input[id=\"flight_calculator_to\"]",
+      "keys": ["ArrowDown", "Enter"],
+      "wait": 1500
+    },
+    {
+      "name": "Submit Form",
+      "action": "keyboard",
+      "selector": "input[id=\"flight_calculator_to\"]",
+      "keys": ["Enter"],
+      "wait": 3000
+    }
+  ],
+  "extractions": {
+    "distance_km": {
+      "pattern": "(\\d+[\\d\\.]*)?\\s*km",
+      "type": "string"
+    },
+    "emissions_co2": {
+      "pattern": "CO₂\\s*amount[:\\s]*(\\d+[\\d\\.]*)?\\s*t",
+      "type": "string"
+    },
+    "distance_used_for_calculation": {
+      "pattern": "ca\\.\\s+(\\d+[\\d\\.]*)?\\s*km",
+      "type": "string"
+    }
+  }
+}

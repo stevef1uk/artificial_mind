@@ -34,6 +34,7 @@ const (
 // ScrapeRequest represents an incoming scrape request
 type ScrapeRequest struct {
 	URL              string            `json:"url"`
+	Instructions     string            `json:"instructions"`
 	TypeScriptConfig string            `json:"typescript_config"`
 	Extractions      map[string]string `json:"extractions,omitempty"`
 	Variables        map[string]string `json:"variables,omitempty"`
@@ -45,6 +46,7 @@ type ScrapeRequest struct {
 type ScrapeJob struct {
 	ID               string                 `json:"id"`
 	URL              string                 `json:"url"`
+	Instructions     string                 `json:"instructions"`
 	TypeScriptConfig string                 `json:"typescript_config"`
 	Extractions      map[string]string      `json:"extractions,omitempty"`
 	Variables        map[string]string      `json:"variables,omitempty"`
@@ -83,13 +85,14 @@ func NewJobStore() *JobStore {
 	}
 }
 
-func (s *JobStore) Create(url, tsConfig string, extractions map[string]string, variables map[string]string, getHTML bool, cookies []pw.Cookie) *ScrapeJob {
+func (s *JobStore) Create(url, instructions, tsConfig string, extractions map[string]string, variables map[string]string, getHTML bool, cookies []pw.Cookie) *ScrapeJob {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	job := &ScrapeJob{
 		ID:               uuid.New().String(),
 		URL:              url,
+		Instructions:     instructions,
 		TypeScriptConfig: tsConfig,
 		Extractions:      extractions,
 		Variables:        variables,
@@ -249,7 +252,7 @@ func (s *ScraperService) executeJob(job *ScrapeJob) (map[string]interface{}, err
 	log.Printf("📋 Parsed %d operations", len(operations))
 
 	// Execute Playwright operations
-	return executePlaywrightOperations(job.URL, operations, job.Extractions, job.GetHTML, job.Cookies)
+	return executePlaywrightOperations(job.URL, operations, job.Instructions, job.Extractions, job.GetHTML, job.Cookies)
 }
 
 func parseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
@@ -558,7 +561,7 @@ func asInt(value interface{}) int {
 	}
 }
 
-func executePlaywrightOperations(url string, operations []PlaywrightOperation, extractions map[string]string, getHTML bool, cookies []pw.Cookie) (map[string]interface{}, error) {
+func executePlaywrightOperations(url string, operations []PlaywrightOperation, instructions string, extractions map[string]string, getHTML bool, cookies []pw.Cookie) (map[string]interface{}, error) {
 	// Start Playwright
 	pwInstance, err := pw.Run()
 	if err != nil {
@@ -1013,44 +1016,60 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, e
 	// Write to debug file to see EXACTLY what we are matching against
 	_ = os.WriteFile("/tmp/scraper_debug_content.html", []byte(searchContent), 0644)
 
-	// Dynamic extractions (Pass in with other instructions)
+	// 2. Explicit Extractions (CSS or Regex)
 	if extractions != nil {
-		log.Printf("📊 Running %d dynamic extractions...", len(extractions))
-		for name, regexStr := range extractions {
-			log.Printf("   🔍 Pattern for %s: %s", name, regexStr)
-			// Note: Go standard regexp doesn't support lookarounds.
-			// We try to clean up the regex if it looks like it was generated with lookarounds.
-			// This is a common hallucination for LLMs.
-			cleanRegex := regexStr
-			if strings.Contains(cleanRegex, "?<=") || strings.Contains(cleanRegex, "?=") {
-				log.Printf("   ⚠️ Lookarounds detected, Go regexp may fail")
-			}
+		log.Printf("📊 Running %d explicit extractions...", len(extractions))
+		for name, selector := range extractions {
+			log.Printf("   🔍 Processing %s: %s", name, selector)
 
-			re, err := regexp.Compile("(?is)" + cleanRegex) // Added 's' flag for dot-matches-newline
-			if err != nil {
-				log.Printf("   ⚠️ Invalid regex for %s: %v", name, err)
-				continue
-			}
-
-			// Try matching against the combined search content
-			allMatches := re.FindAllStringSubmatch(searchContent, -1)
-			if len(allMatches) > 0 {
-				var firstMatch string
-				// Only use the first match to avoid capturing multiple values
-				m := allMatches[0]
-				if len(m) > 1 {
-					// Only use the first capturing group
-					firstMatch = strings.TrimSpace(m[1])
-				} else {
-					firstMatch = strings.TrimSpace(m[0])
+			// Try as CSS selector first
+			locator := page.Locator(selector).First()
+			if count, err := locator.Count(); err == nil && count > 0 {
+				if text, err := locator.TextContent(); err == nil && strings.TrimSpace(text) != "" {
+					results[name] = strings.TrimSpace(text)
+					log.Printf("   ✅ Found CSS match for %s", name)
+					continue
 				}
+			}
 
-				if firstMatch != "" {
+			// Fallback to Regex
+			re, err := regexp.Compile("(?is)" + selector)
+			if err == nil {
+				allMatches := re.FindAllStringSubmatch(rawHTML, -1)
+				if len(allMatches) > 0 {
+					m := allMatches[0]
+					firstMatch := ""
+					if len(m) > 1 {
+						firstMatch = strings.TrimSpace(m[1])
+					} else {
+						firstMatch = strings.TrimSpace(m[0])
+					}
+					log.Printf("   ✅ Found Regex match for %s", name)
 					results[name] = firstMatch
-					log.Printf("   ✅ Found %d matches for %s, using first: %s", len(allMatches), name, firstMatch)
 				}
 			} else {
-				log.Printf("   ❌ No match for %s", name)
+				log.Printf("   ❌ No match or invalid selector for %s", name)
+			}
+		}
+	}
+
+	// 3. Smart Extraction (if instructions provided and no results yet)
+	if instructions != "" && len(results) <= 3 { // 3 is basic fields: url, title, cookies
+		log.Printf("🔍 Running smart extraction for goal: %s", instructions)
+		// Try to find prices, dates, or emails if mentioned
+		content, _ := page.InnerText("body")
+
+		if strings.Contains(strings.ToLower(instructions), "price") {
+			re := regexp.MustCompile(`\$?\d+\.?\d*|\€\d+\.?\d*|£\d+\.?\d*`)
+			if m := re.FindString(content); m != "" {
+				results["price_found"] = m
+			}
+		}
+
+		if strings.Contains(strings.ToLower(instructions), "email") {
+			re := regexp.MustCompile(`[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}`)
+			if m := re.FindString(content); m != "" {
+				results["email_found"] = m
 			}
 		}
 	}
@@ -1095,8 +1114,8 @@ func (s *ScraperService) handleStartScrape(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Create job
-	log.Printf("📥 ScrapeRequest received with %d cookies", len(req.Cookies))
-	job := s.store.Create(jobURL, req.TypeScriptConfig, req.Extractions, req.Variables, req.GetHTML, req.Cookies)
+	log.Printf("📥 ScrapeRequest received (Goal: %s, Script: %t)", req.Instructions, req.TypeScriptConfig != "")
+	job := s.store.Create(jobURL, req.Instructions, req.TypeScriptConfig, req.Extractions, req.Variables, req.GetHTML, req.Cookies)
 
 	// Queue for processing
 	s.jobQueue <- job.ID
