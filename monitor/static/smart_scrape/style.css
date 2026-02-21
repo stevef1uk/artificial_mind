@@ -241,10 +241,12 @@ button:active {
 
 .view-tabs {
     display: flex;
+    flex-direction: row !important;
     background: rgba(0, 0, 0, 0.4);
     padding: 4px;
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.1);
+    align-items: center;
 }
 
 .tab-btn {
@@ -337,7 +339,8 @@ iframe#page-preview {
     background: rgba(0, 0, 0, 0.3);
     padding: 16px;
     border-radius: 12px;
-    overflow: visible;
+    overflow-y: auto;
+    max-height: 70vh;
     color: #e0e0e0;
     font-family: 'Fira Code', monospace;
     font-size: 0.9rem;

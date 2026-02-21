@@ -2,7 +2,6 @@
 const urlInput = document.getElementById('url-input');
 const goalInput = document.getElementById('goal-input');
 const extractBtn = document.getElementById('extract-btn');
-const loadingIndicator = document.getElementById('loading-indicator');
 const mainResults = document.getElementById('main-results');
 const resultsContainer = document.getElementById('results-container');
 const resultsContent = document.getElementById('results-content');
@@ -19,6 +18,7 @@ const pagePreview = document.getElementById('page-preview');
 const viewTabs = document.getElementById('view-tabs');
 const tabInteractive = document.getElementById('tab-interactive');
 const tabRaw = document.getElementById('tab-raw');
+const closePreviewBtn = document.getElementById('close-preview-btn');
 
 const scriptInput = document.getElementById('script-input');
 const scriptTestBtn = document.getElementById('script-test-btn');
@@ -53,6 +53,19 @@ function showStatus(message, type = 'info') {
     setTimeout(() => {
         statusMsg.classList.add('hidden');
     }, 5000);
+}
+
+function resetPreviewArea() {
+    mainResults.innerHTML = `
+        <div class="placeholder">
+            <div>🕵️</div>
+            <p>Enter a URL and instructions to start scraping...</p>
+        </div>
+    `;
+    mainResults.classList.remove('hidden');
+    previewContainer.classList.add('hidden');
+    viewTabs.classList.add('hidden');
+    resultsContainer.classList.add('hidden');
 }
 
 function renderSimpleResult(title, data) {
@@ -266,16 +279,24 @@ function validateVariablesAgainstScript(script, vars) {
 
 tabInteractive.addEventListener('click', () => switchView('interactive'));
 tabRaw.addEventListener('click', () => switchView('raw'));
+closePreviewBtn.addEventListener('click', () => resetPreviewArea());
 
 extractBtn.addEventListener('click', async () => {
     const url = urlInput.value.trim();
     const instructions = goalInput.value.trim();
-    if (!url || !instructions) {
-        showStatus('URL and instructions are required', 'error');
+    if (!url) {
+        alert('Please enter a target URL first.');
+        showStatus('URL is required', 'error');
+        return;
+    }
+    if (!instructions) {
+        alert('Please enter "What to Extract?" instructions (Goal-based).');
+        showStatus('Instructions are required', 'error');
         return;
     }
     extractBtn.disabled = true;
-    loadingIndicator.classList.remove('hidden');
+    const spinner = extractBtn.querySelector('.spinner');
+    if (spinner) spinner.classList.remove('hidden');
     showLoadingState('🚀 Executing Smart Scrape...');
     try {
         const resp = await fetch(scraperBaseUrl + '/scrape/start', {
@@ -296,7 +317,8 @@ extractBtn.addEventListener('click', async () => {
         mainResults.innerHTML = '<div class="error-box"><h3>❌ Error</h3><p>' + err.message + '</p></div>';
     } finally {
         extractBtn.disabled = false;
-        loadingIndicator.classList.add('hidden');
+        const spinner = extractBtn.querySelector('.spinner');
+        if (spinner) spinner.classList.add('hidden');
     }
 });
 
@@ -356,8 +378,14 @@ codegenLoadBtn.addEventListener('click', async () => {
 scriptTestBtn.addEventListener('click', async () => {
     const url = urlInput.value.trim();
     const script = scriptInput.value.trim();
-    if (!url || !script) {
-        showStatus('URL and script are required', 'error');
+    if (!url) {
+        alert('Please enter a target URL first.');
+        showStatus('URL is required', 'error');
+        return;
+    }
+    if (!script) {
+        alert('Please enter or load a Recorded Script first.');
+        showStatus('Script is required', 'error');
         return;
     }
     const variables = parseJsonField(variablesInput, 'Variables') || {};
@@ -396,6 +424,7 @@ scriptTestBtn.addEventListener('click', async () => {
         mainResults.innerHTML = '<div class="error-box"><h3>❌ Error</h3><p>' + err.message + '</p></div>';
     } finally {
         scriptTestBtn.disabled = false;
+        const spinner = scriptTestBtn.querySelector('.spinner');
         if (spinner) spinner.classList.add('hidden');
     }
 });
@@ -451,9 +480,7 @@ resultsCopyBtn.addEventListener('click', () => {
 resultsClearBtn.addEventListener('click', () => {
     resultsContent.innerHTML = '';
     resultsContainer.classList.add('hidden');
-    mainResults.classList.remove('hidden');
-    previewContainer.classList.add('hidden');
-    viewTabs.classList.add('hidden');
+    resetPreviewArea();
 });
 
 window.addEventListener('message', (e) => {
