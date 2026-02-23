@@ -4,7 +4,7 @@ go 1.24.4
 
 require (
 	github.com/go-rod/rod v0.116.2
-	github.com/playwright-community/playwright-go v0.5200.1
+	github.com/playwright-community/playwright-go v0.5700.0
 )
 
 require (

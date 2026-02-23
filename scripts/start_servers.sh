@@ -128,6 +128,10 @@ kill_port 8082 "Monitor UI"
 kill_port 8083 "FSM Server"
 kill_port 8090 "Goal Manager"
 kill_by_name "telegram-bot" "Telegram Bot"
+kill_port 8085 "Playwright Scraper"
+# Also ensure no docker container is hogging the port
+docker stop playwright-scraper 2>/dev/null || true
+docker rm playwright-scraper 2>/dev/null || true
 # Infra ports (potentially managed by Docker Desktop) — only clean up if not skipping infra
 if [ "$SKIP_INFRA" != "true" ]; then
     kill_port 8080 "Weaviate"
@@ -158,8 +162,11 @@ if [ -f "$AGI_PROJECT_ROOT/.env" ]; then
     export ANTHROPIC_API_KEY
     export OLLAMA_URL
     export LLM_TIMEOUT
+    export CODEGEN_MODE
+    export CODEGEN_OUTPUT_DIR
     echo "🔧 Exported LLM_PROVIDER: $LLM_PROVIDER"
     echo "🔧 Exported LLM_MODEL: $LLM_MODEL"
+    echo "🔧 Exported CODEGEN_MODE: $CODEGEN_MODE"
 fi
 
 # Set X86-optimized Docker resource limits for local development
@@ -197,7 +204,7 @@ if [ "$SKIP_INFRA" = "true" ]; then
 else
     echo "🏗️  Starting Infrastructure Services (Neo4j + Weaviate + Redis + NATS)..."
     cd "$AGI_PROJECT_ROOT"
-    docker-compose up -d neo4j weaviate redis nats
+    docker-compose up -d neo4j weaviate redis nats codegen
 
     # Wait for Neo4j to be ready
     if ! wait_for_service "http://localhost:7474" "Neo4j"; then
@@ -257,7 +264,7 @@ run_service() {
     
     # Show relevant environment variables being passed
     echo "🔧 Environment variables being passed:"
-    printenv | grep -E '^(LLM_|OPENAI_|ANTHROPIC_|OLLAMA_|EXECUTION_METHOD|ENABLE_ARM64_TOOLS|DOCKER_|REDIS_|NATS_|NEO4J_|WEAVIATE_|PRINCIPLES_|HDN_|FSM_|GOAL_|MONITOR_)' | sed 's/^/  /' || echo "  (none found)"
+    printenv | grep -E '^(LLM_|OPENAI_|ANTHROPIC_|OLLAMA_|EXECUTION_METHOD|ENABLE_ARM64_TOOLS|DOCKER_|REDIS_|NATS_|NEO4J_|WEAVIATE_|PRINCIPLES_|HDN_|FSM_|GOAL_|MONITOR_|CODEGEN_)' | sed 's/^/  /' || echo "  (none found)"
 
     if [ -x "$binpath" ]; then
         # Environment is already exported above; run directly
@@ -514,6 +521,28 @@ else
     echo "⏭️  TELEGRAM_BOT_TOKEN not set, skipping Telegram Bot startup"
 fi
 
+# Start Playwright Scraper
+echo "🔨 Building Playwright Scraper..."
+cd "$AGI_PROJECT_ROOT"
+make build-scraper-binary >/dev/null 2>&1 || { echo "❌ Failed to build Playwright Scraper"; SCRAPER_PID=""; }
+
+if [ -f "$AGI_PROJECT_ROOT/bin/playwright-scraper" ]; then
+	export CODEGEN_MODE="container"
+	export CODEGEN_OUTPUT_DIR="$AGI_PROJECT_ROOT/data/codegen"
+    SCRAPER_PID=$(run_service "playwright_scraper" \
+        "$AGI_PROJECT_ROOT" \
+        "$AGI_PROJECT_ROOT/bin/playwright-scraper") || {
+        echo "⚠️  Playwright Scraper failed to start, but continuing"; SCRAPER_PID=""; }
+    
+    # Wait for Scraper to be ready
+    if [ -n "$SCRAPER_PID" ]; then
+        echo "⏳ Waiting for Playwright Scraper to be ready..."
+        if ! wait_for_service "http://localhost:8085/health" "Playwright Scraper"; then
+            echo "⚠️  Scraper health check failed, but continuing"
+        fi
+    fi
+fi
+
 
 # Save PIDs for cleanup
 echo "$PRINCIPLES_PID" > /tmp/principles_server.pid
@@ -529,6 +558,9 @@ if [ ! -z "$GOAL_PID" ]; then
 fi
 if [ ! -z "$TELEGRAM_BOT_PID" ]; then
     echo "$TELEGRAM_BOT_PID" > /tmp/telegram_bot.pid
+fi
+if [ ! -z "$SCRAPER_PID" ]; then
+    echo "$SCRAPER_PID" > /tmp/playwright_scraper.pid
 fi
 
 echo ""
@@ -555,6 +587,9 @@ fi
 if [ ! -z "$TELEGRAM_BOT_PID" ]; then
     echo "  🤖 Telegram Bot: Connected to HDN @ $CHAT_SERVER_URL"
 fi
+if [ ! -z "$SCRAPER_PID" ]; then
+    echo "  🕷️  Playwright Scraper: http://localhost:8085"
+fi
 echo ""
 echo "📊 Service Status:"
 echo "  Neo4j: $(curl -s -o /dev/null -w "%{http_code}" http://localhost:7474)"
@@ -568,6 +603,7 @@ fi
 if [ ! -z "$FSM_PID" ]; then
     echo "  FSM: $(curl -s -o /dev/null -w "%{http_code}" http://localhost:8083/health)"
 fi
+echo "  Scraper: $(curl -s -o /dev/null -w "%{http_code}" http://localhost:8085/health)"
 echo ""
 echo "🛑 To stop servers: ./stop_servers.sh"
 echo "📄 View logs: tail -f /tmp/principles_server.log /tmp/hdn_server.log"
@@ -579,6 +615,9 @@ if [ ! -z "$FSM_PID" ]; then
 fi
 if [ ! -z "$TELEGRAM_BOT_PID" ]; then
     echo "📄 Telegram Bot logs: tail -f /tmp/telegram_bot.log"
+fi
+if [ ! -z "$SCRAPER_PID" ]; then
+    echo "📄 Playwright Scraper logs: tail -f /tmp/playwright_scraper.log"
 fi
 echo ""
 echo "✅ Ready to run demos!"

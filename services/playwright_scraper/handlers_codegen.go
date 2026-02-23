@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -57,6 +58,8 @@ func handleCodegenStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("CODEGEN_MODE")))
+
+	log.Printf("📥 Codegen start request for URL: %s (Mode: %s)", req.URL, mode)
 
 	id := uuid.New().String()
 	outputDir := getenvDefault("CODEGEN_OUTPUT_DIR", filepath.Join(os.TempDir(), "agi_codegen"))
@@ -159,6 +162,7 @@ func startCodegenInContainer(url, outputHostPath string, logFile *os.File) (*exe
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("🐳 Using codegen container: %s", containerName)
 
 	// Clean up any existing codegen processes first
 	cleanupCmd := exec.Command("docker", "exec", containerName, "pkill", "-f", "playwright codegen")

@@ -10,17 +10,11 @@ import (
 
 // proxyScraper forwards requests to the Playwright Scraper service
 func (m *MonitorService) proxyScraper(c *gin.Context) {
-	// Extract path
 	fullPath := c.Request.URL.Path
+	// Forward the path as-is. Both the core scraper and the generic handlers
+	// now support the full paths (including prefixes if applicable).
+	// Example: /api/scraper/scrape/start OR /api/codegen/latest
 	targetPath := fullPath
-
-	// If it's a generic scraper call, we strip the /api/scraper prefix
-	// because the scraper binary has its own /api/scraper/... routes
-	// or top-level /health routes.
-	if strings.HasPrefix(fullPath, "/api/scraper/") {
-		targetPath = strings.TrimPrefix(fullPath, "/api/scraper")
-	}
-	// Note: /api/codegen/... is preserved as is because the scraper expects it.
 
 	// Build target URL
 	target := strings.TrimRight(m.scraperURL, "/") + targetPath
@@ -59,13 +53,17 @@ func (m *MonitorService) proxyScraper(c *gin.Context) {
 	}
 	defer resp.Body.Close()
 
-	// Copy response headers
+	// Copy response headers, excluding CORS headers that we manage in the monitor middleware
 	for k, vals := range resp.Header {
+		lowerK := strings.ToLower(k)
+		if strings.HasPrefix(lowerK, "access-control-") {
+			continue
+		}
 		for _, v := range vals {
 			c.Writer.Header().Add(k, v)
 		}
 	}
 
 	c.Status(resp.StatusCode)
-	io.Copy(c.Writer, resp.Body)
+	_, _ = io.Copy(c.Writer, resp.Body)
 }

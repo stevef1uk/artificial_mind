@@ -62,15 +62,16 @@ type ScrapeJob struct {
 
 // PlaywrightOperation represents a parsed operation from TypeScript config
 type PlaywrightOperation struct {
-	Type          string
-	Selector      string
-	Value         string
-	Role          string
-	RoleName      string
-	Text          string
-	TimeoutMS     int
-	Index         int    // For nth(n) selectors
-	ChildSelector string // For scoped selectors (e.g., locator().locator())
+	Type           string
+	Selector       string
+	Value          string
+	Role           string
+	RoleName       string
+	Text           string
+	TimeoutMS      int
+	Index          int    // For nth(n) selectors
+	ChildSelector  string // For scoped selectors (e.g., locator().locator())
+	IframeSelector string // For iframe elements (e.g., contentFrame())
 }
 
 // JobStore manages scrape jobs in memory
@@ -265,9 +266,9 @@ func parseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
 	}
 	log.Printf("📝 TypeScript config (first 500 chars): %s", preview)
 
-	// Parse operations in order by finding all 'await page.' patterns
+	// Parse operations in order by finding all 'page.' patterns, optionally preceded by await
 	// stop at semicolon, newline, or end of string
-	awaitRegex := regexp.MustCompile(`await\s+page\.[^;\n]+`)
+	awaitRegex := regexp.MustCompile(`(?:await\s+)?page\.[^;\n]+`)
 	matches := awaitRegex.FindAllString(tsConfig, -1)
 
 	for _, match := range matches {
@@ -304,64 +305,123 @@ func applyTemplateVariables(tsConfig string, variables map[string]string) string
 }
 
 func parseOperation(line string) PlaywrightOperation {
+	// iframe getByRole (click)
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.contentFrame\(\)\.getByRole\(['"](\w+)['"],\s*\{\s*name:\s*['"](.+?)['"]\s*\}\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 3 {
+		return PlaywrightOperation{Type: "iframeGetByRole", IframeSelector: matches[1], Role: matches[2], RoleName: matches[3]}
+	}
+
+	// iframe getByRole (fill)
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.contentFrame\(\)\.getByRole\(['"](\w+)['"],\s*\{\s*name:\s*['"](.+?)['"]\s*\}\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 4 {
+		return PlaywrightOperation{Type: "iframeGetByRoleFill", IframeSelector: matches[1], Role: matches[2], RoleName: matches[3], Value: matches[4]}
+	}
+
+	// iframe getByText (click)
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.contentFrame\(\)\.getByText\(['"](.+?)['"]\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 2 {
+		return PlaywrightOperation{Type: "iframeGetByTextClick", IframeSelector: matches[1], Text: matches[2]}
+	}
+	// iframe getByLabel (click)
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.contentFrame\(\)\.getByLabel\(['"](.+?)['"](?:,\s*\{.+?\})?\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 2 {
+		return PlaywrightOperation{Type: "iframeGetByLabelClick", IframeSelector: matches[1], Text: matches[2]}
+	}
+
+	// iframe getByLabel (fill)
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.contentFrame\(\)\.getByLabel\(['"](.+?)['"](?:,\s*\{.+?\})?\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
+		return PlaywrightOperation{Type: "iframeGetByLabelFill", IframeSelector: matches[1], Text: matches[2], Value: matches[3]}
+	}
+
+	// iframe getByPlaceholder (fill)
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.contentFrame\(\)\.getByPlaceholder\(['"](.+?)['"](?:,\s*\{.+?\})?\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
+		return PlaywrightOperation{Type: "iframeGetByPlaceholderFill", IframeSelector: matches[1], Text: matches[2], Value: matches[3]}
+	}
+
+	// iframe locator (click)
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.contentFrame\(\)\.locator\(['"](.+?)['"]\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 2 {
+		return PlaywrightOperation{Type: "iframeLocatorClick", IframeSelector: matches[1], Selector: matches[2]}
+	}
+
+	// iframe locator (fill)
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.contentFrame\(\)\.locator\(['"](.+?)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
+		return PlaywrightOperation{Type: "iframeLocatorFill", IframeSelector: matches[1], Selector: matches[2], Value: matches[3]}
+	}
+
 	// goto
-	if matches := regexp.MustCompile(`await\s+page\.goto\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.goto\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "goto", Selector: matches[1]}
 	}
 
 	// getByRole (click)
-	if matches := regexp.MustCompile(`await\s+page\.getByRole\(['"](\w+)['"],\s*\{\s*name:\s*['"](.+?)['"]\s*\}\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 2 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByRole\(['"](\w+)['"],\s*\{\s*name:\s*['"](.+?)['"]\s*\}\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "getByRole", Role: matches[1], RoleName: matches[2]}
 	}
 
 	// getByRole (fill)
-	if matches := regexp.MustCompile(`await\s+page\.getByRole\(['"](\w+)['"],\s*\{\s*name:\s*['"](.+?)['"]\s*\}\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByRole\(['"](\w+)['"],\s*\{\s*name:\s*['"](.+?)['"]\s*\}\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
 		return PlaywrightOperation{Type: "getByRoleFill", Role: matches[1], RoleName: matches[2], Value: matches[3]}
 	}
 
+	// getByLabel (click)
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByLabel\(['"](.+?)['"](?:,\s*\{.+?\})?\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
+		return PlaywrightOperation{Type: "getByLabelClick", Text: matches[1]}
+	}
+
+	// getByLabel (fill)
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByLabel\(['"](.+?)['"](?:,\s*\{.+?\})?\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
+		return PlaywrightOperation{Type: "getByLabelFill", Text: matches[1], Value: matches[2]}
+	}
+
+	// getByPlaceholder (fill)
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByPlaceholder\(['"](.+?)['"](?:,\s*\{.+?\})?\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
+		return PlaywrightOperation{Type: "getByPlaceholderFill", Text: matches[1], Value: matches[2]}
+	}
+
+	// getByTestId (click)
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByTestId\(['"](.+?)['"]\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
+		return PlaywrightOperation{Type: "getByTestIdClick", Selector: matches[1]}
+	}
+
 	// getByText with .first().click()
-	if matches := regexp.MustCompile(`await\s+page\.getByText\(['"](.+?)['"]\)\.first\(\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByText\(['"](.+?)['"]\)\.first\(\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "getByText", Text: matches[1]}
 	}
 
 	// getByText with .click() (no .first())
-	if matches := regexp.MustCompile(`await\s+page\.getByText\(['"](.+?)['"]\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByText\(['"](.+?)['"]\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "getByTextClick", Text: matches[1]}
 	}
 
 	// page.fill() - direct fill on selector
-	if matches := regexp.MustCompile(`await\s+page\.fill\(['"](.+?)['"]\s*,\s*['"](.+?)['"]\s*\)`).FindStringSubmatch(line); len(matches) > 2 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.fill\(['"](.+?)['"]\s*,\s*['"](.+?)['"]\s*\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "locatorFill", Selector: matches[1], Value: matches[2]}
 	}
 
 	// page.click() - direct click on selector
-	if matches := regexp.MustCompile(`await\s+page\.click\(['"](.+?)['"]\s*\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.click\(['"](.+?)['"]\s*\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "locator", Selector: matches[1]}
 	}
 
 	// page.selectOption() - direct select on selector
-	if matches := regexp.MustCompile(`await\s+page\.selectOption\(['"](.+?)['"]\s*,\s*['"](.+?)['"]\s*\)`).FindStringSubmatch(line); len(matches) > 2 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.selectOption\(['"](.+?)['"]\s*,\s*['"](.+?)['"]\s*\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "locatorSelectOptionFirst", Selector: matches[1], Value: matches[2]}
 	}
 
 	// locator with .first().locator().fill()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.first\(\)\.locator\(['"](.+?)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.first\(\)\.locator\(['"](.+?)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
 		return PlaywrightOperation{Type: "scopedLocatorFillFirst", Selector: matches[1], ChildSelector: matches[2], Value: matches[3]}
 	}
 
 	// locator with .nth(n).locator().fill()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.nth\((\d+)\)\.locator\(['"](.+?)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 4 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.nth\((\d+)\)\.locator\(['"](.+?)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 4 {
 		index, _ := strconv.Atoi(matches[2])
 		return PlaywrightOperation{Type: "scopedLocatorFillNth", Selector: matches[1], Index: index, ChildSelector: matches[3], Value: matches[4]}
 	}
 
 	// locator with .first().locator().first().click() or .click()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.first\(\)\.locator\(['"](.+?)['"]\)(?:\.first\(\)|\.nth\(\d+\))?\.click\(\)`).FindStringSubmatch(line); len(matches) > 2 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.first\(\)\.locator\(['"](.+?)['"]\)(?:\.first\(\)|\.nth\(\d+\))?\.click\(\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "scopedLocatorClickFirst", Selector: matches[1], ChildSelector: matches[2]}
 	}
 
 	// locator with .nth(n).locator().first().click() or .click()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.nth\((\d+)\)\.locator\(['"](.+?)['"]\)(?:\.first\(\)|\.nth\(\d+\))?\.click\(\)`).FindStringSubmatch(line); len(matches) > 3 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.nth\((\d+)\)\.locator\(['"](.+?)['"]\)(?:\.first\(\)|\.nth\(\d+\))?\.click\(\)`).FindStringSubmatch(line); len(matches) > 3 {
 		index, _ := strconv.Atoi(matches[2])
 		return PlaywrightOperation{Type: "scopedLocatorClickNth", Selector: matches[1], Index: index, ChildSelector: matches[3]}
 	}
@@ -372,39 +432,49 @@ func parseOperation(line string) PlaywrightOperation {
 	}
 
 	// locator with .first().selectOption()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.first\(\)\.selectOption\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.first\(\)\.selectOption\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "locatorSelectOptionFirst", Selector: matches[1], Value: matches[2]}
 	}
 
 	// locator with .fill()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "locatorFill", Selector: matches[1], Value: matches[2]}
 	}
 
 	// locator with .first().fill()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.first\(\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.first\(\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "locatorFillAtIndex", Selector: matches[1], Value: matches[2], Index: 0}
 	}
 
 	// locator with .nth(n).fill()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.nth\((\d+)\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.nth\((\d+)\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
 		index, _ := strconv.Atoi(matches[2])
 		return PlaywrightOperation{Type: "locatorFillAtIndex", Selector: matches[1], Value: matches[3], Index: index}
 	}
 
 	// locator with .first().click()
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.first\(\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.first\(\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "locatorFirst", Selector: matches[1]}
 	}
 
 	// locator with .click() (no .first())
-	if matches := regexp.MustCompile(`await\s+page\.locator\(['"](.+?)['"]\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "locator", Selector: matches[1]}
 	}
 
 	// page.focus() - focus on selector
-	if matches := regexp.MustCompile(`await\s+page\.focus\(['"](.+?)['"]\s*\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.focus\(['"](.+?)['"]\s*\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "locator", Selector: matches[1]}
+	}
+
+	// page.type() - deprecated but common
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.type\(['"](.+?)['"]\s*,\s*['"](.+?)['"]\s*\)`).FindStringSubmatch(line); len(matches) > 2 {
+		return PlaywrightOperation{Type: "locatorFill", Selector: matches[1], Value: matches[2]}
+	}
+
+	// page.press() - direct press on selector
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.press\(['"](.+?)['"]\s*,\s*['"](.+?)['"]\s*\)`).FindStringSubmatch(line); len(matches) > 2 {
+		return PlaywrightOperation{Type: "keyboardPress", Selector: matches[1], Value: matches[2]}
 	}
 
 	// page.waitForNavigation() - wait for page load
@@ -418,12 +488,12 @@ func parseOperation(line string) PlaywrightOperation {
 	}
 
 	// keyboard.press
-	if matches := regexp.MustCompile(`await\s+page\.keyboard\.press\(['"]([^'"]+)['"]\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.keyboard\.press\(['"]([^'"]+)['"]\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "keyboardPress", Value: matches[1]}
 	}
 
 	// keyboard.type
-	if matches := regexp.MustCompile(`await\s+page\.keyboard\.type\(['"]([^'"]+)['"]\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.keyboard\.type\(['"]([^'"]+)['"]\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "keyboardType", Value: matches[1]}
 	}
 
@@ -679,9 +749,65 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 				page.Goto(op.Selector, pw.PageGotoOptions{WaitUntil: pw.WaitUntilStateNetworkidle})
 			}
 
+		case "iframeGetByRole":
+			locator := page.FrameLocator(op.IframeSelector).GetByRole(pw.AriaRole(op.Role), pw.FrameLocatorGetByRoleOptions{Name: op.RoleName})
+			if err := locator.Click(); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(500 * time.Millisecond)
+
+		case "iframeGetByRoleFill":
+			locator := page.FrameLocator(op.IframeSelector).GetByRole(pw.AriaRole(op.Role), pw.FrameLocatorGetByRoleOptions{Name: op.RoleName})
+			if err := locator.Fill(op.Value); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(500 * time.Millisecond)
+
+		case "iframeGetByTextClick":
+			locator := page.FrameLocator(op.IframeSelector).GetByText(op.Text)
+			if err := locator.Click(); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(500 * time.Millisecond)
+
+		case "iframeLocatorClick":
+			locator := page.FrameLocator(op.IframeSelector).Locator(op.Selector)
+			if err := locator.Click(); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(500 * time.Millisecond)
+
+		case "iframeLocatorFill":
+			locator := page.FrameLocator(op.IframeSelector).Locator(op.Selector)
+			if err := locator.Fill(op.Value); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(500 * time.Millisecond)
+
+		case "iframeGetByLabelClick":
+			locator := page.FrameLocator(op.IframeSelector).GetByLabel(op.Text)
+			if err := locator.Click(); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(500 * time.Millisecond)
+
+		case "iframeGetByLabelFill":
+			locator := page.FrameLocator(op.IframeSelector).GetByLabel(op.Text)
+			if err := locator.Fill(op.Value); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(500 * time.Millisecond)
+
+		case "iframeGetByPlaceholderFill":
+			locator := page.FrameLocator(op.IframeSelector).GetByPlaceholder(op.Text)
+			if err := locator.Fill(op.Value); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(500 * time.Millisecond)
+
 		case "getByRole":
-			if op.Role == "link" && op.RoleName != "" {
-				locator := page.GetByRole(pw.AriaRole("link"), pw.PageGetByRoleOptions{Name: op.RoleName})
+			if op.Role != "" && op.RoleName != "" {
+				locator := page.GetByRole(pw.AriaRole(op.Role), pw.PageGetByRoleOptions{Name: op.RoleName})
 				if err := locator.Click(); err != nil {
 					log.Printf("   ⚠️ Failed: %v", err)
 				}
@@ -689,13 +815,37 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 			}
 
 		case "getByRoleFill":
-			if op.Role == "textbox" && op.RoleName != "" {
-				locator := page.GetByRole(pw.AriaRole("textbox"), pw.PageGetByRoleOptions{Name: op.RoleName})
+			if op.Role != "" && op.RoleName != "" {
+				locator := page.GetByRole(pw.AriaRole(op.Role), pw.PageGetByRoleOptions{Name: op.RoleName})
 				if err := locator.Fill(op.Value); err != nil {
 					log.Printf("   ⚠️ Failed: %v", err)
 				}
 				time.Sleep(500 * time.Millisecond)
 			}
+
+		case "getByLabelClick":
+			if err := page.GetByLabel(op.Text).Click(); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(500 * time.Millisecond)
+
+		case "getByLabelFill":
+			if err := page.GetByLabel(op.Text).Fill(op.Value); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(500 * time.Millisecond)
+
+		case "getByPlaceholderFill":
+			if err := page.GetByPlaceholder(op.Text).Fill(op.Value); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(500 * time.Millisecond)
+
+		case "getByTestIdClick":
+			if err := page.GetByTestId(op.Selector).Click(); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(500 * time.Millisecond)
 
 		case "getByTextClick":
 			// getByText().click() - no .first()
@@ -897,7 +1047,8 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 	}
 
 	// Submit fallback with explicit timeout and snapshot on failure.
-	if len(operations) > 0 && page.URL() == initialURL {
+	// Only run if NO manual operations were provided, to avoid interfering with custom scripts
+	if len(operations) == 0 && page.URL() == initialURL {
 		formCount, _ := page.Locator("form").Count()
 		submitCount, _ := page.Locator("input[type='submit'], button[type='submit'], .submit-form, .btn-primary").Count()
 		resultCount, _ := page.Locator("[id*='result'], .result, .results, [data-testid*='result']").Count()
@@ -941,10 +1092,7 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 			if page.URL() == initialURL {
 				resultCount, _ = page.Locator("[id*='result'], .result, .results, [data-testid*='result']").Count()
 				if resultCount == 0 {
-					return nil, &SnapshotError{
-						Err:  fmt.Errorf("submit fallback did not transition from %s within 15s", initialURL),
-						HTML: snapshotHTML,
-					}
+					log.Printf("⚠️ Submit fallback did not transition from %s within 15s (results might still be successfully loaded though)", initialURL)
 				}
 			}
 		}
@@ -989,9 +1137,23 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 	// This preserves <script> tags that may contain JSON data
 	rawHTML, _ := page.Content()
 
+	// Append iframe contents so we can extract results from them too
+	for i, f := range page.Frames() {
+		if f != page.MainFrame() {
+			fc, err := f.Content()
+			if err == nil && len(fc) > 100 { // Ignore tiny/empty frames
+				name := f.Name()
+				if name == "" {
+					name = fmt.Sprintf("frame-%d", i)
+				}
+				rawHTML += fmt.Sprintf("\n<!-- IFRAME CONTENT (%s) -->\n%s", name, fc)
+			}
+		}
+	}
+
 	// 1. Clean up the DOM to match what the Planner saw
 	_, _ = page.Evaluate(`() => {
-        const elements = document.querySelectorAll('script, style, svg, path, link, meta, noscript, iframe');
+        const elements = document.querySelectorAll('script, style, svg, path, link, meta, noscript');
         elements.forEach(el => el.remove());
         
         // Remove hidden elements
@@ -1006,6 +1168,17 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 
 	// Get the cleaned content
 	cleanedHTML, _ := page.Content()
+
+	// Inject iframe contents into the cleaned HTML so the UI preview can actually see nested results
+	for _, f := range page.Frames() {
+		if f != page.MainFrame() {
+			fc, err := f.Content()
+			if err == nil {
+				cleanedHTML += "\n<div style='border: 3px dashed #4caf50; padding: 10px; margin: 10px;'><h3 style='color:#4caf50;'>Iframe Content:</h3>\n" + fc + "\n</div>"
+			}
+		}
+	}
+
 	if getHTML {
 		results["cleaned_html"] = cleanedHTML
 	}
@@ -1294,11 +1467,17 @@ func main() {
 
 	// Setup HTTP routes
 	http.HandleFunc("/health", service.handleHealth)
+	http.HandleFunc("/api/scraper/health", service.handleHealth)
+
 	http.HandleFunc("/scrape/start", service.handleStartScrape)
+	http.HandleFunc("/api/scraper/scrape/start", service.handleStartScrape)
+
 	http.HandleFunc("/scrape/job", service.handleGetJob)
+	http.HandleFunc("/api/scraper/scrape/job", service.handleGetJob)
 
 	// STAGE 2: Fix endpoint
 	http.HandleFunc("/scrape/fix", service.handleFixJob)
+	http.HandleFunc("/api/scraper/scrape/fix", service.handleFixJob)
 
 	// Start server
 	port := os.Getenv("PORT")

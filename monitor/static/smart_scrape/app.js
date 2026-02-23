@@ -143,11 +143,29 @@ function switchView(view) {
     }
 }
 
-function showLoadingState(title) {
+function showLoadingState(title, progress = null) {
     previewContainer.classList.add('hidden');
     mainResults.classList.remove('hidden');
     viewTabs.classList.add('hidden');
-    mainResults.innerHTML = '<div class="loading-full"><div class="spinner large"></div><h3>' + title + '</h3><p>Wait while we navigate and process the page content...</p></div>';
+
+    let progressHtml = '';
+    if (progress && progress.total_steps > 0) {
+        const percent = Math.round((progress.current_step / progress.total_steps) * 100);
+        progressHtml = `
+            <div class="progress-container" style="width: 100%; max-width: 400px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; margin: 20px auto; overflow: hidden; height: 12px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);">
+                <div class="progress-bar" style="width: ${percent}%; height: 100%; background: linear-gradient(90deg, #4caf50, #81c784); transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);"></div>
+            </div>
+            <p class="progress-text" style="font-weight: 500; color: #81c784; font-family: monospace; letter-spacing: 0.5px; text-transform: uppercase; font-size: 0.8rem; margin-top: 5px;">${progress.last_action || 'Processing...'}</p>
+        `;
+    }
+
+    mainResults.innerHTML = `
+        <div class="loading-full" style="text-align: center; padding: 40px;">
+            <div class="spinner large"></div>
+            <h3 style="margin-top: 20px; font-weight: 600; color: var(--text);">${title}</h3>
+            ${progressHtml || '<p style="color: var(--text-muted);">Wait while we navigate and process the page content...</p>'}
+        </div>
+    `;
 }
 
 function renderIframe(html, baseUrl) {
@@ -265,16 +283,21 @@ function updateCodegenUI(status, id, url = null) {
     }
 }
 
-async function pollScrapeJob(jobId) {
+async function pollScrapeJob(jobId, loadingTitle = '🎯 Scraping...') {
     while (true) {
-        const resp = await fetch(scraperBaseUrl + '/scrape/job?job_id=' + jobId);
+        const resp = await fetch(scraperBaseUrl + '/api/scraper/scrape/job?job_id=' + jobId);
         if (!resp.ok) throw new Error('Failed to poll job status');
         const data = await resp.json();
 
         if (data.status === 'completed' || data.status === 'failed') {
             return data;
         }
-        await new Promise(r => setTimeout(r, 2000));
+
+        if (data.total_steps > 0) {
+            showLoadingState(loadingTitle, data);
+        }
+
+        await new Promise(r => setTimeout(r, 1500));
     }
 }
 
@@ -339,7 +362,7 @@ extractBtn.addEventListener('click', async () => {
     if (spinner) spinner.classList.remove('hidden');
     showLoadingState('🎯 Extracting data...');
     try {
-        const resp = await fetch(scraperBaseUrl + '/scrape/start', {
+        const resp = await fetch(scraperBaseUrl + '/api/scraper/scrape/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url, extractions, get_html: true })
@@ -457,7 +480,7 @@ scriptTestBtn.addEventListener('click', async () => {
     if (spinner) spinner.classList.remove('hidden');
     showLoadingState('🧪 Testing Custom Script...');
     try {
-        const resp = await fetch(scraperBaseUrl + '/scrape/start', {
+        const resp = await fetch(scraperBaseUrl + '/api/scraper/scrape/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
