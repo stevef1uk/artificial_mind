@@ -141,10 +141,11 @@ agents:
         use_memory: true
         prefer_tools: true
       instructions:
-        - "1. Read the current price history from 'data/price_history.json' using tool_file_read."
+        - "1. Read the current price history from 'config/price_history.json' using tool_file_read."
         - "2. For each product in your watch list, use mcp_smart_scrape with the provided selectors to get the current price."
         - "3. Current Watch List:"
         - "   - Product: ASUS Ascent Laptop, URL: https://www.amazon.fr/-/en/gp/product/B0G1CC2949, Selector: 'div#tp-tool-tip-price-block > div > div'"
         - "4. Compare the new price with the 'last_price' in the history."
         - "5. If the new price is <= 90% of the last_price, send a Telegram alert."
-        - "6. Update 'data/price_history.json' with the new prices and the current timestamp."
+        - "6. Update 'config/price_history.json' with the new prices and the current timestamp."
+        - "7. DO NOT use placeholder paths like '/path/to/'. Use 'config/price_history.json' exactly."
