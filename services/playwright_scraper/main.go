@@ -1098,16 +1098,22 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 		}
 	}
 
-	// Wait for final state
-	page.WaitForLoadState(pw.PageWaitForLoadStateOptions{State: pw.LoadStateNetworkidle})
+	// Wait for final state (Load is enough for stability, Networkidle is often too aggressive/slow)
+	page.WaitForLoadState(pw.PageWaitForLoadStateOptions{
+		State:   pw.LoadStateLoad,
+		Timeout: pw.Float(10000), // 10s max for final render
+	})
 
 	// Wait for operations to fully complete
 	time.Sleep(500 * time.Millisecond)
 
-	// Generic wait for page stability (network idle)
-	// This ensures dynamic content (like results) has loaded regardless of the domain
-	log.Println("⏳ Waiting for network idle...")
-	page.WaitForLoadState(pw.PageWaitForLoadStateOptions{State: pw.LoadStateNetworkidle})
+	// Generic wait for page stability (shorter networkidle check)
+	// This ensures dynamic content has a chance but won't hang for 30s
+	log.Println("⏳ Checking for network stability...")
+	page.WaitForLoadState(pw.PageWaitForLoadStateOptions{
+		State:   pw.LoadStateNetworkidle,
+		Timeout: pw.Float(5000), // 5s max for network to settle
+	})
 
 	// Add a fixed safety buffer for client-side rendering
 	// Complex SPAs often need a moment after network idle to render

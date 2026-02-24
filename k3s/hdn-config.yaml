@@ -1,0 +1,222 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hdn-config
+  namespace: agi
+data:
+  config.json: |
+    {
+      "llm_provider": "openai",
+      "llm_api_key": "",
+      "mcp_endpoint": "http://hdn-server-rpi58.agi.svc.cluster.local:8080/mcp",
+      "settings": {
+        "model": "gemma-3-1b-it-q4_k_m.gguf",
+        "temperature": "0.7",
+        "max_tokens": "1000",
+        "llm_timeout_seconds": "120",
+        "openai_url": "http://llama-server.agi.svc.cluster.local:8085"
+      },
+      "server": {
+        "port": 8080,
+        "host": "0.0.0.0"
+      }
+    }
+  domain.json: |
+    {
+      "methods": [
+        {
+          "task": "RespondToQuery",
+          "preconditions": [],
+          "subtasks": ["GenerateResponse"]
+        },
+        {
+          "task": "HelpUser",
+          "preconditions": [],
+          "subtasks": ["GenerateResponse"]
+        },
+        {
+          "task": "ExplainSystem",
+          "preconditions": [],
+          "subtasks": ["GenerateResponse"]
+        },
+        {
+          "task": "ScrapeWebsite",
+          "preconditions": [],
+          "subtasks": ["ExecuteScraping", "ProcessScrapedData"]
+        },
+        {
+          "task": "FetchData",
+          "preconditions": [],
+          "subtasks": ["ExecuteScraping", "ProcessScrapedData"]
+        }
+      ],
+      "actions": [
+        {
+          "task": "GenerateResponse",
+          "preconditions": [],
+          "effects": ["response_generated"]
+        },
+        {
+          "task": "ExecuteScraping",
+          "preconditions": [],
+          "effects": ["data_scraped"]
+        },
+        {
+          "task": "ProcessScrapedData",
+          "preconditions": ["data_scraped"],
+          "effects": ["data_processed"]
+        }
+      ]
+    }
+  agents.yaml: |
+    # Configuration for Autonomous Agents using Google ADK
+    agents:
+      - id: email_monitor_agent
+        name: Email Monitor Agent
+        description: Monitors emails and takes actions based on content
+        role: Email Monitoring Specialist
+        goal: Monitor inbox for important emails and notify or take actions
+        backstory: |
+          You are an email monitoring specialist that watches for important messages,
+          categorizes them, and takes appropriate actions like flagging urgent items
+          or summarizing daily digests.
+        tools:
+          - mcp_read_google_data
+          - mcp_save_episode
+          - tool_http_get
+        capabilities:
+          max_iterations: 10
+          allow_delegation: false
+          verbose: true
+        triggers:
+          schedule:
+            - cron: "*/30 * * * *"
+              action: check_emails
+          events:
+            - type: user_request
+              keywords:
+                - check emails
+                - monitor inbox
+                - email summary
+            - type: goal
+              goal_type: monitor_emails
+        behavior:
+          thinking_mode: true
+          max_retries: 3
+          response_format: structured
+          use_memory: true
+          memory_window: 24h
+          prefer_tools: true
+          tool_timeout: 60s
+        tasks:
+          - id: check_unread_emails
+            description: Check for unread emails and categorize them
+            expected_output: List of unread emails with categories
+            tools:
+              - mcp_read_google_data
+            parameters:
+              query: unread
+              type: email
+              limit: 50
+
+      - id: website_status_monitor
+        name: Website Status Monitor
+        description: Checks if important websites are up and running, reports status codes, and alerts if any are down.
+        role: Website Health Monitor
+        goal: Monitor a list of websites and report status via Telegram
+        backstory: |
+          You are a website monitoring specialist that checks the health of websites by making HTTP requests.
+        tools:
+          - tool_http_get
+          - tool_telegram_send
+        capabilities:
+          max_iterations: 10
+          allow_delegation: false
+          verbose: true
+        triggers:
+          schedule:
+            - cron: "*/15 * * * *"
+              action: execute
+        behavior:
+          thinking_mode: true
+          max_retries: 3
+          response_format: structured
+          use_memory: true
+          memory_window: 24h
+          prefer_tools: true
+          tool_timeout: 60s
+        tasks:
+          - id: monitor_task
+            description: Monitor and check status of websites
+            expected_output: Status report for each website
+            tools:
+              - tool_http_get
+            parameters:
+              websites:
+                - "https://me.sjfisher.com"
+                - "https://k3s.sjfisher.com"
+
+      - id: scraper_agent
+        name: Intelligent Scraper Agent
+        description: "Autonomously plans and executes web scraping tasks to extract specific data from websites."
+        role: "Data Extraction Specialist"
+        goal: "Extract structured data from websites based on user requests"
+        backstory: |
+          You are an expert at extracting information from the web.
+        tools:
+          - smart_scrape
+          - scrape_url
+          - execute_code
+        capabilities:
+          max_iterations: 15
+          allow_delegation: false
+          verbose: true
+        triggers:
+          events:
+            - type: user_request
+              keywords:
+                - scrape
+                - extract data
+                - find interest rate
+                - get price
+        behavior:
+          thinking_mode: true
+          max_retries: 3
+          response_format: structured
+          use_memory: true
+          memory_window: 24h
+          prefer_tools: true
+          tool_timeout: 120s
+
+      - id: price_monitor_agent
+        name: Price Monitor Agent
+        description: Monitors product prices twice daily and alerts on Telegram if prices drop by more than 10%.
+        role: Price Watcher & Analyst
+        goal: Track a list of product URLs, extract prices, compare with history, and notify on significant price drops.
+        backstory: |
+          You are a dedicated shopping assistant. You check prices for specific items twice a day.
+          If a price falls by 10% or more, you send an alert via Telegram.
+        tools:
+          - mcp_smart_scrape
+          - tool_telegram_send
+          - tool_file_read
+          - tool_file_write
+        capabilities:
+          max_iterations: 15
+          verbose: true
+        triggers:
+          schedule:
+            - cron: "0 9,17 * * *"
+              action: "Check all watched products for price drops."
+        behavior:
+          thinking_mode: true
+          max_retries: 3
+          use_memory: true
+          prefer_tools: true
+        instructions:
+          - "1. Read current price history from 'data/price_history.json' using tool_file_read."
+          - "2. For each product in watch list, use mcp_smart_scrape to get current price."
+          - "3. Product: ASUS Ascent, URL: https://www.amazon.fr/-/en/gp/product/B0G1CC2949, Selector: 'div#tp-tool-tip-price-block > div > div'"
+          - "4. Compare new price with 'last_price' in history."
+          - "5. If price <= 90% of last_price, send Telegram alert."
+          - "6. Update 'data/price_history.json' with new price."
