@@ -3950,41 +3950,57 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 		}
 	}
 
-	// 2. Plan the scrape using LLM
-	log.Printf("📋 [MCP-SMART-SCRAPE] Planning scrape config with LLM (%d chars of HTML)...", len(cleanedHTML))
-
-	// Create a longer timeout context specifically for LLM planning (Ollama can be slow with large HTML)
+	// 2. Plan the scrape using LLM (if not explicitly provided by user)
+	var config *ScrapeConfig
 	planCtx, planCancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer planCancel()
 
-	// Build a compact actionable snapshot (only forms/inputs/buttons) so the LLM
-	// focuses on navigation interactions. The LLM will plan navigation only
-	// in this first pass; extraction patterns are planned on the final page.
-	actionableHTML := s.buildActionableSnapshot(cleanedHTML)
-	navGoal := "[NAVIGATION_ONLY]\n" + goal
-	config, err := s.planScrapeWithLLM(planCtx, actionableHTML, navGoal, userConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to plan scrape with LLM: %v", err)
-	}
-	config.TypeScriptConfig = s.sanitizeNavigationScript(config.TypeScriptConfig, actionableHTML, goal)
-
-	// Merge user results if provided
-	if userConfig != nil {
-		if userConfig.TypeScriptConfig != "" && config.TypeScriptConfig == "" {
-			config.TypeScriptConfig = userConfig.TypeScriptConfig
+	bypassedLLM := false
+	if userConfig != nil && userConfig.TypeScriptConfig != "" {
+		log.Printf("⚡ [MCP-SMART-SCRAPE] Fast-path: User provided explicit TypeScript script, bypassing LLM planning")
+		bypassedLLM = true
+		config = &ScrapeConfig{
+			TypeScriptConfig: userConfig.TypeScriptConfig,
+			Extractions:      make(map[string]string),
 		}
-		// Merge extractions - only use user hints if the LLM didn't find anything for that key.
-		// This allows the LLM to 'heal' broken user patterns.
-		if len(userConfig.Extractions) > 0 {
-			if config.Extractions == nil {
-				config.Extractions = make(map[string]string)
-			}
+		if userConfig.Extractions != nil {
 			for k, v := range userConfig.Extractions {
-				if _, exists := config.Extractions[k]; !exists {
-					log.Printf("📥 [MCP-SMART-SCRAPE] Using user hint for missing key '%s'", k)
-					config.Extractions[k] = v
-				} else {
-					log.Printf("🩹 [MCP-SMART-SCRAPE] LLM provided its own pattern for '%s', ignoring user hint (healing active)", k)
+				config.Extractions[k] = v
+			}
+		}
+	} else {
+		log.Printf("📋 [MCP-SMART-SCRAPE] Planning scrape config with LLM (%d chars of HTML)...", len(cleanedHTML))
+
+		// Build a compact actionable snapshot (only forms/inputs/buttons) so the LLM
+		// focuses on navigation interactions. The LLM will plan navigation only
+		// in this first pass; extraction patterns are planned on the final page.
+		actionableHTML := s.buildActionableSnapshot(cleanedHTML)
+		navGoal := "[NAVIGATION_ONLY]\n" + goal
+		err = nil // Reuse outer err var
+		config, err = s.planScrapeWithLLM(planCtx, actionableHTML, navGoal, userConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to plan scrape with LLM: %v", err)
+		}
+		config.TypeScriptConfig = s.sanitizeNavigationScript(config.TypeScriptConfig, actionableHTML, goal)
+
+		// Merge user results if provided
+		if userConfig != nil {
+			if userConfig.TypeScriptConfig != "" && config.TypeScriptConfig == "" {
+				config.TypeScriptConfig = userConfig.TypeScriptConfig
+			}
+			// Merge extractions - only use user hints if the LLM didn't find anything for that key.
+			// This allows the LLM to 'heal' broken user patterns.
+			if len(userConfig.Extractions) > 0 {
+				if config.Extractions == nil {
+					config.Extractions = make(map[string]string)
+				}
+				for k, v := range userConfig.Extractions {
+					if _, exists := config.Extractions[k]; !exists {
+						log.Printf("📥 [MCP-SMART-SCRAPE] Using user hint for missing key '%s'", k)
+						config.Extractions[k] = v
+					} else {
+						log.Printf("🩹 [MCP-SMART-SCRAPE] LLM provided its own pattern for '%s', ignoring user hint (healing active)", k)
+					}
 				}
 			}
 		}
@@ -4023,7 +4039,7 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 
 	// 2.5. Self-Correction: If the goal requires calculation/search but LLM provided no JS, retry once with a more direct warning
 	isInteractiveGoal := strings.Contains(strings.ToLower(goal), "calculate") || strings.Contains(strings.ToLower(goal), "search") || strings.Contains(strings.ToLower(goal), "fill")
-	if isInteractiveGoal && (config.TypeScriptConfig == "" || strings.TrimSpace(config.TypeScriptConfig) == "// no navigation needed") {
+	if !bypassedLLM && isInteractiveGoal && (config.TypeScriptConfig == "" || strings.TrimSpace(config.TypeScriptConfig) == "// no navigation needed") {
 		log.Printf("⚠️ [MCP-SMART-SCRAPE] LLM provided no navigation for an interactive goal. Retrying with explicit warning...")
 
 		retryUserConfig := ScrapeConfig{Extractions: make(map[string]string)}

@@ -233,5 +233,5 @@ data:
               goal: "extract the price"
               extractions:
                 field_1771953582615: "div#tp-tool-tip-price-block > div > div"
-              typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/gp/product/B0G1CC2949');\n});"
+              typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/gp/product/B0G1CC2949');\n  await page.click('#sp-cc-accept');\n  await page.waitForSelector('div#tp-tool-tip-price-block > div > div');\n});"
               get_html: false
