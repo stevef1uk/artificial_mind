@@ -450,9 +450,6 @@ Rules:
 					continue
 				}
 
-				toolCall.Result = result
-				toolCalls = append(toolCalls, toolCall)
-
 				// 3. Extract price from result
 				var currentPrice string
 				if resultMap, ok := result.(map[string]interface{}); ok {
@@ -480,8 +477,19 @@ Rules:
 
 				if currentPrice == "" {
 					log.Printf("❌ [AGENT-EXECUTOR] Could not extract price from scraper results")
+					toolCall.Result = "Could not extract price"
+					toolCalls = append(toolCalls, toolCall)
 					continue
 				}
+
+				// Keep result lightweight to avoid LLM context blowout
+				simplifiedResult := map[string]interface{}{
+					"status":          "success",
+					"extracted_price": currentPrice,
+				}
+				toolCall.Result = simplifiedResult
+				toolCalls = append(toolCalls, toolCall)
+				results = append(results, simplifiedResult)
 
 				log.Printf("🛍️ [AGENT-EXECUTOR] Current Price: %s (Last Price: %s)", currentPrice, lastPrice)
 
