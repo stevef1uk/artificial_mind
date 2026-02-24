@@ -555,7 +555,7 @@ func (re *ReasoningEngine) translateToCypher(query, domain string) (string, erro
 	}
 
 	if strings.Contains(query, "all concepts") {
-		return fmt.Sprintf("MATCH (c:Concept) WHERE c.domain = '%s' RETURN c", domain), nil
+		return fmt.Sprintf("MATCH (c:Concept) WHERE c.domain = '%s' RETURN c LIMIT 1000", domain), nil
 	}
 
 	// Default: search for concepts containing the query terms
@@ -568,7 +568,7 @@ func (re *ReasoningEngine) translateToCypher(query, domain string) (string, erro
 		whereClause += fmt.Sprintf("c.name CONTAINS '%s'", term)
 	}
 
-	return "MATCH (c:Concept) " + whereClause + " RETURN c", nil
+	return "MATCH (c:Concept) " + whereClause + " RETURN c LIMIT 1000", nil
 }
 
 func (re *ReasoningEngine) extractConceptFromQuery(query string) string {

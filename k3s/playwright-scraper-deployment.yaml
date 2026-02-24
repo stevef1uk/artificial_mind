@@ -55,7 +55,7 @@ spec:
           httpGet:
             path: /health
             port: 8085
-          initialDelaySeconds: 30
+          initialDelaySeconds: 150
           periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 3
@@ -64,7 +64,7 @@ spec:
           httpGet:
             path: /health
             port: 8085
-          initialDelaySeconds: 10
+          initialDelaySeconds: 120
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
