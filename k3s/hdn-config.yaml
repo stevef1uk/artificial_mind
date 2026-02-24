@@ -232,7 +232,7 @@ data:
               typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/gp/product/B0G1CC2949');\n});"
               get_html: false
           - id: check_price_and_alert
-            description: "Read 'config/price_history.json' using tool_file_read. Compare the scraped price with 'last_price'. If the new price is <= 90% of last_price, use tool_telegram_send to alert the user. Then use tool_file_write to update 'config/price_history.json' with the new price."
+            description: "Read 'config/price_history.json' using tool_file_read. Compare the scraped price with 'last_price'. If the new price is DIFFERENT from last_price (either higher or lower), use tool_telegram_send to alert the user about the change. Then use tool_file_write to update 'config/price_history.json' with the new price."
             expected_output: "A success message confirming if an alert was sent and the file was updated."
             tools:
               - tool_file_read
