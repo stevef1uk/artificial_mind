@@ -3891,32 +3891,54 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string, goal string, userConfig *ScrapeConfig) (interface{}, error) {
 	log.Printf("🧠 [MCP-SMART-SCRAPE] Starting smart scrape for %s with goal: %s", url, goal)
 
-	// 1. Fetch page HTML using the scraper service (in get_html mode)
-	log.Printf("📥 [MCP-SMART-SCRAPE] Fetching page content to plan scrape...")
-	htmlResultRaw, err := s.scrapeWithConfig(ctx, url, "", false, nil, true, nil) // Pass true for getHTML
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch page content: %v", err)
+	// 0. Fast-path check
+	bypassedLLM := false
+	var config *ScrapeConfig
+	if userConfig != nil && userConfig.TypeScriptConfig != "" {
+		log.Printf("⚡ [MCP-SMART-SCRAPE] Fast-path: User provided explicit TypeScript script, bypassing initial fetch and LLM planning")
+		bypassedLLM = true
+		config = &ScrapeConfig{
+			TypeScriptConfig: userConfig.TypeScriptConfig,
+			Extractions:      make(map[string]string),
+		}
+		if userConfig.Extractions != nil {
+			for k, v := range userConfig.Extractions {
+				config.Extractions[k] = v
+			}
+		}
 	}
 
-	htmlResult, ok := htmlResultRaw.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("unexpected internal result format")
-	}
-
-	// The scraper returns results inside a "result" key for polling
-	innerResult, ok := htmlResult["result"].(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("could not find result in scrape response")
-	}
-
-	cleanedHTML, ok := innerResult["cleaned_html"].(string)
-	if !ok || cleanedHTML == "" {
-		return nil, fmt.Errorf("scraper did not return cleaned_html")
-	}
-
+	var htmlResult map[string]interface{}
+	var innerResult map[string]interface{}
+	var cleanedHTML string
 	var capturedCookies []interface{}
 
-	// 1.5. Check if this is a consent/cookie page and handle it
+	if !bypassedLLM {
+		// 1. Fetch page HTML using the scraper service (in get_html mode)
+		log.Printf("📥 [MCP-SMART-SCRAPE] Fetching page content to plan scrape...")
+		htmlResultRaw, err := s.scrapeWithConfig(ctx, url, "", false, nil, true, nil) // Pass true for getHTML
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch page content: %v", err)
+		}
+
+		var ok bool
+		htmlResult, ok = htmlResultRaw.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("unexpected internal result format")
+		}
+
+		// The scraper returns results inside a "result" key for polling
+		innerResult, ok = htmlResult["result"].(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("could not find result in scrape response")
+		}
+
+		cleanedHTML, ok = innerResult["cleaned_html"].(string)
+		if !ok || cleanedHTML == "" {
+			return nil, fmt.Errorf("scraper did not return cleaned_html")
+		}
+
+		// 1.5. Check if this is a consent/cookie page and handle it
 	if isConsentPage(cleanedHTML) {
 		log.Printf("🍪 [MCP-SMART-SCRAPE] Detected consent/cookie page, attempting to bypass...")
 
@@ -4056,7 +4078,7 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 	}
 
 	// 3. Fast Path: If no extra navigation is required, extract from the HTML we already have
-	if config.TypeScriptConfig == "" || strings.TrimSpace(config.TypeScriptConfig) == "// no navigation needed" {
+	if !bypassedLLM && (config.TypeScriptConfig == "" || strings.TrimSpace(config.TypeScriptConfig) == "// no navigation needed") {
 		log.Printf("⚡ [MCP-SMART-SCRAPE] Fast-path: Extracting from existing HTML (no extra navigation needed)")
 
 		// Prepare a result object similar to what scrapeWithConfig returns
