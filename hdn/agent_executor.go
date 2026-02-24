@@ -407,6 +407,105 @@ Rules:
 				}
 			}
 
+			// Special handling for price_monitor_flow orchestrator
+			if task.ID == "price_monitor_flow" {
+				if toolID != "mcp_smart_scrape" {
+					// We handle all steps inside the mcp_smart_scrape iteration, so skip others
+					continue
+				}
+
+				log.Printf("🛍️ [AGENT-EXECUTOR] Running specialized price monitor flow...")
+				var lastPrice string
+				historyPath := "config/price_history.json"
+
+				// 1. Read history
+				if b, err := os.ReadFile(historyPath); err == nil {
+					var history struct {
+						LastPrice string `json:"last_price"`
+					}
+					json.Unmarshal(b, &history)
+					lastPrice = history.LastPrice
+					log.Printf("🛍️ [AGENT-EXECUTOR] Loaded last price: %s", lastPrice)
+				} else {
+					log.Printf("🛍️ [AGENT-EXECUTOR] No previous price history found or failed to read")
+				}
+
+				// 2. Execute scrape
+				toolStartTime := time.Now()
+				// Add goal to satisfy validation
+				params["goal"] = "extract price"
+				result, err := adapter.Execute(ctx, params)
+				duration := time.Since(toolStartTime)
+
+				toolCall := ToolCall{
+					ToolID:   toolID,
+					Params:   params,
+					Duration: duration,
+				}
+
+				if err != nil {
+					toolCall.Error = err.Error()
+					toolCalls = append(toolCalls, toolCall)
+					log.Printf("❌ [AGENT-EXECUTOR] Scrape failed: %v", err)
+					continue
+				}
+
+				toolCall.Result = result
+				toolCalls = append(toolCalls, toolCall)
+
+				// 3. Extract price from result
+				var currentPrice string
+				if resultMap, ok := result.(map[string]interface{}); ok {
+					if extractions, ok := resultMap["extractions"].(map[string]interface{}); ok {
+						for _, v := range extractions {
+							if strVal, isStr := v.(string); isStr {
+								currentPrice = strVal
+								break
+							}
+						}
+					}
+				}
+
+				if currentPrice == "" {
+					log.Printf("❌ [AGENT-EXECUTOR] Could not extract price from scraper results")
+					continue
+				}
+
+				log.Printf("🛍️ [AGENT-EXECUTOR] Current Price: %s (Last Price: %s)", currentPrice, lastPrice)
+
+				// 4. Compare and alert
+				if lastPrice != "" && lastPrice != currentPrice {
+					log.Printf("📱 [AGENT-EXECUTOR] Price changed! Sending Telegram notification...")
+					var telegramAdapter *ToolAdapter
+					for i := range agentInstance.Tools {
+						if agentInstance.Tools[i].ToolID == "tool_telegram_send" {
+							telegramAdapter = &agentInstance.Tools[i]
+							break
+						}
+					}
+
+					if telegramAdapter != nil {
+						msg := fmt.Sprintf("🚨 *Price Change Alert!*\n\nProduct: ASUS Ascent Laptop\nAmazon link: https://www.amazon.fr/-/en/gp/product/B0G1CC2949\n\nOld Price: %s\nNew Price: *%s*", lastPrice, currentPrice)
+						telParams := map[string]interface{}{
+							"message":    msg,
+							"chat_id":    os.Getenv("TELEGRAM_CHAT_ID"),
+							"parse_mode": "Markdown",
+						}
+						telegramResult, telErr := telegramAdapter.Execute(ctx, telParams)
+						if telErr != nil {
+							log.Printf("⚠️ [AGENT-EXECUTOR] Failed to send Telegram notification: %v", telErr)
+						} else {
+							results = append(results, map[string]interface{}{"telegram": telegramResult})
+						}
+					}
+				}
+
+				// 5. Save new history
+				os.WriteFile(historyPath, []byte(fmt.Sprintf(`{"last_price": %q, "updated_at": %q}`, currentPrice, time.Now().Format(time.RFC3339))), 0644)
+				log.Printf("✅ [AGENT-EXECUTOR] Price monitor flow completed successfully")
+				continue
+			}
+
 			// Execute tool normally
 			toolStartTime := time.Now()
 			result, err := adapter.Execute(ctx, params)
