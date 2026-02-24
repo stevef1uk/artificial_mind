@@ -195,7 +195,7 @@ data:
         goal: Track a list of product URLs, extract prices, compare with history, and notify on significant price drops.
         backstory: |
           You are a dedicated shopping assistant. You check prices for specific items twice a day.
-          If a price falls by 10% or more, you send an alert via Telegram.
+          If a price falls by 5% or more, you send an alert via Telegram.
         tools:
           - mcp_smart_scrape
           - tool_telegram_send
