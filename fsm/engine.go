@@ -327,6 +327,21 @@ func (e *FSMEngine) logActivity(message, category string, extras map[string]stri
 	log.Printf("📋 [ACTIVITY] %s", message)
 }
 
+// pruneContextList ensures context lists don't grow indefinitely, preventing memory leaks and OOM
+func (e *FSMEngine) pruneContextList(key string, maxItems int) {
+	if val, ok := e.context[key].([]interface{}); ok {
+		if len(val) > maxItems {
+			e.context[key] = val[len(val)-maxItems:]
+			log.Printf("✂️ Pruned context list %s to %d items (was %d)", key, maxItems, len(val))
+		}
+	} else if val, ok := e.context[key].([]ReasoningTrace); ok {
+		if len(val) > maxItems {
+			e.context[key] = val[len(val)-maxItems:]
+			log.Printf("✂️ Pruned context list %s to %d items (was %d)", key, maxItems, len(val))
+		}
+	}
+}
+
 // LoadConfig loads FSM configuration from YAML file
 func LoadConfig(configPath string) (*FSMConfig, error) {
 	data, err := os.ReadFile(configPath)
@@ -1126,6 +1141,7 @@ func (e *FSMEngine) executeKnowledgeExtractor(action ActionConfig, event map[str
 		e.context["extracted_facts"] = []interface{}{}
 	}
 	e.context["extracted_facts"] = append(e.context["extracted_facts"].([]interface{}), asInterfaces...)
+	e.pruneContextList("extracted_facts", 50)
 
 	// Publish perception facts to Goals server
 	e.publishPerceptionFacts(asInterfaces)
@@ -1243,6 +1259,7 @@ func (e *FSMEngine) executeKnowledgeUpdater(action ActionConfig, event map[strin
 		conceptInterfaces = append(conceptInterfaces, c)
 	}
 	e.context["discovered_concepts"] = append(e.context["discovered_concepts"].([]interface{}), conceptInterfaces...)
+	e.pruneContextList("discovered_concepts", 50)
 
 	// Update knowledge growth metrics
 	if e.context["knowledge_growth"] == nil {
@@ -2089,7 +2106,40 @@ func (e *FSMEngine) executeRecovery(action ActionConfig, event map[string]interf
 
 func (e *FSMEngine) executeCleanup(action ActionConfig, event map[string]interface{}) {
 	// Cleanup with domain knowledge preservation
-	log.Printf("Cleanup with domain knowledge preservation")
+	log.Printf("🧹 [CLEANUP] Clearing transient context data...")
+
+	// Preserve critical fields
+	projectID := e.context["project_id"]
+	currentDomain := e.context["current_domain"]
+	autonomy := e.context["autonomy"]
+
+	// Clear lists that grow indefinitely if not pruned elsewhere
+	keysToClear := []string{
+		"extracted_facts",
+		"discovered_concepts",
+		"inferred_beliefs",
+		"reasoning_traces",
+		"beliefs",
+		"last_execution",
+		"last_execution_body",
+		"last_execution_error",
+		"generated_hypotheses",
+		"candidate_capabilities",
+		"reasoning_explanation",
+	}
+
+	for _, k := range keysToClear {
+		delete(e.context, k)
+	}
+
+	// Restore critical fields
+	e.context["project_id"] = projectID
+	e.context["current_domain"] = currentDomain
+	if autonomy != nil {
+		e.context["autonomy"] = autonomy
+	}
+
+	log.Printf("✅ [CLEANUP] Context cleared for next cycle")
 }
 
 // Reasoning action implementations
@@ -2229,8 +2279,10 @@ func (e *FSMEngine) executeInference(action ActionConfig, event map[string]inter
 		case []ReasoningTrace:
 			traces := append(v, itrace)
 			e.context["reasoning_traces"] = traces
+			e.pruneContextList("reasoning_traces", 10)
 		case []interface{}:
 			e.context["reasoning_traces"] = append(v, itrace)
+			e.pruneContextList("reasoning_traces", 10)
 		default:
 			// fallback: wrap both old and new into []interface{}
 			e.context["reasoning_traces"] = []interface{}{v, itrace}

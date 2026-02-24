@@ -208,6 +208,12 @@ data:
           schedule:
             - cron: "0 9,17 * * *"
               action: "Check all watched products for price drops."
+          events:
+            - type: user_request
+              keywords:
+                - monitor prices
+                - check price drop
+                - asus ascent price
         behavior:
           thinking_mode: true
           max_retries: 3
