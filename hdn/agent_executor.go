@@ -456,11 +456,23 @@ Rules:
 				// 3. Extract price from result
 				var currentPrice string
 				if resultMap, ok := result.(map[string]interface{}); ok {
-					if extractions, ok := resultMap["extractions"].(map[string]interface{}); ok {
-						for _, v := range extractions {
-							if strVal, isStr := v.(string); isStr {
-								currentPrice = strVal
-								break
+					// The scraper wraps its response in a map with a 'content' array
+					if contentArr, ok := resultMap["content"].([]interface{}); ok && len(contentArr) > 0 {
+						if firstItem, ok := contentArr[0].(map[string]interface{}); ok {
+							if scrapedText, ok := firstItem["text"].(string); ok {
+								// We need to unmarshal the nested JSON string
+								scrapedText = strings.TrimPrefix(scrapedText, "Scrape Results:\n")
+								var innerResult map[string]interface{}
+								if err := json.Unmarshal([]byte(scrapedText), &innerResult); err == nil {
+									if extractions, ok := innerResult["extractions"].(map[string]interface{}); ok {
+										for _, v := range extractions {
+											if strVal, isStr := v.(string); isStr {
+												currentPrice = strVal
+												break
+											}
+										}
+									}
+								}
 							}
 						}
 					}
