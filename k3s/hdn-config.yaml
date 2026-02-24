@@ -219,11 +219,22 @@ data:
           max_retries: 3
           use_memory: true
           prefer_tools: true
-        instructions:
-          - "1. Read current price history from 'config/price_history.json' using tool_file_read."
-          - "2. For each product in watch list, use mcp_smart_scrape to get current price."
-          - "3. Product: ASUS Ascent, URL: https://www.amazon.fr/-/en/gp/product/B0G1CC2949, Selector: 'div#tp-tool-tip-price-block > div > div'"
-          - "4. Compare new price with 'last_price' in history."
-          - "5. If price <= 90% of last_price, send Telegram alert."
-          - "6. Update 'config/price_history.json' with new price."
-          - "7. DO NOT use placeholder paths like '/path/to/'. Use 'config/price_history.json' exactly."
+        tasks:
+          - id: scrape_amazon_price
+            description: "Scrape the current price of the ASUS Ascent laptop from Amazon."
+            expected_output: "The current price of the laptop."
+            tools:
+              - mcp_smart_scrape
+            parameters:
+              url: "https://www.amazon.fr/-/en/gp/product/B0G1CC2949"
+              extractions:
+                field_1771953582615: "div#tp-tool-tip-price-block > div > div"
+              typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/gp/product/B0G1CC2949');\n});"
+              get_html: false
+          - id: check_price_and_alert
+            description: "Read 'config/price_history.json' using tool_file_read. Compare the scraped price with 'last_price'. If the new price is <= 90% of last_price, use tool_telegram_send to alert the user. Then use tool_file_write to update 'config/price_history.json' with the new price."
+            expected_output: "A success message confirming if an alert was sent and the file was updated."
+            tools:
+              - tool_file_read
+              - tool_telegram_send
+              - tool_file_write
