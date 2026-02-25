@@ -456,14 +456,14 @@ type ToolCall struct {
 
 // extractMainPrice searches for price patterns and picks the most likely main price
 func extractMainPrice(text string) string {
-	// 1. Regex to match prices like €3,309.99, 3.291,04 €, £45.00, etc.
+	// 1. Regex to match prices like €3,309.99, 3.291,04 €, £45.00, 3.879 €, etc.
 	// We handle:
 	// - Optional currency symbol (€, $, £)
 	// - Optional whitespace
 	// - Digits with thousands separators (comma, dot, or space)
-	// - Decimal part (comma or dot followed by 2 digits)
+	// - Optional decimal part (comma or dot followed by 2 digits)
 	// - Optional currency symbol/code at the end
-	re := regexp.MustCompile(`(?i)(?:€|\$|£|GBP|EUR|USD)\s*(\d{1,3}(?:[.,\s]\d{3})*[.,]\d{2})|(\d{1,3}(?:[.,\s]\d{3})*[.,]\d{2})\s*(?:€|\$|£|EUR|GBP|USD)`)
+	re := regexp.MustCompile(`(?i)(?:€|\$|£|GBP|EUR|USD)\s*(\d{1,3}(?:[.,\s]\d{3})*(?:[.,]\d{2})?)|(\d{1,3}(?:[.,\s]\d{3})*(?:[.,]\d{2})?)\s*(?:€|\$|£|EUR|GBP|USD)`)
 
 	matches := re.FindAllStringSubmatch(text, -1)
 	if len(matches) == 0 {
@@ -493,15 +493,22 @@ func extractMainPrice(text string) string {
 		lastComma := strings.LastIndex(cleanNum, ",")
 
 		if lastDot > lastComma {
-			// Dot is decimal (US style)
-			cleanNum = strings.ReplaceAll(cleanNum, ",", "")
+			// Dot is further right than comma.
+			if lastComma != -1 || (len(cleanNum)-lastDot-1) != 3 {
+				cleanNum = strings.ReplaceAll(cleanNum, ",", "")
+			} else {
+				// Only dot and exactly 3 digits after. Assume thousands separator.
+				cleanNum = strings.ReplaceAll(cleanNum, ".", "")
+			}
 		} else if lastComma > lastDot {
-			// Comma is decimal (EU style)
-			cleanNum = strings.ReplaceAll(cleanNum, ".", "")
-			cleanNum = strings.ReplaceAll(cleanNum, ",", ".")
-		} else {
-			// No separators or only one type. If only one, assume it's decimal if it's near the end.
-			// But wait, if it's just "3309", it won't have matched our regex which asks for \d{2} decimals.
+			// Comma is further right than dot.
+			if lastDot != -1 || (len(cleanNum)-lastComma-1) != 3 {
+				cleanNum = strings.ReplaceAll(cleanNum, ".", "")
+				cleanNum = strings.ReplaceAll(cleanNum, ",", ".")
+			} else {
+				// Only comma and exactly 3 digits after. Assume thousands separator.
+				cleanNum = strings.ReplaceAll(cleanNum, ",", "")
+			}
 		}
 
 		val, err := strconv.ParseFloat(cleanNum, 64)
@@ -598,6 +605,18 @@ func (e *AgentExecutor) extractValueFromResult(result interface{}, fieldName str
 						return extractMainPrice(strVal)
 					}
 					return strVal
+				}
+			}
+
+			// Special Case: If we are looking for a price, search the entire cleaned_html as a high-coverage fallback.
+			// extractMainPrice picks the largest price found, so it will correctly identify the product price
+			// even if there are smaller shipping/discount prices on the page.
+			if strings.Contains(strings.ToLower(fieldName), "price") {
+				if html, ok := resultMap["cleaned_html"].(string); ok && html != "" {
+					cleaned := extractMainPrice(html)
+					if cleaned != "" {
+						return cleaned
+					}
 				}
 			}
 
