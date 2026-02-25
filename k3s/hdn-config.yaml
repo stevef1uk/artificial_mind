@@ -69,169 +69,166 @@ data:
       ]
     }
   agents.yaml: |
-    # Configuration for Autonomous Agents using Google ADK
     agents:
-      - id: email_monitor_agent
-        name: Email Monitor Agent
-        description: Monitors emails and takes actions based on content
-        role: Email Monitoring Specialist
-        goal: Monitor inbox for important emails and notify or take actions
-        backstory: |
-          You are an email monitoring specialist that watches for important messages,
-          categorizes them, and takes appropriate actions like flagging urgent items
-          or summarizing daily digests.
-        tools:
-          - mcp_read_google_data
-          - mcp_save_episode
-          - tool_http_get
-        capabilities:
-          max_iterations: 10
-          allow_delegation: false
-          verbose: true
-        triggers:
-          schedule:
-            - cron: "*/30 * * * *"
-              action: check_emails
-          events:
-            - type: user_request
-              keywords:
-                - check emails
-                - monitor inbox
-                - email summary
-            - type: goal
-              goal_type: monitor_emails
-        behavior:
-          thinking_mode: true
-          max_retries: 3
-          response_format: structured
-          use_memory: true
-          memory_window: 24h
-          prefer_tools: true
-          tool_timeout: 60s
-        tasks:
-          - id: check_unread_emails
-            description: Check for unread emails and categorize them
-            expected_output: List of unread emails with categories
-            tools:
-              - mcp_read_google_data
-            parameters:
-              query: unread
-              type: email
-              limit: 50
-
-      - id: website_status_monitor
-        name: Website Status Monitor
-        description: Checks if important websites are up and running, reports status codes, and alerts if any are down.
-        role: Website Health Monitor
-        goal: Monitor a list of websites and report status via Telegram
-        backstory: |
-          You are a website monitoring specialist that checks the health of websites by making HTTP requests.
-        tools:
-          - tool_http_get
-          - tool_telegram_send
-        capabilities:
-          max_iterations: 10
-          allow_delegation: false
-          verbose: true
-        triggers:
-          schedule:
-            - cron: "*/15 * * * *"
-              action: execute
-        behavior:
-          thinking_mode: true
-          max_retries: 3
-          response_format: structured
-          use_memory: true
-          memory_window: 24h
-          prefer_tools: true
-          tool_timeout: 60s
-        tasks:
-          - id: monitor_task
-            description: Monitor and check status of websites
-            expected_output: Status report for each website
-            tools:
-              - tool_http_get
-            parameters:
-              websites:
-                - "https://me.sjfisher.com"
-                - "https://k3s.sjfisher.com"
-
-      - id: scraper_agent
-        name: Intelligent Scraper Agent
-        description: "Autonomously plans and executes web scraping tasks to extract specific data from websites."
-        role: "Data Extraction Specialist"
-        goal: "Extract structured data from websites based on user requests"
-        backstory: |
-          You are an expert at extracting information from the web.
-        tools:
-          - smart_scrape
-          - scrape_url
-          - execute_code
-        capabilities:
-          max_iterations: 15
-          allow_delegation: false
-          verbose: true
-        triggers:
-          events:
-            - type: user_request
-              keywords:
-                - scrape
-                - extract data
-                - find interest rate
-                - get price
-        behavior:
-          thinking_mode: true
-          max_retries: 3
-          response_format: structured
-          use_memory: true
-          memory_window: 24h
-          prefer_tools: true
-          tool_timeout: 120s
-
-      - id: price_monitor_agent
-        name: Price Monitor Agent
-        description: Monitors product prices twice daily and alerts on Telegram if prices drop by more than 10%.
-        role: Price Watcher & Analyst
-        goal: Track a list of product URLs, extract prices, compare with history, and notify on significant price drops.
-        backstory: |
-          You are a dedicated shopping assistant. You check prices for specific items twice a day.
-          If a price falls by 5% or more, you send an alert via Telegram.
-        tools:
-          - mcp_smart_scrape
-          - tool_telegram_send
-          - tool_file_read
-          - tool_file_write
-        capabilities:
-          max_iterations: 15
-          verbose: true
-        triggers:
-          schedule:
-            - cron: "0 9,17 * * *"
-              action: "Check all watched products for price drops."
-          events:
-            - type: user_request
-              keywords:
-                - monitor prices
-                - check price drop
-                - asus ascent price
-        behavior:
-          thinking_mode: true
-          max_retries: 3
-          use_memory: true
-          prefer_tools: true
-        tasks:
-          - id: price_monitor_flow
-            description: "Scrape the current price of the ASUS Ascent laptop from Amazon, compare with history, and alert if changed."
-            expected_output: "The current price of the laptop and alert status."
-            tools:
-              - mcp_smart_scrape
-              - tool_telegram_send
-              - tool_file_read
-              - tool_file_write
-            parameters:
-              url: "https://www.amazon.fr/-/en/gp/product/B0G1CC2949"
-              goal: "extract the price"
-              extractions:
-                field_1771953582615: "div#tp-tool-tip-price-block > div > div"
-              typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/gp/product/B0G1CC2949');\n  await page.click('#sp-cc-accept');\n  await page.waitForSelector('div#tp-tool-tip-price-block > div > div');\n});"
-              get_html: false
+        - id: email_monitor_agent
+          name: Email Monitor Agent
+          description: Monitors emails and takes actions based on content
+          role: Email Monitoring Specialist
+          goal: Monitor inbox for important emails and notify or take actions
+          backstory: |
+            You are an email monitoring specialist that watches for important messages,
+            categorizes them, and takes appropriate actions like flagging urgent items
+            or summarizing daily digests.
+          tools:
+            - mcp_read_google_data
+            - mcp_save_episode
+            - tool_http_get
+          capabilities:
+            max_iterations: 10
+            verbose: true
+          triggers:
+            schedule:
+                - cron: '*/30 * * * *'
+                  action: check_emails
+            events:
+                - type: user_request
+                  keywords:
+                    - check emails
+                    - monitor inbox
+                    - email summary
+                - type: goal
+                  goal_type: monitor_emails
+          behavior:
+            thinking_mode: true
+            max_retries: 3
+            response_format: structured
+            use_memory: true
+            memory_window: 24h
+            prefer_tools: true
+            tool_timeout: 60s
+          tasks:
+            - id: check_unread_emails
+              description: Check for unread emails and categorize them
+              expected_output: List of unread emails with categories
+              tools:
+                - mcp_read_google_data
+              parameters:
+                limit: 50
+                query: unread
+                type: email
+        - id: website_status_monitor
+          name: Website Status Monitor
+          description: Checks if important websites are up and running, reports their HTTP status codes, and alerts if any are down. Perfect for monitoring critical services or your own infrastructure.
+          role: Website Health Monitor
+          goal: Monitor a list of websites and report their status (up/down, response times, HTTP status codes) via Telegram
+          backstory: |
+            You are a website monitoring specialist that checks the health of websites by making HTTP requests
+            and analyzing their responses. You provide clear status reports and identify any issues, then notify
+            via Telegram for immediate visibility.
+          tools:
+            - tool_http_get
+            - tool_telegram_send
+          capabilities:
+            max_iterations: 10
+            verbose: true
+          triggers:
+            schedule:
+                - cron: '*/15 * * * *'
+                  action: execute
+          behavior:
+            thinking_mode: true
+            max_retries: 3
+            response_format: structured
+            use_memory: true
+            memory_window: 24h
+            prefer_tools: true
+            tool_timeout: 60s
+          tasks:
+            - id: monitor_task
+              description: Monitor and check status of websites
+              expected_output: Status report for each website (up/down, HTTP status, response time)
+              tools:
+                - tool_http_get
+              parameters:
+                websites:
+                    - https://me.sjfisher.com
+                    - https://k3s.sjfisher.com
+        - id: scraper_agent
+          name: Scraper Agent
+          description: Intelligent scraper that can plan and execute complex web extractions
+          role: Web Scraping Specialist
+          goal: Plan and execute web scraping operations to extract specific data from any given URL
+          backstory: |
+            You are an expert web scraper that uses Playwright and intelligent planning
+            to navigate complex websites, handle autocompletes, and extract data accurately.
+          tools:
+            - smart_scrape
+            - tool_http_get
+          capabilities:
+            max_iterations: 15
+            verbose: true
+          triggers:
+            events:
+              - type: user_request
+                keywords:
+                  - scrape
+                  - extract data
+                  - find price
+                  - flight emissions
+              - type: goal
+                goal_type: scrape_web
+          behavior:
+            thinking_mode: true
+            max_retries: 5
+            use_memory: true
+            prefer_tools: true
+            tool_timeout: 120s
+    
+        - id: price_monitor_agent
+          name: Price Monitor Agent
+          description: Monitors product prices twice daily and alerts on Telegram if prices drop by more than 10%.
+          role: Price Watcher & Analyst
+          goal: Track a list of product URLs, extract prices, compare with history, and notify on significant price drops.
+          backstory: |
+            You are a dedicated shopping assistant. You check prices for a specific list of items twice a day.
+            You maintain a historical record of prices in 'data/price_history.json'.
+            Whenever you run, you compare the current price with the previous one.
+            If a price falls by 10% or more, you send an urgent alert via Telegram.
+          tools:
+            - mcp_scrape_url
+            - tool_telegram_send
+            - tool_file_read
+            - tool_file_write
+          capabilities:
+            max_iterations: 15
+            verbose: true
+          triggers:
+            schedule:
+                - cron: '0 9,17 * * *'
+                  action: "Check all watched products for price drops."
+          behavior:
+            thinking_mode: true
+            max_retries: 3
+            use_memory: true
+            prefer_tools: true
+          tasks:
+            - id: price_monitor_flow
+              description: "Scrape the current price of the ASUS Ascent laptop from Amazon, compare with history, and alert if changed."
+              expected_output: "The current price of the laptop and alert status."
+              tools:
+                - mcp_smart_scrape
+                - tool_telegram_send
+                - tool_file_read
+                - tool_file_write
+              parameters:
+                url: "https://www.amazon.fr/-/en/gp/product/B0G1CC2949"
+                goal: "extract the price"
+                monitoring:
+                  type: "value_change"
+                  field: "price"
+                  history_path: "config/price_history.json"
+                  product_name: "ASUS Ascent Laptop"
+                extractions:
+                  price: "(€\\s*[0-9.,]+|[0-9.,]+\\s*€)"
+                typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/gp/product/B0G1CC2949');\n  await page.click('#sp-cc-accept');\n  await page.waitForSelector('div#tp-tool-tip-price-block > div > div');\n});"
+                get_html: true

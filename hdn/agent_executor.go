@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -251,409 +252,51 @@ Rules:
 				continue
 			}
 
-			// Special handling for tool_http_get with websites array
+			// 1. Generic Pre-execution processing (e.g., multi-URL expansion)
 			if toolID == "tool_http_get" {
 				if websites, ok := params["websites"].([]interface{}); ok {
-					// Execute tool_http_get for each website
 					var websiteResults []map[string]interface{}
 					for _, website := range websites {
-						url, ok := website.(string)
-						if !ok {
-							log.Printf("⚠️ [AGENT-EXECUTOR] Invalid website URL: %v", website)
+						url, _ := website.(string)
+						if url == "" {
 							continue
 						}
-
 						log.Printf("🌐 [AGENT-EXECUTOR] Checking website: %s", url)
 						toolStartTime := time.Now()
-						websiteParams := map[string]interface{}{"url": url}
-						result, err := adapter.Execute(ctx, websiteParams)
+						res, err := adapter.Execute(ctx, map[string]interface{}{"url": url})
 						duration := time.Since(toolStartTime)
 
-						websiteResult := map[string]interface{}{
-							"url":      url,
-							"duration": duration.String(),
-						}
-
+						siteRes := map[string]interface{}{"url": url, "duration": duration.String()}
 						if err != nil {
-							websiteResult["error"] = err.Error()
-							websiteResult["status"] = "down"
-							websiteResult["status_text"] = "down" // Explicitly set status_text for failed sites
-							log.Printf("❌ [AGENT-EXECUTOR] Website %s check failed: %v", url, err)
-						} else {
-							if resultMap, ok := result.(map[string]interface{}); ok {
-								if status, ok := resultMap["status"].(int); ok {
-									websiteResult["status"] = status
-									if status >= 200 && status < 300 {
-										websiteResult["status_text"] = "up"
-									} else {
-										websiteResult["status_text"] = "warning"
-									}
-								}
-								// Don't include full body in result, just status
-								if body, ok := resultMap["body"].(string); ok {
-									websiteResult["body_length"] = len(body)
-								}
-							}
-							log.Printf("✅ [AGENT-EXECUTOR] Website %s check completed in %v", url, duration)
-						}
-
-						websiteResults = append(websiteResults, websiteResult)
-						toolCall := ToolCall{
-							ToolID:   toolID,
-							Params:   websiteParams,
-							Result:   websiteResult,
-							Duration: duration,
-						}
-						if err != nil {
-							toolCall.Error = err.Error()
-						}
-						toolCalls = append(toolCalls, toolCall)
-					}
-					websiteTaskResult := map[string]interface{}{
-						"task":     task.ID,
-						"websites": websiteResults,
-					}
-					results = append(results, websiteTaskResult)
-
-					// Log website check summary
-					log.Printf("✅ [AGENT-EXECUTOR] Website check completed: %d website(s) checked", len(websiteResults))
-					for _, siteMap := range websiteResults {
-						url, _ := siteMap["url"].(string)
-						status, _ := siteMap["status"].(int)
-						statusText, _ := siteMap["status_text"].(string)
-						log.Printf("   - %s: %s (HTTP %d)", url, statusText, status)
-					}
-
-					// Automatically send Telegram notification if tool is available
-					log.Printf("🔍 [AGENT-EXECUTOR] Checking for Telegram notification capability...")
-					if e.registry != nil {
-						agentInstance, ok := e.registry.GetAgent(agentID)
-						if ok {
-							log.Printf("🔍 [AGENT-EXECUTOR] Agent has %d tools registered", len(agentInstance.Tools))
-							// Check if agent has telegram tool
-							var telegramAdapter *ToolAdapter
-							for i := range agentInstance.Tools {
-								log.Printf("🔍 [AGENT-EXECUTOR] Checking tool: %s", agentInstance.Tools[i].ToolID)
-								if agentInstance.Tools[i].ToolID == "tool_telegram_send" {
-									telegramAdapter = &agentInstance.Tools[i]
-									log.Printf("✅ [AGENT-EXECUTOR] Found Telegram tool adapter!")
-									break
-								}
-							}
-
-							if telegramAdapter != nil {
-								// Format message
-								message := "🌐 *Website Status Report*\n\n"
-								allUp := true
-								for _, siteMap := range websiteResults {
-									url, _ := siteMap["url"].(string)
-									statusText := "❌ Down"
-									if status, ok := siteMap["status_text"].(string); ok {
-										if status == "up" {
-											statusText = "✅ Up"
-										} else if status == "warning" {
-											statusText = "⚠️ Warning"
-											allUp = false
-										} else {
-											allUp = false
-										}
-									} else {
-										allUp = false
-									}
-
-									statusCode := "N/A"
-									if status, ok := siteMap["status"].(int); ok {
-										statusCode = fmt.Sprintf("%d", status)
-									}
-
-									duration, _ := siteMap["duration"].(string)
-									message += fmt.Sprintf("%s: %s (HTTP %s) - %s\n", url, statusText, statusCode, duration)
-								}
-
-								if !allUp {
-									log.Printf("📱 [AGENT-EXECUTOR] Website(s) down or warning, preparing Telegram notification...")
-									message += "\n⚠️ Some websites have issues - please check!"
-
-									// Send notification
-									telegramParams := map[string]interface{}{
-										"message":    message,
-										"chat_id":    os.Getenv("TELEGRAM_CHAT_ID"), // Explicitly set chat_id
-										"parse_mode": "Markdown",
-									}
-
-									log.Printf("📱 [AGENT-EXECUTOR] Sending Telegram notification to chat_id: %s", telegramParams["chat_id"])
-									telegramResult, err := telegramAdapter.Execute(ctx, telegramParams)
-									if err != nil {
-										log.Printf("⚠️ [AGENT-EXECUTOR] Failed to send Telegram notification: %v", err)
-									} else {
-										log.Printf("✅ [AGENT-EXECUTOR] Telegram notification sent successfully")
-										results = append(results, map[string]interface{}{
-											"task":   "telegram_notification",
-											"result": telegramResult,
-										})
-									}
+							siteRes["status"] = "down"
+							siteRes["status_text"] = "down"
+							siteRes["error"] = err.Error()
+						} else if rm, ok := res.(map[string]interface{}); ok {
+							if status, ok := rm["status"].(int); ok {
+								siteRes["status"] = status
+								if status >= 200 && status < 300 {
+									siteRes["status_text"] = "up"
 								} else {
-									log.Printf("📱 [AGENT-EXECUTOR] Skipping Telegram notification because all websites are operational")
+									siteRes["status_text"] = "warning"
 								}
-							} else {
-								log.Printf("⚠️ [AGENT-EXECUTOR] Telegram adapter not found in agent tools")
 							}
-						} else {
-							log.Printf("⚠️ [AGENT-EXECUTOR] Agent instance not found for agent_id: %s", agentID)
 						}
-					} else {
-						log.Printf("⚠️ [AGENT-EXECUTOR] Registry is nil, cannot send Telegram notification")
+						websiteResults = append(websiteResults, siteRes)
+						toolCalls = append(toolCalls, ToolCall{ToolID: toolID, Params: map[string]interface{}{"url": url}, Result: siteRes, Duration: duration})
 					}
+					results = append(results, map[string]interface{}{"task": task.ID, "websites": websiteResults})
 
+					// Alert if configured
+					if e.registry != nil {
+						if agent, ok := e.registry.GetAgent(agentID); ok {
+							e.handleWebsiteAlert(ctx, agent, websiteResults, &results)
+						}
+					}
 					continue
 				}
 			}
 
-			// Special handling for price_monitor_flow orchestrator
-			if task.ID == "price_monitor_flow" {
-				if toolID != "mcp_smart_scrape" {
-					// We handle all steps inside the mcp_smart_scrape iteration, so skip others
-					continue
-				}
-
-				log.Printf("🛍️ [AGENT-EXECUTOR] Running specialized price monitor flow...")
-				var lastPrice string
-				historyPath := "config/price_history.json"
-
-				// 1. Read history
-				if b, err := os.ReadFile(historyPath); err == nil {
-					var history struct {
-						LastPrice string `json:"last_price"`
-					}
-					json.Unmarshal(b, &history)
-					lastPrice = history.LastPrice
-					log.Printf("🛍️ [AGENT-EXECUTOR] Loaded last price: %s", lastPrice)
-				} else {
-					log.Printf("🛍️ [AGENT-EXECUTOR] No previous price history found or failed to read")
-				}
-
-				// 2. Execute scrape
-				toolStartTime := time.Now()
-				// Add goal to satisfy validation
-				params["goal"] = "extract price"
-				result, err := adapter.Execute(ctx, params)
-				duration := time.Since(toolStartTime)
-
-				productURL, _ := params["url"].(string)
-				if productURL == "" {
-					productURL = "https://www.amazon.fr/-/en/gp/product/B0G1CC2949"
-				}
-
-				productName := "ASUS Ascent Laptop" // Fallback
-				if resultMap, ok := result.(map[string]interface{}); ok {
-					if title, ok := resultMap["page_title"].(string); ok && title != "" {
-						productName = strings.TrimSpace(strings.Split(title, ":")[0])
-					}
-					// Check for explicit product_name if scraper found it
-					if res, ok := resultMap["result"].(map[string]interface{}); ok {
-						if name, ok := res["product_name"].(string); ok && name != "" {
-							productName = name
-						}
-					}
-				}
-
-				toolCall := ToolCall{
-					ToolID:   toolID,
-					Params:   params,
-					Duration: duration,
-				}
-
-				if err != nil {
-					toolCall.Error = err.Error()
-					toolCalls = append(toolCalls, toolCall)
-					log.Printf("❌ [AGENT-EXECUTOR] Scrape failed: %v", err)
-					continue
-				}
-
-				// 3. Extract price from result
-				var currentPrice string
-				if resultMap, ok := result.(map[string]interface{}); ok {
-					var innerResult map[string]interface{}
-
-					// 3.1. Try structured result first (most reliable)
-					if res, ok := resultMap["result"].(map[string]interface{}); ok {
-						innerResult = res
-						log.Printf("🛍️ [AGENT-EXECUTOR] Using structured 'result' key")
-					} else if res, ok := resultMap["results"].(map[string]interface{}); ok {
-						innerResult = res
-						log.Printf("🛍️ [AGENT-EXECUTOR] Using structured 'results' key")
-					}
-
-					// 3.2. Fallback to parsing text content if structured result is missing or empty
-					if len(innerResult) == 0 {
-						if contentArr, ok := resultMap["content"].([]interface{}); ok && len(contentArr) > 0 {
-							if firstItem, ok := contentArr[0].(map[string]interface{}); ok {
-								if scrapedText, ok := firstItem["text"].(string); ok {
-									log.Printf("🛍️ [AGENT-EXECUTOR] Parsing text content (fallback)")
-									// More robust header removal: find first '{'
-									if startIdx := strings.Index(scrapedText, "{"); startIdx != -1 {
-										scrapedText = scrapedText[startIdx:]
-									}
-
-									if err := json.Unmarshal([]byte(scrapedText), &innerResult); err != nil {
-										log.Printf("⚠️ [AGENT-EXECUTOR] Failed to unmarshal scraper text: %v", err)
-										// SUPER FALLBACK: If not JSON, try regex on the whole text
-										currentPrice = extractMainPrice(scrapedText)
-										if currentPrice != "" {
-											log.Printf("🛍️ [AGENT-EXECUTOR] Found price via regex fallback in text: %s", currentPrice)
-										}
-									}
-								}
-							}
-						}
-					}
-
-					// 3.2.5. Handling string results (e.g., tool returned "Could not extract price" or raw text)
-					if len(innerResult) == 0 && currentPrice == "" {
-						if strResult, ok := result.(string); ok {
-							log.Printf("🛍️ [AGENT-EXECUTOR] Tool returned string result, searching for price patterns...")
-							currentPrice = extractMainPrice(strResult)
-							if currentPrice != "" {
-								log.Printf("🛍️ [AGENT-EXECUTOR] Found price via regex in string result: %s", currentPrice)
-							}
-						}
-					}
-
-					// 3.3. Extract value from innerResult
-					if len(innerResult) > 0 {
-						// Try to find in nested 'extractions' first (compatibility)
-						source := innerResult
-						if extractions, ok := innerResult["extractions"].(map[string]interface{}); ok {
-							source = extractions
-						}
-
-						// Iterate and find the first value that looks like a price
-						// Prioritize names containing "price"
-						for _, key := range []string{"price", "field_1771953582615"} {
-							if v, ok := source[key]; ok {
-								if strVal, isStr := v.(string); isStr && strVal != "" {
-									// Clean potential baggage like "Price (€3,309.99x)"
-									cleaned := extractMainPrice(strVal)
-									if cleaned != "" {
-										currentPrice = cleaned
-										log.Printf("🛍️ [AGENT-EXECUTOR] Found price in priority key '%s' (cleaned): %s", key, currentPrice)
-										break
-									}
-									currentPrice = strVal
-									log.Printf("🛍️ [AGENT-EXECUTOR] Found price in priority key '%s' (raw): %s", key, currentPrice)
-									break
-								}
-							}
-						}
-
-						if currentPrice == "" {
-							for k, v := range source {
-								if k == "page_title" || k == "page_url" || k == "cookies" || k == "cleaned_html" {
-									continue
-								}
-								if strVal, isStr := v.(string); isStr && strVal != "" {
-									// Clean potential baggage like "Price (€3,309.99x)"
-									cleaned := extractMainPrice(strVal)
-									if cleaned != "" {
-										currentPrice = cleaned
-										log.Printf("🛍️ [AGENT-EXECUTOR] Found price in key '%s': %s", k, currentPrice)
-										break
-									}
-									// Fallback if cleaning found nothing
-									currentPrice = strVal
-									log.Printf("🛍️ [AGENT-EXECUTOR] Found raw value in key '%s': %s", k, currentPrice)
-									break
-								}
-							}
-						}
-
-						// 3.4. Final Fallback: Search in cleaned_html if available
-						if currentPrice == "" {
-							if html, ok := innerResult["cleaned_html"].(string); ok && html != "" {
-								log.Printf("🛍️ [AGENT-EXECUTOR] Searching for price patterns in cleaned_html...")
-								currentPrice = extractMainPrice(html)
-								if currentPrice != "" {
-									log.Printf("🛍️ [AGENT-EXECUTOR] Found price via regex in cleaned_html: %s", currentPrice)
-								}
-							}
-						}
-					}
-				}
-
-				if currentPrice == "" {
-					log.Printf("❌ [AGENT-EXECUTOR] Could not extract price from scraper results")
-					toolCall.Result = "Could not extract price"
-					toolCalls = append(toolCalls, toolCall)
-					continue
-				}
-
-				// Keep result lightweight to avoid LLM context blowout
-				simplifiedResult := map[string]interface{}{
-					"status":          "success",
-					"extracted_price": currentPrice,
-				}
-				toolCall.Result = simplifiedResult
-				toolCalls = append(toolCalls, toolCall)
-				results = append(results, simplifiedResult)
-
-				log.Printf("🛍️ [AGENT-EXECUTOR] Current Price: %s (Last Price: %s)", currentPrice, lastPrice)
-
-				// 4. Compare and alert
-				if lastPrice != "" && lastPrice != currentPrice {
-					log.Printf("📱 [AGENT-EXECUTOR] Price changed from %s to %s! Sending Telegram notification...", lastPrice, currentPrice)
-					var telegramAdapter *ToolAdapter
-					for i := range agentInstance.Tools {
-						if agentInstance.Tools[i].ToolID == "tool_telegram_send" {
-							telegramAdapter = &agentInstance.Tools[i]
-							break
-						}
-					}
-
-					if telegramAdapter != nil {
-						// Calculate percentage change
-						oldVal := parsePriceToFloat(lastPrice)
-						newVal := parsePriceToFloat(currentPrice)
-						var changeText string
-						var emoji string = "🔄"
-
-						if oldVal > 0 && newVal > 0 {
-							diff := newVal - oldVal
-							percent := (diff / oldVal) * 100
-							if diff < 0 {
-								changeText = fmt.Sprintf("📉 Drop: %.2f%% (-%.2f)", -percent, -diff)
-								emoji = "📉 *PRICE DROP*"
-							} else {
-								changeText = fmt.Sprintf("📈 Increase: %.2f%% (+%.2f)", percent, diff)
-								emoji = "📈 *PRICE INCREASE*"
-							}
-						}
-
-						msg := fmt.Sprintf("%s\n\n*Product:* %s\n*Price:* %s\n*Previous:* %s\n%s\n\n🔗 [View Product](%s)\n\n_Checked at: %s_",
-							emoji, productName, currentPrice, lastPrice, changeText, productURL, time.Now().Format("15:04:05 02 Jan"))
-
-						telParams := map[string]interface{}{
-							"message":    msg,
-							"chat_id":    os.Getenv("TELEGRAM_CHAT_ID"),
-							"parse_mode": "Markdown",
-						}
-						log.Printf("📱 [AGENT-EXECUTOR] Message content:\n%s", msg)
-
-						telegramResult, telErr := telegramAdapter.Execute(ctx, telParams)
-						if telErr != nil {
-							log.Printf("⚠️ [AGENT-EXECUTOR] Failed to send Telegram notification: %v", telErr)
-						} else {
-							results = append(results, map[string]interface{}{"telegram": telegramResult})
-						}
-					}
-				}
-
-				// 5. Save new history
-				os.WriteFile(historyPath, []byte(fmt.Sprintf(`{"last_price": %q, "updated_at": %q}`, currentPrice, time.Now().Format(time.RFC3339))), 0644)
-				log.Printf("✅ [AGENT-EXECUTOR] Price monitor flow completed successfully")
-				continue
-			}
-
-			// Execute tool normally
+			// 2. Standard Tool Execution
 			toolStartTime := time.Now()
 			result, err := adapter.Execute(ctx, params)
 			duration := time.Since(toolStartTime)
@@ -661,19 +304,24 @@ Rules:
 			toolCall := ToolCall{
 				ToolID:   toolID,
 				Params:   params,
+				Result:   result,
 				Duration: duration,
 			}
-
 			if err != nil {
 				toolCall.Error = err.Error()
 				log.Printf("❌ [AGENT-EXECUTOR] Tool %s failed: %v", toolID, err)
 			} else {
-				toolCall.Result = result
 				log.Printf("✅ [AGENT-EXECUTOR] Tool %s completed in %v", toolID, duration)
 				results = append(results, result)
 			}
-
 			toolCalls = append(toolCalls, toolCall)
+
+			// 3. Generic Post-execution processing (Monitoring, Alerting)
+			if e.registry != nil {
+				if agent, ok := e.registry.GetAgent(agentID); ok {
+					e.handleMonitoring(ctx, agent, &task, result, params, &results)
+				}
+			}
 		}
 	}
 
@@ -902,4 +550,232 @@ func parsePriceToFloat(s string) float64 {
 
 	val, _ := strconv.ParseFloat(cleanNum, 64)
 	return val
+}
+
+// extractValueFromResult pulls a specific field value from a scraper result
+func (e *AgentExecutor) extractValueFromResult(result interface{}, fieldName string) string {
+	if resultMap, ok := result.(map[string]interface{}); ok {
+		var innerResult map[string]interface{}
+
+		// Try structured results
+		if res, ok := resultMap["result"].(map[string]interface{}); ok {
+			innerResult = res
+		} else if res, ok := resultMap["results"].(map[string]interface{}); ok {
+			innerResult = res
+		}
+
+		// Fallback to parsing text content
+		if len(innerResult) == 0 {
+			if contentArr, ok := resultMap["content"].([]interface{}); ok && len(contentArr) > 0 {
+				if firstItem, ok := contentArr[0].(map[string]interface{}); ok {
+					if scrapedText, ok := firstItem["text"].(string); ok {
+						if startIdx := strings.Index(scrapedText, "{"); startIdx != -1 {
+							jsonPart := scrapedText[startIdx:]
+							json.Unmarshal([]byte(jsonPart), &innerResult)
+						}
+						if len(innerResult) == 0 {
+							// Regex fallback for price
+							if strings.Contains(strings.ToLower(fieldName), "price") {
+								return extractMainPrice(scrapedText)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Pull from innerResult
+		if len(innerResult) > 0 {
+			source := innerResult
+			if extractions, ok := innerResult["extractions"].(map[string]interface{}); ok {
+				source = extractions
+			}
+
+			// Try specific key
+			if v, ok := source[fieldName]; ok {
+				if strVal, ok := v.(string); ok && strVal != "" {
+					if strings.Contains(strings.ToLower(fieldName), "price") {
+						return extractMainPrice(strVal)
+					}
+					return strVal
+				}
+			}
+
+			// Search all keys if fieldName not found
+			for k, v := range source {
+				if k == "page_title" || k == "page_url" || k == "cookies" || k == "cleaned_html" {
+					continue
+				}
+				if strVal, ok := v.(string); ok && strVal != "" {
+					if strings.Contains(strings.ToLower(fieldName), "price") {
+						cleaned := extractMainPrice(strVal)
+						if cleaned != "" {
+							return cleaned
+						}
+					} else {
+						return strVal
+					}
+				}
+			}
+		}
+
+		// Final fallback for string results
+		if strResult, ok := result.(string); ok {
+			if strings.Contains(strings.ToLower(fieldName), "price") {
+				return extractMainPrice(strResult)
+			}
+		}
+	}
+	return ""
+}
+
+// handleMonitoring orchestrates post-execution monitoring logic
+func (e *AgentExecutor) handleMonitoring(ctx context.Context, agent *AgentInstance, task *AgentTask, result interface{}, params map[string]interface{}, results *[]interface{}) {
+	monitorCfg, ok := params["monitoring"].(map[string]interface{})
+	if !ok {
+		log.Printf("⚠️ [AGENT-EXECUTOR] Monitoring config type is %T, could not cast to map[string]interface{}", params["monitoring"])
+		return
+	}
+
+	monitorType, _ := monitorCfg["type"].(string)
+	if monitorType == "value_change" {
+		fieldName, _ := monitorCfg["field"].(string)
+		historyPath, _ := monitorCfg["history_path"].(string)
+		if fieldName == "" || historyPath == "" {
+			return
+		}
+
+		currentValue := e.extractValueFromResult(result, fieldName)
+		if currentValue == "" {
+			log.Printf("⚠️ [AGENT-EXECUTOR] Could not extract monitoring field '%s'", fieldName)
+			return
+		}
+
+		// Load history
+		var lastValue string
+		if b, err := os.ReadFile(historyPath); err == nil {
+			var history struct {
+				LastValue string `json:"last_price"` // Keeping key for compat with existing json
+			}
+			json.Unmarshal(b, &history)
+			lastValue = history.LastValue
+		}
+
+		log.Printf("📊 [AGENT-EXECUTOR] Monitoring '%s': Current=%s, Previous=%s", fieldName, currentValue, lastValue)
+
+		// Compare and Alert
+		if lastValue != "" && lastValue != currentValue {
+			log.Printf("📱 [AGENT-EXECUTOR] Change detected! Triggering alert...")
+
+			// Find Telegram tool
+			var telegramAdapter *ToolAdapter
+			for i := range agent.Tools {
+				if agent.Tools[i].ToolID == "tool_telegram_send" {
+					telegramAdapter = &agent.Tools[i]
+					break
+				}
+			}
+
+			if telegramAdapter != nil {
+				productName, _ := monitorCfg["product_name"].(string)
+				if productName == "" {
+					if resultMap, ok := result.(map[string]interface{}); ok {
+						if title, ok := resultMap["page_title"].(string); ok {
+							productName = strings.TrimSpace(strings.Split(title, ":")[0])
+						}
+					}
+				}
+				productURL, _ := params["url"].(string)
+
+				// Calculate diff if price
+				var changeText string
+				var emoji string = "🔄 *CHANGE DETECTED*"
+				if strings.Contains(strings.ToLower(fieldName), "price") {
+					oldVal := parsePriceToFloat(lastValue)
+					newVal := parsePriceToFloat(currentValue)
+					if oldVal > 0 && newVal > 0 {
+						diff := newVal - oldVal
+						percent := (diff / oldVal) * 100
+						if diff < 0 {
+							changeText = fmt.Sprintf("📉 Drop: %.2f%% (-%.2f)", -percent, -diff)
+							emoji = "📉 *PRICE DROP*"
+						} else {
+							changeText = fmt.Sprintf("📈 Increase: %.2f%% (+%.2f)", percent, diff)
+							emoji = "📈 *PRICE INCREASE*"
+						}
+					}
+				}
+
+				msg := fmt.Sprintf("%s\n\n*Product:* %s\n*Current %s:* %s\n*Previous:* %s\n%s\n\n🔗 [View Product](%s)\n\n_Checked at: %s_",
+					emoji, productName, fieldName, currentValue, lastValue, changeText, productURL, time.Now().Format("15:04:05 02 Jan"))
+
+				telParams := map[string]interface{}{
+					"message":    msg,
+					"chat_id":    os.Getenv("TELEGRAM_CHAT_ID"),
+					"parse_mode": "Markdown",
+				}
+
+				tr, err := telegramAdapter.Execute(ctx, telParams)
+				if err == nil {
+					*results = append(*results, map[string]interface{}{"monitoring_alert": tr})
+				}
+			}
+		}
+
+		// Save history
+		historyData := map[string]string{"last_price": currentValue}
+		if b, err := json.MarshalIndent(historyData, "", "  "); err == nil {
+			os.MkdirAll(filepath.Dir(historyPath), 0755)
+			os.WriteFile(historyPath, b, 0644)
+		}
+	}
+}
+
+// handleWebsiteAlert formats and sends a Telegram alert for website status
+func (e *AgentExecutor) handleWebsiteAlert(ctx context.Context, agent *AgentInstance, websiteResults []map[string]interface{}, results *[]interface{}) {
+	// Find Telegram tool
+	var telegramAdapter *ToolAdapter
+	for i := range agent.Tools {
+		if agent.Tools[i].ToolID == "tool_telegram_send" {
+			telegramAdapter = &agent.Tools[i]
+			break
+		}
+	}
+
+	if telegramAdapter == nil {
+		return
+	}
+
+	message := "🌐 *Website Status Report*\n\n"
+	allUp := true
+	for _, siteRes := range websiteResults {
+		url, _ := siteRes["url"].(string)
+		statusText := "❌ Down"
+		if st, ok := siteRes["status_text"].(string); ok {
+			if st == "up" {
+				statusText = "✅ Up"
+			} else if st == "warning" {
+				statusText = "⚠️ Warning"
+				allUp = false
+			} else {
+				allUp = false
+			}
+		} else {
+			allUp = false
+		}
+		status, _ := siteRes["status"].(int)
+		message += fmt.Sprintf("%s: %s (HTTP %v)\n", url, statusText, status)
+	}
+
+	if !allUp {
+		telParams := map[string]interface{}{
+			"message":    message + "\n⚠️ Issues detected!",
+			"chat_id":    os.Getenv("TELEGRAM_CHAT_ID"),
+			"parse_mode": "Markdown",
+		}
+		tr, err := telegramAdapter.Execute(ctx, telParams)
+		if err == nil {
+			*results = append(*results, map[string]interface{}{"telegram_alert": tr})
+		}
+	}
 }

@@ -124,7 +124,7 @@ agents:
         Whenever you run, you compare the current price with the previous one.
         If a price falls by 10% or more, you send an urgent alert via Telegram.
       tools:
-        - mcp_smart_scrape
+        - mcp_scrape_url
         - tool_telegram_send
         - tool_file_read
         - tool_file_write
@@ -152,7 +152,12 @@ agents:
           parameters:
             url: "https://www.amazon.fr/-/en/gp/product/B0G1CC2949"
             goal: "extract the price"
+            monitoring:
+              type: "value_change"
+              field: "price"
+              history_path: "config/price_history.json"
+              product_name: "ASUS Ascent Laptop"
             extractions:
-              field_1771953582615: "div#tp-tool-tip-price-block > div > div"
+              price: "(€\\s*[0-9.,]+|[0-9.,]+\\s*€)"
             typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/gp/product/B0G1CC2949');\n  await page.click('#sp-cc-accept');\n  await page.waitForSelector('div#tp-tool-tip-price-block > div > div');\n});"
-            get_html: false
+            get_html: true
