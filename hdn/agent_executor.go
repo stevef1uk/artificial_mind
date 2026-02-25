@@ -534,6 +534,18 @@ Rules:
 								}
 							}
 						}
+
+						// 3.4. Final Fallback: Search in cleaned_html if available
+						if currentPrice == "" {
+							if html, ok := innerResult["cleaned_html"].(string); ok && html != "" {
+								log.Printf("🛍️ [AGENT-EXECUTOR] Searching for price patterns in cleaned_html...")
+								re := regexp.MustCompile(`(?i)(?:€|\$|£)\s*\d+[.,]\d{2}|\d+[.,]\d{2}\s*(?:€|\$|£|EUR)`)
+								if m := re.FindString(html); m != "" {
+									currentPrice = m
+									log.Printf("🛍️ [AGENT-EXECUTOR] Found price via regex in cleaned_html: %s", currentPrice)
+								}
+							}
+						}
 					}
 				}
 
