@@ -195,7 +195,7 @@ data:
             Whenever you run, you compare the current price with the previous one.
             If a price falls by 10% or more, you send an urgent alert via Telegram.
           tools:
-            - mcp_scrape_url
+            - mcp_smart_scrape
             - tool_telegram_send
             - tool_file_read
             - tool_file_write
