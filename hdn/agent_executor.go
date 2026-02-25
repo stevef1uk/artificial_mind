@@ -439,6 +439,24 @@ Rules:
 				result, err := adapter.Execute(ctx, params)
 				duration := time.Since(toolStartTime)
 
+				productURL, _ := params["url"].(string)
+				if productURL == "" {
+					productURL = "https://www.amazon.fr/-/en/gp/product/B0G1CC2949"
+				}
+
+				productName := "ASUS Ascent Laptop" // Fallback
+				if resultMap, ok := result.(map[string]interface{}); ok {
+					if title, ok := resultMap["page_title"].(string); ok && title != "" {
+						productName = strings.TrimSpace(strings.Split(title, ":")[0])
+					}
+					// Check for explicit product_name if scraper found it
+					if res, ok := resultMap["result"].(map[string]interface{}); ok {
+						if name, ok := res["product_name"].(string); ok && name != "" {
+							productName = name
+						}
+					}
+				}
+
 				toolCall := ToolCall{
 					ToolID:   toolID,
 					Params:   params,
@@ -582,7 +600,7 @@ Rules:
 
 				// 4. Compare and alert
 				if lastPrice != "" && lastPrice != currentPrice {
-					log.Printf("📱 [AGENT-EXECUTOR] Price changed! Sending Telegram notification...")
+					log.Printf("📱 [AGENT-EXECUTOR] Price changed from %s to %s! Sending Telegram notification...", lastPrice, currentPrice)
 					var telegramAdapter *ToolAdapter
 					for i := range agentInstance.Tools {
 						if agentInstance.Tools[i].ToolID == "tool_telegram_send" {
@@ -592,12 +610,34 @@ Rules:
 					}
 
 					if telegramAdapter != nil {
-						msg := fmt.Sprintf("🚨 *Price Change Alert!*\n\nProduct: ASUS Ascent Laptop\nAmazon link: https://www.amazon.fr/-/en/gp/product/B0G1CC2949\n\nOld Price: %s\nNew Price: *%s*", lastPrice, currentPrice)
+						// Calculate percentage change
+						oldVal := parsePriceToFloat(lastPrice)
+						newVal := parsePriceToFloat(currentPrice)
+						var changeText string
+						var emoji string = "🔄"
+
+						if oldVal > 0 && newVal > 0 {
+							diff := newVal - oldVal
+							percent := (diff / oldVal) * 100
+							if diff < 0 {
+								changeText = fmt.Sprintf("📉 Drop: %.2f%% (-%.2f)", -percent, -diff)
+								emoji = "📉 *PRICE DROP*"
+							} else {
+								changeText = fmt.Sprintf("📈 Increase: %.2f%% (+%.2f)", percent, diff)
+								emoji = "📈 *PRICE INCREASE*"
+							}
+						}
+
+						msg := fmt.Sprintf("%s\n\n*Product:* %s\n*Price:* %s\n*Previous:* %s\n%s\n\n🔗 [View Product](%s)\n\n_Checked at: %s_",
+							emoji, productName, currentPrice, lastPrice, changeText, productURL, time.Now().Format("15:04:05 02 Jan"))
+
 						telParams := map[string]interface{}{
 							"message":    msg,
 							"chat_id":    os.Getenv("TELEGRAM_CHAT_ID"),
 							"parse_mode": "Markdown",
 						}
+						log.Printf("📱 [AGENT-EXECUTOR] Message content:\n%s", msg)
+
 						telegramResult, telErr := telegramAdapter.Execute(ctx, telParams)
 						if telErr != nil {
 							log.Printf("⚠️ [AGENT-EXECUTOR] Failed to send Telegram notification: %v", telErr)
@@ -829,4 +869,37 @@ func extractMainPrice(text string) string {
 	}
 
 	return bestPrice
+}
+
+// parsePriceToFloat parses a price string (e.g. "€3,660.00") to float64
+func parsePriceToFloat(s string) float64 {
+	// Re-use core regex from extractMainPrice
+	re := regexp.MustCompile(`\d{1,3}(?:[.,\s]\d{3})*[.,]\d{2}`)
+	match := re.FindString(s)
+	if match == "" {
+		// Try a simpler match if formatted one fails
+		re = regexp.MustCompile(`\d+[.,]\d{2}`)
+		match = re.FindString(s)
+	}
+	if match == "" {
+		return 0
+	}
+
+	cleanNum := strings.ReplaceAll(match, " ", "")
+	cleanNum = strings.ReplaceAll(cleanNum, "\u00a0", "") // Non-breaking space
+
+	lastDot := strings.LastIndex(cleanNum, ".")
+	lastComma := strings.LastIndex(cleanNum, ",")
+
+	if lastDot > lastComma {
+		// Dot is decimal
+		cleanNum = strings.ReplaceAll(cleanNum, ",", "")
+	} else if lastComma > lastDot {
+		// Comma is decimal
+		cleanNum = strings.ReplaceAll(cleanNum, ".", "")
+		cleanNum = strings.ReplaceAll(cleanNum, ",", ".")
+	}
+
+	val, _ := strconv.ParseFloat(cleanNum, 64)
+	return val
 }
