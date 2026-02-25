@@ -3891,9 +3891,10 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string, goal string, userConfig *ScrapeConfig) (interface{}, error) {
 	log.Printf("🧠 [MCP-SMART-SCRAPE] Starting smart scrape for %s with goal: %s", url, goal)
 
-	// 0. Fast-path check
-	bypassedLLM := false
+	var err error
+	// 0. Fast-path check: if the user provided an explicit script, we skip the initial fetch and LLM planning.
 	var config *ScrapeConfig
+	bypassedLLM := false
 	if userConfig != nil && userConfig.TypeScriptConfig != "" {
 		log.Printf("⚡ [MCP-SMART-SCRAPE] Fast-path: User provided explicit TypeScript script, bypassing initial fetch and LLM planning")
 		bypassedLLM = true
@@ -3908,7 +3909,6 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 		}
 	}
 
-	var htmlResult map[string]interface{}
 	var innerResult map[string]interface{}
 	var cleanedHTML string
 	var capturedCookies []interface{}
@@ -3921,8 +3921,7 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 			return nil, fmt.Errorf("failed to fetch page content: %v", err)
 		}
 
-		var ok bool
-		htmlResult, ok = htmlResultRaw.(map[string]interface{})
+		htmlResult, ok := htmlResultRaw.(map[string]interface{})
 		if !ok {
 			return nil, fmt.Errorf("unexpected internal result format")
 		}
@@ -3939,33 +3938,22 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 		}
 
 		// 1.5. Check if this is a consent/cookie page and handle it
-	if isConsentPage(cleanedHTML) {
-		log.Printf("🍪 [MCP-SMART-SCRAPE] Detected consent/cookie page, attempting to bypass...")
-
-		// Generate TypeScript to click accept button
-		consentTS := generateConsentBypassScript()
-
-		// Execute the bypass
-		log.Printf("🍪 [MCP-SMART-SCRAPE] Executing consent bypass...")
-		bypassResult, err := s.scrapeWithConfig(ctx, url, consentTS, false, nil, true, nil)
-		if err != nil {
-			log.Printf("⚠️ [MCP-SMART-SCRAPE] Consent bypass failed: %v", err)
-			// Continue with original result, hoping it's usable or LLM can handle it
-		} else {
-			// Update HTML with the new page content
-			if bypassMap, ok := bypassResult.(map[string]interface{}); ok {
-				if bypassInner, ok := bypassMap["result"].(map[string]interface{}); ok {
-					if newHTML, ok := bypassInner["cleaned_html"].(string); ok && newHTML != "" {
-						log.Printf("✅ [MCP-SMART-SCRAPE] Successfully bypassed consent page, got %d chars of new HTML", len(newHTML))
-						// Use the result from the bypass job as the fresh content
-						htmlResult = bypassMap // Update the main htmlResult with the new one
-						cleanedHTML = newHTML  // Update cleanedHTML as well
-					}
-
-					// Capture cookies
-					if cookies, ok := bypassInner["cookies"].([]interface{}); ok {
-						capturedCookies = cookies
-						log.Printf("🍪 [MCP-SMART-SCRAPE] Captured %d cookies from bypass session", len(cookies))
+		if isConsentPage(cleanedHTML) {
+			log.Printf("🍪 [MCP-SMART-SCRAPE] Detected consent/cookie page, attempting to bypass...")
+			consentTS := generateConsentBypassScript()
+			bypassResult, err := s.scrapeWithConfig(ctx, url, consentTS, false, nil, true, nil)
+			if err != nil {
+				log.Printf("⚠️ [MCP-SMART-SCRAPE] Consent bypass failed: %v", err)
+			} else {
+				if bypassMap, ok := bypassResult.(map[string]interface{}); ok {
+					if bypassInner, ok := bypassMap["result"].(map[string]interface{}); ok {
+						if newHTML, ok := bypassInner["cleaned_html"].(string); ok && newHTML != "" {
+							log.Printf("✅ [MCP-SMART-SCRAPE] Successfully bypassed consent page, got %d chars of new HTML", len(newHTML))
+							cleanedHTML = newHTML
+						}
+						if cookies, ok := bypassInner["cookies"].([]interface{}); ok {
+							capturedCookies = cookies
+						}
 					}
 				}
 			}
@@ -3973,55 +3961,33 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 	}
 
 	// 2. Plan the scrape using LLM (if not explicitly provided by user)
-	var config *ScrapeConfig
 	planCtx, planCancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer planCancel()
 
-	bypassedLLM := false
-	if userConfig != nil && userConfig.TypeScriptConfig != "" {
-		log.Printf("⚡ [MCP-SMART-SCRAPE] Fast-path: User provided explicit TypeScript script, bypassing LLM planning")
-		bypassedLLM = true
-		config = &ScrapeConfig{
-			TypeScriptConfig: userConfig.TypeScriptConfig,
-			Extractions:      make(map[string]string),
-		}
-		if userConfig.Extractions != nil {
-			for k, v := range userConfig.Extractions {
-				config.Extractions[k] = v
-			}
-		}
-	} else {
+	if !bypassedLLM {
 		log.Printf("📋 [MCP-SMART-SCRAPE] Planning scrape config with LLM (%d chars of HTML)...", len(cleanedHTML))
 
-		// Build a compact actionable snapshot (only forms/inputs/buttons) so the LLM
-		// focuses on navigation interactions. The LLM will plan navigation only
-		// in this first pass; extraction patterns are planned on the final page.
+		// Build a compact actionable snapshot (only forms/inputs/buttons)
 		actionableHTML := s.buildActionableSnapshot(cleanedHTML)
 		navGoal := "[NAVIGATION_ONLY]\n" + goal
-		err = nil // Reuse outer err var
 		config, err = s.planScrapeWithLLM(planCtx, actionableHTML, navGoal, userConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to plan scrape with LLM: %v", err)
 		}
 		config.TypeScriptConfig = s.sanitizeNavigationScript(config.TypeScriptConfig, actionableHTML, goal)
 
-		// Merge user results if provided
+		// Merge user results/hints if provided
 		if userConfig != nil {
 			if userConfig.TypeScriptConfig != "" && config.TypeScriptConfig == "" {
 				config.TypeScriptConfig = userConfig.TypeScriptConfig
 			}
-			// Merge extractions - only use user hints if the LLM didn't find anything for that key.
-			// This allows the LLM to 'heal' broken user patterns.
 			if len(userConfig.Extractions) > 0 {
 				if config.Extractions == nil {
 					config.Extractions = make(map[string]string)
 				}
 				for k, v := range userConfig.Extractions {
 					if _, exists := config.Extractions[k]; !exists {
-						log.Printf("📥 [MCP-SMART-SCRAPE] Using user hint for missing key '%s'", k)
 						config.Extractions[k] = v
-					} else {
-						log.Printf("🩹 [MCP-SMART-SCRAPE] LLM provided its own pattern for '%s', ignoring user hint (healing active)", k)
 					}
 				}
 			}
