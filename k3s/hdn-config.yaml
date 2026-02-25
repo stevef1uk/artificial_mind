@@ -241,7 +241,7 @@ data:
               tools:
                 - mcp_smart_scrape
               parameters:
-                url: "https://www.ebay.com/itm/123456789" # Example URL
+                url: "https://www.ebay.com/itm/116499388377" # Real eBay listing
                 goal: "extract the price"
                 monitoring:
                   type: "value_change"
