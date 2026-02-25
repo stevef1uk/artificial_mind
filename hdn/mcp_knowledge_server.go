@@ -3898,8 +3898,32 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 	if userConfig != nil && userConfig.TypeScriptConfig != "" {
 		log.Printf("⚡ [MCP-SMART-SCRAPE] Fast-path: User provided explicit TypeScript script, bypassing initial fetch and LLM planning")
 		bypassedLLM = true
+
+		tsConfig := userConfig.TypeScriptConfig
+		// AUTO-HEALING: If the user provided a simple recorded script without consent bypass,
+		// but they are targeting a known domain (like Amazon) that needs it, auto-inject it.
+		isSimpleScript := strings.Contains(tsConfig, "page.goto") && !strings.Contains(tsConfig, "page.click") && !strings.Contains(tsConfig, "bypass")
+		needsConsentBypass := strings.Contains(url, "amazon") || strings.Contains(url, "ebay") || strings.Contains(url, "google") || strings.Contains(url, "yahoo")
+
+		if isSimpleScript && needsConsentBypass {
+			log.Printf("🍪 [MCP-SMART-SCRAPE] Simple fast-path script detected for %s, auto-injecting bypassConsent for reliability", url)
+			// Inject after the first goto
+			if strings.Contains(tsConfig, "await page.goto") {
+				lines := strings.Split(tsConfig, "\n")
+				for i, line := range lines {
+					if strings.Contains(line, "page.goto") {
+						lines[i] = line + "\n  await page.bypassConsent();"
+						break
+					}
+				}
+				tsConfig = strings.Join(lines, "\n")
+			} else {
+				tsConfig = tsConfig + "\nawait page.bypassConsent();"
+			}
+		}
+
 		config = &ScrapeConfig{
-			TypeScriptConfig: userConfig.TypeScriptConfig,
+			TypeScriptConfig: tsConfig,
 			Extractions:      make(map[string]string),
 		}
 		if userConfig.Extractions != nil {

@@ -457,18 +457,31 @@ Rules:
 					if contentArr, ok := resultMap["content"].([]interface{}); ok && len(contentArr) > 0 {
 						if firstItem, ok := contentArr[0].(map[string]interface{}); ok {
 							if scrapedText, ok := firstItem["text"].(string); ok {
-								// We need to unmarshal the nested JSON string
+								// Handle multiple possible prefixes
 								scrapedText = strings.TrimPrefix(scrapedText, "Scrape Results:\n")
+								scrapedText = strings.TrimPrefix(scrapedText, "Scrape Results (Two-Step):\n")
+
 								var innerResult map[string]interface{}
 								if err := json.Unmarshal([]byte(scrapedText), &innerResult); err == nil {
+									// Try to find in nested 'extractions' first (compatibility)
+									source := innerResult
 									if extractions, ok := innerResult["extractions"].(map[string]interface{}); ok {
-										for _, v := range extractions {
-											if strVal, isStr := v.(string); isStr {
-												currentPrice = strVal
-												break
-											}
+										source = extractions
+									}
+
+									// Iterate and find the first value that looks like a price
+									for k, v := range source {
+										if k == "page_title" || k == "page_url" || k == "cookies" || k == "cleaned_html" {
+											continue
+										}
+										if strVal, isStr := v.(string); isStr && strVal != "" {
+											currentPrice = strVal
+											log.Printf("🛍️ [AGENT-EXECUTOR] Found price in key '%s': %s", k, currentPrice)
+											break
 										}
 									}
+								} else {
+									log.Printf("⚠️ [AGENT-EXECUTOR] Failed to unmarshal scraper text: %v", err)
 								}
 							}
 						}

@@ -918,6 +918,8 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 				selectors := []string{
 					"button[name='agree']",
 					"button.accept-all",
+					"#sp-cc-accept",                // Amazon
+					"#onetrust-accept-btn-handler", // OneTrust
 					"input[type='submit'][value*='Accept']",
 					"button[id*='accept']", "button[class*='accept']",
 					"button[id*='agree']", "button[class*='agree']",
@@ -927,6 +929,7 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 					// Catch-all: Primary submit button in a consent form
 					"form[class*='consent'] button[type='submit']",
 					".consent-container button[type='submit']",
+					".sc-ifAKCX", // Common French cookie banner class
 				}
 				for _, sel := range selectors {
 					locator := page.Locator(sel).First()
