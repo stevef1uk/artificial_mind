@@ -146,9 +146,6 @@ agents:
           expected_output: "The current price of the laptop and alert status."
           tools:
             - mcp_smart_scrape
-            - tool_telegram_send
-            - tool_file_read
-            - tool_file_write
           parameters:
             url: "https://www.amazon.fr/-/en/gp/product/B0G1CC2949"
             goal: "extract the price"
