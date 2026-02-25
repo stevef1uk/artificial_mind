@@ -453,35 +453,65 @@ Rules:
 				// 3. Extract price from result
 				var currentPrice string
 				if resultMap, ok := result.(map[string]interface{}); ok {
-					// The scraper wraps its response in a map with a 'content' array
-					if contentArr, ok := resultMap["content"].([]interface{}); ok && len(contentArr) > 0 {
-						if firstItem, ok := contentArr[0].(map[string]interface{}); ok {
-							if scrapedText, ok := firstItem["text"].(string); ok {
-								// Handle multiple possible prefixes
-								scrapedText = strings.TrimPrefix(scrapedText, "Scrape Results:\n")
-								scrapedText = strings.TrimPrefix(scrapedText, "Scrape Results (Two-Step):\n")
+					var innerResult map[string]interface{}
 
-								var innerResult map[string]interface{}
-								if err := json.Unmarshal([]byte(scrapedText), &innerResult); err == nil {
-									// Try to find in nested 'extractions' first (compatibility)
-									source := innerResult
-									if extractions, ok := innerResult["extractions"].(map[string]interface{}); ok {
-										source = extractions
+					// 3.1. Try structured result first (most reliable)
+					if res, ok := resultMap["result"].(map[string]interface{}); ok {
+						innerResult = res
+						log.Printf("🛍️ [AGENT-EXECUTOR] Using structured 'result' key")
+					} else if res, ok := resultMap["results"].(map[string]interface{}); ok {
+						innerResult = res
+						log.Printf("🛍️ [AGENT-EXECUTOR] Using structured 'results' key")
+					}
+
+					// 3.2. Fallback to parsing text content if structured result is missing or empty
+					if len(innerResult) == 0 {
+						if contentArr, ok := resultMap["content"].([]interface{}); ok && len(contentArr) > 0 {
+							if firstItem, ok := contentArr[0].(map[string]interface{}); ok {
+								if scrapedText, ok := firstItem["text"].(string); ok {
+									log.Printf("🛍️ [AGENT-EXECUTOR] Parsing text content (fallback)")
+									// More robust header removal: find first '{'
+									if startIdx := strings.Index(scrapedText, "{"); startIdx != -1 {
+										scrapedText = scrapedText[startIdx:]
 									}
 
-									// Iterate and find the first value that looks like a price
-									for k, v := range source {
-										if k == "page_title" || k == "page_url" || k == "cookies" || k == "cleaned_html" {
-											continue
-										}
-										if strVal, isStr := v.(string); isStr && strVal != "" {
-											currentPrice = strVal
-											log.Printf("🛍️ [AGENT-EXECUTOR] Found price in key '%s': %s", k, currentPrice)
-											break
-										}
+									if err := json.Unmarshal([]byte(scrapedText), &innerResult); err != nil {
+										log.Printf("⚠️ [AGENT-EXECUTOR] Failed to unmarshal scraper text: %v", err)
 									}
-								} else {
-									log.Printf("⚠️ [AGENT-EXECUTOR] Failed to unmarshal scraper text: %v", err)
+								}
+							}
+						}
+					}
+
+					// 3.3. Extract value from innerResult
+					if len(innerResult) > 0 {
+						// Try to find in nested 'extractions' first (compatibility)
+						source := innerResult
+						if extractions, ok := innerResult["extractions"].(map[string]interface{}); ok {
+							source = extractions
+						}
+
+						// Iterate and find the first value that looks like a price
+						// Prioritize names containing "price"
+						for _, key := range []string{"price", "field_1771953582615"} {
+							if v, ok := source[key]; ok {
+								if strVal, isStr := v.(string); isStr && strVal != "" {
+									currentPrice = strVal
+									log.Printf("🛍️ [AGENT-EXECUTOR] Found price in priority key '%s': %s", key, currentPrice)
+									break
+								}
+							}
+						}
+
+						if currentPrice == "" {
+							for k, v := range source {
+								if k == "page_title" || k == "page_url" || k == "cookies" || k == "cleaned_html" {
+									continue
+								}
+								if strVal, isStr := v.(string); isStr && strVal != "" {
+									currentPrice = strVal
+									log.Printf("🛍️ [AGENT-EXECUTOR] Found price in key '%s': %s", k, currentPrice)
+									break
 								}
 							}
 						}
