@@ -67,12 +67,12 @@ func (e *AgentExecutor) ExecuteAgent(ctx context.Context, agentID string, input 
 		}
 	}
 
-	// If we have an LLM client and no tasks are defined, or the input is complex,
-	// use the LLM to plan the execution.
 	toolCalls := make([]ToolCall, 0)
 	var results []interface{}
 
-	if e.llmClient != nil && (len(agentInstance.Config.Tasks) == 0 || len(input) > 20) {
+	// Use the LLM to plan only if NO tasks are defined and we have an LLM client.
+	// If tasks ARE defined, we execute them as the primary intent.
+	if e.llmClient != nil && len(agentInstance.Config.Tasks) == 0 {
 		log.Printf("🤖 [AGENT-EXECUTOR] Using LLM to plan execution for agent %s", agentID)
 
 		// 1. Prepare tool descriptions for the LLM

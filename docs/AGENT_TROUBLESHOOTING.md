@@ -63,6 +63,28 @@
    - HDN tools: Check tool registry
 3. Ensure tool systems are initialized (MCP server, skill registry)
 
+### Issue: Incorrect Price Extraction
+
+**Symptom:** Agent picks up shipping cost or monthly payment instead of main price.
+
+**Cause:** Multiple numerical values on the page confuse the extraction regex.
+
+**Solution:**
+1. Ensure `extractMainPrice` logic is updated in `hdn/agent_executor.go`.
+2. Remove specific `extractions: price` regex from `agents.yaml` to trigger the more robust fallback logic.
+3. Use the Smart Scrape UI to verify what the "Cleaned HTML" contains.
+
+### Issue: History File Not Updating
+
+**Symptom:** Agent runs but price history remains static or file is empty.
+
+**Cause:** Permission issues or incorrect `history_path` in `agents.yaml`.
+
+**Solution:**
+1. Verify `history_path` is relative to project root (e.g., `config/price_history.json`).
+2. Ensure the process has write permissions to that directory.
+3. Check logs for `[MONITORING] Successfully updated historic state`.
+
 ## Verification Steps
 
 ### 1. Check Agent Configuration

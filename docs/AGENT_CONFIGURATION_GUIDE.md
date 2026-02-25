@@ -80,7 +80,9 @@ The agent registry is implemented and agents can be:
 - ✅ **Loaded from configuration** - Agents are loaded at server startup
 - ✅ **Listed via API** - `GET /api/v1/agents`
 - ✅ **Inspected via API** - `GET /api/v1/agents/{id}`
-- ⏳ **Execution** - Agent execution is not yet implemented
+- ✅ **Execution** - Agents can be executed via `POST /api/v1/agents/{id}/execute`.
+- ✅ **Task Priority** - Explicitly defined tasks in YAML are prioritized over automated LLM planning.
+- ✅ **Multi-Product Monitoring** - Multiple tasks can be defined per agent for sequential execution.
 
 ### Testing Agent Configuration
 
@@ -100,14 +102,21 @@ The agent registry is implemented and agents can be:
    curl http://localhost:8081/api/v1/agents/email_monitor_agent | jq
    ```
 
-### Next Steps for Execution
+### How Execution Works
+ 
+1. **Task Priority**: When an agent is executed, the system checks if it has any `tasks` defined in `agents.yaml`.
+   - **If Tasks Exist**: The executor runs each task sequentially using the provided parameters. This ensures reliability and follows your exact instructions.
+   - **If No Tasks Exist**: The system uses an LLM to "plan" the execution based on the agent's goal and role.
+2. **Tool Routing**: Agent tools are automatically routed to the correct backend (MCP, n8n, or HDN Tools).
+3. **History**: Every execution is recorded in Redis with detailed tool logs.
 
-To actually **run** an agent, we need to implement:
+### Manual Execution via API
 
-1. **Agent Executor** - Execute agents using ADK's runtime
-2. **Tool Adapters** - Connect agent tools to actual MCP/n8n tools
-3. **Trigger System** - Handle scheduled and event-based triggers
-4. **API Endpoint** - `POST /api/v1/agents/{id}/execute` to manually trigger
+```bash
+curl -X POST http://localhost:8081/api/v1/agents/price_monitor_agent/execute \
+  -H "Content-Type: application/json" \
+  -d '{"input": "Run monitoring"}'
+```
 
 ## Example: Email Monitor Agent
 

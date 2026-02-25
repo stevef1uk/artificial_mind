@@ -39,9 +39,8 @@ High-level summary of the system’s fundamental architecture and why it remains
 - **Operational Maturity**: End-to-end tests, health checks, metrics, and UI monitoring demonstrate production readiness.
 
 ### Notable Strengths
-- End-to-end pipeline: interpret → plan → generate code → validate → learn → cache → monitor.
-- Tool lifecycle and metrics with canonical events; actionable observability.
 - Curiosity/news-driven goal generation keeps the system adaptive and relevant.
+- **Autonomous Monitoring & Scraped State Loops**: Agent-managed price/value tracking with historic state comparison and Telegram alerting.
 
 ### Known Trade-offs / Future Enhancements
 - LLM dependence for code gen/fixes; consider local models and caching strategies to reduce cost/latency.

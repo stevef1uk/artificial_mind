@@ -5,7 +5,7 @@
 - **Configuration**: ✅ Working - Agents load from `config/agents.yaml`
 - **Registry**: ✅ Working - Agents are registered at startup
 - **API**: ✅ Working - Can list and inspect agents
-- **Execution**: ⏳ Not yet implemented
+- **Execution**: ✅ Working - Agents can be executed via API: `POST /api/v1/agents/{id}/execute`
 
 ## 📝 How to Configure an Agent
 
@@ -65,29 +65,35 @@ curl http://localhost:8081/api/v1/agents | jq
 curl http://localhost:8081/api/v1/agents/my_agent | jq
 ```
 
-## 🚀 Running Agents (Coming Soon)
-
-Currently, agents are **configured and registered** but **not yet executable**. 
-
-To make them runnable, we need to implement:
-
-1. **Agent Executor** - Execute agents using ADK runtime
-2. **Tool Adapters** - Connect agent tools to MCP/n8n tools  
-3. **Execution API** - `POST /api/v1/agents/{id}/execute`
-
-## 📋 Example: Email Monitor Agent
-
-The `email_monitor_agent` is already configured:
+## 🚀 Running Agents
+Any registered agent can be executed manually via the REST API:
 
 ```bash
-# Check if it's loaded
-curl http://localhost:8081/api/v1/agents/email_monitor_agent | jq
+# Execute the Price Monitor Agent
+curl -X POST http://localhost:8081/api/v1/agents/price_monitor_agent/execute \
+  -H "Content-Type: application/json" \
+  -d '{"input": "Run price monitoring task"}'
 ```
 
-This agent is configured to:
-- Use `mcp_read_google_data` tool
-- Trigger on keywords: "check emails", "monitor inbox"
-- Run scheduled checks every 6 hours (when scheduler is implemented)
+## 📋 Example: Price Monitor Agent
+The `price_monitor_agent` demonstrates autonomous browser interaction and state tracking:
+
+1. **Configuration**: Uses `mcp_smart_scrape` to navigate and extract dynamic data (e.g., from Amazon).
+2. **Monitoring**: A `monitoring` block tracks a specific value (e.g., price) and compares it against a `history_path` JSON file.
+3. **Alerting**: If the value decreases, the agent automatically triggers a Telegram alert.
+
+```yaml
+# In config/agents.yaml
+tasks:
+  - id: price_monitor_flow
+    tools: [mcp_smart_scrape]
+    parameters:
+      url: "https://www.amazon.fr/..."
+      monitoring:
+        type: "value_change"
+        field: "price"
+        history_path: "config/price_history.json"
+```
 
 ## 🔧 Troubleshooting
 
