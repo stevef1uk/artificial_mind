@@ -70,13 +70,12 @@ curl -X POST http://localhost:8081/api/v1/agents/email_monitor_agent/execute \
 
 ### Agent Execution Flow
 
-1. **Agent Registry** loads agents from `config/agents.yaml`
-2. **Tool Adapters** connect agent tools to:
-   - MCP tools (`mcp_read_google_data`, etc.)
-   - n8n webhooks (configured skills)
-   - HDN tools (`tool_http_get`, etc.)
-3. **Agent Executor** runs agent tasks sequentially
-4. **Results** are returned with tool call details
+1.  **Agent Registry** loads agents from `config/agents.yaml`.
+2.  **Task Discovery**: The executor checks for predefined tasks.
+    *   **Priority Mode**: If `tasks` are defined, it executes them sequentially. This is the **most reliable mode** as it bypasses LLM planning.
+    *   **Planning Mode**: If no tasks exist, it asks an LLM to plan the steps dynamically.
+3.  **Tool Adapters** route tool calls to MCP, n8n, or internal HDN tools (`tool_*`).
+4.  **Results** are captured, synthesized by an LLM (if available), and recorded in history.
 
 ### Tool Integration
 
@@ -112,9 +111,21 @@ agents:
 
 ```bash
 # Execute the email monitor agent
-curl -X POST http://localhost:8081/api/v1/agents/email_monitor_agent/execute \
+curl -X POST http://hdn-server-rpi58:8080/api/v1/agents/email_monitor_agent/execute \
   -H "Content-Type: application/json" \
   -d '{"input": "Check emails"}' | jq
+```
+
+### Multi-Product Monitoring
+
+To monitor multiple items, define multiple tasks in `agents.yaml`. Each task can have its own `parameters`, `monitoring` settings, and `url`.
+
+```yaml
+tasks:
+  - id: product_1
+    parameters: { url: "url1", ... }
+  - id: product_2
+    parameters: { url: "url2", ... }
 ```
 
 ### Check Agent Status
@@ -129,14 +140,12 @@ curl http://localhost:8081/api/v1/agents/email_monitor_agent | jq
 
 ## 🔮 Next Steps
 
-- **LLM Integration**: Use LLM to select which tasks to execute based on input
-- **Scheduled Execution**: Implement cron-based triggers
+- **Scheduled Execution**: Implement cron-based triggers (✅ Implemented)
 - **Event-Based Triggers**: Auto-execute on user requests or goals
-- **Full ADK Integration**: Use ADK's runtime for more sophisticated agent behavior
+- **Full ADK Integration**: Use ADK's sessions for stateful multi-turn agent interactions.
 
 ## 📚 Related Documentation
 
 - `docs/AGENT_CONFIGURATION_GUIDE.md` - Full configuration reference
 - `docs/QUICK_START_AGENTS.md` - Quick start guide
-- `docs/ADK_AGENT_INTEGRATION.md` - ADK integration details
 
