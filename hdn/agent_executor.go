@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -479,9 +480,8 @@ Rules:
 									if err := json.Unmarshal([]byte(scrapedText), &innerResult); err != nil {
 										log.Printf("⚠️ [AGENT-EXECUTOR] Failed to unmarshal scraper text: %v", err)
 										// SUPER FALLBACK: If not JSON, try regex on the whole text
-										re := regexp.MustCompile(`(?i)(?:€|\$|£)\s*\d+[.,]\d{2}|\d+[.,]\d{2}\s*(?:€|\$|£|EUR)`)
-										if m := re.FindString(scrapedText); m != "" {
-											currentPrice = m
+										currentPrice = extractMainPrice(scrapedText)
+										if currentPrice != "" {
 											log.Printf("🛍️ [AGENT-EXECUTOR] Found price via regex fallback in text: %s", currentPrice)
 										}
 									}
@@ -494,9 +494,8 @@ Rules:
 					if len(innerResult) == 0 && currentPrice == "" {
 						if strResult, ok := result.(string); ok {
 							log.Printf("🛍️ [AGENT-EXECUTOR] Tool returned string result, searching for price patterns...")
-							re := regexp.MustCompile(`(?i)(?:€|\$|£)\s*\d+[.,]\d{2}|\d+[.,]\d{2}\s*(?:€|\$|£|EUR)`)
-							if m := re.FindString(strResult); m != "" {
-								currentPrice = m
+							currentPrice = extractMainPrice(strResult)
+							if currentPrice != "" {
 								log.Printf("🛍️ [AGENT-EXECUTOR] Found price via regex in string result: %s", currentPrice)
 							}
 						}
@@ -515,8 +514,15 @@ Rules:
 						for _, key := range []string{"price", "field_1771953582615"} {
 							if v, ok := source[key]; ok {
 								if strVal, isStr := v.(string); isStr && strVal != "" {
+									// Clean potential baggage like "Price (€3,309.99x)"
+									cleaned := extractMainPrice(strVal)
+									if cleaned != "" {
+										currentPrice = cleaned
+										log.Printf("🛍️ [AGENT-EXECUTOR] Found price in priority key '%s' (cleaned): %s", key, currentPrice)
+										break
+									}
 									currentPrice = strVal
-									log.Printf("🛍️ [AGENT-EXECUTOR] Found price in priority key '%s': %s", key, currentPrice)
+									log.Printf("🛍️ [AGENT-EXECUTOR] Found price in priority key '%s' (raw): %s", key, currentPrice)
 									break
 								}
 							}
@@ -528,8 +534,16 @@ Rules:
 									continue
 								}
 								if strVal, isStr := v.(string); isStr && strVal != "" {
+									// Clean potential baggage like "Price (€3,309.99x)"
+									cleaned := extractMainPrice(strVal)
+									if cleaned != "" {
+										currentPrice = cleaned
+										log.Printf("🛍️ [AGENT-EXECUTOR] Found price in key '%s': %s", k, currentPrice)
+										break
+									}
+									// Fallback if cleaning found nothing
 									currentPrice = strVal
-									log.Printf("🛍️ [AGENT-EXECUTOR] Found price in key '%s': %s", k, currentPrice)
+									log.Printf("🛍️ [AGENT-EXECUTOR] Found raw value in key '%s': %s", k, currentPrice)
 									break
 								}
 							}
@@ -539,9 +553,8 @@ Rules:
 						if currentPrice == "" {
 							if html, ok := innerResult["cleaned_html"].(string); ok && html != "" {
 								log.Printf("🛍️ [AGENT-EXECUTOR] Searching for price patterns in cleaned_html...")
-								re := regexp.MustCompile(`(?i)(?:€|\$|£)\s*\d+[.,]\d{2}|\d+[.,]\d{2}\s*(?:€|\$|£|EUR)`)
-								if m := re.FindString(html); m != "" {
-									currentPrice = m
+								currentPrice = extractMainPrice(html)
+								if currentPrice != "" {
 									log.Printf("🛍️ [AGENT-EXECUTOR] Found price via regex in cleaned_html: %s", currentPrice)
 								}
 							}
@@ -751,4 +764,69 @@ type ToolCall struct {
 	Result   interface{}            `json:"result,omitempty"`
 	Error    string                 `json:"error,omitempty"`
 	Duration time.Duration          `json:"duration"`
+}
+
+// extractMainPrice searches for price patterns and picks the most likely main price
+func extractMainPrice(text string) string {
+	// 1. Regex to match prices like €3,309.99, 3.291,04 €, £45.00, etc.
+	// We handle:
+	// - Optional currency symbol (€, $, £)
+	// - Optional whitespace
+	// - Digits with thousands separators (comma, dot, or space)
+	// - Decimal part (comma or dot followed by 2 digits)
+	// - Optional currency symbol/code at the end
+	re := regexp.MustCompile(`(?i)(?:€|\$|£|GBP|EUR|USD)\s*(\d{1,3}(?:[.,\s]\d{3})*[.,]\d{2})|(\d{1,3}(?:[.,\s]\d{3})*[.,]\d{2})\s*(?:€|\$|£|EUR|GBP|USD)`)
+
+	matches := re.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+
+	var bestPrice string
+	var maxVal float64 = -1
+
+	for _, m := range matches {
+		matchStr := m[0]
+		// Extract numeric part from match (either group 1 or 2)
+		numStr := m[1]
+		if numStr == "" {
+			numStr = m[2]
+		}
+
+		// Normalize number string for parsing:
+		// Remove spaces, remove thousands separators (careful about comma/dot swap)
+		// We assume decimal is the LAST separator
+		cleanNum := numStr
+		cleanNum = strings.ReplaceAll(cleanNum, " ", "")
+
+		// Handle cases where comma is thousands and dot is decimal (e.g. 3,309.99)
+		// OR cases where dot is thousands and comma is decimal (e.g. 3.309,99)
+		lastDot := strings.LastIndex(cleanNum, ".")
+		lastComma := strings.LastIndex(cleanNum, ",")
+
+		if lastDot > lastComma {
+			// Dot is decimal (US style)
+			cleanNum = strings.ReplaceAll(cleanNum, ",", "")
+		} else if lastComma > lastDot {
+			// Comma is decimal (EU style)
+			cleanNum = strings.ReplaceAll(cleanNum, ".", "")
+			cleanNum = strings.ReplaceAll(cleanNum, ",", ".")
+		} else {
+			// No separators or only one type. If only one, assume it's decimal if it's near the end.
+			// But wait, if it's just "3309", it won't have matched our regex which asks for \d{2} decimals.
+		}
+
+		val, err := strconv.ParseFloat(cleanNum, 64)
+		if err == nil {
+			// Priority:
+			// 1. Pick the largest price (usually the product price, not a warranty or shipping fee)
+			// 2. Ignore extremely small prices if larger ones exist
+			if val > maxVal {
+				maxVal = val
+				bestPrice = matchStr
+			}
+		}
+	}
+
+	return bestPrice
 }
