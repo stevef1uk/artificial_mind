@@ -668,7 +668,7 @@ func (s *MCPKnowledgeServer) getScrapeStatus(ctx context.Context, jobID string) 
 }
 
 // scrapeWithConfig delegates to the external Playwright scraper service with async job queue
-func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig string, async bool, extractions map[string]string, getHTML bool, cookies []interface{}) (interface{}, error) {
+func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, instructions, tsConfig string, async bool, extractions map[string]string, getHTML bool, cookies []interface{}) (interface{}, error) {
 	log.Printf("📝 [MCP-SCRAPE] Received TypeScript config (%d bytes) and %d extractions", len(tsConfig), len(extractions))
 
 	// Call external scraper service with async job queue
@@ -681,6 +681,7 @@ func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, tsConfig
 	// Start scrape job
 	startReq := map[string]interface{}{
 		"url":               url,
+		"instructions":      instructions,
 		"typescript_config": tsConfig,
 		"extractions":       extractions,
 		"get_html":          getHTML,
@@ -1277,8 +1278,9 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 				}
 			}
 
+			log.Printf("🚀 [MCP-SCRAPE] Starting async job for %s", url)
 			// Returns detailed result including HTML if requested
-			return s.scrapeWithConfig(ctx, url, tsConfig, isAsync, extractions, getHTML, nil)
+			return s.scrapeWithConfig(ctx, url, "", tsConfig, isAsync, extractions, getHTML, nil)
 		}
 
 		// Use the html-scraper binary tool for better content extraction
@@ -1684,7 +1686,7 @@ func (s *MCPKnowledgeServer) browseWeb(ctx context.Context, args map[string]inte
 							continue
 						}
 
-						if outputStr[i] == '\\' {
+						if outputStr[i] == '\\' && i+1 < len(outputStr) {
 							escapeNext = true
 							continue
 						}
@@ -1810,7 +1812,7 @@ func (s *MCPKnowledgeServer) browseWeb(ctx context.Context, args map[string]inte
 				escapeNext = false
 				continue
 			}
-			if outputStr[i] == '\\' {
+			if outputStr[i] == '\\' && i+1 < len(outputStr) {
 				escapeNext = true
 				continue
 			}
@@ -3940,7 +3942,8 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 	if !bypassedLLM {
 		// 1. Fetch page HTML using the scraper service (in get_html mode)
 		log.Printf("📥 [MCP-SMART-SCRAPE] Fetching page content to plan scrape...")
-		htmlResultRaw, err := s.scrapeWithConfig(ctx, url, "", false, nil, true, nil) // Pass true for getHTML
+		// 1. Get initial HTML for planning
+		htmlResultRaw, err := s.scrapeWithConfig(ctx, url, goal, "", false, nil, true, nil) // Pass true for getHTML
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch page content: %v", err)
 		}
@@ -3963,9 +3966,9 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 
 		// 1.5. Check if this is a consent/cookie page and handle it
 		if isConsentPage(cleanedHTML) {
-			log.Printf("🍪 [MCP-SMART-SCRAPE] Detected consent/cookie page, attempting to bypass...")
-			consentTS := generateConsentBypassScript()
-			bypassResult, err := s.scrapeWithConfig(ctx, url, consentTS, false, nil, true, nil)
+			log.Printf("🍪 [MCP-SMART-SCRAPE] Attempting auto-consent bypass...")
+			consentTS := "await page.bypassConsent();"
+			bypassResult, err := s.scrapeWithConfig(ctx, url, goal, consentTS, false, nil, true, nil)
 			if err != nil {
 				log.Printf("⚠️ [MCP-SMART-SCRAPE] Consent bypass failed: %v", err)
 			} else {
@@ -4125,10 +4128,11 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 
 	// 3. Execute the planned scrape
 	log.Printf("🚀 [MCP-SMART-SCRAPE] Executing planned scrape (Navigation: %v)", config.TypeScriptConfig != "")
+	log.Printf("🎯 [MCP-SMART-SCRAPE] Goal: %s", goal)
 
 	// Initial run: Execute navigation and/or extractions
 	requestHTML := true // Always request HTML so we can do second-pass if needed
-	scrapeResultRaw, err := s.scrapeWithConfig(ctx, url, config.TypeScriptConfig, false, config.Extractions, requestHTML, capturedCookies)
+	scrapeResultRaw, err := s.scrapeWithConfig(ctx, url, goal, config.TypeScriptConfig, false, config.Extractions, requestHTML, capturedCookies)
 	if err != nil {
 		return nil, err
 	}

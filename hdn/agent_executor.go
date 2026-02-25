@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -477,8 +478,26 @@ Rules:
 
 									if err := json.Unmarshal([]byte(scrapedText), &innerResult); err != nil {
 										log.Printf("⚠️ [AGENT-EXECUTOR] Failed to unmarshal scraper text: %v", err)
+										// SUPER FALLBACK: If not JSON, try regex on the whole text
+										re := regexp.MustCompile(`(?i)(?:€|\$|£)\s*\d+[.,]\d{2}|\d+[.,]\d{2}\s*(?:€|\$|£|EUR)`)
+										if m := re.FindString(scrapedText); m != "" {
+											currentPrice = m
+											log.Printf("🛍️ [AGENT-EXECUTOR] Found price via regex fallback in text: %s", currentPrice)
+										}
 									}
 								}
+							}
+						}
+					}
+
+					// 3.2.5. Handling string results (e.g., tool returned "Could not extract price" or raw text)
+					if len(innerResult) == 0 && currentPrice == "" {
+						if strResult, ok := result.(string); ok {
+							log.Printf("🛍️ [AGENT-EXECUTOR] Tool returned string result, searching for price patterns...")
+							re := regexp.MustCompile(`(?i)(?:€|\$|£)\s*\d+[.,]\d{2}|\d+[.,]\d{2}\s*(?:€|\$|£|EUR)`)
+							if m := re.FindString(strResult); m != "" {
+								currentPrice = m
+								log.Printf("🛍️ [AGENT-EXECUTOR] Found price via regex in string result: %s", currentPrice)
 							}
 						}
 					}
