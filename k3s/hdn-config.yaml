@@ -227,5 +227,5 @@ data:
                   product_name: "ASUS Ascent Laptop"
                 extractions:
                   price: "(€\\s*[0-9.,]+|[0-9.,]+\\s*€)"
-                typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/gp/product/B0G1CC2949');\n  await page.click('#sp-cc-accept');\n  await page.waitForSelector('div#tp-tool-tip-price-block > div > div');\n});"
+                typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/gp/product/B0G1CC2949');\n  await page.click('#sp-cc-accept');\n});"
                 get_html: true
