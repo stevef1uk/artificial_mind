@@ -810,14 +810,34 @@ Synthesized Response:`, input, string(resultsJSON))
 
 	// Record successful execution in history
 	if e.history != nil && executionID != "" {
+		// Prune tool calls results before saving to history to avoid huge Redis payloads
+		prunedToolCalls := make([]ToolCall, len(toolCalls))
+		for i, tc := range toolCalls {
+			prunedToolCalls[i] = tc
+			if resMap, ok := tc.Result.(map[string]interface{}); ok {
+				prunedRes := make(map[string]interface{})
+				for k, v := range resMap {
+					// Strip massive fields
+					if k == "cleaned_html" || k == "html" || k == "markdown" || k == "raw_content" || k == "body" {
+						if strVal, ok := v.(string); ok && len(strVal) > 1000 {
+							prunedRes[k] = fmt.Sprintf("[TRUNCATED: %d bytes]", len(strVal))
+							continue
+						}
+					}
+					prunedRes[k] = v
+				}
+				prunedToolCalls[i].Result = prunedRes
+			}
+		}
+
 		execution := &AgentExecution{
 			ID:        executionID,
 			AgentID:   agentID,
 			Input:     input,
 			Status:    "success",
-			Result:    result, // Use the already pruned result map
+			Result:    result,
 			Duration:  duration,
-			ToolCalls: toolCalls, // Full tool calls are still preserved here
+			ToolCalls: prunedToolCalls,
 			StartedAt: startTime,
 		}
 		now := time.Now()
