@@ -235,11 +235,14 @@ data:
                 field_1771953582615: "div#tp-tool-tip-price-block > div > div"
               typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/gp/product/B0G1CC2949');\n  await page.click('#sp-cc-accept');\n  await page.waitForSelector('div#tp-tool-tip-price-block > div > div');\n});"
               get_html: false
-          - id: price_monitor_ebay
-            description: "Check the price of a second item (eBay) to verify multi-product monitoring."
+          - id: price_monitor_amazon_2
+            description: "Check the price of a second Amazon item to verify multi-product monitoring."
             tools:
               - mcp_smart_scrape
             parameters:
-              url: "https://www.ebay.com/itm/123456789"
+              url: "https://www.amazon.fr/-/en/dp/B0G345VHB8"
               goal: "extract the price"
+              extractions:
+                field_1771953582615: "div#tp-tool-tip-price-block > div > div"
+              typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/dp/B0G345VHB8');\n  await page.click('#sp-cc-accept');\n  await page.waitForSelector('div#tp-tool-tip-price-block > div > div');\n});"
               get_html: false
