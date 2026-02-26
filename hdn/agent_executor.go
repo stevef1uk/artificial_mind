@@ -71,7 +71,25 @@ func (e *AgentExecutor) ExecuteAgent(ctx context.Context, agentID string, input 
 	toolCalls := make([]ToolCall, 0)
 	var results []interface{}
 
-	if e.llmClient != nil && (len(agentInstance.Config.Tasks) == 0 || len(input) > 20) {
+	useLLM := false
+	if e.llmClient != nil {
+		if len(agentInstance.Config.Tasks) == 0 {
+			useLLM = true
+		} else {
+			// If tasks are defined, prioritize them unless the input is genuinely a new complex command.
+			// Standard UI and scheduler triggers should not override predefined tasks.
+			isStandardTrigger := input == "" ||
+				input == "Execute agent from UI" ||
+				strings.HasPrefix(input, "Execute scheduled task") ||
+				strings.HasPrefix(input, "Check all watched")
+
+			if !isStandardTrigger && len(input) > 20 {
+				useLLM = true
+			}
+		}
+	}
+
+	if useLLM {
 		log.Printf("🤖 [AGENT-EXECUTOR] Using LLM to plan execution for agent %s", agentID)
 
 		// 1. Prepare tool descriptions for the LLM
