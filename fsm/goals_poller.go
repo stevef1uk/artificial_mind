@@ -475,6 +475,10 @@ func cleanupStuckTriggeredFlags(ctx context.Context, agentID, goalMgrURL string,
 	}
 
 	clearedCount := 0
+	// PERFORMANCE FIX: Cap cleanup to 100 goals per cycle to prevent long-running loops
+	if len(triggeredIDs) > 100 {
+		triggeredIDs = triggeredIDs[:100]
+	}
 	for _, goalID := range triggeredIDs {
 		// Check if goal is still active
 		status := checkGoalStatus(ctx, goalID, goalMgrURL)
@@ -559,9 +563,3 @@ func routeGoalExecution(goalDesc, goalID, agentID, hdnURL string) (string, map[s
 	// Default: return empty to use hierarchical execute
 	return "", nil
 }
-
-
-
-
-
-

@@ -1071,19 +1071,13 @@ func (re *ReasoningEngine) generateNewsCuriosityGoals(domain string) ([]Curiosit
 	processedKey := "reasoning:news_relations:processed"
 	relations, err := re.redis.LRange(re.ctx, relationsKey, 0, 9).Result()
 	if err == nil && len(relations) > 0 {
-		// Get already processed news relations
-		processed, _ := re.redis.SMembers(re.ctx, processedKey).Result()
-		processedSet := make(map[string]bool)
-		for _, p := range processed {
-			processedSet[p] = true
-		}
-
 		for i, relationData := range relations {
 			// Create a hash of the relation for deduplication
 			relationHash := fmt.Sprintf("%x", sha256.Sum256([]byte(relationData)))
 
-			// Skip if already processed
-			if processedSet[relationHash] {
+			// Check if already processed using SIsMember (more memory efficient than SMembers)
+			exists, _ := re.redis.SIsMember(re.ctx, processedKey, relationHash).Result()
+			if exists {
 				continue
 			}
 
@@ -1125,19 +1119,13 @@ func (re *ReasoningEngine) generateNewsCuriosityGoals(domain string) ([]Curiosit
 	processedAlertsKey := "reasoning:news_alerts:processed"
 	alerts, err := re.redis.LRange(re.ctx, alertsKey, 0, 4).Result()
 	if err == nil && len(alerts) > 0 {
-		// Get already processed news alerts
-		processedAlerts, _ := re.redis.SMembers(re.ctx, processedAlertsKey).Result()
-		processedAlertsSet := make(map[string]bool)
-		for _, p := range processedAlerts {
-			processedAlertsSet[p] = true
-		}
-
 		for i, alertData := range alerts {
 			// Create a hash of the alert for deduplication
 			alertHash := fmt.Sprintf("%x", sha256.Sum256([]byte(alertData)))
 
-			// Skip if already processed
-			if processedAlertsSet[alertHash] {
+			// Check if already processed using SIsMember
+			exists, _ := re.redis.SIsMember(re.ctx, processedAlertsKey, alertHash).Result()
+			if exists {
 				continue
 			}
 

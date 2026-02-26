@@ -526,7 +526,8 @@ func (ki *KnowledgeIntegration) getUserInterests() string {
 // getExistingHypotheses retrieves existing hypotheses from Redis to avoid duplicates
 func (ki *KnowledgeIntegration) getExistingHypotheses(domain string) ([]Hypothesis, error) {
 	key := fmt.Sprintf("hypotheses:%s", domain)
-	hypothesesData, err := ki.redis.LRange(ki.ctx, key, 0, -1).Result()
+	// PERFORMANCE FIX: Limit to 100 hypotheses
+	hypothesesData, err := ki.redis.LRange(ki.ctx, key, 0, 99).Result()
 	if err != nil {
 		return nil, err
 	}
@@ -647,7 +648,8 @@ func (ki *KnowledgeIntegration) hasNewFactsForConcept(conceptName, domain string
 	// Check if there are any new facts about this concept since the last exploration
 	key := fmt.Sprintf("facts:concept:%s:%s", domain, conceptName)
 
-	factsData, err := ki.redis.LRange(ki.ctx, key, 0, -1).Result()
+	// PERFORMANCE FIX: Limit to 100 facts
+	factsData, err := ki.redis.LRange(ki.ctx, key, 0, 99).Result()
 	if err != nil {
 		return false
 	}

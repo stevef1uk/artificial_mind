@@ -12,7 +12,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/redis/go-redis/v9"
-	
+
 	selfmodel "agi/self"
 )
 
@@ -31,7 +31,7 @@ type CoherenceMonitor struct {
 // Inconsistency represents a detected inconsistency
 type Inconsistency struct {
 	ID          string                 `json:"id"`
-	Type        string                 `json:"type"` // "belief_contradiction", "policy_conflict", "goal_drift", "behavior_loop", "strategy_conflict"
+	Type        string                 `json:"type"`     // "belief_contradiction", "policy_conflict", "goal_drift", "behavior_loop", "strategy_conflict"
 	Severity    string                 `json:"severity"` // "low", "medium", "high", "critical"
 	Description string                 `json:"description"`
 	Details     map[string]interface{} `json:"details"`
@@ -63,25 +63,25 @@ func NewCoherenceMonitor(redis *redis.Client, hdnURL string, reasoning *Reasonin
 		nc:          nc,
 		goalManager: goalManager,
 	}
-	
+
 	// Subscribe to goal completion events to mark inconsistencies as resolved
 	if nc != nil {
 		cm.subscribeToGoalEvents()
 	}
-	
+
 	return cm
 }
 
 // CheckCoherence performs a comprehensive coherence check across all systems
 func (cm *CoherenceMonitor) CheckCoherence() ([]Inconsistency, error) {
 	log.Printf("🔍 [Coherence] Starting cross-system coherence check")
-	
+
 	if cm == nil {
 		return nil, fmt.Errorf("coherence monitor is nil")
 	}
-	
+
 	var inconsistencies []Inconsistency
-	
+
 	// 1. Check for belief contradictions (with strict limits to prevent hanging)
 	log.Printf("🔍 [Coherence] Checking belief contradictions...")
 	beliefContradictions, err := cm.checkBeliefContradictions()
@@ -91,7 +91,7 @@ func (cm *CoherenceMonitor) CheckCoherence() ([]Inconsistency, error) {
 		log.Printf("✅ [Coherence] Belief contradiction check complete: %d found", len(beliefContradictions))
 		inconsistencies = append(inconsistencies, beliefContradictions...)
 	}
-	
+
 	// 2. Check for policy conflicts
 	log.Printf("🔍 [Coherence] Checking policy conflicts...")
 	policyConflicts, err := cm.checkPolicyConflicts()
@@ -101,7 +101,7 @@ func (cm *CoherenceMonitor) CheckCoherence() ([]Inconsistency, error) {
 		log.Printf("✅ [Coherence] Policy conflict check complete: %d found", len(policyConflicts))
 		inconsistencies = append(inconsistencies, policyConflicts...)
 	}
-	
+
 	// 3. Check for learned strategy conflicts
 	log.Printf("🔍 [Coherence] Checking strategy conflicts...")
 	strategyConflicts, err := cm.checkStrategyConflicts()
@@ -111,7 +111,7 @@ func (cm *CoherenceMonitor) CheckCoherence() ([]Inconsistency, error) {
 		log.Printf("✅ [Coherence] Strategy conflict check complete: %d found", len(strategyConflicts))
 		inconsistencies = append(inconsistencies, strategyConflicts...)
 	}
-	
+
 	// 4. Check for long-running goal drift
 	log.Printf("🔍 [Coherence] Checking goal drift...")
 	goalDrift, err := cm.checkGoalDrift()
@@ -121,7 +121,7 @@ func (cm *CoherenceMonitor) CheckCoherence() ([]Inconsistency, error) {
 		log.Printf("✅ [Coherence] Goal drift check complete: %d found", len(goalDrift))
 		inconsistencies = append(inconsistencies, goalDrift...)
 	}
-	
+
 	// 5. Check for unexplainable behavior loops
 	log.Printf("🔍 [Coherence] Checking behavior loops...")
 	behaviorLoops, err := cm.checkBehaviorLoops()
@@ -131,33 +131,33 @@ func (cm *CoherenceMonitor) CheckCoherence() ([]Inconsistency, error) {
 		log.Printf("✅ [Coherence] Behavior loop check complete: %d found", len(behaviorLoops))
 		inconsistencies = append(inconsistencies, behaviorLoops...)
 	}
-	
+
 	// Store inconsistencies in Redis
 	for _, inc := range inconsistencies {
 		cm.storeInconsistency(inc)
 	}
-	
+
 	// Cleanup old coherence goals periodically (every 10th check, ~50 minutes)
 	// This prevents Redis from accumulating too many old goals
 	if len(inconsistencies) == 0 {
 		cm.cleanupOldCoherenceGoals()
 	}
-	
+
 	log.Printf("✅ [Coherence] Coherence check complete: found %d inconsistencies", len(inconsistencies))
-	
+
 	return inconsistencies, nil
 }
 
 // checkBeliefContradictions checks for contradictory beliefs
 func (cm *CoherenceMonitor) checkBeliefContradictions() ([]Inconsistency, error) {
 	var inconsistencies []Inconsistency
-	
+
 	// Skip if reasoning engine is not available
 	if cm.reasoning == nil {
 		log.Printf("⚠️ [Coherence] Reasoning engine not available, skipping belief contradiction check")
 		return inconsistencies, nil
 	}
-	
+
 	// PERFORMANCE FIX: Limit belief queries to avoid O(n²) explosion
 	// Instead of querying all concepts, only check recent reasoning traces
 	tracesKey := "reasoning:traces:all"
@@ -165,55 +165,55 @@ func (cm *CoherenceMonitor) checkBeliefContradictions() ([]Inconsistency, error)
 	if err != nil {
 		return inconsistencies, nil // No traces yet, no contradictions
 	}
-	
+
 	log.Printf("🔍 [Coherence] Checking %d reasoning traces for belief contradictions (limited scope)", len(tracesData))
-	
+
 	// Extract beliefs from traces - LIMIT to 10 beliefs max per domain
 	beliefs := make(map[string][]Belief)
 	maxBeliefs := 10 // Hard limit to prevent O(n²) explosion
-	
+
 	for _, traceData := range tracesData {
 		var trace ReasoningTrace
 		if err := json.Unmarshal([]byte(traceData), &trace); err != nil {
 			continue
 		}
-		
+
 		// Skip if we've already checked this domain
 		if _, exists := beliefs[trace.Domain]; exists {
 			continue
 		}
-		
+
 		log.Printf("🔍 [Coherence] Querying beliefs for domain: %s (max: %d)", trace.Domain, maxBeliefs)
-		
+
 		// Query LIMITED beliefs for this domain (max 10 to avoid hanging)
 		domainBeliefs, err := cm.reasoning.QueryBeliefs("recent concepts", trace.Domain)
 		if err != nil {
 			log.Printf("⚠️ [Coherence] Failed to query beliefs for domain %s: %v", trace.Domain, err)
 			continue
 		}
-		
+
 		// Hard limit to first 10 beliefs only
 		if len(domainBeliefs) > maxBeliefs {
 			domainBeliefs = domainBeliefs[:maxBeliefs]
 		}
-		
+
 		beliefs[trace.Domain] = domainBeliefs
 		log.Printf("✅ [Coherence] Retrieved %d beliefs for domain %s", len(domainBeliefs), trace.Domain)
 	}
-	
+
 	// Check for contradictions - LIMITED to prevent performance issues
 	for domain, domainBeliefs := range beliefs {
 		// Only compare if we have 2-10 beliefs (avoid single belief domains and large explosions)
 		if len(domainBeliefs) < 2 || len(domainBeliefs) > maxBeliefs {
 			continue
 		}
-		
+
 		for i, b1 := range domainBeliefs {
 			for j, b2 := range domainBeliefs {
 				if i >= j {
 					continue
 				}
-				
+
 				// Simple contradiction detection: check for opposite statements
 				if cm.isContradictory(b1.Statement, b2.Statement) {
 					inc := Inconsistency{
@@ -222,12 +222,12 @@ func (cm *CoherenceMonitor) checkBeliefContradictions() ([]Inconsistency, error)
 						Severity:    cm.calculateSeverity(b1, b2),
 						Description: fmt.Sprintf("Contradictory beliefs in domain '%s': '%s' vs '%s'", domain, b1.Statement, b2.Statement),
 						Details: map[string]interface{}{
-							"domain":      domain,
-							"belief1_id":  b1.ID,
-							"belief1":     b1.Statement,
+							"domain":       domain,
+							"belief1_id":   b1.ID,
+							"belief1":      b1.Statement,
 							"belief1_conf": b1.Confidence,
-							"belief2_id":  b2.ID,
-							"belief2":     b2.Statement,
+							"belief2_id":   b2.ID,
+							"belief2":      b2.Statement,
 							"belief2_conf": b2.Confidence,
 						},
 						DetectedAt: time.Now(),
@@ -238,50 +238,66 @@ func (cm *CoherenceMonitor) checkBeliefContradictions() ([]Inconsistency, error)
 			}
 		}
 	}
-	
+
 	return inconsistencies, nil
 }
 
 // checkPolicyConflicts checks for conflicts between policies in Self-Model
 func (cm *CoherenceMonitor) checkPolicyConflicts() ([]Inconsistency, error) {
 	var inconsistencies []Inconsistency
-	
+
 	// Get active goals from Goal Manager
 	goalMgrURL := os.Getenv("GOAL_MANAGER_URL")
 	if goalMgrURL == "" {
 		goalMgrURL = "http://localhost:8084"
 	}
-	
+
 	// Fetch active goals via HTTP (Goal Manager API)
 	activeGoalsKey := fmt.Sprintf("goals:%s:active", cm.agentID)
-	goalIDs, err := cm.redis.SMembers(cm.ctx, activeGoalsKey).Result()
+	// PERFORMANCE FIX: Limit to most important goals to prevent O(n^2) explosion
+	goalIDs, err := cm.redis.ZRevRange(cm.ctx, fmt.Sprintf("goals:%s:priorities", cm.agentID), 0, 99).Result()
 	if err != nil {
-		return inconsistencies, nil // No goals yet
+		// Fallback to SMembers if ZSet is unavailable, but still limit
+		goalIDs, err = cm.redis.SMembers(cm.ctx, activeGoalsKey).Result()
+		if err == nil && len(goalIDs) > 100 {
+			goalIDs = goalIDs[:100]
+		}
 	}
-	
-	// Load goals and check for conflicts
+	if err != nil || len(goalIDs) == 0 {
+		return inconsistencies, nil
+	}
+
+	// Load goals using MGet for efficiency
+	goalKeys := make([]string, len(goalIDs))
+	for i, id := range goalIDs {
+		goalKeys[i] = fmt.Sprintf("goal:%s", id)
+	}
+
+	goalDataList, err := cm.redis.MGet(cm.ctx, goalKeys...).Result()
+	if err != nil {
+		return inconsistencies, nil
+	}
+
 	goals := make([]selfmodel.PolicyGoal, 0)
-	for _, goalID := range goalIDs {
-		goalKey := fmt.Sprintf("goal:%s", goalID)
-		goalData, err := cm.redis.Get(cm.ctx, goalKey).Result()
-		if err != nil {
+	for _, data := range goalDataList {
+		if data == nil {
 			continue
 		}
-		
 		var goal selfmodel.PolicyGoal
-		if err := json.Unmarshal([]byte(goalData), &goal); err != nil {
-			continue
+		if str, ok := data.(string); ok {
+			if err := json.Unmarshal([]byte(str), &goal); err == nil {
+				goals = append(goals, goal)
+			}
 		}
-		goals = append(goals, goal)
 	}
-	
+
 	// Check for conflicting goals (same domain, opposite objectives)
 	for i, g1 := range goals {
 		for j, g2 := range goals {
 			if i >= j {
 				continue
 			}
-			
+
 			if cm.areGoalsConflicting(g1, g2) {
 				inc := Inconsistency{
 					ID:          fmt.Sprintf("policy_conflict_%d", time.Now().UnixNano()),
@@ -289,11 +305,11 @@ func (cm *CoherenceMonitor) checkPolicyConflicts() ([]Inconsistency, error) {
 					Severity:    "medium",
 					Description: fmt.Sprintf("Conflicting goals: '%s' vs '%s'", g1.Description, g2.Description),
 					Details: map[string]interface{}{
-						"goal1_id":   g1.ID,
-						"goal1":      g1.Description,
+						"goal1_id":       g1.ID,
+						"goal1":          g1.Description,
 						"goal1_priority": g1.Priority,
-						"goal2_id":   g2.ID,
-						"goal2":      g2.Description,
+						"goal2_id":       g2.ID,
+						"goal2":          g2.Description,
 						"goal2_priority": g2.Priority,
 					},
 					DetectedAt: time.Now(),
@@ -303,42 +319,57 @@ func (cm *CoherenceMonitor) checkPolicyConflicts() ([]Inconsistency, error) {
 			}
 		}
 	}
-	
+
 	return inconsistencies, nil
 }
 
 // checkStrategyConflicts checks for conflicts in learned strategies from HDN
 func (cm *CoherenceMonitor) checkStrategyConflicts() ([]Inconsistency, error) {
 	var inconsistencies []Inconsistency
-	
+
+	// Get code generation strategies from Redis
 	// Get code generation strategies from Redis
 	pattern := "codegen_strategy:*"
+	// PERFORMANCE FIX: Use scan to avoid blocking Redis with KEYS, though keys are usually few
 	keys, err := cm.redis.Keys(cm.ctx, pattern).Result()
 	if err != nil {
 		return inconsistencies, nil
 	}
-	
-	strategies := make(map[string]map[string]interface{})
-	for _, key := range keys {
-		strategyData, err := cm.redis.Get(cm.ctx, key).Result()
-		if err != nil {
-			continue
-		}
-		
-		var strategy map[string]interface{}
-		if err := json.Unmarshal([]byte(strategyData), &strategy); err != nil {
-			continue
-		}
-		strategies[key] = strategy
+
+	// Limit strategies check
+	if len(keys) > 100 {
+		keys = keys[:100]
 	}
-	
+
+	if len(keys) == 0 {
+		return inconsistencies, nil
+	}
+
+	strategyDataList, err := cm.redis.MGet(cm.ctx, keys...).Result()
+	if err != nil {
+		return inconsistencies, nil
+	}
+
+	strategies := make(map[string]map[string]interface{})
+	for i, data := range strategyDataList {
+		if data == nil {
+			continue
+		}
+		var strategy map[string]interface{}
+		if str, ok := data.(string); ok {
+			if err := json.Unmarshal([]byte(str), &strategy); err == nil {
+				strategies[keys[i]] = strategy
+			}
+		}
+	}
+
 	// Check for conflicting strategies (same task category, opposite approaches)
 	for key1, s1 := range strategies {
 		for key2, s2 := range strategies {
 			if key1 >= key2 {
 				continue
 			}
-			
+
 			if cm.areStrategiesConflicting(s1, s2) {
 				inc := Inconsistency{
 					ID:          fmt.Sprintf("strategy_conflict_%d", time.Now().UnixNano()),
@@ -356,35 +387,53 @@ func (cm *CoherenceMonitor) checkStrategyConflicts() ([]Inconsistency, error) {
 			}
 		}
 	}
-	
+
 	return inconsistencies, nil
 }
 
 // checkGoalDrift checks for goals that have been active too long without progress
 func (cm *CoherenceMonitor) checkGoalDrift() ([]Inconsistency, error) {
 	var inconsistencies []Inconsistency
-	
+
 	// Get active goals
-	activeGoalsKey := fmt.Sprintf("goals:%s:active", cm.agentID)
-	goalIDs, err := cm.redis.SMembers(cm.ctx, activeGoalsKey).Result()
+	// PERFORMANCE FIX: Limit to 100 goals to prevent performance issues
+	goalIDs, err := cm.redis.ZRevRange(cm.ctx, fmt.Sprintf("goals:%s:priorities", cm.agentID), 0, 99).Result()
+	if err != nil {
+		goalIDs, err = cm.redis.SMembers(cm.ctx, fmt.Sprintf("goals:%s:active", cm.agentID)).Result()
+		if err == nil && len(goalIDs) > 100 {
+			goalIDs = goalIDs[:100]
+		}
+	}
+	if err != nil || len(goalIDs) == 0 {
+		return inconsistencies, nil
+	}
+
+	goalKeys := make([]string, len(goalIDs))
+	for i, id := range goalIDs {
+		goalKeys[i] = fmt.Sprintf("goal:%s", id)
+	}
+
+	goalDataList, err := cm.redis.MGet(cm.ctx, goalKeys...).Result()
 	if err != nil {
 		return inconsistencies, nil
 	}
-	
+
 	driftThreshold := 24 * time.Hour // Goals older than 24 hours without progress
-	
-	for _, goalID := range goalIDs {
-		goalKey := fmt.Sprintf("goal:%s", goalID)
-		goalData, err := cm.redis.Get(cm.ctx, goalKey).Result()
-		if err != nil {
+
+	for _, data := range goalDataList {
+		if data == nil {
 			continue
 		}
-		
+
 		var goal selfmodel.PolicyGoal
-		if err := json.Unmarshal([]byte(goalData), &goal); err != nil {
+		str, ok := data.(string)
+		if !ok {
 			continue
 		}
-		
+		if err := json.Unmarshal([]byte(str), &goal); err != nil {
+			continue
+		}
+
 		// Check if goal has been active too long without updates
 		timeSinceUpdate := time.Since(goal.UpdatedAt)
 		if timeSinceUpdate > driftThreshold && goal.Status == "active" {
@@ -395,7 +444,7 @@ func (cm *CoherenceMonitor) checkGoalDrift() ([]Inconsistency, error) {
 				Description: fmt.Sprintf("Goal '%s' has been active for %v without progress", goal.Description, timeSinceUpdate),
 				Details: map[string]interface{}{
 					"goal_id":           goal.ID,
-					"goal_description": goal.Description,
+					"goal_description":  goal.Description,
 					"created_at":        goal.CreatedAt,
 					"updated_at":        goal.UpdatedAt,
 					"time_since_update": timeSinceUpdate.String(),
@@ -406,21 +455,21 @@ func (cm *CoherenceMonitor) checkGoalDrift() ([]Inconsistency, error) {
 			inconsistencies = append(inconsistencies, inc)
 		}
 	}
-	
+
 	return inconsistencies, nil
 }
 
 // checkBehaviorLoops checks for repetitive behavior patterns that suggest loops
 func (cm *CoherenceMonitor) checkBehaviorLoops() ([]Inconsistency, error) {
 	var inconsistencies []Inconsistency
-	
+
 	// Get recent activity log entries
 	activityKey := fmt.Sprintf("fsm:%s:activity_log", cm.agentID)
 	activities, err := cm.redis.LRange(cm.ctx, activityKey, 0, 99).Result()
 	if err != nil {
 		return inconsistencies, nil
 	}
-	
+
 	// Parse activities
 	activityEntries := make([]ActivityLogEntry, 0)
 	for _, activityData := range activities {
@@ -430,19 +479,19 @@ func (cm *CoherenceMonitor) checkBehaviorLoops() ([]Inconsistency, error) {
 		}
 		activityEntries = append(activityEntries, entry)
 	}
-	
+
 	// Check for repetitive patterns (same state transitions repeating)
 	stateTransitions := make(map[string]int)
 	for i := 0; i < len(activityEntries)-1; i++ {
 		curr := activityEntries[i]
 		next := activityEntries[i+1]
-		
+
 		if curr.State != "" && next.State != "" {
 			transition := fmt.Sprintf("%s->%s", curr.State, next.State)
 			stateTransitions[transition]++
 		}
 	}
-	
+
 	// Flag transitions that occur too frequently (potential loops)
 	// DEDUPLICATION: Only flag if we haven't recently detected the same loop
 	for transition, count := range stateTransitions {
@@ -453,11 +502,11 @@ func (cm *CoherenceMonitor) checkBehaviorLoops() ([]Inconsistency, error) {
 				log.Printf("⏭️ [Coherence] Loop '%s' already flagged recently, skipping duplicate detection", transition)
 				continue
 			}
-			
+
 			// Mark this loop as detected/flagged for 24 hours to prevent re-flagging
 			// Use a longer TTL since behavior loops indicate systemic issues that need deeper analysis
 			cm.redis.Set(cm.ctx, loopKey, time.Now().String(), 24*time.Hour)
-			
+
 			inc := Inconsistency{
 				ID:          fmt.Sprintf("behavior_loop_%d", time.Now().UnixNano()),
 				Type:        "behavior_loop",
@@ -473,7 +522,7 @@ func (cm *CoherenceMonitor) checkBehaviorLoops() ([]Inconsistency, error) {
 			inconsistencies = append(inconsistencies, inc)
 		}
 	}
-	
+
 	return inconsistencies, nil
 }
 
@@ -481,7 +530,7 @@ func (cm *CoherenceMonitor) checkBehaviorLoops() ([]Inconsistency, error) {
 func (cm *CoherenceMonitor) GenerateSelfReflectionTask(inconsistency Inconsistency) (*SelfReflectionTask, error) {
 	// Create a reflection task description
 	description := fmt.Sprintf("Resolve inconsistency: %s - %s", inconsistency.Type, inconsistency.Description)
-	
+
 	// Determine priority based on severity
 	priority := 5 // default
 	switch inconsistency.Severity {
@@ -494,7 +543,7 @@ func (cm *CoherenceMonitor) GenerateSelfReflectionTask(inconsistency Inconsisten
 	case "low":
 		priority = 4
 	}
-	
+
 	task := &SelfReflectionTask{
 		ID:            fmt.Sprintf("reflection_%d", time.Now().UnixNano()),
 		Inconsistency: inconsistency.ID,
@@ -508,7 +557,7 @@ func (cm *CoherenceMonitor) GenerateSelfReflectionTask(inconsistency Inconsisten
 			"details":            inconsistency.Details,
 		},
 	}
-	
+
 	// Store task in Redis
 	taskKey := fmt.Sprintf("coherence:reflection_tasks:%s", cm.agentID)
 	taskData, err := json.Marshal(task)
@@ -516,9 +565,9 @@ func (cm *CoherenceMonitor) GenerateSelfReflectionTask(inconsistency Inconsisten
 		cm.redis.LPush(cm.ctx, taskKey, taskData)
 		cm.redis.LTrim(cm.ctx, taskKey, 0, 99) // Keep last 100 tasks
 	}
-	
+
 	log.Printf("📝 [Coherence] Generated self-reflection task: %s (priority: %d)", task.ID, task.Priority)
-	
+
 	return task, nil
 }
 
@@ -526,15 +575,15 @@ func (cm *CoherenceMonitor) GenerateSelfReflectionTask(inconsistency Inconsisten
 // DEDUPLICATION: Only creates one resolution goal per inconsistency to prevent infinite loops
 func (cm *CoherenceMonitor) ResolveInconsistency(inconsistency Inconsistency) error {
 	log.Printf("🔧 [Coherence] Attempting to resolve inconsistency: %s", inconsistency.ID)
-	
+
 	// DEDUPLICATION CHECK: See if we already created a resolution goal for this inconsistency
 	resolutionGoalKey := fmt.Sprintf("coherence:resolution_goal:%s", inconsistency.ID)
 	if existingGoalID, err := cm.redis.Get(cm.ctx, resolutionGoalKey).Result(); err == nil && existingGoalID != "" {
-		log.Printf("⏭️ [Coherence] Resolution goal already exists for inconsistency %s (ID: %s), skipping duplicate", 
+		log.Printf("⏭️ [Coherence] Resolution goal already exists for inconsistency %s (ID: %s), skipping duplicate",
 			inconsistency.ID, existingGoalID)
 		return nil
 	}
-	
+
 	// DEDUPLICATION CHECK: Also check if this type of inconsistency was recently created (within 24 hours)
 	// For behavior loops, use transition type as key instead of full details (which includes varying counts)
 	// This prevents duplicate goals for the same transition even if count changes
@@ -542,28 +591,28 @@ func (cm *CoherenceMonitor) ResolveInconsistency(inconsistency Inconsistency) er
 	if inconsistency.Type == "behavior_loop" {
 		// For behavior loops, deduplicate by transition only, ignoring count differences
 		if transition, ok := inconsistency.Details["transition"].(string); ok {
-			recentInconsistencyKey = fmt.Sprintf("coherence:recent_inconsistency:%s:transition:%s", 
+			recentInconsistencyKey = fmt.Sprintf("coherence:recent_inconsistency:%s:transition:%s",
 				inconsistency.Type, transition)
 		} else {
-			recentInconsistencyKey = fmt.Sprintf("coherence:recent_inconsistency:%s_%s", 
+			recentInconsistencyKey = fmt.Sprintf("coherence:recent_inconsistency:%s_%s",
 				inconsistency.Type, fmt.Sprintf("%v", inconsistency.Details))
 		}
 	} else {
 		// For other inconsistency types, use full details
-		recentInconsistencyKey = fmt.Sprintf("coherence:recent_inconsistency:%s_%s", 
+		recentInconsistencyKey = fmt.Sprintf("coherence:recent_inconsistency:%s_%s",
 			inconsistency.Type, fmt.Sprintf("%v", inconsistency.Details))
 	}
-	
+
 	if lastTime, err := cm.redis.Get(cm.ctx, recentInconsistencyKey).Result(); err == nil && lastTime != "" {
 		log.Printf("⏭️ [Coherence] Similar inconsistency was resolved/detected recently, skipping duplicate creation")
 		return nil
 	}
-	
+
 	// Mark that we're creating a resolution for this inconsistency (TTL: 24 hours)
 	goalID := fmt.Sprintf("coherence_resolution_%s", inconsistency.ID)
 	cm.redis.Set(cm.ctx, resolutionGoalKey, goalID, 24*time.Hour)
 	cm.redis.Set(cm.ctx, recentInconsistencyKey, time.Now().String(), 24*time.Hour)
-	
+
 	// Create a prompt for the reasoning engine
 	prompt := fmt.Sprintf(`You have detected an inconsistency in the system:
 
@@ -578,16 +627,16 @@ Please analyze this inconsistency and provide a resolution strategy. Consider:
 3. How can they be reconciled?
 4. What actions should be taken?
 
-Provide a clear resolution plan.`, 
+Provide a clear resolution plan.`,
 		inconsistency.Type,
 		inconsistency.Severity,
 		inconsistency.Description,
 		formatDetails(inconsistency.Details))
-	
+
 	// Use reasoning engine to generate a resolution
 	// This would typically call the reasoning engine's explanation or inference capabilities
 	// For now, we'll store the prompt as a curiosity goal for the reasoning engine to process
-	
+
 	curiosityGoal := CuriosityGoal{
 		ID:          goalID,
 		Type:        "contradiction_resolution",
@@ -597,30 +646,30 @@ Provide a clear resolution plan.`,
 		Status:      "pending",
 		CreatedAt:   time.Now(),
 	}
-	
+
 	// Store as a curiosity goal for the reasoning engine
 	curiosityGoalsKey := "reasoning:curiosity_goals:system_coherence"
 	goalData, err := json.Marshal(curiosityGoal)
 	if err == nil {
 		cm.redis.LPush(cm.ctx, curiosityGoalsKey, goalData)
 		cm.redis.LTrim(cm.ctx, curiosityGoalsKey, 0, 199)
-		
+
 		if cm.goalManager != nil {
 			_ = cm.goalManager.PostCuriosityGoal(curiosityGoal, "coherence_monitor")
 		}
 	}
-	
+
 	// Store mapping: curiosity_goal_id -> inconsistency_id for later resolution tracking
 	// This allows us to mark the inconsistency as resolved when the goal completes
 	mappingKey := fmt.Sprintf("coherence:goal_mapping:%s", curiosityGoal.ID)
 	cm.redis.Set(cm.ctx, mappingKey, inconsistency.ID, 7*24*time.Hour) // Expire after 7 days
-	
+
 	// Mark inconsistency as being resolved
 	inconsistency.Resolved = false // Will be set to true when resolution is confirmed
 	cm.storeInconsistency(inconsistency)
-	
+
 	log.Printf("✅ [Coherence] Generated resolution task for inconsistency: %s (goal ID: %s)", inconsistency.ID, goalID)
-	
+
 	return nil
 }
 
@@ -629,17 +678,17 @@ Provide a clear resolution plan.`,
 func (cm *CoherenceMonitor) isContradictory(stmt1, stmt2 string) bool {
 	// Simple contradiction detection: check for opposite keywords
 	opposites := map[string][]string{
-		"true":  {"false", "not true", "incorrect"},
-		"false": {"true", "correct"},
-		"always": {"never", "not always"},
-		"never": {"always", "sometimes"},
+		"true":     {"false", "not true", "incorrect"},
+		"false":    {"true", "correct"},
+		"always":   {"never", "not always"},
+		"never":    {"always", "sometimes"},
 		"increase": {"decrease", "reduce"},
 		"decrease": {"increase", "raise"},
 	}
-	
+
 	stmt1Lower := strings.ToLower(stmt1)
 	stmt2Lower := strings.ToLower(stmt2)
-	
+
 	for word, opposites := range opposites {
 		if strings.Contains(stmt1Lower, word) {
 			for _, opposite := range opposites {
@@ -649,7 +698,7 @@ func (cm *CoherenceMonitor) isContradictory(stmt1, stmt2 string) bool {
 			}
 		}
 	}
-	
+
 	return false
 }
 
@@ -668,7 +717,7 @@ func (cm *CoherenceMonitor) areGoalsConflicting(g1, g2 selfmodel.PolicyGoal) boo
 	// Check if goals have opposite objectives
 	desc1 := strings.ToLower(g1.Description)
 	desc2 := strings.ToLower(g2.Description)
-	
+
 	// Simple conflict detection: opposite action words
 	conflicts := [][]string{
 		{"increase", "decrease", "reduce"},
@@ -676,7 +725,7 @@ func (cm *CoherenceMonitor) areGoalsConflicting(g1, g2 selfmodel.PolicyGoal) boo
 		{"enable", "disable", "prevent"},
 		{"allow", "forbid", "block"},
 	}
-	
+
 	for _, conflictPair := range conflicts {
 		has1 := false
 		has2 := false
@@ -692,7 +741,7 @@ func (cm *CoherenceMonitor) areGoalsConflicting(g1, g2 selfmodel.PolicyGoal) boo
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -723,7 +772,7 @@ func (cm *CoherenceMonitor) storeInconsistency(inc Inconsistency) {
 	if err == nil {
 		cm.redis.LPush(cm.ctx, key, incData)
 		cm.redis.LTrim(cm.ctx, key, 0, 199) // Keep last 200 inconsistencies
-		
+
 		// Also store by type for easier querying
 		typeKey := fmt.Sprintf("coherence:inconsistencies:%s:%s", cm.agentID, inc.Type)
 		cm.redis.LPush(cm.ctx, typeKey, incData)
@@ -745,7 +794,7 @@ func (cm *CoherenceMonitor) subscribeToGoalEvents() {
 	if cm.nc == nil {
 		return
 	}
-	
+
 	// Subscribe to goal achieved events
 	_, err := cm.nc.Subscribe("agi.goal.achieved", func(msg *nats.Msg) {
 		var goal map[string]interface{}
@@ -753,10 +802,10 @@ func (cm *CoherenceMonitor) subscribeToGoalEvents() {
 			log.Printf("⚠️ [Coherence] Failed to unmarshal goal.achieved event: %v", err)
 			return
 		}
-		
+
 		goalID, _ := goal["id"].(string)
 		log.Printf("🔔 [Coherence] Received goal.achieved event for goal: %s", goalID)
-		
+
 		// Check if this is a coherence resolution goal
 		// Method 1: Check context if available
 		if context, ok := goal["context"].(map[string]interface{}); ok {
@@ -771,7 +820,7 @@ func (cm *CoherenceMonitor) subscribeToGoalEvents() {
 				}
 			}
 		}
-		
+
 		// Method 2: Check description for coherence resolution pattern
 		if desc, ok := goal["description"].(string); ok {
 			if strings.Contains(desc, "You have detected an inconsistency in the system") {
@@ -785,7 +834,7 @@ func (cm *CoherenceMonitor) subscribeToGoalEvents() {
 	if err != nil {
 		log.Printf("⚠️ [Coherence] Failed to subscribe to goal.achieved events: %v", err)
 	}
-	
+
 	// Subscribe to goal failed events
 	_, err = cm.nc.Subscribe("agi.goal.failed", func(msg *nats.Msg) {
 		var goal map[string]interface{}
@@ -793,10 +842,10 @@ func (cm *CoherenceMonitor) subscribeToGoalEvents() {
 			log.Printf("⚠️ [Coherence] Failed to unmarshal goal.failed event: %v", err)
 			return
 		}
-		
+
 		goalID, _ := goal["id"].(string)
 		log.Printf("🔔 [Coherence] Received goal.failed event for goal: %s", goalID)
-		
+
 		// Check if this is a coherence resolution goal
 		// Method 1: Check context if available
 		if context, ok := goal["context"].(map[string]interface{}); ok {
@@ -811,7 +860,7 @@ func (cm *CoherenceMonitor) subscribeToGoalEvents() {
 				}
 			}
 		}
-		
+
 		// Method 2: Check description for coherence resolution pattern
 		if desc, ok := goal["description"].(string); ok {
 			if strings.Contains(desc, "You have detected an inconsistency in the system") {
@@ -833,7 +882,7 @@ func (cm *CoherenceMonitor) findAndHandleCoherenceGoal(goalManagerID, status str
 	if err != nil {
 		return
 	}
-	
+
 	for _, goalData := range goals {
 		var goal CuriosityGoal
 		if err := json.Unmarshal([]byte(goalData), &goal); err == nil {
@@ -849,7 +898,7 @@ func (cm *CoherenceMonitor) findAndHandleCoherenceGoal(goalManagerID, status str
 // handleCoherenceGoalCompleted marks the inconsistency and curiosity goal as resolved
 func (cm *CoherenceMonitor) handleCoherenceGoalCompleted(curiosityGoalID, goalManagerID, status string) {
 	log.Printf("✅ [Coherence] Coherence resolution goal %s completed with status: %s", curiosityGoalID, status)
-	
+
 	// Look up inconsistency ID from mapping
 	mappingKey := fmt.Sprintf("coherence:goal_mapping:%s", curiosityGoalID)
 	inconsistencyID, err := cm.redis.Get(cm.ctx, mappingKey).Result()
@@ -862,13 +911,13 @@ func (cm *CoherenceMonitor) handleCoherenceGoalCompleted(curiosityGoalID, goalMa
 			return
 		}
 	}
-	
+
 	// Mark inconsistency as resolved
 	cm.markInconsistencyResolved(inconsistencyID, status)
-	
+
 	// Update curiosity goal status
 	cm.updateCuriosityGoalStatus(curiosityGoalID, status)
-	
+
 	// Clean up mapping
 	cm.redis.Del(cm.ctx, mappingKey)
 }
@@ -880,14 +929,14 @@ func (cm *CoherenceMonitor) markInconsistencyResolved(inconsistencyID, resolutio
 	if err != nil {
 		return
 	}
-	
+
 	for i, incData := range inconsistencies {
 		var inc Inconsistency
 		if err := json.Unmarshal([]byte(incData), &inc); err == nil {
 			if inc.ID == inconsistencyID {
 				inc.Resolved = true
 				inc.Resolution = fmt.Sprintf("Resolved via Goal Manager task (status: %s)", resolutionStatus)
-				
+
 				updatedData, err := json.Marshal(inc)
 				if err == nil {
 					cm.redis.LSet(cm.ctx, key, int64(i), updatedData)
@@ -906,7 +955,7 @@ func (cm *CoherenceMonitor) updateCuriosityGoalStatus(goalID, status string) {
 	if err != nil {
 		return
 	}
-	
+
 	for i, goalData := range goals {
 		var goal CuriosityGoal
 		if err := json.Unmarshal([]byte(goalData), &goal); err == nil {
@@ -930,10 +979,10 @@ func (cm *CoherenceMonitor) cleanupOldCoherenceGoals() {
 	if err != nil {
 		return
 	}
-	
+
 	var activeGoals []string
 	cutoffTime := time.Now().Add(-7 * 24 * time.Hour) // Remove goals older than 7 days
-	
+
 	for _, goalData := range goalsData {
 		var goal CuriosityGoal
 		if err := json.Unmarshal([]byte(goalData), &goal); err == nil {
@@ -942,13 +991,13 @@ func (cm *CoherenceMonitor) cleanupOldCoherenceGoals() {
 				goal.Status != "failed" &&
 				goal.Status != "resolved" &&
 				goal.CreatedAt.After(cutoffTime)
-			
+
 			if shouldKeep {
 				activeGoals = append(activeGoals, goalData)
 			}
 		}
 	}
-	
+
 	// Replace the list with only active goals
 	if len(activeGoals) < len(goalsData) {
 		cm.redis.Del(cm.ctx, key)
@@ -959,4 +1008,3 @@ func (cm *CoherenceMonitor) cleanupOldCoherenceGoals() {
 			len(goalsData)-len(activeGoals), len(activeGoals))
 	}
 }
-

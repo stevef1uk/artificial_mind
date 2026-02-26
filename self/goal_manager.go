@@ -241,8 +241,10 @@ func asFloat64(v interface{}) (float64, bool) {
 // --- Public API helpers for REST layer ---
 
 // ListActiveGoals returns the current active goals for this agent (sorted by priority desc)
+// limited to the top 200 goals to prevent performance issues.
 func (gm *GoalManager) ListActiveGoals() ([]PolicyGoal, error) {
-	ids, err := gm.redis.ZRevRange(gm.ctx, gm.keyPriorityZSet(), 0, -1).Result()
+	// Only fetch the top 200 goals
+	ids, err := gm.redis.ZRevRange(gm.ctx, gm.keyPriorityZSet(), 0, 199).Result()
 	if err != nil {
 		return nil, err
 	}
@@ -288,12 +290,12 @@ func (gm *GoalManager) CreateGoal(g PolicyGoal) (*PolicyGoal, error) {
 		g.CreatedAt = now
 	}
 	g.UpdatedAt = now
-	
+
 	// Debug: Log context preservation
-	if g.Context != nil && len(g.Context) > 0 {
+	if len(g.Context) > 0 {
 		fmt.Printf("🐛 DEBUG: CreateGoal preserving context: %+v\n", g.Context)
 	}
-	
+
 	if err := gm.saveGoal(&g); err != nil {
 		return nil, err
 	}

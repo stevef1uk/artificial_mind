@@ -16,57 +16,57 @@ import (
 // ExplanationLearningFeedback implements explanation-grounded learning feedback
 // that closes the loop between reasoning quality → execution outcomes → improved reasoning
 type ExplanationLearningFeedback struct {
-	redis     *redis.Client
-	hdnURL    string
-	ctx       context.Context
+	redis      *redis.Client
+	hdnURL     string
+	ctx        context.Context
 	httpClient *http.Client
 }
 
 // NewExplanationLearningFeedback creates a new explanation learning feedback system
 func NewExplanationLearningFeedback(redis *redis.Client, hdnURL string) *ExplanationLearningFeedback {
 	return &ExplanationLearningFeedback{
-		redis:     redis,
-		hdnURL:    hdnURL,
-		ctx:       context.Background(),
+		redis:      redis,
+		hdnURL:     hdnURL,
+		ctx:        context.Background(),
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
 // GoalCompletionFeedback represents the feedback collected after a goal is completed
 type GoalCompletionFeedback struct {
-	GoalID           string                 `json:"goal_id"`
-	GoalDescription  string                 `json:"goal_description"`
-	Status           string                 `json:"status"` // achieved, failed
-	CompletedAt      time.Time              `json:"completed_at"`
-	Domain           string                 `json:"domain"`
-	
+	GoalID          string    `json:"goal_id"`
+	GoalDescription string    `json:"goal_description"`
+	Status          string    `json:"status"` // achieved, failed
+	CompletedAt     time.Time `json:"completed_at"`
+	Domain          string    `json:"domain"`
+
 	// Hypotheses that were associated with this goal
-	Hypotheses       []HypothesisEvaluation `json:"hypotheses"`
-	
+	Hypotheses []HypothesisEvaluation `json:"hypotheses"`
+
 	// Reasoning traces associated with this goal
-	ReasoningTraces  []ReasoningTraceEvaluation `json:"reasoning_traces"`
-	
+	ReasoningTraces []ReasoningTraceEvaluation `json:"reasoning_traces"`
+
 	// Outcome metrics
-	OutcomeMetrics   map[string]interface{} `json:"outcome_metrics"`
-	
+	OutcomeMetrics map[string]interface{} `json:"outcome_metrics"`
+
 	// Overall evaluation
-	OverallAccuracy  float64                `json:"overall_accuracy"`
-	OverallQuality   float64                `json:"overall_quality"`
-	AlignmentScore   float64                `json:"alignment_score"`
+	OverallAccuracy float64 `json:"overall_accuracy"`
+	OverallQuality  float64 `json:"overall_quality"`
+	AlignmentScore  float64 `json:"alignment_score"`
 }
 
 // HypothesisEvaluation evaluates a hypothesis post-hoc
 type HypothesisEvaluation struct {
-	HypothesisID     string                 `json:"hypothesis_id"`
-	Description      string                 `json:"description"`
-	OriginalConfidence float64              `json:"original_confidence"`
-	
+	HypothesisID       string  `json:"hypothesis_id"`
+	Description        string  `json:"description"`
+	OriginalConfidence float64 `json:"original_confidence"`
+
 	// Post-hoc evaluation
-	Accuracy         float64                `json:"accuracy"`         // How accurate was the hypothesis?
-	Quality          float64                `json:"quality"`           // Quality of the explanation
-	Alignment        float64                `json:"alignment"`         // Alignment with actual outcome
-	WasCorrect       bool                   `json:"was_correct"`      // Was the hypothesis correct?
-	
+	Accuracy   float64 `json:"accuracy"`    // How accurate was the hypothesis?
+	Quality    float64 `json:"quality"`     // Quality of the explanation
+	Alignment  float64 `json:"alignment"`   // Alignment with actual outcome
+	WasCorrect bool    `json:"was_correct"` // Was the hypothesis correct?
+
 	// Feedback for learning
 	ConfidenceError  float64                `json:"confidence_error"` // Difference between predicted and actual
 	ImprovementAreas []string               `json:"improvement_areas"`
@@ -75,28 +75,28 @@ type HypothesisEvaluation struct {
 
 // ReasoningTraceEvaluation evaluates reasoning quality
 type ReasoningTraceEvaluation struct {
-	TraceID          string                 `json:"trace_id"`
-	GoalID           string                 `json:"goal_id"`
-	
+	TraceID string `json:"trace_id"`
+	GoalID  string `json:"goal_id"`
+
 	// Quality metrics
-	ReasoningQuality float64                `json:"reasoning_quality"`  // Overall quality of reasoning
-	StepCoherence    float64                `json:"step_coherence"`     // How coherent were the steps?
-	DecisionQuality  float64                `json:"decision_quality"`  // Quality of decisions made
-	ConfidenceCalibration float64           `json:"confidence_calibration"` // How well-calibrated was confidence?
-	
+	ReasoningQuality      float64 `json:"reasoning_quality"`      // Overall quality of reasoning
+	StepCoherence         float64 `json:"step_coherence"`         // How coherent were the steps?
+	DecisionQuality       float64 `json:"decision_quality"`       // Quality of decisions made
+	ConfidenceCalibration float64 `json:"confidence_calibration"` // How well-calibrated was confidence?
+
 	// Correlation with outcome
-	OutcomeCorrelation float64              `json:"outcome_correlation"` // Correlation between reasoning quality and outcome
-	
+	OutcomeCorrelation float64 `json:"outcome_correlation"` // Correlation between reasoning quality and outcome
+
 	// Feedback
-	Strengths         []string               `json:"strengths"`
-	Weaknesses        []string               `json:"weaknesses"`
-	Metadata          map[string]interface{} `json:"metadata,omitempty"`
+	Strengths  []string               `json:"strengths"`
+	Weaknesses []string               `json:"weaknesses"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // EvaluateGoalCompletion performs post-hoc evaluation after a goal is completed
 func (elf *ExplanationLearningFeedback) EvaluateGoalCompletion(goalID string, goalDescription string, status string, domain string, outcomeMetrics map[string]interface{}) error {
 	log.Printf("🧠 [EXPLANATION-LEARNING] Evaluating goal completion: %s (status: %s)", goalID, status)
-	
+
 	// Validate required fields
 	if goalID == "" {
 		log.Printf("⚠️ [EXPLANATION-LEARNING] Empty goal ID, skipping evaluation")
@@ -106,61 +106,61 @@ func (elf *ExplanationLearningFeedback) EvaluateGoalCompletion(goalID string, go
 		log.Printf("⚠️ [EXPLANATION-LEARNING] Redis client is nil, skipping evaluation")
 		return fmt.Errorf("redis client is nil")
 	}
-	
+
 	// Collect hypotheses associated with this goal
 	hypotheses := elf.collectGoalHypotheses(goalID, domain)
-	
+
 	// Collect reasoning traces for this goal
 	reasoningTraces := elf.collectGoalReasoningTraces(goalID, domain)
-	
+
 	// Evaluate hypotheses
 	hypothesisEvaluations := make([]HypothesisEvaluation, 0, len(hypotheses))
 	for _, hyp := range hypotheses {
 		eval := elf.evaluateHypothesis(hyp, status, outcomeMetrics)
 		hypothesisEvaluations = append(hypothesisEvaluations, eval)
 	}
-	
+
 	// Evaluate reasoning traces
 	traceEvaluations := make([]ReasoningTraceEvaluation, 0, len(reasoningTraces))
 	for _, trace := range reasoningTraces {
 		eval := elf.evaluateReasoningTrace(trace, status, outcomeMetrics)
 		traceEvaluations = append(traceEvaluations, eval)
 	}
-	
+
 	// Calculate overall metrics
 	overallAccuracy := elf.calculateOverallAccuracy(hypothesisEvaluations)
 	overallQuality := elf.calculateOverallQuality(traceEvaluations)
 	alignmentScore := elf.calculateAlignmentScore(hypothesisEvaluations, traceEvaluations, status, outcomeMetrics)
-	
+
 	// Create feedback record
 	feedback := GoalCompletionFeedback{
-		GoalID:           goalID,
-		GoalDescription:  goalDescription,
-		Status:           status,
-		CompletedAt:      time.Now().UTC(),
-		Domain:           domain,
-		Hypotheses:       hypothesisEvaluations,
-		ReasoningTraces:  traceEvaluations,
-		OutcomeMetrics:   outcomeMetrics,
-		OverallAccuracy:  overallAccuracy,
-		OverallQuality:   overallQuality,
-		AlignmentScore:   alignmentScore,
+		GoalID:          goalID,
+		GoalDescription: goalDescription,
+		Status:          status,
+		CompletedAt:     time.Now().UTC(),
+		Domain:          domain,
+		Hypotheses:      hypothesisEvaluations,
+		ReasoningTraces: traceEvaluations,
+		OutcomeMetrics:  outcomeMetrics,
+		OverallAccuracy: overallAccuracy,
+		OverallQuality:  overallQuality,
+		AlignmentScore:  alignmentScore,
 	}
-	
+
 	// Store feedback
 	if err := elf.storeFeedback(feedback); err != nil {
 		log.Printf("⚠️ [EXPLANATION-LEARNING] Failed to store feedback: %v", err)
 		return err
 	}
-	
+
 	// Update learning parameters based on feedback
 	elf.updateInferenceWeighting(feedback)
 	elf.updateConfidenceScaling(feedback)
 	elf.updateExplorationHeuristics(feedback)
-	
+
 	log.Printf("✅ [EXPLANATION-LEARNING] Completed evaluation for goal %s: accuracy=%.2f, quality=%.2f, alignment=%.2f",
 		goalID, overallAccuracy, overallQuality, alignmentScore)
-	
+
 	return nil
 }
 
@@ -168,12 +168,13 @@ func (elf *ExplanationLearningFeedback) EvaluateGoalCompletion(goalID string, go
 func (elf *ExplanationLearningFeedback) collectGoalHypotheses(goalID string, domain string) []Hypothesis {
 	// Look for hypotheses in Redis that reference this goal
 	key := fmt.Sprintf("fsm:%s:hypotheses", domain)
-	hypothesesData, err := elf.redis.LRange(elf.ctx, key, 0, -1).Result()
+	// PERFORMANCE FIX: Limit to 100 hypotheses
+	hypothesesData, err := elf.redis.LRange(elf.ctx, key, 0, 99).Result()
 	if err != nil {
 		log.Printf("⚠️ [EXPLANATION-LEARNING] Failed to retrieve hypotheses: %v", err)
 		return []Hypothesis{}
 	}
-	
+
 	var hypotheses []Hypothesis
 	for _, hypData := range hypothesesData {
 		var hyp Hypothesis
@@ -185,7 +186,7 @@ func (elf *ExplanationLearningFeedback) collectGoalHypotheses(goalID string, dom
 			}
 		}
 	}
-	
+
 	// Also check goal context for hypothesis IDs
 	goalKey := fmt.Sprintf("goal:%s", goalID)
 	goalData, err := elf.redis.Get(elf.ctx, goalKey).Result()
@@ -207,18 +208,19 @@ func (elf *ExplanationLearningFeedback) collectGoalHypotheses(goalID string, dom
 			}
 		}
 	}
-	
+
 	return hypotheses
 }
 
 // getHypothesisByID retrieves a hypothesis by ID
 func (elf *ExplanationLearningFeedback) getHypothesisByID(hypID string, domain string) *Hypothesis {
 	key := fmt.Sprintf("fsm:%s:hypotheses", domain)
-	hypothesesData, err := elf.redis.LRange(elf.ctx, key, 0, -1).Result()
+	// PERFORMANCE FIX: Limit to 100 hypotheses
+	hypothesesData, err := elf.redis.LRange(elf.ctx, key, 0, 99).Result()
 	if err != nil {
 		return nil
 	}
-	
+
 	for _, hypData := range hypothesesData {
 		var hyp Hypothesis
 		if err := json.Unmarshal([]byte(hypData), &hyp); err == nil {
@@ -234,17 +236,19 @@ func (elf *ExplanationLearningFeedback) getHypothesisByID(hypID string, domain s
 func (elf *ExplanationLearningFeedback) collectGoalReasoningTraces(goalID string, domain string) []ReasoningTrace {
 	// Look for reasoning traces associated with this goal
 	key := fmt.Sprintf("reasoning:traces:goal:%s", goalID)
-	tracesData, err := elf.redis.LRange(elf.ctx, key, 0, -1).Result()
+	// PERFORMANCE FIX: Limit to 20 traces
+	tracesData, err := elf.redis.LRange(elf.ctx, key, 0, 19).Result()
 	if err != nil {
 		// Try alternative key patterns
 		key = fmt.Sprintf("reasoning:traces:%s", domain)
-		tracesData, err = elf.redis.LRange(elf.ctx, key, 0, -1).Result()
+		// PERFORMANCE FIX: Limit to 20 traces
+		tracesData, err = elf.redis.LRange(elf.ctx, key, 0, 19).Result()
 		if err != nil {
 			log.Printf("⚠️ [EXPLANATION-LEARNING] Failed to retrieve reasoning traces: %v", err)
 			return []ReasoningTrace{}
 		}
 	}
-	
+
 	var traces []ReasoningTrace
 	for _, traceData := range tracesData {
 		var trace ReasoningTrace
@@ -255,7 +259,7 @@ func (elf *ExplanationLearningFeedback) collectGoalReasoningTraces(goalID string
 			}
 		}
 	}
-	
+
 	return traces
 }
 
@@ -267,7 +271,7 @@ func (elf *ExplanationLearningFeedback) evaluateHypothesis(hyp Hypothesis, goalS
 		OriginalConfidence: hyp.Confidence,
 		Metadata:           make(map[string]interface{}),
 	}
-	
+
 	// Determine if hypothesis was correct based on goal status and outcome
 	// For achieved goals, hypotheses that predicted success are correct
 	// For failed goals, hypotheses that predicted failure or identified issues are correct
@@ -282,16 +286,16 @@ func (elf *ExplanationLearningFeedback) evaluateHypothesis(hyp Hypothesis, goalS
 			strings.Contains(strings.ToLower(hyp.Description), "fail") ||
 			strings.Contains(strings.ToLower(hyp.Description), "error")
 	}
-	
+
 	eval.WasCorrect = wasCorrect
-	
+
 	// Calculate accuracy (1.0 if correct, 0.0 if incorrect)
 	if wasCorrect {
 		eval.Accuracy = 1.0
 	} else {
 		eval.Accuracy = 0.0
 	}
-	
+
 	// Calculate quality based on explanation richness
 	quality := 0.5 // Base quality
 	if len(hyp.Facts) > 0 {
@@ -304,7 +308,7 @@ func (elf *ExplanationLearningFeedback) evaluateHypothesis(hyp Hypothesis, goalS
 		quality += 0.1 // Has counterfactual reasoning
 	}
 	eval.Quality = math.Min(quality, 1.0)
-	
+
 	// Calculate alignment with outcome
 	// Alignment is high if hypothesis confidence matches actual outcome
 	if wasCorrect {
@@ -312,14 +316,14 @@ func (elf *ExplanationLearningFeedback) evaluateHypothesis(hyp Hypothesis, goalS
 	} else {
 		eval.Alignment = 1.0 - hyp.Confidence // Low confidence + incorrect = high alignment
 	}
-	
+
 	// Calculate confidence error
 	if wasCorrect {
 		eval.ConfidenceError = math.Abs(1.0 - hyp.Confidence) // Should have been more confident
 	} else {
 		eval.ConfidenceError = hyp.Confidence // Should have been less confident
 	}
-	
+
 	// Identify improvement areas
 	if eval.ConfidenceError > 0.3 {
 		eval.ImprovementAreas = append(eval.ImprovementAreas, "confidence_calibration")
@@ -330,35 +334,35 @@ func (elf *ExplanationLearningFeedback) evaluateHypothesis(hyp Hypothesis, goalS
 	if !wasCorrect && len(hyp.Facts) == 0 {
 		eval.ImprovementAreas = append(eval.ImprovementAreas, "evidence_gathering")
 	}
-	
+
 	return eval
 }
 
 // evaluateReasoningTrace evaluates reasoning quality
 func (elf *ExplanationLearningFeedback) evaluateReasoningTrace(trace ReasoningTrace, goalStatus string, outcomeMetrics map[string]interface{}) ReasoningTraceEvaluation {
 	eval := ReasoningTraceEvaluation{
-		TraceID: trace.ID,
-		GoalID:  trace.Goal,
+		TraceID:  trace.ID,
+		GoalID:   trace.Goal,
 		Metadata: make(map[string]interface{}),
 	}
-	
+
 	// Calculate reasoning quality based on trace structure
 	quality := 0.5 // Base quality
-	
+
 	// More reasoning steps generally indicate better reasoning (up to a point)
 	if len(trace.Steps) > 0 {
 		stepScore := math.Min(float64(len(trace.Steps))/10.0, 0.3)
 		quality += stepScore
 	}
-	
+
 	// Evidence indicates active reasoning
 	if len(trace.Evidence) > 0 {
 		evidenceScore := math.Min(float64(len(trace.Evidence))/5.0, 0.2)
 		quality += evidenceScore
 	}
-	
+
 	eval.ReasoningQuality = math.Min(quality, 1.0)
-	
+
 	// Calculate step coherence (simplified - would use LLM in practice)
 	// Coherence is higher if steps are well-structured
 	if len(trace.Steps) > 1 {
@@ -366,7 +370,7 @@ func (elf *ExplanationLearningFeedback) evaluateReasoningTrace(trace ReasoningTr
 	} else {
 		eval.StepCoherence = 0.5
 	}
-	
+
 	// Calculate decision quality based on average confidence of steps
 	if len(trace.Steps) > 0 {
 		totalConfidence := 0.0
@@ -378,7 +382,7 @@ func (elf *ExplanationLearningFeedback) evaluateReasoningTrace(trace ReasoningTr
 	} else {
 		eval.DecisionQuality = 0.5
 	}
-	
+
 	// Calculate confidence calibration
 	// Compare trace confidence with actual outcome
 	if goalStatus == "achieved" {
@@ -388,7 +392,7 @@ func (elf *ExplanationLearningFeedback) evaluateReasoningTrace(trace ReasoningTr
 		// Low confidence + failed = well calibrated, high confidence + failed = poorly calibrated
 		eval.ConfidenceCalibration = 1.0 - trace.Confidence
 	}
-	
+
 	// Calculate outcome correlation
 	// Positive correlation if high quality reasoning led to success
 	if goalStatus == "achieved" {
@@ -396,7 +400,7 @@ func (elf *ExplanationLearningFeedback) evaluateReasoningTrace(trace ReasoningTr
 	} else {
 		eval.OutcomeCorrelation = 1.0 - eval.ReasoningQuality
 	}
-	
+
 	// Identify strengths and weaknesses
 	if eval.ReasoningQuality > 0.7 {
 		eval.Strengths = append(eval.Strengths, "comprehensive_reasoning")
@@ -407,7 +411,7 @@ func (elf *ExplanationLearningFeedback) evaluateReasoningTrace(trace ReasoningTr
 	if eval.ConfidenceCalibration > 0.7 {
 		eval.Strengths = append(eval.Strengths, "well_calibrated")
 	}
-	
+
 	if eval.ReasoningQuality < 0.5 {
 		eval.Weaknesses = append(eval.Weaknesses, "insufficient_reasoning")
 	}
@@ -417,7 +421,7 @@ func (elf *ExplanationLearningFeedback) evaluateReasoningTrace(trace ReasoningTr
 	if eval.ConfidenceCalibration < 0.5 {
 		eval.Weaknesses = append(eval.Weaknesses, "poor_calibration")
 	}
-	
+
 	return eval
 }
 
@@ -426,12 +430,12 @@ func (elf *ExplanationLearningFeedback) calculateOverallAccuracy(evaluations []H
 	if len(evaluations) == 0 {
 		return 0.5 // Default neutral accuracy
 	}
-	
+
 	totalAccuracy := 0.0
 	for _, eval := range evaluations {
 		totalAccuracy += eval.Accuracy
 	}
-	
+
 	return totalAccuracy / float64(len(evaluations))
 }
 
@@ -440,12 +444,12 @@ func (elf *ExplanationLearningFeedback) calculateOverallQuality(evaluations []Re
 	if len(evaluations) == 0 {
 		return 0.5 // Default neutral quality
 	}
-	
+
 	totalQuality := 0.0
 	for _, eval := range evaluations {
 		totalQuality += eval.ReasoningQuality
 	}
-	
+
 	return totalQuality / float64(len(evaluations))
 }
 
@@ -466,7 +470,7 @@ func (elf *ExplanationLearningFeedback) calculateAlignmentScore(
 	} else {
 		hypAlignment = 0.5
 	}
-	
+
 	traceCorrelation := 0.0
 	if len(traceEvals) > 0 {
 		for _, eval := range traceEvals {
@@ -476,7 +480,7 @@ func (elf *ExplanationLearningFeedback) calculateAlignmentScore(
 	} else {
 		traceCorrelation = 0.5
 	}
-	
+
 	// Weighted average
 	return (hypAlignment*0.6 + traceCorrelation*0.4)
 }
@@ -489,31 +493,31 @@ func (elf *ExplanationLearningFeedback) storeFeedback(feedback GoalCompletionFee
 	if err != nil {
 		return fmt.Errorf("failed to marshal feedback: %w", err)
 	}
-	
+
 	if err := elf.redis.Set(elf.ctx, key, data, 30*24*time.Hour).Err(); err != nil {
 		return fmt.Errorf("failed to store feedback: %w", err)
 	}
-	
+
 	// Store in domain-specific list
 	domainKey := fmt.Sprintf("explanation_learning:feedback:domain:%s", feedback.Domain)
 	elf.redis.LPush(elf.ctx, domainKey, data)
 	elf.redis.LTrim(elf.ctx, domainKey, 0, 99) // Keep last 100 feedback records per domain
-	
+
 	// Store in global list
 	globalKey := "explanation_learning:feedback:all"
 	elf.redis.LPush(elf.ctx, globalKey, data)
 	elf.redis.LTrim(elf.ctx, globalKey, 0, 199) // Keep last 200 feedback records
-	
+
 	// Update aggregate statistics
 	elf.updateAggregateStats(feedback)
-	
+
 	return nil
 }
 
 // updateAggregateStats updates aggregate learning statistics
 func (elf *ExplanationLearningFeedback) updateAggregateStats(feedback GoalCompletionFeedback) {
 	statsKey := fmt.Sprintf("explanation_learning:stats:%s", feedback.Domain)
-	
+
 	// Get current stats
 	statsData, err := elf.redis.Get(elf.ctx, statsKey).Result()
 	var stats map[string]interface{}
@@ -528,26 +532,26 @@ func (elf *ExplanationLearningFeedback) updateAggregateStats(feedback GoalComple
 		stats["avg_quality"] = 0.0
 		stats["avg_alignment"] = 0.0
 	}
-	
+
 	// Update stats
 	totalGoals := stats["total_goals"].(float64) + 1
 	stats["total_goals"] = totalGoals
-	
+
 	if feedback.Status == "achieved" {
 		stats["achieved_goals"] = stats["achieved_goals"].(float64) + 1
 	} else {
 		stats["failed_goals"] = stats["failed_goals"].(float64) + 1
 	}
-	
+
 	// Update running averages
 	currentAvgAccuracy := stats["avg_accuracy"].(float64)
 	currentAvgQuality := stats["avg_quality"].(float64)
 	currentAvgAlignment := stats["avg_alignment"].(float64)
-	
+
 	stats["avg_accuracy"] = (currentAvgAccuracy*(totalGoals-1) + feedback.OverallAccuracy) / totalGoals
 	stats["avg_quality"] = (currentAvgQuality*(totalGoals-1) + feedback.OverallQuality) / totalGoals
 	stats["avg_alignment"] = (currentAvgAlignment*(totalGoals-1) + feedback.AlignmentScore) / totalGoals
-	
+
 	// Store updated stats
 	statsDataBytes, _ := json.Marshal(stats)
 	elf.redis.Set(elf.ctx, statsKey, statsDataBytes, 0)
@@ -556,10 +560,10 @@ func (elf *ExplanationLearningFeedback) updateAggregateStats(feedback GoalComple
 // updateInferenceWeighting updates inference rule weights based on feedback
 func (elf *ExplanationLearningFeedback) updateInferenceWeighting(feedback GoalCompletionFeedback) {
 	log.Printf("🧠 [EXPLANATION-LEARNING] Updating inference weighting for domain: %s", feedback.Domain)
-	
+
 	// Analyze which inference patterns led to successful vs failed outcomes
 	// Update weights for inference rules based on hypothesis accuracy
-	
+
 	// Calculate weight adjustment based on feedback
 	// Rules that led to accurate hypotheses get higher weights
 	weightAdjustment := 0.0
@@ -568,7 +572,7 @@ func (elf *ExplanationLearningFeedback) updateInferenceWeighting(feedback GoalCo
 	} else if feedback.OverallAccuracy < 0.3 {
 		weightAdjustment = -0.1 // Decrease weight for poor performance
 	}
-	
+
 	// Store weight adjustments for later application
 	adjustmentKey := fmt.Sprintf("explanation_learning:inference_adjustments:%s", feedback.Domain)
 	adjustment := map[string]interface{}{
@@ -580,14 +584,14 @@ func (elf *ExplanationLearningFeedback) updateInferenceWeighting(feedback GoalCo
 	adjustmentData, _ := json.Marshal(adjustment)
 	elf.redis.LPush(elf.ctx, adjustmentKey, adjustmentData)
 	elf.redis.LTrim(elf.ctx, adjustmentKey, 0, 49) // Keep last 50 adjustments
-	
+
 	log.Printf("✅ [EXPLANATION-LEARNING] Recorded inference weight adjustment: %.2f", weightAdjustment)
 }
 
 // updateConfidenceScaling updates confidence scaling rules based on feedback
 func (elf *ExplanationLearningFeedback) updateConfidenceScaling(feedback GoalCompletionFeedback) {
 	log.Printf("🧠 [EXPLANATION-LEARNING] Updating confidence scaling for domain: %s", feedback.Domain)
-	
+
 	// Analyze confidence calibration errors
 	avgConfidenceError := 0.0
 	count := 0
@@ -598,11 +602,11 @@ func (elf *ExplanationLearningFeedback) updateConfidenceScaling(feedback GoalCom
 	if count > 0 {
 		avgConfidenceError /= float64(count)
 	}
-	
+
 	// Determine scaling adjustment
 	// If confidence errors are consistently high, we need to adjust scaling
 	scalingKey := fmt.Sprintf("explanation_learning:confidence_scaling:%s", feedback.Domain)
-	
+
 	// Get current scaling factors
 	scalingData, err := elf.redis.Get(elf.ctx, scalingKey).Result()
 	var scaling map[string]interface{}
@@ -613,7 +617,7 @@ func (elf *ExplanationLearningFeedback) updateConfidenceScaling(feedback GoalCom
 		scaling["base_scale"] = 1.0
 		scaling["calibration_factor"] = 1.0
 	}
-	
+
 	// Adjust calibration factor based on errors
 	currentCalibration := scaling["calibration_factor"].(float64)
 	if avgConfidenceError > 0.3 {
@@ -627,21 +631,21 @@ func (elf *ExplanationLearningFeedback) updateConfidenceScaling(feedback GoalCom
 		scaling["calibration_factor"] = newCalibration
 		log.Printf("📈 [EXPLANATION-LEARNING] Increasing confidence calibration (underconfident): %.2f -> %.2f", currentCalibration, newCalibration)
 	}
-	
+
 	// Store updated scaling
 	scalingDataBytes, _ := json.Marshal(scaling)
 	elf.redis.Set(elf.ctx, scalingKey, scalingDataBytes, 0)
-	
+
 	log.Printf("✅ [EXPLANATION-LEARNING] Updated confidence scaling: calibration_factor=%.2f", scaling["calibration_factor"])
 }
 
 // updateExplorationHeuristics updates exploration heuristics based on feedback
 func (elf *ExplanationLearningFeedback) updateExplorationHeuristics(feedback GoalCompletionFeedback) {
 	log.Printf("🧠 [EXPLANATION-LEARNING] Updating exploration heuristics for domain: %s", feedback.Domain)
-	
+
 	// Analyze which types of exploration led to better outcomes
 	heuristicsKey := fmt.Sprintf("explanation_learning:exploration_heuristics:%s", feedback.Domain)
-	
+
 	// Get current heuristics
 	heuristicsData, err := elf.redis.Get(elf.ctx, heuristicsKey).Result()
 	var heuristics map[string]interface{}
@@ -654,7 +658,7 @@ func (elf *ExplanationLearningFeedback) updateExplorationHeuristics(feedback Goa
 		heuristics["curiosity_bonus"] = 0.1
 		heuristics["success_bonus"] = 0.05
 	}
-	
+
 	// Adjust exploration vs exploitation balance
 	// If quality is high, we can exploit more; if low, explore more
 	currentExplorationRate := heuristics["exploration_rate"].(float64)
@@ -671,7 +675,7 @@ func (elf *ExplanationLearningFeedback) updateExplorationHeuristics(feedback Goa
 		heuristics["exploitation_rate"] = 1.0 - newRate
 		log.Printf("🎯 [EXPLANATION-LEARNING] Decreasing exploration (high quality): %.2f -> %.2f", currentExplorationRate, newRate)
 	}
-	
+
 	// Adjust curiosity bonus based on alignment
 	// High alignment means our curiosity is well-directed
 	currentCuriosityBonus := heuristics["curiosity_bonus"].(float64)
@@ -684,11 +688,11 @@ func (elf *ExplanationLearningFeedback) updateExplorationHeuristics(feedback Goa
 		newBonus := math.Max(0.05, currentCuriosityBonus-0.01)
 		heuristics["curiosity_bonus"] = newBonus
 	}
-	
+
 	// Store updated heuristics
 	heuristicsDataBytes, _ := json.Marshal(heuristics)
 	elf.redis.Set(elf.ctx, heuristicsKey, heuristicsDataBytes, 0)
-	
+
 	log.Printf("✅ [EXPLANATION-LEARNING] Updated exploration heuristics: exploration_rate=%.2f, curiosity_bonus=%.2f",
 		heuristics["exploration_rate"], heuristics["curiosity_bonus"])
 }
@@ -700,12 +704,12 @@ func (elf *ExplanationLearningFeedback) GetLearningStats(domain string) (map[str
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var stats map[string]interface{}
 	if err := json.Unmarshal([]byte(statsData), &stats); err != nil {
 		return nil, err
 	}
-	
+
 	return stats, nil
 }
 
@@ -720,12 +724,12 @@ func (elf *ExplanationLearningFeedback) GetConfidenceScaling(domain string) (map
 			"calibration_factor": 1.0,
 		}, nil
 	}
-	
+
 	var scaling map[string]interface{}
 	if err := json.Unmarshal([]byte(scalingData), &scaling); err != nil {
 		return nil, err
 	}
-	
+
 	return scaling, nil
 }
 
@@ -742,12 +746,11 @@ func (elf *ExplanationLearningFeedback) GetExplorationHeuristics(domain string) 
 			"success_bonus":     0.05,
 		}, nil
 	}
-	
+
 	var heuristics map[string]interface{}
 	if err := json.Unmarshal([]byte(heuristicsData), &heuristics); err != nil {
 		return nil, err
 	}
-	
+
 	return heuristics, nil
 }
-
