@@ -248,11 +248,30 @@ func (gm *GoalManager) ListActiveGoals() ([]PolicyGoal, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(ids) == 0 {
+		return []PolicyGoal{}, nil
+	}
+
+	keys := make([]string, len(ids))
+	for i, id := range ids {
+		keys[i] = gm.keyGoal(id)
+	}
+
+	dataList, err := gm.redis.MGet(gm.ctx, keys...).Result()
+	if err != nil {
+		return nil, err
+	}
+
 	goals := make([]PolicyGoal, 0, len(ids))
-	for _, id := range ids {
-		g, err := gm.loadGoal(id)
-		if err == nil && g.Status == "active" {
-			goals = append(goals, *g)
+	for _, data := range dataList {
+		if data == nil {
+			continue
+		}
+		var g PolicyGoal
+		if str, ok := data.(string); ok {
+			if err := json.Unmarshal([]byte(str), &g); err == nil && g.Status == "active" {
+				goals = append(goals, g)
+			}
 		}
 	}
 	return goals, nil
@@ -305,20 +324,40 @@ func (gm *GoalManager) CreateGoal(g PolicyGoal) (*PolicyGoal, error) {
 
 // findActiveGoalByDescription returns the first ACTIVE goal whose description matches normDesc (lowercased, trimmed)
 func (gm *GoalManager) findActiveGoalByDescription(normDesc string) (*PolicyGoal, error) {
+	// PERFORMANCE: SMembers can be large, but we need to check active goals for deduplication.
+	// Cap at 1000 to prevent OOM if the system is unhealthy.
 	ids, err := gm.redis.SMembers(gm.ctx, gm.keyActiveSet()).Result()
 	if err != nil {
 		return nil, err
 	}
-	for _, id := range ids {
-		g, err := gm.loadGoal(id)
-		if err != nil {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if len(ids) > 1000 {
+		ids = ids[:1000]
+	}
+
+	keys := make([]string, len(ids))
+	for i, id := range ids {
+		keys[i] = gm.keyGoal(id)
+	}
+
+	dataList, err := gm.redis.MGet(gm.ctx, keys...).Result()
+	if err != nil {
+		return nil, nil // Silently fail on data mismatch
+	}
+
+	for _, data := range dataList {
+		if data == nil {
 			continue
 		}
-		if g.Status != "active" {
-			continue
-		}
-		if strings.ToLower(strings.TrimSpace(g.Description)) == normDesc {
-			return g, nil
+		var g PolicyGoal
+		if str, ok := data.(string); ok {
+			if err := json.Unmarshal([]byte(str), &g); err == nil {
+				if g.Status == "active" && strings.ToLower(strings.TrimSpace(g.Description)) == normDesc {
+					return &g, nil
+				}
+			}
 		}
 	}
 	return nil, nil

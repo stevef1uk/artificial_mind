@@ -60,256 +60,250 @@ func startGoalsPoller(agentID, goalMgrURL string, rdb *redis.Client) {
 	cleanupTicker := time.NewTicker(5 * time.Minute)
 	defer cleanupTicker.Stop()
 	go func() {
-		for {
-			select {
-			case <-cleanupTicker.C:
-				cleanupStuckTriggeredFlags(ctx, agentID, goalMgrURL, rdb, triggeredKey)
-			}
+		for range cleanupTicker.C {
+			cleanupStuckTriggeredFlags(ctx, agentID, goalMgrURL, rdb, triggeredKey)
 		}
 	}()
 
-	for {
-		select {
-		case <-ticker.C:
-			// Pause guard: suspend auto goal triggering when manual executions are running
-			if paused, err := rdb.Get(ctx, "auto_executor:paused").Result(); err == nil && strings.TrimSpace(paused) == "1" {
-				log.Printf("[FSM][Goals] Auto-executor paused by Redis flag; skipping tick")
-				continue
-			}
+	for range ticker.C {
+		// Pause guard: suspend auto goal triggering when manual executions are running
+		if paused, err := rdb.Get(ctx, "auto_executor:paused").Result(); err == nil && strings.TrimSpace(paused) == "1" {
+			log.Printf("[FSM][Goals] Auto-executor paused by Redis flag; skipping tick")
+			continue
+		}
 
-			// Check how many active workflows are running to prevent execution slot exhaustion
-			activeWorkflowCount, err := rdb.SCard(ctx, "active_workflows").Result()
-			if err == nil {
-				// Don't trigger new goals if too many workflows are already running
-				// With default of 4 general execution slots, allow up to 3 active workflows
-				// before pausing new goal triggers (leaves 1 slot free for other operations)
-				maxActiveWorkflows := 10
-				if activeWorkflowCount >= int64(maxActiveWorkflows) {
-					goalsDebugf("[FSM][Goals] Skipping goal trigger - %d active workflows (max: %d)", activeWorkflowCount, maxActiveWorkflows)
-					continue
-				}
+		// Check how many active workflows are running to prevent execution slot exhaustion
+		activeWorkflowCount, err := rdb.SCard(ctx, "active_workflows").Result()
+		if err == nil {
+			// Don't trigger new goals if too many workflows are already running
+			// With default of 4 general execution slots, allow up to 3 active workflows
+			// before pausing new goal triggers (leaves 1 slot free for other operations)
+			maxActiveWorkflows := 10
+			if activeWorkflowCount >= int64(maxActiveWorkflows) {
+				goalsDebugf("[FSM][Goals] Skipping goal trigger - %d active workflows (max: %d)", activeWorkflowCount, maxActiveWorkflows)
+				continue
 			}
+		}
 
-			// Fetch active goals for this agent
-			url := fmt.Sprintf("%s/goals/%s/active", goalMgrURL, agentID)
-			resp, err := client.Get(url)
-			if err != nil {
-				log.Printf("[FSM][Goals] fetch active goals error: %v", err)
-				continue
-			}
-			// Check response status before trying to decode
-			if resp.StatusCode != http.StatusOK {
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				resp.Body.Close()
-				log.Printf("[FSM][Goals] goals fetch returned status %d: %s", resp.StatusCode, string(bodyBytes))
-				continue
-			}
-			// Read body first to check if it's valid JSON
-			bodyBytes, err := io.ReadAll(resp.Body)
+		// Fetch active goals for this agent
+		url := fmt.Sprintf("%s/goals/%s/active", goalMgrURL, agentID)
+		resp, err := client.Get(url)
+		if err != nil {
+			log.Printf("[FSM][Goals] fetch active goals error: %v", err)
+			continue
+		}
+		// Check response status before trying to decode
+		if resp.StatusCode != http.StatusOK {
+			bodyBytes, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			if err != nil {
-				log.Printf("[FSM][Goals] failed to read goals response body: %v", err)
-				continue
+			log.Printf("[FSM][Goals] goals fetch returned status %d: %s", resp.StatusCode, string(bodyBytes))
+			continue
+		}
+		// Read body first to check if it's valid JSON
+		bodyBytes, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			log.Printf("[FSM][Goals] failed to read goals response body: %v", err)
+			continue
+		}
+		// Check if response is empty or not JSON
+		bodyStr := strings.TrimSpace(string(bodyBytes))
+		if bodyStr == "" {
+			continue
+		}
+		if !strings.HasPrefix(bodyStr, "{") && !strings.HasPrefix(bodyStr, "[") {
+			previewLen := 20
+			if len(bodyStr) < previewLen {
+				previewLen = len(bodyStr)
 			}
-			// Check if response is empty or not JSON
-			bodyStr := strings.TrimSpace(string(bodyBytes))
-			if bodyStr == "" {
-				continue
+			fullLen := 100
+			if len(bodyStr) < fullLen {
+				fullLen = len(bodyStr)
 			}
-			if !strings.HasPrefix(bodyStr, "{") && !strings.HasPrefix(bodyStr, "[") {
-				previewLen := 20
-				if len(bodyStr) < previewLen {
-					previewLen = len(bodyStr)
-				}
-				fullLen := 100
-				if len(bodyStr) < fullLen {
-					fullLen = len(bodyStr)
-				}
-				log.Printf("[FSM][Goals] goals response is not JSON (starts with: %s): %s", bodyStr[:previewLen], bodyStr[:fullLen])
-				continue
+			log.Printf("[FSM][Goals] goals response is not JSON (starts with: %s): %s", bodyStr[:previewLen], bodyStr[:fullLen])
+			continue
+		}
+		var payload any
+		if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+			errorLen := 200
+			if len(bodyStr) < errorLen {
+				errorLen = len(bodyStr)
 			}
-			var payload any
-			if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-				errorLen := 200
-				if len(bodyStr) < errorLen {
-					errorLen = len(bodyStr)
-				}
-				log.Printf("[FSM][Goals] decode goals error: %v (response: %s)", err, bodyStr[:errorLen])
-				continue
-			}
+			log.Printf("[FSM][Goals] decode goals error: %v (response: %s)", err, bodyStr[:errorLen])
+			continue
+		}
 
-			var goals []GoalItem
-			switch v := payload.(type) {
-			case []interface{}:
-				// slice of goals
-				b, _ := json.Marshal(v)
+		var goals []GoalItem
+		switch v := payload.(type) {
+		case []interface{}:
+			// slice of goals
+			b, _ := json.Marshal(v)
+			_ = json.Unmarshal(b, &goals)
+		case map[string]interface{}:
+			if arr, ok := v["goals"]; ok {
+				b, _ := json.Marshal(arr)
 				_ = json.Unmarshal(b, &goals)
-			case map[string]interface{}:
-				if arr, ok := v["goals"]; ok {
-					b, _ := json.Marshal(arr)
-					_ = json.Unmarshal(b, &goals)
-				}
 			}
+		}
 
-			log.Printf("🎯 [FSM][Goals] Fetched %d goals from Goal Manager (checking %d to trigger)", len(goals), len(goals))
-			if len(goals) == 0 {
+		log.Printf("🎯 [FSM][Goals] Fetched %d goals from Goal Manager (checking %d to trigger)", len(goals), len(goals))
+		if len(goals) == 0 {
+			continue
+		}
+
+		triggeredCount := 0
+		skippedCount := 0
+		for _, g := range goals {
+			if g.ID == "" {
+				continue
+			}
+			// Skip if already triggered
+			exists, _ := rdb.SIsMember(ctx, triggeredKey, g.ID).Result()
+			if exists {
+				skippedCount++
 				continue
 			}
 
-			triggeredCount := 0
-			skippedCount := 0
-			for _, g := range goals {
-				if g.ID == "" {
-					continue
+			// Already triggered limit reached - stop processing more goals this cycle
+			if triggeredCount >= 1 {
+				break
+			}
+
+			// Build hierarchical execute payload
+			// Use goal description/name as the task_name and user_request; pass identifiers in context
+			goalDesc := firstNonEmpty(g.Description, g.Name, "Execute goal")
+
+			// GOAL ROUTING: Determine execution path based on goal type
+			execURL, req := routeGoalExecution(goalDesc, g.ID, agentID, hdnURL)
+
+			// Use goal description as task_name instead of generic "Goal Execution"
+			// This gives the planner better context about what to actually do
+			taskName := goalDesc
+			if len(taskName) > 100 {
+				// Truncate very long descriptions for task_name
+				taskName = taskName[:97] + "..."
+			}
+
+			// If no specific routing, use default hierarchical execute
+			if execURL == "" {
+				req = map[string]interface{}{
+					"task_name":    taskName,
+					"description":  goalDesc,
+					"user_request": goalDesc,
+					"context": map[string]string{
+						"session_id": fmt.Sprintf("goal_%s", g.ID),
+						"goal_id":    g.ID,
+						"agent_id":   agentID,
+						"project_id": "Goals",
+					},
 				}
-				// Skip if already triggered
-				exists, _ := rdb.SIsMember(ctx, triggeredKey, g.ID).Result()
-				if exists {
-					skippedCount++
-					continue
+				execURL = strings.TrimRight(hdnURL, "/") + "/api/v1/hierarchical/execute"
+			}
+
+			// MARK AS TRIGGERED FIRST to prevent race condition where multiple pollers trigger same goal
+			_ = rdb.SAdd(ctx, triggeredKey, g.ID).Err()
+			_ = rdb.Expire(ctx, triggeredKey, 30*time.Minute).Err()
+
+			log.Printf("🎯 [FSM][Goals] Executing goal %s (type: %s, description: %s) via %s", g.ID, g.Type, taskName, execURL)
+			b, _ := json.Marshal(req)
+			eresp, err := client.Post(execURL, "application/json", strings.NewReader(string(b)))
+			if err != nil {
+				log.Printf("❌ [FSM][Goals] execute error for goal %s: %v", g.ID, err)
+				triggeredCount++
+				break
+			}
+			bodyBytes, _ := io.ReadAll(eresp.Body)
+			if eresp.Body != nil {
+				eresp.Body.Close()
+			}
+			if eresp.StatusCode >= 200 && eresp.StatusCode < 300 {
+				// Parse workflow_id from response
+				var execResp struct {
+					Success    bool   `json:"success"`
+					WorkflowID string `json:"workflow_id"`
+					Message    string `json:"message"`
+				}
+				workflowID := ""
+				if err := json.Unmarshal(bodyBytes, &execResp); err == nil {
+					workflowID = execResp.WorkflowID
 				}
 
-				// Already triggered limit reached - stop processing more goals this cycle
+				log.Printf("✅ [FSM][Goals] Triggered goal %s (workflow: %s)", g.ID, workflowID)
+				goalsDebugf("[FSM][Goals] triggered goal %s (workflow: %s)", g.ID, workflowID)
+
+				// Reset backoff when we successfully trigger a goal (HDN is no longer overloaded)
+				if backoffMultiplier > 1 {
+					backoffMultiplier = 1
+					ticker.Reset(pollingInterval)
+					log.Printf("✅ [FSM][Goals] HDN recovered - reset polling interval to %v", pollingInterval)
+				}
+
+				// Start background watcher to clear triggered flag when workflow completes or fails
+				if workflowID != "" {
+					go watchWorkflowAndClearTriggered(ctx, agentID, g.ID, workflowID, hdnURL, goalMgrURL, rdb, triggeredKey)
+				} else {
+					// If no workflow_id, set up a timeout watcher to clear after reasonable time
+					go watchGoalStatusAndClearTriggered(ctx, agentID, g.ID, goalMgrURL, rdb, triggeredKey)
+				}
+
+				triggeredCount++
+				// Limit to 1 goal triggered per tick to prevent execution slot exhaustion
+				// With only 2-3 execution slots available, triggering multiple goals simultaneously
+				// causes timeouts. Process goals one at a time.
 				if triggeredCount >= 1 {
 					break
 				}
-
-				// Build hierarchical execute payload
-				// Use goal description/name as the task_name and user_request; pass identifiers in context
-				goalDesc := firstNonEmpty(g.Description, g.Name, "Execute goal")
-
-				// GOAL ROUTING: Determine execution path based on goal type
-				execURL, req := routeGoalExecution(goalDesc, g.ID, agentID, hdnURL)
-
-				// Use goal description as task_name instead of generic "Goal Execution"
-				// This gives the planner better context about what to actually do
-				taskName := goalDesc
-				if len(taskName) > 100 {
-					// Truncate very long descriptions for task_name
-					taskName = taskName[:97] + "..."
+			} else if eresp.StatusCode == http.StatusConflict {
+				// Handle 409 Conflict - workflow already exists/running
+				// Parse response to get existing workflow_id
+				var conflictResp struct {
+					Success    bool   `json:"success"`
+					WorkflowID string `json:"workflow_id"`
+					Message    string `json:"message"`
+					Error      string `json:"error"`
+				}
+				workflowID := ""
+				if err := json.Unmarshal(bodyBytes, &conflictResp); err == nil {
+					workflowID = conflictResp.WorkflowID
 				}
 
-				// If no specific routing, use default hierarchical execute
-				if execURL == "" {
-					req = map[string]interface{}{
-						"task_name":    taskName,
-						"description":  goalDesc,
-						"user_request": goalDesc,
-						"context": map[string]string{
-							"session_id": fmt.Sprintf("goal_%s", g.ID),
-							"goal_id":    g.ID,
-							"agent_id":   agentID,
-							"project_id": "Goals",
-						},
-					}
-					execURL = strings.TrimRight(hdnURL, "/") + "/api/v1/hierarchical/execute"
-				}
-
-				// MARK AS TRIGGERED FIRST to prevent race condition where multiple pollers trigger same goal
-				_ = rdb.SAdd(ctx, triggeredKey, g.ID).Err()
-				_ = rdb.Expire(ctx, triggeredKey, 30*time.Minute).Err()
-
-				log.Printf("🎯 [FSM][Goals] Executing goal %s (type: %s, description: %s) via %s", g.ID, g.Type, taskName, execURL)
-				b, _ := json.Marshal(req)
-				eresp, err := client.Post(execURL, "application/json", strings.NewReader(string(b)))
-				if err != nil {
-					log.Printf("❌ [FSM][Goals] execute error for goal %s: %v", g.ID, err)
-					triggeredCount++
-					break
-				}
-				bodyBytes, _ := io.ReadAll(eresp.Body)
-				if eresp.Body != nil {
-					eresp.Body.Close()
-				}
-				if eresp.StatusCode >= 200 && eresp.StatusCode < 300 {
-					// Parse workflow_id from response
-					var execResp struct {
-						Success    bool   `json:"success"`
-						WorkflowID string `json:"workflow_id"`
-						Message    string `json:"message"`
-					}
-					workflowID := ""
-					if err := json.Unmarshal(bodyBytes, &execResp); err == nil {
-						workflowID = execResp.WorkflowID
-					}
-
-					log.Printf("✅ [FSM][Goals] Triggered goal %s (workflow: %s)", g.ID, workflowID)
-					goalsDebugf("[FSM][Goals] triggered goal %s (workflow: %s)", g.ID, workflowID)
-
-					// Reset backoff when we successfully trigger a goal (HDN is no longer overloaded)
-					if backoffMultiplier > 1 {
-						backoffMultiplier = 1
-						ticker.Reset(pollingInterval)
-						log.Printf("✅ [FSM][Goals] HDN recovered - reset polling interval to %v", pollingInterval)
-					}
-
-					// Start background watcher to clear triggered flag when workflow completes or fails
-					if workflowID != "" {
-						go watchWorkflowAndClearTriggered(ctx, agentID, g.ID, workflowID, hdnURL, goalMgrURL, rdb, triggeredKey)
-					} else {
-						// If no workflow_id, set up a timeout watcher to clear after reasonable time
-						go watchGoalStatusAndClearTriggered(ctx, agentID, g.ID, goalMgrURL, rdb, triggeredKey)
-					}
-
-					triggeredCount++
-					// Limit to 1 goal triggered per tick to prevent execution slot exhaustion
-					// With only 2-3 execution slots available, triggering multiple goals simultaneously
-					// causes timeouts. Process goals one at a time.
-					if triggeredCount >= 1 {
-						break
-					}
-				} else if eresp.StatusCode == http.StatusConflict {
-					// Handle 409 Conflict - workflow already exists/running
-					// Parse response to get existing workflow_id
-					var conflictResp struct {
-						Success    bool   `json:"success"`
-						WorkflowID string `json:"workflow_id"`
-						Message    string `json:"message"`
-						Error      string `json:"error"`
-					}
-					workflowID := ""
-					if err := json.Unmarshal(bodyBytes, &conflictResp); err == nil {
-						workflowID = conflictResp.WorkflowID
-					}
-
-					if workflowID != "" {
-						goalsDebugf("[FSM][Goals] goal %s already has workflow %s running - marked as triggered", g.ID, workflowID)
-						// Watch the existing workflow to clear triggered flag when it completes
-						go watchWorkflowAndClearTriggered(ctx, agentID, g.ID, workflowID, hdnURL, goalMgrURL, rdb, triggeredKey)
-					} else {
-						goalsDebugf("[FSM][Goals] goal %s duplicate (409) but no workflow_id - marked as triggered with timeout watcher", g.ID)
-						// Set up timeout watcher since we don't have workflow_id
-						go watchGoalStatusAndClearTriggered(ctx, agentID, g.ID, goalMgrURL, rdb, triggeredKey)
-					}
-
-					triggeredCount++
-					// Don't increment skipped/continue - we did mark as triggered
-				} else if eresp.StatusCode == http.StatusTooManyRequests {
-					// Handle 429 Too Many Requests - HDN is overloaded
-					// Remove from triggered set so we can retry later
-					_ = rdb.SRem(ctx, triggeredKey, g.ID).Err()
-					log.Printf("⚠️ [FSM][Goals] HDN overloaded (429) - goal %s not triggered, will retry later", g.ID)
-					// Implement exponential backoff: increase polling interval
-					if time.Since(lastBackoff) > 10*time.Second {
-						backoffMultiplier = 2
-						lastBackoff = time.Now()
-						newInterval := time.Duration(int64(pollingInterval) * int64(backoffMultiplier))
-						if newInterval > 30*time.Second {
-							newInterval = 30 * time.Second
-						}
-						ticker.Reset(newInterval)
-						log.Printf("⏱️ [FSM][Goals] Backed off polling interval to %v due to HDN overload", newInterval)
-					}
-					// Stop triggering more goals this cycle to give HDN time to recover
-					break
+				if workflowID != "" {
+					goalsDebugf("[FSM][Goals] goal %s already has workflow %s running - marked as triggered", g.ID, workflowID)
+					// Watch the existing workflow to clear triggered flag when it completes
+					go watchWorkflowAndClearTriggered(ctx, agentID, g.ID, workflowID, hdnURL, goalMgrURL, rdb, triggeredKey)
 				} else {
-					log.Printf("❌ [FSM][Goals] execute failed for goal %s (status %d): %s", g.ID, eresp.StatusCode, string(bodyBytes))
-					triggeredCount++
+					goalsDebugf("[FSM][Goals] goal %s duplicate (409) but no workflow_id - marked as triggered with timeout watcher", g.ID)
+					// Set up timeout watcher since we don't have workflow_id
+					go watchGoalStatusAndClearTriggered(ctx, agentID, g.ID, goalMgrURL, rdb, triggeredKey)
 				}
+
+				triggeredCount++
+				// Don't increment skipped/continue - we did mark as triggered
+			} else if eresp.StatusCode == http.StatusTooManyRequests {
+				// Handle 429 Too Many Requests - HDN is overloaded
+				// Remove from triggered set so we can retry later
+				_ = rdb.SRem(ctx, triggeredKey, g.ID).Err()
+				log.Printf("⚠️ [FSM][Goals] HDN overloaded (429) - goal %s not triggered, will retry later", g.ID)
+				// Implement exponential backoff: increase polling interval
+				if time.Since(lastBackoff) > 10*time.Second {
+					backoffMultiplier = 2
+					lastBackoff = time.Now()
+					newInterval := time.Duration(int64(pollingInterval) * int64(backoffMultiplier))
+					if newInterval > 30*time.Second {
+						newInterval = 30 * time.Second
+					}
+					ticker.Reset(newInterval)
+					log.Printf("⏱️ [FSM][Goals] Backed off polling interval to %v due to HDN overload", newInterval)
+				}
+				// Stop triggering more goals this cycle to give HDN time to recover
+				break
+			} else {
+				log.Printf("❌ [FSM][Goals] execute failed for goal %s (status %d): %s", g.ID, eresp.StatusCode, string(bodyBytes))
+				triggeredCount++
 			}
-			if triggeredCount > 0 || skippedCount > 0 {
-				log.Printf("🎯 [FSM][Goals] Poller cycle complete: triggered=%d, already_triggered=%d", triggeredCount, skippedCount)
-			}
+		}
+		if triggeredCount > 0 || skippedCount > 0 {
+			log.Printf("🎯 [FSM][Goals] Poller cycle complete: triggered=%d, already_triggered=%d", triggeredCount, skippedCount)
 		}
 	}
 }
