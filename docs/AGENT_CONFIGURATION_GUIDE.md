@@ -82,7 +82,7 @@ The agent registry is implemented and agents can be:
 - ✅ **Inspected via API** - `GET /api/v1/agents/{id}`
 - ✅ **Execution** - Agents can be executed via `POST /api/v1/agents/{id}/execute`.
 - ✅ **Task Priority** - Explicitly defined tasks in YAML are prioritized over automated LLM planning.
-- ✅ **Multi-Product Monitoring** - Multiple tasks can be defined per agent for sequential execution.
+- ✅ **Multi-Product Monitoring** - Multiple tasks can be defined per agent for sequential execution. Use task IDs starting with `price_monitor_` (e.g., `price_monitor_asus`, `price_monitor_ebay`) to enable specialized price tracking and history for different URLs.
 
 ### Testing Agent Configuration
 

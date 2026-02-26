@@ -409,27 +409,51 @@ Rules:
 				}
 			}
 
-			// Special handling for price_monitor_flow orchestrator
-			if task.ID == "price_monitor_flow" {
+			// Special handling for price_monitor specialized flow
+			if strings.HasPrefix(task.ID, "price_monitor_") {
 				if toolID != "mcp_smart_scrape" {
 					// We handle all steps inside the mcp_smart_scrape iteration, so skip others
 					continue
 				}
 
-				log.Printf("🛍️ [AGENT-EXECUTOR] Running specialized price monitor flow...")
+				log.Printf("🛍️ [AGENT-EXECUTOR] Running specialized price monitor for task: %s...", task.ID)
+				productURL, _ := params["url"].(string)
+				if productURL == "" {
+					productURL = "https://www.amazon.fr/-/en/gp/product/B0G1CC2949"
+				}
+
 				var lastPrice string
 				historyPath := "config/price_history.json"
+				historyMap := make(map[string]interface{})
 
 				// 1. Read history
 				if b, err := os.ReadFile(historyPath); err == nil {
-					var history struct {
-						LastPrice string `json:"last_price"`
+					json.Unmarshal(b, &historyMap)
+
+					// Migration: if the file has "last_price" key at root, it's the old single-item format.
+					if lp, ok := historyMap["last_price"].(string); ok {
+						// Only apply legacy migration if it matches our primary demo URL or if it's the only one we have
+						if productURL == "https://www.amazon.fr/-/en/gp/product/B0G1CC2949" || len(historyMap) <= 2 {
+							lastPrice = lp
+							log.Printf("🛍️ [AGENT-EXECUTOR] Migration: found legacy price history: %s", lastPrice)
+							// Remove legacy key to prevent infinite migration
+							delete(historyMap, "last_price")
+							delete(historyMap, "updated_at")
+						}
 					}
-					json.Unmarshal(b, &history)
-					lastPrice = history.LastPrice
-					log.Printf("🛍️ [AGENT-EXECUTOR] Loaded last price: %s", lastPrice)
+
+					// Try URL-indexed format
+					if item, ok := historyMap[productURL].(map[string]interface{}); ok {
+						if lp, ok := item["price"].(string); ok {
+							lastPrice = lp
+						}
+					}
+
+					if lastPrice != "" {
+						log.Printf("🛍️ [AGENT-EXECUTOR] Loaded last price for %s: %s", productURL, lastPrice)
+					}
 				} else {
-					log.Printf("🛍️ [AGENT-EXECUTOR] No previous price history found or failed to read")
+					log.Printf("🛍️ [AGENT-EXECUTOR] No previous price history found or failed to read: %v", err)
 				}
 
 				// 2. Execute scrape
@@ -439,7 +463,7 @@ Rules:
 				result, err := adapter.Execute(ctx, params)
 				duration := time.Since(toolStartTime)
 
-				productURL, _ := params["url"].(string)
+				productURL, _ = params["url"].(string)
 				if productURL == "" {
 					productURL = "https://www.amazon.fr/-/en/gp/product/B0G1CC2949"
 				}
@@ -647,9 +671,18 @@ Rules:
 					}
 				}
 
-				// 5. Save new history
-				os.WriteFile(historyPath, []byte(fmt.Sprintf(`{"last_price": %q, "updated_at": %q}`, currentPrice, time.Now().Format(time.RFC3339))), 0644)
-				log.Printf("✅ [AGENT-EXECUTOR] Price monitor flow completed successfully")
+				// 5. Save new history (Update map and save)
+				historyMap[productURL] = map[string]string{
+					"price":      currentPrice,
+					"updated_at": time.Now().Format(time.RFC3339),
+				}
+				if jsonBytes, err := json.MarshalIndent(historyMap, "", "  "); err == nil {
+					os.WriteFile(historyPath, jsonBytes, 0644)
+					log.Printf("✅ [AGENT-EXECUTOR] History updated for %s", productURL)
+				} else {
+					log.Printf("⚠️ [AGENT-EXECUTOR] Failed to marshal history for saving: %v", err)
+				}
+				log.Printf("✅ [AGENT-EXECUTOR] Price monitor task completed: %s", task.ID)
 				continue
 			}
 
