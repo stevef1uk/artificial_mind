@@ -141,45 +141,18 @@ agents:
         use_memory: true
         prefer_tools: true
       tasks:
-        - id: monitor_asus_laptop
-          description: "Scrape the current price of the ASUS Ascent laptop from Amazon."
-          expected_output: "Current price of the ASUS laptop."
+        - id: price_monitor_flow
+          description: "Scrape the current price of the ASUS Ascent laptop from Amazon, compare with history, and alert if changed."
+          expected_output: "The current price of the laptop and alert status."
           tools:
             - mcp_smart_scrape
+            - tool_telegram_send
+            - tool_file_read
+            - tool_file_write
           parameters:
             url: "https://www.amazon.fr/-/en/gp/product/B0G1CC2949"
             goal: "extract the price"
-            monitoring:
-              type: "value_change"
-              field: "price"
-              history_path: "config/asus_price_history.json"
-              product_name: "ASUS Ascent Laptop"
-            typescript_config: |
-              import { test, expect } from '@playwright/test';
-              test('test', async ({ page }) => {
-                await page.goto('https://www.amazon.fr/-/en/gp/product/B0G1CC2949');
-                // Bypass consent if it appears
-                try {
-                  await page.click('#sp-cc-accept', { timeout: 5000 });
-                } catch (e) {}
-              });
-        
-        - id: monitor_ebay_item
-          description: "Monitor price for a specific eBay item."
-          expected_output: "Current eBay item price."
-          tools:
-            - mcp_smart_scrape
-          parameters:
-            url: "https://www.ebay.com/itm/116499388377" # Real eBay listing for testing
-            goal: "extract the price"
-            monitoring:
-              type: "value_change"
-              field: "price"
-              history_path: "config/ebay_price_history.json"
-              product_name: "Example eBay Item"
-            typescript_config: |
-              import { test, expect } from '@playwright/test';
-              test('test', async ({ page }) => {
-                await page.goto('https://www.ebay.com/itm/123456789');
-              });
-
+            extractions:
+              field_1771953582615: "div#tp-tool-tip-price-block > div > div"
+            typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/gp/product/B0G1CC2949');\n  await page.click('#sp-cc-accept');\n  await page.waitForSelector('div#tp-tool-tip-price-block > div > div');\n});"
+            get_html: false
