@@ -893,7 +893,11 @@ func extractMainPrice(text string) string {
 		return ""
 	}
 
-	var bestPrice string
+	type parsedPrice struct {
+		matchStr string
+		val      float64
+	}
+	var prices []parsedPrice
 	var maxVal float64 = -1
 
 	for _, m := range matches {
@@ -922,20 +926,45 @@ func extractMainPrice(text string) string {
 			// Comma is decimal (EU style)
 			cleanNum = strings.ReplaceAll(cleanNum, ".", "")
 			cleanNum = strings.ReplaceAll(cleanNum, ",", ".")
-		} else {
-			// No separators or only one type. If only one, assume it's decimal if it's near the end.
-			// But wait, if it's just "3309", it won't have matched our regex which asks for \d{2} decimals.
 		}
 
 		val, err := strconv.ParseFloat(cleanNum, 64)
 		if err == nil {
-			// Priority:
-			// 1. Pick the largest price (usually the product price, not a warranty or shipping fee)
-			// 2. Ignore extremely small prices if larger ones exist
+			prices = append(prices, parsedPrice{matchStr: matchStr, val: val})
 			if val > maxVal {
 				maxVal = val
-				bestPrice = matchStr
 			}
+		}
+	}
+
+	if len(prices) == 0 {
+		return ""
+	}
+
+	// If only one price found, return it immediately
+	if len(prices) == 1 {
+		return prices[0].matchStr
+	}
+
+	// Priority:
+	// Find the main product price. If multiple prices exist (e.g., Discount vs RRP),
+	// the discounted price is usually listed first on Amazon.
+	// We return the FIRST price that's at least 40% of the maximum price found,
+	// which skips small values (like shipping) while picking the discount over the RRP.
+	threshold := maxVal * 0.4
+	for _, p := range prices {
+		if p.val >= threshold {
+			return p.matchStr
+		}
+	}
+
+	// Fallback to the largest
+	var bestPrice string
+	maxVal = -1
+	for _, p := range prices {
+		if p.val > maxVal {
+			maxVal = p.val
+			bestPrice = p.matchStr
 		}
 	}
 
