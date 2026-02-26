@@ -445,9 +445,29 @@ Rules:
 				historyMap := make(map[string]interface{})
 
 				// 1. Read history
-				if b, err := os.ReadFile(historyPath); err == nil {
-					json.Unmarshal(b, &historyMap)
+				// Try Redis first (favored for K3s persistence)
+				if e.history != nil && e.history.redisClient != nil {
+					redisKey := "agent:price_monitor:history"
+					if val, err := e.history.redisClient.Get(ctx, redisKey).Result(); err == nil {
+						if err := json.Unmarshal([]byte(val), &historyMap); err != nil {
+							log.Printf("⚠️ [AGENT-EXECUTOR] Failed to unmarshal Redis history: %v", err)
+						} else {
+							log.Printf("🛍️ [AGENT-EXECUTOR] Loaded history from Redis")
+						}
+					}
+				}
 
+				// Fallback to file if Redis empty or unavailable
+				if len(historyMap) == 0 {
+					if b, err := os.ReadFile(historyPath); err == nil {
+						json.Unmarshal(b, &historyMap)
+						if len(historyMap) > 0 {
+							log.Printf("🛍️ [AGENT-EXECUTOR] Loaded history from file %s", historyPath)
+						}
+					}
+				}
+
+				if len(historyMap) > 0 {
 					// Migration: if the file has "last_price" key at root, it's the old single-item format.
 					if lp, ok := historyMap["last_price"].(string); ok {
 						// Only apply legacy migration if it matches our primary demo URL or if it's the only one we have
@@ -471,7 +491,7 @@ Rules:
 						log.Printf("🛍️ [AGENT-EXECUTOR] Loaded last price for %s: %s", productURL, lastPrice)
 					}
 				} else {
-					log.Printf("🛍️ [AGENT-EXECUTOR] No previous price history found or failed to read: %v", err)
+					log.Printf("🛍️ [AGENT-EXECUTOR] No previous price history found")
 				}
 
 				// 2. Execute scrape
@@ -695,8 +715,21 @@ Rules:
 					"updated_at": time.Now().Format(time.RFC3339),
 				}
 				if jsonBytes, err := json.MarshalIndent(historyMap, "", "  "); err == nil {
-					os.WriteFile(historyPath, jsonBytes, 0644)
-					log.Printf("✅ [AGENT-EXECUTOR] History updated for %s", productURL)
+					// Save to Redis for persistence across pod restarts
+					if e.history != nil && e.history.redisClient != nil {
+						redisKey := "agent:price_monitor:history"
+						if err := e.history.redisClient.Set(ctx, redisKey, jsonBytes, 0).Err(); err != nil {
+							log.Printf("⚠️ [AGENT-EXECUTOR] Failed to save history to Redis: %v", err)
+						} else {
+							log.Printf("✅ [AGENT-EXECUTOR] History saved to Redis")
+						}
+					}
+					// Also try saving to file (best effort, may fail on ReadOnly filesystems like K3s ConfigMaps)
+					if err := os.WriteFile(historyPath, jsonBytes, 0644); err != nil {
+						log.Printf("⚠️ [AGENT-EXECUTOR] Failed to save history to file: %v", err)
+					} else {
+						log.Printf("✅ [AGENT-EXECUTOR] History saved to file %s", historyPath)
+					}
 				} else {
 					log.Printf("⚠️ [AGENT-EXECUTOR] Failed to marshal history for saving: %v", err)
 				}
