@@ -39,7 +39,7 @@ kubectl exec -n $NAMESPACE deployment/redis -- redis-cli DEL "$RULES_KEY" > /dev
 RULE1='{
   "id": "academic_field_classification",
   "name": "Academic Field Classification",
-  "pattern": "MATCH (a:Concept) WHERE a.domain = '\''$domain'\'' AND (a.definition CONTAINS '\''study'\'' OR a.definition CONTAINS '\''science'\'' OR a.definition CONTAINS '\''field'\'' OR a.definition CONTAINS '\''discipline'\'') RETURN a",
+  "pattern": "MATCH (a:Concept) WHERE a.domain = '\''$domain'\'' AND (a.definition CONTAINS '\''study'\'' OR a.definition CONTAINS '\''science'\'' OR a.definition CONTAINS '\''field'\'' OR a.definition CONTAINS '\''discipline'\'') RETURN a LIMIT 1000",
   "conclusion": "ACADEMIC_FIELD",
   "confidence": 0.85,
   "domain": "'$DOMAIN'",
@@ -51,7 +51,7 @@ RULE1='{
 RULE2='{
   "id": "technology_classification",
   "name": "Technology Classification",
-  "pattern": "MATCH (a:Concept) WHERE a.domain = '\''$domain'\'' AND (a.definition CONTAINS '\''technology'\'' OR a.definition CONTAINS '\''machine'\'' OR a.definition CONTAINS '\''system'\'' OR a.definition CONTAINS '\''device'\'') RETURN a",
+  "pattern": "MATCH (a:Concept) WHERE a.domain = '\''$domain'\'' AND (a.definition CONTAINS '\''technology'\'' OR a.definition CONTAINS '\''machine'\'' OR a.definition CONTAINS '\''system'\'' OR a.definition CONTAINS '\''device'\'') RETURN a LIMIT 1000",
   "conclusion": "TECHNOLOGY",
   "confidence": 0.85,
   "domain": "'$DOMAIN'",
@@ -63,7 +63,7 @@ RULE2='{
 RULE3='{
   "id": "concept_similarity",
   "name": "Concept Similarity",
-  "pattern": "MATCH (a:Concept), (b:Concept) WHERE a.domain = '\''$domain'\'' AND b.domain = '\''$domain'\'' AND a.name <> b.name AND (a.name CONTAINS b.name OR b.name CONTAINS a.name OR a.name =~ b.name OR b.name =~ a.name) RETURN a, b",
+  "pattern": "MATCH (a:Concept), (b:Concept) WHERE a.domain = '\''$domain'\'' AND b.domain = '\''$domain'\'' AND a.name <> b.name AND (a.name CONTAINS b.name OR b.name CONTAINS a.name OR a.name =~ b.name OR b.name =~ a.name) RETURN a, b LIMIT 1000",
   "conclusion": "SIMILAR_TO",
   "confidence": 0.7,
   "domain": "'$DOMAIN'",
@@ -75,7 +75,7 @@ RULE3='{
 RULE4='{
   "id": "domain_relationships",
   "name": "Domain Relationships",
-  "pattern": "MATCH (a:Concept), (b:Concept) WHERE a.domain = '\''$domain'\'' AND b.domain = '\''$domain'\'' AND a.name <> b.name AND (a.definition CONTAINS b.name OR b.definition CONTAINS a.name) RETURN a, b",
+  "pattern": "MATCH (a:Concept), (b:Concept) WHERE a.domain = '\''$domain'\'' AND b.domain = '\''$domain'\'' AND a.name <> b.name AND (a.definition CONTAINS b.name OR b.definition CONTAINS a.name) RETURN a, b LIMIT 1000",
   "conclusion": "RELATED_TO",
   "confidence": 0.6,
   "domain": "'$DOMAIN'",
@@ -87,7 +87,7 @@ RULE4='{
 RULE5='{
   "id": "practical_application",
   "name": "Practical Application",
-  "pattern": "MATCH (a:Concept) WHERE a.domain = '\''$domain'\'' AND (a.definition CONTAINS '\''practice'\'' OR a.definition CONTAINS '\''application'\'' OR a.definition CONTAINS '\''use'\'' OR a.definition CONTAINS '\''implement'\'') RETURN a",
+  "pattern": "MATCH (a:Concept) WHERE a.domain = '\''$domain'\'' AND (a.definition CONTAINS '\''practice'\'' OR a.definition CONTAINS '\''application'\'' OR a.definition CONTAINS '\''use'\'' OR a.definition CONTAINS '\''implement'\'') RETURN a LIMIT 1000",
   "conclusion": "PRACTICAL_APPLICATION",
   "confidence": 0.75,
   "domain": "'$DOMAIN'",

@@ -845,7 +845,7 @@ func (re *ReasoningEngine) getDefaultInferenceRules(domain string) []InferenceRu
 		{
 			ID:          "technology_classification",
 			Name:        "Technology Classification",
-			Pattern:     "MATCH (a:Concept) WHERE a.domain = $domain AND (a.definition CONTAINS 'technology' OR a.definition CONTAINS 'machine' OR a.definition CONTAINS 'system' OR a.definition CONTAINS 'device') RETURN a",
+			Pattern:     "MATCH (a:Concept) WHERE a.domain = $domain AND (a.definition CONTAINS 'technology' OR a.definition CONTAINS 'machine' OR a.definition CONTAINS 'system' OR a.definition CONTAINS 'device') RETURN a LIMIT 1000",
 			Conclusion:  "TECHNOLOGY",
 			Confidence:  0.85, // Increased from 0.8
 			Domain:      domain,
@@ -855,7 +855,7 @@ func (re *ReasoningEngine) getDefaultInferenceRules(domain string) []InferenceRu
 		{
 			ID:          "concept_similarity",
 			Name:        "Concept Similarity",
-			Pattern:     "MATCH (a:Concept), (b:Concept) WHERE a.domain = $domain AND b.domain = $domain AND a.name <> b.name AND (a.name CONTAINS b.name OR b.name CONTAINS a.name OR a.name =~ b.name OR b.name =~ a.name) RETURN a, b",
+			Pattern:     "MATCH (a:Concept), (b:Concept) WHERE a.domain = $domain AND b.domain = $domain AND a.name <> b.name AND (a.name CONTAINS b.name OR b.name CONTAINS a.name OR a.name =~ b.name OR b.name =~ a.name) RETURN a, b LIMIT 1000",
 			Conclusion:  "SIMILAR_TO",
 			Confidence:  0.7,
 			Domain:      domain,
@@ -865,7 +865,7 @@ func (re *ReasoningEngine) getDefaultInferenceRules(domain string) []InferenceRu
 		{
 			ID:          "domain_relationships",
 			Name:        "Domain Relationships",
-			Pattern:     "MATCH (a:Concept), (b:Concept) WHERE a.domain = $domain AND b.domain = $domain AND a.name <> b.name AND (a.definition CONTAINS b.name OR b.definition CONTAINS a.name) RETURN a, b",
+			Pattern:     "MATCH (a:Concept), (b:Concept) WHERE a.domain = $domain AND b.domain = $domain AND a.name <> b.name AND (a.definition CONTAINS b.name OR b.definition CONTAINS a.name) RETURN a, b LIMIT 1000",
 			Conclusion:  "RELATED_TO",
 			Confidence:  0.6,
 			Domain:      domain,
@@ -875,7 +875,7 @@ func (re *ReasoningEngine) getDefaultInferenceRules(domain string) []InferenceRu
 		{
 			ID:          "practical_application",
 			Name:        "Practical Application",
-			Pattern:     "MATCH (a:Concept) WHERE a.domain = $domain AND (a.definition CONTAINS 'practice' OR a.definition CONTAINS 'application' OR a.definition CONTAINS 'use' OR a.definition CONTAINS 'implement') RETURN a",
+			Pattern:     "MATCH (a:Concept) WHERE a.domain = $domain AND (a.definition CONTAINS 'practice' OR a.definition CONTAINS 'application' OR a.definition CONTAINS 'use' OR a.definition CONTAINS 'implement') RETURN a LIMIT 1000",
 			Conclusion:  "PRACTICAL_APPLICATION",
 			Confidence:  0.75, // Increased from 0.7
 			Domain:      domain,
@@ -975,7 +975,7 @@ func (re *ReasoningEngine) generateStatementFromConclusion(conclusion string, ev
 
 func (re *ReasoningEngine) generateGapFillingGoals(domain string) ([]CuriosityGoal, error) {
 	// Find concepts without relationships or definitions
-	query := fmt.Sprintf("MATCH (c:Concept) WHERE c.domain = '%s' AND (NOT (c)-[:RELATED_TO]->() OR c.definition IS NULL OR c.definition = '') RETURN c", domain)
+	query := fmt.Sprintf("MATCH (c:Concept) WHERE c.domain = '%s' AND (NOT (c)-[:RELATED_TO]->() OR c.definition IS NULL OR c.definition = '') RETURN c LIMIT 100", domain)
 	results, err := re.executeCypherQuery(query)
 	if err != nil {
 		return nil, err

@@ -27,7 +27,13 @@ func ExecuteCypher(ctx context.Context, uri, user, pass, query string) ([]map[st
 		if err != nil {
 			return nil, err
 		}
+		count := 0
+		maxRows := 5000 // Global safety limit
 		for res.Next(ctx) {
+			count++
+			if count > maxRows {
+				break
+			}
 			record := res.Record()
 			// Use AsMap() for convenience in v5 driver
 			row := record.AsMap()

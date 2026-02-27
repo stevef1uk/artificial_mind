@@ -208,7 +208,7 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 	if len(goals) > 0 {
 		screenedGoals := e.screenCuriosityGoalsWithLLM(goals, domain)
 		if len(screenedGoals) < len(goals) {
-			log.Printf("🎯 [GOAL-SCREEN] LLM screening filtered %d goals (kept %d of %d)", 
+			log.Printf("🎯 [GOAL-SCREEN] LLM screening filtered %d goals (kept %d of %d)",
 				len(goals)-len(screenedGoals), len(screenedGoals), len(goals))
 		}
 		goals = screenedGoals
@@ -483,7 +483,7 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 				// Check both FSM workflows and HDN intelligent workflows
 				shouldCreate := true
 				seedLower := strings.ToLower(seed)
-				
+
 				// Check FSM workflows
 				workflowKey := fmt.Sprintf("fsm:%s:workflows", e.agentID)
 				existingWorkflows, err := e.redis.LRange(e.ctx, workflowKey, 0, 199).Result()
@@ -514,7 +514,7 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 						}
 					}
 				}
-				
+
 				// Also check HDN intelligent workflows (stored as workflow:intelligent_*)
 				if shouldCreate {
 					pattern := "workflow:intelligent_*"
@@ -573,7 +573,7 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 			}
 
 			// Post-stitch obvious relations to increase graph connectivity for next cycles (best-effort)
-			stitchCypher := fmt.Sprintf("MATCH (a:Concept),(b:Concept) WHERE a<>b AND a.domain='%s' AND b.domain='%s' AND size([t IN split(toLower(a.definition),' ') WHERE t IN split(toLower(b.definition),' ')]) >= 3 MERGE (a)-[:RELATED_TO]->(b)", domain, domain)
+			stitchCypher := fmt.Sprintf("MATCH (a:Concept),(b:Concept) WHERE a<>b AND a.domain='%s' AND b.domain='%s' AND size([t IN split(toLower(a.definition),' ') WHERE t IN split(toLower(b.definition),' ')]) >= 3 MERGE (a)-[:RELATED_TO]->(b) RETURN count(a) LIMIT 1000", domain, domain)
 			stitchPayload := map[string]interface{}{"query": stitchCypher}
 			stitchData, _ := json.Marshal(stitchPayload)
 			stitchURL := strings.TrimRight(e.reasoning.hdnURL, "/") + "/api/v1/knowledge/query"
@@ -654,7 +654,7 @@ func (e *FSMEngine) TriggerAutonomyCycle() {
 			epistemicUncertainty := EstimateEpistemicUncertainty(0, false, false)
 			aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "")
 			uncertainty := NewUncertaintyModel(conf, epistemicUncertainty, aleatoricUncertainty)
-			
+
 			minimal := Belief{
 				ID:          fmt.Sprintf("belief_%d", time.Now().UnixNano()),
 				Statement:   fmt.Sprintf("Examined %s", targetQuery),
@@ -1532,25 +1532,25 @@ func (e *FSMEngine) calculateGoalScore(goal CuriosityGoal, domain string) float6
 	if goal.Uncertainty != nil {
 		// Apply decay if needed
 		ApplyDecayToGoal(&goal)
-		
+
 		// Higher calibrated confidence increases score (more certain goals are preferred)
 		confidenceBonus := goal.Uncertainty.CalibratedConfidence * 2.0
 		score += confidenceBonus
-		log.Printf("📊 Goal %s: uncertainty confidence bonus +%.2f (calibrated: %.3f)", 
+		log.Printf("📊 Goal %s: uncertainty confidence bonus +%.2f (calibrated: %.3f)",
 			goal.ID, confidenceBonus, goal.Uncertainty.CalibratedConfidence)
-		
+
 		// Lower epistemic uncertainty is preferred (we know more about it)
 		epistemicPenalty := goal.Uncertainty.EpistemicUncertainty * 1.0
 		score -= epistemicPenalty
-		log.Printf("📉 Goal %s: epistemic uncertainty penalty -%.2f (uncertainty: %.3f)", 
+		log.Printf("📉 Goal %s: epistemic uncertainty penalty -%.2f (uncertainty: %.3f)",
 			goal.ID, epistemicPenalty, goal.Uncertainty.EpistemicUncertainty)
-		
+
 		// Higher stability is preferred (less volatile goals)
 		stabilityBonus := goal.Uncertainty.Stability * 0.5
 		score += stabilityBonus
-		log.Printf("📈 Goal %s: stability bonus +%.2f (stability: %.3f)", 
+		log.Printf("📈 Goal %s: stability bonus +%.2f (stability: %.3f)",
 			goal.ID, stabilityBonus, goal.Uncertainty.Stability)
-		
+
 		// Use uncertainty-calibrated value if available
 		if goal.Value > 0 {
 			valueBonus := goal.Value * 1.5
@@ -1811,7 +1811,7 @@ func (e *FSMEngine) screenCuriosityGoalsWithLLM(goals []CuriosityGoal, domain st
 	}
 
 	var approved []CuriosityGoal
-	
+
 	// Batch processing: screen goals in smaller batches to reduce GPU load
 	// Process max 3 goals at a time, with delay between batches
 	batchSize := 3
@@ -1903,7 +1903,7 @@ Now return ONLY the JSON score (no tools, no tasks, just the score):`, domain, g
 		ctx := context.Background()
 		resp, err := Do(ctx, req)
 		if err != nil {
-			log.Printf("⚠️ [GOAL-SCREEN] LLM screening request failed for goal '%s': %v (allowing by default)", 
+			log.Printf("⚠️ [GOAL-SCREEN] LLM screening request failed for goal '%s': %v (allowing by default)",
 				goal.Description[:minInt(50, len(goal.Description))], err)
 			approved = append(approved, goal)
 			continue
@@ -1912,7 +1912,7 @@ Now return ONLY the JSON score (no tools, no tasks, just the score):`, domain, g
 		resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			log.Printf("⚠️ [GOAL-SCREEN] LLM screening status %d for goal '%s' (allowing by default)", 
+			log.Printf("⚠️ [GOAL-SCREEN] LLM screening status %d for goal '%s' (allowing by default)",
 				resp.StatusCode, goal.Description[:minInt(50, len(goal.Description))])
 			approved = append(approved, goal)
 			continue
@@ -1935,7 +1935,7 @@ Now return ONLY the JSON score (no tools, no tasks, just the score):`, domain, g
 					}
 				}
 			}
-			
+
 			// Try InterpretationResult format (message field might contain JSON)
 			if score == 0.0 {
 				if message, ok := interpretResp["message"].(string); ok {
@@ -1954,7 +1954,7 @@ Now return ONLY the JSON score (no tools, no tasks, just the score):`, domain, g
 					}
 				}
 			}
-			
+
 			// Try FlexibleLLMResponse format (content field)
 			if score == 0.0 {
 				if content, ok := interpretResp["content"].(string); ok {
@@ -1967,7 +1967,7 @@ Now return ONLY the JSON score (no tools, no tasks, just the score):`, domain, g
 					}
 				}
 			}
-			
+
 			// Try direct score field
 			if score == 0.0 {
 				if s, ok := interpretResp["score"].(float64); ok {
@@ -1975,7 +1975,7 @@ Now return ONLY the JSON score (no tools, no tasks, just the score):`, domain, g
 					parseMethod = "direct_score"
 				}
 			}
-			
+
 			// Try tasks array (InterpretationResult format) - check first task's description
 			if score == 0.0 {
 				if tasks, ok := interpretResp["tasks"].([]interface{}); ok && len(tasks) > 0 {
@@ -2012,7 +2012,7 @@ Now return ONLY the JSON score (no tools, no tasks, just the score):`, domain, g
 					parseMethod = "regex_extraction"
 				}
 			}
-			
+
 			// Last resort: try simple text extraction
 			if score == 0.0 && strings.Contains(s, "score") {
 				parts := strings.Fields(s)
@@ -2028,7 +2028,7 @@ Now return ONLY the JSON score (no tools, no tasks, just the score):`, domain, g
 			}
 		}
 
-		log.Printf("📊 [GOAL-SCREEN] Goal '%s': score=%.2f (method=%s, threshold=%.2f)", 
+		log.Printf("📊 [GOAL-SCREEN] Goal '%s': score=%.2f (method=%s, threshold=%.2f)",
 			goal.Description[:minInt(60, len(goal.Description))], score, parseMethod, threshold)
 
 		if score >= threshold {
@@ -2156,7 +2156,7 @@ func (e *FSMEngine) generateHypothesisTestingGoalsForExisting(domain string) ([]
 		epistemicUncertainty := EstimateEpistemicUncertainty(0, false, false) // No direct evidence yet
 		aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "hypothesis_testing")
 		uncertainty := NewUncertaintyModel(hypConfidence, epistemicUncertainty, aleatoricUncertainty)
-		
+
 		goal := CuriosityGoal{
 			ID:          fmt.Sprintf("hyp_test_%s", hypID),
 			Type:        "hypothesis_testing",
@@ -2191,14 +2191,14 @@ func (e *FSMEngine) isGenericHypothesisGoal(goal CuriosityGoal) bool {
 	}
 
 	desc := strings.ToLower(goal.Description)
-	
+
 	// Check for nested vague descriptions (multiple colons indicate nesting)
 	colonCount := strings.Count(desc, ":")
 	if colonCount > 2 {
 		// Likely a nested vague description like "Test hypothesis: How can we better test: Investigate System state: learn to discover"
 		return true
 	}
-	
+
 	// Generic patterns that indicate useless goals
 	genericPatterns := []string{
 		"apply insights from system state",
@@ -2216,7 +2216,7 @@ func (e *FSMEngine) isGenericHypothesisGoal(goal CuriosityGoal) bool {
 			return true
 		}
 	}
-	
+
 	// Check for overly vague descriptions with multiple question prefixes
 	vaguePrefixes := []string{
 		"test hypothesis: how can we better test:",
@@ -2229,7 +2229,7 @@ func (e *FSMEngine) isGenericHypothesisGoal(goal CuriosityGoal) bool {
 			return true
 		}
 	}
-	
+
 	// Check if description is too vague (less than 30 chars)
 	if len(goal.Description) < 30 {
 		return true
