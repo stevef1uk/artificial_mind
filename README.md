@@ -136,17 +136,16 @@ The Artificial Mind system consists of several interconnected components that wo
 git clone https://github.com/yourusername/agi-project.git
 cd agi-project
 
-# 2. Restart the entire system (infrastructure + services)
-./restart.sh
+# 3. Initialize Reasoning Rules (MANDATORY for first run or after clearing DB)
+./scripts/init_inference_rules.sh
 
-# 3. Open your browser to http://localhost:8082
+# 4. Open your browser to http://localhost:8082
 ```
 
-The `restart.sh` script automatically:
-- Stops all application services
-- Restarts infrastructure (Redis, Neo4j, Weaviate, NATS)
-- Starts all application services
-- Provides status check URLs
+The `./scripts/start_servers.sh` script automatically:
+- Starts infrastructure (Redis, Neo4j, Weaviate, NATS, Codegen)
+- Starts all application services (Principles, HDN, FSM, Goal Manager, Scraper, Monitor)
+- Provides status check URLs for all services
 
 **Alternative (if you prefer manual control):**
 ```bash
@@ -295,6 +294,22 @@ make build-macos
 - If you encounter issues, ensure you're using Go 1.21 or later: `go version`
 - The monitor UI doesn't require CGO, so it should build without any C compiler dependencies
 - If templates aren't found, ensure you're running from the project root directory
+
+### 🧪 Initializing Reasoning Engine
+
+The FSM reasoning engine requires a set of "inference rules" to be stored in Redis. These rules are mandatory for the system to perform autonomous analysis and knowledge growth.
+
+**If you are starting with a clean database or have run a cleanup script, you must run:**
+
+```bash
+./scripts/init_inference_rules.sh
+```
+
+This will seed the `General` domain with foundational rules for:
+- Academic/Technology concept classification
+- Concept similarity matching
+- Relationship "stitching"
+- Practical application identification
 
 ### 🧪 Test Your Setup
 

@@ -220,6 +220,9 @@ echo ""
 echo "Services were stopped. To restart them:"
 echo "  ./scripts/start_servers.sh"
 echo ""
+echo "⚠️  MANDATORY: You must re-initialize reasoning rules after cleaning:"
+echo "  ./scripts/init_inference_rules.sh"
+echo ""
 echo "Note: You may need to refresh the Monitor UI to see the changes."
 
 

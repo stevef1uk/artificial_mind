@@ -239,6 +239,20 @@ else
         exit 1
     fi
 
+    # Auto-initialize reasoning rules if empty
+    echo "🔍 Checking for reasoning rules in Redis..."
+    RULES_COUNT=$(docker exec agi-redis redis-cli LLEN "inference_rules:General" 2>/dev/null || echo "0")
+    if [ "$RULES_COUNT" = "0" ]; then
+        echo "🧠 No reasoning rules found, initializing..."
+        if [ -f "$AGI_PROJECT_ROOT/scripts/init_inference_rules.sh" ]; then
+            bash "$AGI_PROJECT_ROOT/scripts/init_inference_rules.sh"
+        else
+            echo "⚠️  init_inference_rules.sh not found, skipping rule initialization"
+        fi
+    else
+        echo "✅ Found $RULES_COUNT reasoning rules in Redis"
+    fi
+
     # Wait for NATS to be ready
     if ! wait_for_service "http://localhost:8223/varz" "NATS"; then
         echo "❌ Failed to start NATS"
