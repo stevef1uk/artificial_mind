@@ -100,7 +100,7 @@ for i in 1 2 3 4 5; do
     RULE_VAR="RULE$i"
     RULE_CONTENT="${!RULE_VAR}"
     echo "Storing rule $i..."
-    echo "$RULE_CONTENT" | kubectl exec -i -n $NAMESPACE deployment/redis -- redis-cli LPUSH "$RULES_KEY" > /dev/null
+    echo "$RULE_CONTENT" | kubectl exec -i -n $NAMESPACE deployment/redis -- redis-cli -x LPUSH "$RULES_KEY" > /dev/null
 done
 
 # Verify rules were stored
