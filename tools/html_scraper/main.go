@@ -32,6 +32,7 @@ func main() {
 	}
 	items, err := fetchItems(*url)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "error fetching items: %v\n", err)
 		_ = json.NewEncoder(os.Stdout).Encode(Result{Items: []Item{}})
 		return
 	}
