@@ -729,8 +729,11 @@ func (ki *KnowledgeIntegration) GenerateHypotheses(facts []Fact, domain string) 
 	// Try generating highly specific, testable hypotheses via LLM
 	llmHypotheses, err := ki.generateLLMHypotheses(facts, concepts, domain)
 	if err != nil {
-		log.Printf("⚠️ LLM hypothesis generation failed (%v), falling back to template-based rules", err)
-	} else if len(llmHypotheses) > 0 {
+		log.Printf("⚠️ LLM hypothesis generation failed (%v), aborting generation to avoid generic templates", err)
+		return nil, err
+	}
+
+	if len(llmHypotheses) > 0 {
 		var valid []Hypothesis
 		for _, hyp := range llmHypotheses {
 			if !ki.isDuplicateHypothesis(hyp, existingHypotheses) {
@@ -747,11 +750,14 @@ func (ki *KnowledgeIntegration) GenerateHypotheses(facts []Fact, domain string) 
 		}
 	}
 
+	// Always require LLM hypotheses - completely disable the old generic hardcoded generators
+	if len(llmHypotheses) == 0 {
+		log.Printf("ℹ️ LLM did not return any hypotheses, skipping generation. (Will not use old generic templates)")
+		return []Hypothesis{}, nil
+	}
+
 	// If no concepts available, generate basic hypotheses based on facts or return empty
 	if len(concepts) == 0 {
-		log.Printf("ℹ️ No concepts found in domain %s, generating basic hypotheses from facts", domain)
-
-		// If we have facts, generate basic hypotheses from them
 		if len(facts) > 0 {
 			var basicHypotheses []Hypothesis
 			for i, fact := range facts {
