@@ -726,6 +726,27 @@ func (ki *KnowledgeIntegration) GenerateHypotheses(facts []Fact, domain string) 
 	// Enhance concepts with related concepts using MCP for better context
 	concepts = ki.enhanceConceptsWithRelated(concepts, domain)
 
+	// Try generating highly specific, testable hypotheses via LLM
+	llmHypotheses, err := ki.generateLLMHypotheses(facts, concepts, domain)
+	if err != nil {
+		log.Printf("⚠️ LLM hypothesis generation failed (%v), falling back to template-based rules", err)
+	} else if len(llmHypotheses) > 0 {
+		var valid []Hypothesis
+		for _, hyp := range llmHypotheses {
+			if !ki.isDuplicateHypothesis(hyp, existingHypotheses) {
+				// Enrich with causal reasoning
+				enriched := ki.enrichHypothesisWithCausalReasoning(hyp, domain)
+				valid = append(valid, enriched)
+			} else {
+				log.Printf("⚠️ Skipping duplicate LLM hypothesis: %s", hyp.Description)
+			}
+		}
+		if len(valid) > 0 {
+			log.Printf("✅ Generated %d highly-specific LLM hypotheses (after deduplication)", len(valid))
+			return valid, nil
+		}
+	}
+
 	// If no concepts available, generate basic hypotheses based on facts or return empty
 	if len(concepts) == 0 {
 		log.Printf("ℹ️ No concepts found in domain %s, generating basic hypotheses from facts", domain)
@@ -889,6 +910,126 @@ func (ki *KnowledgeIntegration) GenerateHypotheses(facts []Fact, domain string) 
 
 	log.Printf("✅ Generated %d data-driven hypotheses (after deduplication)", len(finalHypotheses))
 	return finalHypotheses, nil
+}
+
+// generateLLMHypotheses uses the cognitive engine's LLM to generate novel, executable hypotheses
+func (ki *KnowledgeIntegration) generateLLMHypotheses(facts []Fact, concepts []map[string]interface{}, domain string) ([]Hypothesis, error) {
+	if len(facts) == 0 && len(concepts) == 0 {
+		return nil, nil
+	}
+
+	var factsStr, conceptsStr strings.Builder
+	for i, f := range facts {
+		if i >= 5 {
+			break
+		}
+		factsStr.WriteString(fmt.Sprintf("- %s\n", f.Content))
+	}
+	for i, c := range concepts {
+		if i >= 5 {
+			break
+		}
+		name, _ := c["name"].(string)
+		def, _ := c["definition"].(string)
+		conceptsStr.WriteString(fmt.Sprintf("- %s: %s\n", name, def))
+	}
+
+	prompt := fmt.Sprintf(`This is a SIMPLE ASSESSMENT TASK that requires NO tools, NO actions, and NO queries. Just return a JSON array of hypotheses.
+
+Domain: %s
+
+Recent Facts:
+%s
+Concepts:
+%s
+Your task is to generate 1 to 3 highly specific, novel, and testable hypotheses based on this data.
+A good hypothesis MUST BE TESTABLE by an AI agent (e.g., by writing a Python script, scraping a website, querying an API, or analyzing data). Do NOT generate generic hypotheses like "If we apply scientific methods...". Be incredibly specific and practical so an intelligent executor can run code to test it.
+
+CRITICAL: You MUST respond with ONLY a JSON array of objects. Do NOT use tools. Do NOT create tasks.
+
+Format:
+[
+  {
+    "description": "If we scrape the pricing page of X using tool_html_scraper, we will find that enterprise tiers are hidden behind a contact form.",
+    "confidence": 0.6
+  }
+]`, domain, factsStr.String(), conceptsStr.String())
+
+	interpretURL := fmt.Sprintf("%s/api/v1/interpret", ki.hdnURL)
+	reqData := map[string]interface{}{
+		"input": prompt,
+		"context": map[string]string{
+			"origin": "fsm",
+		},
+	}
+	reqJSON, err := json.Marshal(reqData)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := Post(ki.ctx, interpretURL, "application/json", reqJSON, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var interpretResp map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&interpretResp); err != nil {
+		return nil, err
+	}
+
+	var jsonStr string
+	if tasks, ok := interpretResp["tasks"].([]interface{}); ok && len(tasks) > 0 {
+		for _, t := range tasks {
+			if task, ok := t.(map[string]interface{}); ok {
+				if desc, ok := task["description"].(string); ok && strings.Contains(desc, "[") && strings.Contains(desc, "]") {
+					jsonStr = desc
+					break
+				}
+			}
+		}
+	}
+	if jsonStr == "" {
+		if msg, ok := interpretResp["message"].(string); ok {
+			jsonStr = msg
+		}
+	}
+
+	startIdx := strings.Index(jsonStr, "[")
+	endIdx := strings.LastIndex(jsonStr, "]")
+	if startIdx >= 0 && endIdx >= startIdx {
+		jsonStr = jsonStr[startIdx : endIdx+1]
+	} else {
+		return nil, fmt.Errorf("no JSON array found in LLM response")
+	}
+
+	var parsed []struct {
+		Description string  `json:"description"`
+		Confidence  float64 `json:"confidence"`
+	}
+	if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
+		return nil, err
+	}
+
+	var results []Hypothesis
+	for i, p := range parsed {
+		epistemicUncertainty := EstimateEpistemicUncertainty(1, false, false)
+		aleatoricUncertainty := EstimateAleatoricUncertainty(domain, "")
+		uncertainty := NewUncertaintyModel(p.Confidence, epistemicUncertainty, aleatoricUncertainty)
+
+		results = append(results, Hypothesis{
+			ID:          fmt.Sprintf("hyp_llm_%d_%d", time.Now().UnixNano(), i),
+			Description: p.Description,
+			Domain:      domain,
+			Confidence:  uncertainty.CalibratedConfidence,
+			Status:      "proposed",
+			Facts:       []string{},
+			CreatedAt:   time.Now(),
+			Uncertainty: uncertainty,
+		})
+	}
+
+	return results, nil
 }
 
 // generateConceptBasedHypothesis creates hypotheses based on individual concept analysis
