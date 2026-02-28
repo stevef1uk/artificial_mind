@@ -2492,49 +2492,8 @@
 
         // Reasoning tab loader (embeds existing reasoning partial behavior)
         async function loadReasoningTab() {
-            const host = document.getElementById('reasoning-embed');
-            if (!host) return;
-            host.innerHTML = `
-                <div class="grid">
-                    <div class="card">
-                        <h3>Reasoning Traces</h3>
-                        <div id="reasoning-traces" class="panel-scroll">Loading...</div>
-                    </div>
-                    <div class="card">
-                        <h3>Reasoning Explanations</h3>
-                        <div id="reasoning-explanations" class="panel-scroll">Loading...</div>
-                    </div>
-                </div>
-            `;
-            const refreshLite = async () => {
-                try {
-                    const [r, t] = await Promise.all([
-                        axios.get('/api/reasoning/explanations', { timeout: 5000 }).catch(() => ({ data: { explanations: [] } })),
-                        axios.get('/api/reasoning/traces/General', { timeout: 5000 }).catch(() => ({ data: { traces: [] } }))
-                    ]);
-                    const expContainer = document.getElementById('reasoning-explanations');
-                    const trContainer = document.getElementById('reasoning-traces');
-                    const exps = Array.isArray(r.data.explanations) ? r.data.explanations : [];
-                    const trs = Array.isArray(t.data.traces) ? t.data.traces : [];
-                    expContainer.innerHTML = exps.length ? exps.slice(0, 5).map(e => { // Reduced from 20 to 5
-                        const pretty = typeof e === 'string' ? e : JSON.stringify(e, null, 2);
-                        return `<pre class=\"json-display\">${pretty}</pre>`;
-                    }).join('') : '<div class=\"loading\">No explanations</div>';
-                    trContainer.innerHTML = trs.length ? trs.slice(0, 10).map(e => { // Reduced from 20 to 10
-                        const pretty = typeof e === 'string' ? e : JSON.stringify(e, null, 2);
-                        return `<pre class=\"json-display\">${pretty}</pre>`;
-                    }).join('') : '<div class=\"loading\">No traces</div>';
-                } catch (err) {
-                    const expContainer = document.getElementById('reasoning-explanations');
-                    const trContainer = document.getElementById('reasoning-traces');
-                    if (expContainer) expContainer.innerHTML = `<div class=\"error\">Failed to load explanations</div>`;
-                    if (trContainer) trContainer.innerHTML = `<div class=\"error\">Failed to load traces</div>`;
-                }
-            };
-            await refreshLite();
-            reasoningInterval = setInterval(() => {
-                if (currentTab === 'reasoning') refreshLite();
-            }, 5000);
+            // Trigger full refresh (handles all 5 reasoning cards: traces, explanations, beliefs, curiosity, hypotheses)
+            await refreshReasoningFull();
         }
 
         // Full Reasoning refresh across all sections (Traces, Explanations, Beliefs, Curiosity, Hypotheses)

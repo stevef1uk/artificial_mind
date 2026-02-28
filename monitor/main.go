@@ -6162,20 +6162,26 @@ func (m *MonitorService) getHypotheses(c *gin.Context) {
 	}
 
 	var hypothesisList []map[string]interface{}
-	count := 0
-	maxHypotheses := 10 // Limit to 10 hypotheses to prevent UI spam
 	for _, hypothesisData := range hypotheses {
-		if count >= maxHypotheses {
-			break
-		}
 		var hypothesis map[string]interface{}
 		if err := json.Unmarshal([]byte(hypothesisData), &hypothesis); err == nil {
 			// Filter by domain if specified
 			if domain == "General" || hypothesis["domain"] == domain {
 				hypothesisList = append(hypothesisList, hypothesis)
-				count++
 			}
 		}
+	}
+
+	// Sort by created_at DESC (string comparison works for ISO8601)
+	sort.Slice(hypothesisList, func(i, j int) bool {
+		ti, _ := hypothesisList[i]["created_at"].(string)
+		tj, _ := hypothesisList[j]["created_at"].(string)
+		return ti > tj
+	})
+
+	// Limit to 20 highly-relevant hypotheses
+	if len(hypothesisList) > 20 {
+		hypothesisList = hypothesisList[:20]
 	}
 
 	c.JSON(http.StatusOK, gin.H{"hypotheses": hypothesisList})
