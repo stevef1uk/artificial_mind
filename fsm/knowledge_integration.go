@@ -934,7 +934,7 @@ func (ki *KnowledgeIntegration) generateLLMHypotheses(facts []Fact, concepts []m
 		conceptsStr.WriteString(fmt.Sprintf("- %s: %s\n", name, def))
 	}
 
-	prompt := fmt.Sprintf(`This is a SIMPLE ASSESSMENT TASK that requires NO tools, NO actions, and NO queries. Just return a JSON array of hypotheses.
+	prompt := fmt.Sprintf(`This is a SIMPLE ASSESSMENT TASK that requires NO tools, NO actions, and NO queries. Just return a JSON array of actionable experiment ideas.
 
 Domain: %s
 
@@ -942,8 +942,8 @@ Recent Facts:
 %s
 Concepts:
 %s
-Your task is to generate 1 to 3 highly specific, novel, and testable hypotheses based on this data.
-A good hypothesis MUST BE TESTABLE by an AI agent (e.g., by writing a Python script, scraping a website, querying an API, or analyzing data). Do NOT generate generic hypotheses like "If we apply scientific methods...". Be incredibly specific and practical so an intelligent executor can run code to test it.
+Your task is to generate 1 to 3 highly specific, novel, and testable experiment ideas based on this data.
+A good experiment idea MUST BE TESTABLE by an AI agent (e.g., by writing a Python script, scraping a website, querying an API, or analyzing data). Do NOT generate generic ideas like "If we apply scientific methods...". Be incredibly specific and practical so an intelligent executor can run code to test it.
 
 CRITICAL: You MUST respond with ONLY a JSON array of objects. Do NOT use tools. Do NOT create tasks.
 

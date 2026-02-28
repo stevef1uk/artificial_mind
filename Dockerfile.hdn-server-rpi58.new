@@ -34,7 +34,7 @@ FROM alpine:3.18
 WORKDIR /app
 
 # Install runtime dependencies
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata && update-ca-certificates
 
 # Copy binary from builder
 COPY --from=builder /app/hdn/hdn-server /app/hdn-server
