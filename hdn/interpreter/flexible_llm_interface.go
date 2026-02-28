@@ -781,23 +781,41 @@ func (f *FlexibleLLMAdapter) parseFlexibleResponse(response string, availableToo
 
 		if err := json.Unmarshal([]byte(fixedJSON), &flexibleResp); err == nil {
 			log.Printf("✅ [FLEXIBLE-LLM] Extracted and parsed JSON: %s", flexibleResp.Type)
-			f.normalizeResponse(&flexibleResp, fixedJSON)
 
-			if flexibleResp.Type == "" {
-				log.Printf("⚠️ [FLEXIBLE-LLM] WARNING: Extracted JSON but Type is empty! Extracted JSON: %s", truncateString(jsonStr, 200))
-			} else if flexibleResp.Type == ResponseTypeToolCall && flexibleResp.ToolCall != nil {
-				log.Printf("🔧 [FLEXIBLE-LLM] Tool call parsed: %s", flexibleResp.ToolCall.ToolID)
+			// If we extracted an object but it has no type, check if the original text was an array
+			if flexibleResp.Type == "" && (strings.Contains(cleaned, "[") && strings.Contains(cleaned, "]")) {
+				log.Printf("ℹ️ [FLEXIBLE-LLM] Extracted object but found brackets in original text - treating whole text as content")
+				flexibleResp.Type = ResponseTypeText
+				flexibleResp.Content = cleaned
 			}
+
+			f.normalizeResponse(&flexibleResp, fixedJSON)
 			return &flexibleResp, nil
 		} else {
 			log.Printf("⚠️ [FLEXIBLE-LLM] Failed to parse extracted JSON: %v, JSON: %s", err, truncateString(jsonStr, 200))
 			// Try one more time with the original (maybe the fix made it worse)
 			if err2 := json.Unmarshal([]byte(jsonStr), &flexibleResp); err2 == nil {
 				log.Printf("✅ [FLEXIBLE-LLM] Parsed original extracted JSON after fix attempt failed")
+
+				// Same check for arrays
+				if flexibleResp.Type == "" && (strings.Contains(cleaned, "[") && strings.Contains(cleaned, "]")) {
+					flexibleResp.Type = ResponseTypeText
+					flexibleResp.Content = cleaned
+				}
+
 				f.normalizeResponse(&flexibleResp, jsonStr)
 				return &flexibleResp, nil
 			}
 		}
+	}
+
+	// Final fallback: If there's an array anywhere but we couldn't parse a FlexibleLLMResponse, treat the whole thing as text
+	if strings.Contains(cleaned, "[") && strings.Contains(cleaned, "]") {
+		log.Printf("ℹ️ [FLEXIBLE-LLM] Final fallback: Treatment of string with brackets as text response")
+		return &FlexibleLLMResponse{
+			Type:    ResponseTypeText,
+			Content: cleaned,
+		}, nil
 	}
 
 	// If all else fails, treat as text response
