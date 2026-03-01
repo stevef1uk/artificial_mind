@@ -246,3 +246,14 @@ data:
                 field_1771953582615: "div#tp-tool-tip-price-block > div > div"
               typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/dp/B0G345VHB8');\n  await page.click('#sp-cc-accept');\n  await page.waitForSelector('div#tp-tool-tip-price-block > div > div');\n});"
               get_html: false
+          - id: price_monitor_mac_mini_m4_pro
+            description: "Check the price of the Apple Mac Mini M4 Pro on Amazon.fr"
+            tools:
+              - mcp_smart_scrape
+            parameters:
+              url: "https://www.amazon.fr/-/en/Apple-Mini-Desktop-Computer-Chip/dp/B0DLBY53D5"
+              goal: "extract the price"
+              extractions:
+                price_field: ".a-price-whole"
+              typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/Apple-Mini-Desktop-Computer-Chip/dp/B0DLBY53D5');\n  await page.click('#sp-cc-accept');\n  await page.waitForSelector('.a-price-whole');\n});"
+              get_html: false
