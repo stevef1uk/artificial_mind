@@ -105,11 +105,15 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 		"query": `
 		{
 			Get {
-				WikipediaArticle(limit: 200, where: {
-					path: ["source"]
-					operator: Equal
-					valueString: "news:fsm"
-				}) {
+				WikipediaArticle(
+					limit: 200,
+					sort: [{path: ["timestamp"], order: desc}],
+					where: {
+						path: ["source"]
+						operator: Equal
+						valueString: "news:fsm"
+					}
+				) {
 					_additional { id }
 					title
 					text
@@ -177,9 +181,9 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 	var newsEvents []NewsEvent
 	skippedCount := 0
 	skipReasons := map[string]int{
-		"text_too_short":     0,
+		"text_too_short":      0,
 		"text_contains_noise": 0,
-		"tool_created":       0,
+		"tool_created":        0,
 		"conversation":        0,
 		"empty_title":         0,
 	}
@@ -274,7 +278,7 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 	// Dedupe by canonical URL (keep newest timestamp), but also include items without URLs
 	// Log counts for debugging
 	log.Printf("📊 [getNewsEvents] After filtering: %d news events", len(newsEvents))
-	
+
 	byURL := make(map[string]NewsEvent)
 	withoutURL := make([]NewsEvent, 0)
 	for _, ev := range newsEvents {
@@ -295,7 +299,7 @@ func (m *MonitorService) getNewsEvents(c *gin.Context) {
 		}
 	}
 	log.Printf("📊 [getNewsEvents] After deduplication: %d with URLs, %d without URLs", len(byURL), len(withoutURL))
-	
+
 	newsEvents = newsEvents[:0]
 	// Add deduplicated items with URLs
 	for _, ev := range byURL {
@@ -412,7 +416,10 @@ func (m *MonitorService) getWikipediaEvents(c *gin.Context) {
 		"query": `
         {
             Get {
-                AgiWiki(limit: 200) {
+                AgiWiki(
+                    limit: 200,
+                    sort: [{path: ["timestamp"], order: desc}]
+                ) {
                     _additional { id }
                     text
                     timestamp
