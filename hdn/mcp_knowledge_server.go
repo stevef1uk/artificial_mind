@@ -3015,7 +3015,7 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 						{ path: ["title"], operator: Like, valueString: "*%s*" },
 						{ path: ["text"], operator: Like, valueString: "*%s*" }
 					]
-				}, limit: %d) {
+				}, sort: [{path: ["timestamp"], order: desc}], limit: %d) {
 					_additional {
 						id
 						score
