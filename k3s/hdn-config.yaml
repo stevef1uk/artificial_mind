@@ -251,9 +251,9 @@ data:
             tools:
               - mcp_smart_scrape
             parameters:
-              url: "https://www.amazon.fr/-/en/Apple-Mini-Desktop-Computer-Chip/dp/B0DLBY53D5"
+              url: "https://www.amazon.fr/-/en/dp/B0DLBY53D5"
               goal: "extract the price"
               extractions:
-                price_field: ".a-price-whole"
-              typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/Apple-Mini-Desktop-Computer-Chip/dp/B0DLBY53D5');\n  await page.click('#sp-cc-accept');\n  await page.waitForSelector('.a-price-whole');\n});"
+                price_info: ".a-price.aok-align-center .a-offscreen"
+              typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/dp/B0DLBY53D5');\n  await page.click('#sp-cc-accept');\n  await page.waitForSelector('.a-price.aok-align-center .a-offscreen');\n});"
               get_html: false
