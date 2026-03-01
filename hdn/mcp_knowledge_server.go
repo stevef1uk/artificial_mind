@@ -2956,6 +2956,89 @@ func (s *MCPKnowledgeServer) searchAvatarContextKeyword(ctx context.Context, que
 	}, nil
 }
 
+// extractSearchKeywords extracts meaningful keywords from a query, skipping intent noise
+func (s *MCPKnowledgeServer) extractSearchKeywords(query string) []string {
+	// Try multiple patterns to extract the actual search term from tool instructions
+	actualQuery := query
+
+	// Pattern 1: query='...' or query="..."
+	if idx := strings.Index(query, "query='"); idx >= 0 {
+		start := idx + 7
+		end := strings.Index(query[start:], "'")
+		if end > 0 {
+			actualQuery = query[start : start+end]
+		}
+	} else if idx := strings.Index(query, "query=\""); idx >= 0 {
+		start := idx + 7
+		end := strings.Index(query[start:], "\"")
+		if end > 0 {
+			actualQuery = query[start : start+end]
+		}
+	} else if idx := strings.Index(query, "about '"); idx >= 0 {
+		start := idx + 7
+		end := strings.Index(query[start:], "'")
+		if end > 0 {
+			actualQuery = query[start : start+end]
+		}
+	} else if idx := strings.Index(query, "about \""); idx >= 0 {
+		start := idx + 7
+		end := strings.Index(query[start:], "\"")
+		if end > 0 {
+			actualQuery = query[start : start+end]
+		}
+	}
+
+	queryLower := strings.ToLower(strings.TrimSpace(actualQuery))
+	queryWords := strings.Fields(queryLower)
+
+	// Comprehensive list of stop words and intent noise
+	stopWords := map[string]bool{
+		"the": true, "a": true, "an": true, "and": true, "or": true, "but": true,
+		"in": true, "on": true, "at": true, "to": true, "for": true, "of": true,
+		"with": true, "by": true, "is": true, "are": true, "was": true, "were": true,
+		"who": true, "what": true, "where": true, "when": true, "why": true, "how": true,
+		"tell": true, "me": true, "about": true, "search": true, "find": true,
+		"use": true, "mcp_search_weaviate": true, "tool": true,
+		"articles": true, "episodic": true, "memory": true, "news": true,
+		"summarize": true, "summarise": true, "summary": true, "latest": true,
+		"current": true, "recent": true, "update": true, "updated": true,
+		"situation": true, "information": true, "info": true, "results": true,
+	}
+
+	var keywords []string
+	for _, word := range queryWords {
+		word = strings.Trim(word, ".,!?;:()[]{}'\"")
+		if !stopWords[word] && len(word) > 2 {
+			// Simple stemming for better matching
+			if strings.HasSuffix(word, "e") && len(word) > 5 {
+				word = strings.TrimSuffix(word, "e")
+			}
+			keywords = append(keywords, word)
+		}
+	}
+
+	// Fallback to meaningful words if no keywords found after strict filtering
+	if len(keywords) == 0 {
+		for _, word := range queryWords {
+			word = strings.Trim(word, ".,!?;:()[]{}'\"")
+			if !stopWords[word] && len(word) >= 1 {
+				keywords = append(keywords, word)
+			}
+		}
+	}
+
+	return keywords
+}
+
+// extractSearchTerm returns a joined string of meaningful keywords
+func (s *MCPKnowledgeServer) extractSearchTerm(query string) string {
+	keywords := s.extractSearchKeywords(query)
+	if len(keywords) == 0 {
+		return query // Fallback
+	}
+	return strings.Join(keywords, " ")
+}
+
 // searchWeaviateGraphQL performs a direct GraphQL query to Weaviate for non-episodic collections
 func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, collection string, limit int, vec []float32) (interface{}, error) {
 	// Get Weaviate URL from vectorDB adapter
@@ -2999,13 +3082,9 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 			}
 		}`, vectorStr, requestLimit)
 	} else if collection == "WikipediaArticle" {
-		// FIXED: Use Like filter for WikipediaArticle to ensure better keyword matching than BM25
-		// This handles cases like 'Ukraine' matching 'Ukrainians' and avoids BM25 tokenization issues.
-		searchTerm := query
-		// Apply the same stemming as in keyword extraction for consistency
-		if strings.HasSuffix(strings.ToLower(searchTerm), "e") && len(searchTerm) > 5 {
-			searchTerm = searchTerm[:len(searchTerm)-1]
-		}
+		// Term extraction to reduce intent noise (e.g. "summarise news on Iran" -> "Iran")
+		searchTerm := s.extractSearchTerm(query)
+		log.Printf("🔍 [MCP-KNOWLEDGE] WikipediaArticle search using extracted term: '%s' (original: '%s')", searchTerm, query)
 
 		queryStr = fmt.Sprintf(`{
 			Get {
@@ -3109,88 +3188,10 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 		// Distance threshold is more relaxed (0.6) to account for hash-based embeddings.
 		maxDistance := 0.60
 
-		// Extract keywords from query for MANDATORY filtering
-		// First, try to extract the actual search term from tool call instructions
-		// The LLM might pass something like "Search... about 'bondi'. Use mcp_search_weaviate with query='bondi'"
-		// We want to extract just "bondi"
-		actualQuery := query
-
-		// Try multiple patterns to extract the actual search term
-		// Pattern 1: query='...' or query="..."
-		if idx := strings.Index(query, "query='"); idx >= 0 {
-			start := idx + 7
-			end := strings.Index(query[start:], "'")
-			if end > 0 {
-				actualQuery = query[start : start+end]
-				log.Printf("🔍 [MCP-KNOWLEDGE] Extracted query from 'query=' pattern: '%s' (original: '%s')", actualQuery, query)
-			}
-		} else if idx := strings.Index(query, "query=\""); idx >= 0 {
-			start := idx + 7
-			end := strings.Index(query[start:], "\"")
-			if end > 0 {
-				actualQuery = query[start : start+end]
-				log.Printf("🔍 [MCP-KNOWLEDGE] Extracted query from 'query=\"' pattern: '%s' (original: '%s')", actualQuery, query)
-			}
-		} else if idx := strings.Index(query, "about '"); idx >= 0 {
-			// Pattern: "about 'bondi'"
-			start := idx + 7
-			end := strings.Index(query[start:], "'")
-			if end > 0 {
-				actualQuery = query[start : start+end]
-				log.Printf("🔍 [MCP-KNOWLEDGE] Extracted query from 'about' pattern: '%s' (original: '%s')", actualQuery, query)
-			}
-		} else if idx := strings.Index(query, "about \""); idx >= 0 {
-			// Pattern: "about \"bondi\""
-			start := idx + 7
-			end := strings.Index(query[start:], "\"")
-			if end > 0 {
-				actualQuery = query[start : start+end]
-				log.Printf("🔍 [MCP-KNOWLEDGE] Extracted query from 'about \"' pattern: '%s' (original: '%s')", actualQuery, query)
-			}
-		} else {
-			// If no pattern match, try to extract the last meaningful word/phrase
-			// This handles cases where LLM passes "tell me about" instead of "bondi"
-			words := strings.Fields(strings.ToLower(query))
-			skipWords := map[string]bool{
-				"the": true, "a": true, "an": true, "and": true, "or": true, "but": true,
-				"in": true, "on": true, "at": true, "to": true, "for": true, "of": true,
-				"with": true, "by": true, "is": true, "are": true, "was": true, "were": true,
-				"who": true, "what": true, "where": true, "when": true, "why": true, "how": true,
-				"tell": true, "me": true, "about": true, "search": true, "find": true,
-				"use": true, "mcp_search_weaviate": true, "tool": true,
-				"articles": true, "episodic": true, "memory": true, "news": true,
-			}
-			meaningfulWords := make([]string, 0)
-			for _, word := range words {
-				word = strings.Trim(word, ".,!?;:()[]{}'\"")
-				// Be less aggressive with filtering for short meaningful words
-				// Allow words like "me", "i", "who" if they are the only words
-				if !skipWords[word] || (len(words) <= 3 && (word == "who" || word == "me" || word == "i")) {
-					if len(word) >= 1 {
-						meaningfulWords = append(meaningfulWords, word)
-					}
-				}
-			}
-			if len(meaningfulWords) > 0 {
-				// Use the last 1-2 meaningful words - usually the actual search term
-				// For "tell me about bondi", this would extract "bondi"
-				// For "search for lindsay foreman", this would extract "lindsay foreman"
-				startIdx := len(meaningfulWords) - 2
-				if startIdx < 0 {
-					startIdx = 0
-				}
-				actualQuery = strings.Join(meaningfulWords[startIdx:], " ")
-				log.Printf("🔍 [MCP-KNOWLEDGE] Extracted query from meaningful words: '%s' (original: '%s', all meaningful: %v)", actualQuery, query, meaningfulWords)
-			} else {
-				// If no meaningful words found, the query is invalid - log and use empty
-				log.Printf("⚠️ [MCP-KNOWLEDGE] No meaningful words found in query: '%s' - will filter out all results", query)
-				actualQuery = "" // This will cause all results to be filtered out
-			}
-		}
-
-		// If extraction failed completely, we can't search - return empty results
-		if actualQuery == "" {
-			log.Printf("⚠️ [MCP-KNOWLEDGE] Query extraction failed completely, returning empty results")
+		// Extract keywords for precision filtering
+		keywords := s.extractSearchKeywords(query)
+		if len(keywords) == 0 {
+			log.Printf("⚠️ [MCP-KNOWLEDGE] No meaningful keywords found in query: '%s' - returning empty results", query)
 			return map[string]interface{}{
 				"results":    []map[string]interface{}{},
 				"count":      0,
@@ -3198,64 +3199,8 @@ func (s *MCPKnowledgeServer) searchWeaviateGraphQL(ctx context.Context, query, c
 				"collection": collection,
 			}, nil
 		}
-
-		queryLower := strings.ToLower(strings.TrimSpace(actualQuery))
-		queryWords := strings.Fields(queryLower)
-		// Remove common stop words
-		stopWords := map[string]bool{
-			"the": true, "a": true, "an": true, "and": true, "or": true, "but": true,
-			"in": true, "on": true, "at": true, "to": true, "for": true, "of": true,
-			"with": true, "by": true, "is": true, "are": true, "was": true, "were": true,
-			"who": true, "what": true, "where": true, "when": true, "why": true, "how": true,
-			"tell": true, "me": true, "about": true, "search": true, "find": true,
-			"use": true, "mcp_search_weaviate": true, "tool": true,
-		}
-		keywords := make([]string, 0)
-		for _, word := range queryWords {
-			word = strings.Trim(word, ".,!?;:()[]{}'\"")
-			if !stopWords[word] && len(word) > 2 {
-				// Simple stemming: if word ends in 'e' and is long, remove it to match variations
-				// e.g. 'ukraine' -> 'ukrain' matches 'ukrainians'
-				if strings.HasSuffix(word, "e") && len(word) > 5 {
-					word = strings.TrimSuffix(word, "e")
-				}
-				keywords = append(keywords, word)
-			}
-		}
-
-		// If no keywords extracted, try to extract from the whole query
-		// But be careful - if the whole query is just stop words, we can't search
-		if len(keywords) == 0 {
-			cleaned := strings.Trim(queryLower, ".,!?;:()[]{}'\"")
-			// Only use whole query if it's a single meaningful word (not a phrase of stop words)
-			words := strings.Fields(cleaned)
-			meaningfulCount := 0
-			for _, word := range words {
-				if !stopWords[word] && len(word) > 2 {
-					meaningfulCount++
-				}
-			}
-			// If there are meaningful words, extract them
-			if meaningfulCount > 0 {
-				meaningful := make([]string, 0)
-				for _, word := range words {
-					if !stopWords[word] && len(word) > 2 {
-						meaningful = append(meaningful, word)
-					}
-				}
-				if len(meaningful) > 0 {
-					keywords = meaningful
-				}
-			} else if len(cleaned) > 2 && len(words) == 1 {
-				// Single word that's not a stop word - use it
-				keywords = []string{cleaned}
-			}
-			// If still no keywords, we'll filter everything out (which is correct)
-		}
-
-		log.Printf("🔍 [MCP-KNOWLEDGE] Extracted keywords: %v from query: '%s'", keywords, actualQuery)
-
-		log.Printf("🔍 [MCP-KNOWLEDGE] Filtering with distance <= %.2f and keywords: %v", maxDistance, keywords)
+		log.Printf("🔍 [MCP-KNOWLEDGE] Keywords for filtering: %v", keywords)
+		log.Printf("🔍 [MCP-KNOWLEDGE] Filtering with distance <= %.2f", maxDistance)
 
 		for _, item := range collectionData {
 			distance := 0.0
