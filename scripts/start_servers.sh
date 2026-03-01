@@ -206,6 +206,12 @@ else
     cd "$AGI_PROJECT_ROOT"
     docker-compose up -d neo4j weaviate redis nats codegen
 
+    # Ensure data directory has correct permissions (Docker often creates them as root)
+    if [ -d "$AGI_PROJECT_ROOT/data" ]; then
+        echo "🔐 Ensuring correct permissions for data directory..."
+        sudo chown -R $(id -u):$(id -g) "$AGI_PROJECT_ROOT/data"
+    fi
+
     # Wait for Neo4j to be ready
     if ! wait_for_service "http://localhost:7474" "Neo4j"; then
         echo "❌ Failed to start Neo4j"

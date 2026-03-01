@@ -64,6 +64,7 @@ func handleCodegenStart(w http.ResponseWriter, r *http.Request) {
 	id := uuid.New().String()
 	outputDir := getenvDefault("CODEGEN_OUTPUT_DIR", filepath.Join(os.TempDir(), "agi_codegen"))
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		log.Printf("❌ [CODEGEN] Failed to create output directory %s: %v", outputDir, err)
 		http.Error(w, fmt.Sprintf("Failed to create output dir: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -77,6 +78,7 @@ func handleCodegenStart(w http.ResponseWriter, r *http.Request) {
 	// Create log file for both modes
 	logFile, err := os.Create(logPath)
 	if err != nil {
+		log.Printf("❌ [CODEGEN] Failed to create log file at %s: %v", logPath, err)
 		http.Error(w, fmt.Sprintf("Failed to create log file: %v", err), http.StatusInternalServerError)
 		return
 	}
