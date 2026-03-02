@@ -61,7 +61,7 @@ func sanitizeCode(text string) string {
 
 	// Remove fenced block ```lang\n...\n```
 	fence := regexp.MustCompile("(?s)^```[a-zA-Z0-9_-]*\n(.*?)\n```\\s*$")
-	if m := fence.FindStringSubmatch(t); m != nil && len(m) > 1 {
+	if m := fence.FindStringSubmatch(t); len(m) > 1 {
 		t = m[1]
 	}
 

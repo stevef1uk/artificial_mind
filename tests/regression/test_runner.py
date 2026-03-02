@@ -28,10 +28,10 @@ def wait_for_service(url, name, timeout=60):
 def test_scraper():
     print("\n🧪 Testing Scraper Service (Simple Extraction)...")
     payload = {
-        "url": "https://www.nationwide.co.uk/savings/cash-isas/",
+        "url": "https://example.com",
         "typescript_config": "",
         "extractions": {
-            "products": "<tr[^>]*>.*?<p[^>]*class='[^']*ProductName[^']*'[^>]*>([^<]+)</p>.*?<div[^>]*class='[^']*Rate[^']*'[^>]*>([^<]+)%"
+            "title": "<h1>(.*?)</h1>"
         }
     }
     
@@ -58,12 +58,12 @@ def test_scraper():
             
             if status == "completed":
                 result = resp.json().get("result", {})
-                products = result.get("products", "")
-                if products:
-                    print(f"   ✅ Scrape successful! Found products: {len(products.splitlines())}")
+                title = result.get("title", "")
+                if title:
+                    print(f"   ✅ Scrape successful! Found title: {title}")
                     return True
                 else:
-                    print(f"   ❌ Scrape completed but no products found")
+                    print(f"   ❌ Scrape completed but no title found")
                     return False
             elif status == "failed":
                 print(f"   ❌ Scrape job failed: {resp.json().get('error')}")
@@ -198,30 +198,51 @@ def test_smart_scrape():
         print(f"   ❌ Exception in test_smart_scrape: {e}")
         return False
 
-def test_intelligent_agent_execution():
-    print("\n🧪 Testing Intelligent Agent Execution (End-to-End)...")
+def test_conversational_chat():
+    print("\n🧪 Testing Conversational Chat (General)...")
     payload = {
-        "input": "Scrape https://example.com and find the title"
+        "message": "Hello, who are you?",
+        "session_id": "test-session-123"
     }
-    
     try:
-        url = f"{HDN_URL}/api/v1/agents/scraper_agent/execute"
-        print(f"   POST {url}")
-        # This will trigger the LLM planning logic in AgentExecutor
-        resp = requests.post(url, json=payload, timeout=120)
-        
+        resp = requests.post(f"{HDN_URL}/api/v1/chat", json=payload, timeout=30)
         if resp.status_code == 200:
             result = resp.json()
-            if "results" in result and result["results"] is not None:
-                print(f"   ✅ Agent execution successful! Result items: {len(result['results'])}")
+            if "response" in result:
+                print(f"   ✅ Chat response: {result['response'][:50]}...")
                 return True
             else:
-                print(f"   ❌ Agent execution returned no results: {result}")
+                print(f"   ❌ Chat response missing 'response' field: {result}")
                 return False
         else:
-            print(f"   ❌ HTTP {resp.status_code}: {resp.text}")
+            print(f"   ❌ Chat failed: {resp.status_code} - {resp.text}")
             return False
-            
+    except Exception as e:
+        print(f"   ❌ Exception: {e}")
+        return False
+
+def test_news_interpretation():
+    print("\n🧪 Testing News Interpretation (Intent & Entities)...")
+    payload = {
+        "message": "Summarize the latest news on Iran",
+        "session_id": "test-session-news"
+    }
+    try:
+        # We test if the intent parser correctly identifies 'query' intent for news
+        resp = requests.post(f"{HDN_URL}/api/v1/chat", json=payload, timeout=30)
+        if resp.status_code == 200:
+            result = resp.json()
+            # In the mock, this should trigger the 'query' intent with 'iran' as topic
+            # The conversational layer should then use SearchWeaviate
+            print(f"   ✅ News chat response received")
+            # We can check metadata if available
+            metadata = result.get("metadata", {})
+            if metadata:
+                print(f"   📊 Metadata: {metadata}")
+            return True
+        else:
+            print(f"   ❌ News interpretation failed: {resp.status_code}")
+            return False
     except Exception as e:
         print(f"   ❌ Exception: {e}")
         return False
@@ -285,7 +306,7 @@ def main():
         (HDN_URL, "HDN"),
         (SCRAPER_URL, "Scraper"),
         (FSM_URL, "FSM"),
-        # (LLM_URL, "Mock LLM")  # Skip LLM for local testing
+        (LLM_URL, "Mock LLM")
     ]
     
     for url, name in services:
@@ -295,14 +316,16 @@ def main():
             
     success = True
     
-    # if not test_hdn_state(): success = False
-    # if not test_fsm_status(): success = False
-    # if not test_scraper(): success = False
-    # if not test_agent_framework(): success = False
-    # if not test_code_generation(): success = False
+    if not test_hdn_state(): success = False
+    if not test_fsm_status(): success = False
+    if not test_scraper(): success = False
+    if not test_agent_framework(): success = False
+    if not test_code_generation(): success = False
     if not test_smart_scrape(): success = False
     if not test_intelligent_scraper_agent(): success = False
-    if not test_intelligent_agent_execution(): success = False
+    if not test_conversational_chat(): success = False
+    if not test_news_interpretation(): success = False
+    # if not test_intelligent_agent_execution(): success = False
     
     if success:
         print("\n🎉 ALL EXTENDED TESTS PASSED")

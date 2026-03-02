@@ -102,6 +102,24 @@ x = 10 + 20
 print(f'Result: {x}')
 ```"""
 
+    # Behavior 4: Intent Classification
+    elif "classify" in lower_msg and "category" in lower_msg:
+        if "summarize" in lower_msg or "news" in lower_msg or "iran" in lower_msg:
+            content = "query"
+        elif "remember" in lower_msg or "my name is" in lower_msg:
+            content = "personal_update"
+        else:
+            content = "general_conversation"
+
+    # Behavior 5: Entity Extraction
+    elif "extract entities" in lower_msg or "return as json" in lower_msg:
+        if "iran" in lower_msg:
+            content = '{"query": "iran", "topic": "news"}'
+        elif "remember" in lower_msg:
+            content = '{"content": "remember that I like coffee"}'
+        else:
+            content = '{}'
+
     return jsonify({
         "model": data.get("model", "mock-model"),
         "created_at": "2023-01-01T00:00:00Z",
@@ -114,6 +132,12 @@ print(f'Result: {x}')
         "load_duration": 10,
         "prompt_eval_count": 10,
         "eval_count": 10
+    })
+
+@app.route('/api/embeddings', methods=['POST'])
+def ollama_embeddings():
+    return jsonify({
+        "embedding": [0.1] * 1024
     })
 
 if __name__ == '__main__':

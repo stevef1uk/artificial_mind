@@ -150,8 +150,8 @@ func NewFlexibleLLMAdapter(llmClient LLMClientInterface) *FlexibleLLMAdapter {
 
 // ProcessNaturalLanguage processes natural language input with tool awareness
 // Uses default (low) priority for backward compatibility
-func (f *FlexibleLLMAdapter) ProcessNaturalLanguage(input string, availableTools []Tool) (*FlexibleLLMResponse, error) {
-	return f.ProcessNaturalLanguageWithPriority(input, availableTools, false)
+func (f *FlexibleLLMAdapter) ProcessNaturalLanguage(input string, availableTools []Tool, context map[string]string) (*FlexibleLLMResponse, error) {
+	return f.ProcessNaturalLanguageWithPriority(input, availableTools, context, false)
 }
 
 // isScoringRequest detects if the input is a scoring/evaluation request that should not use tools
@@ -172,8 +172,8 @@ func isScoringRequest(input string) bool {
 
 // ProcessNaturalLanguageWithPriority processes natural language input with tool awareness and priority
 // highPriority=true for user requests, false for background tasks
-func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, availableTools []Tool, highPriority bool) (*FlexibleLLMResponse, error) {
-	log.Printf("🤖 [FLEXIBLE-LLM] Processing natural language input: %s (priority: %v)", input, highPriority)
+func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, availableTools []Tool, context map[string]string, highPriority bool) (*FlexibleLLMResponse, error) {
+	log.Printf("🤖 [FLEXIBLE-LLM] Processing natural language input: %s (priority: %v, context_keys: %d)", input, highPriority, len(context))
 
 	// For scoring requests, use empty tools list to prevent tool usage
 	if isScoringRequest(input) {
@@ -187,15 +187,15 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 	filteredTools := f.filterRelevantTools(input, availableTools)
 	log.Printf("🔍 [FLEXIBLE-LLM] Filtered to %d relevant tools (from %d total)", len(filteredTools), len(availableTools))
 
-	// Build tool-aware prompt with filtered tools
-	prompt := f.buildToolAwarePrompt(input, filteredTools)
+	// Build tool-aware prompt with filtered tools and context
+	prompt := f.buildToolAwarePrompt(input, filteredTools, context)
 
 	// Call the LLM - check if the client supports priority
 	if priorityClient, ok := f.llmClient.(interface {
 		GenerateResponseWithPriority(prompt string, context map[string]string, highPriority bool) (string, error)
 	}); ok {
 		// Use priority-aware method
-		response, err := priorityClient.GenerateResponseWithPriority(prompt, map[string]string{}, highPriority)
+		response, err := priorityClient.GenerateResponseWithPriority(prompt, context, highPriority)
 		if err != nil {
 			return nil, fmt.Errorf("failed to call LLM: %v", err)
 		}
@@ -286,7 +286,7 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 	}
 
 	// Fallback to standard method (low priority)
-	response, err := f.llmClient.GenerateResponse(prompt, map[string]string{})
+	response, err := f.llmClient.GenerateResponse(prompt, context)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call LLM: %v", err)
 	}
@@ -396,7 +396,7 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		"mcp_query_neo4j":           {"neo4j", "query", "cypher", "knowledge", "graph", "database", "knowledge base"},
 		"mcp_get_concept":           {"concept", "get concept", "retrieve concept", "knowledge"},
 		"mcp_find_related_concepts": {"related", "related concepts", "find related", "connections"},
-		"mcp_search_weaviate":       {"weaviate", "search", "vector", "semantic", "similar", "episodes", "memories"},
+		"mcp_search_weaviate":       {"weaviate", "search", "vector", "semantic", "similar", "episodes", "memories", "wikipedia", "wiki", "news"},
 		// Note: mcp_read_google_data keywords are now loaded from configuration
 		"tool_http_get":     {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
 		"tool_html_scraper": {"scrape", "html", "web", "website", "article", "news", "page", "parse html"},
@@ -634,9 +634,22 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 	return relevant
 }
 
-// buildToolAwarePrompt creates a prompt that includes available tools
-func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools []Tool) string {
+// buildToolAwarePrompt creates a prompt that includes available tools and context
+func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools []Tool, context map[string]string) string {
 	var prompt strings.Builder
+
+	// Include context if provided
+	if len(context) > 0 {
+		prompt.WriteString("Additional Context:\n")
+		for k, v := range context {
+			// Skip internal/large keys that might bloat the prompt if needed,
+			// but for now include everything as it might be relevant (news_context, etc.)
+			if v != "" {
+				prompt.WriteString(fmt.Sprintf("- %s: %s\n", k, v))
+			}
+		}
+		prompt.WriteString("\n")
+	}
 
 	// Check if this is a scoring/evaluation request - force text response
 	if isScoringRequest(input) {

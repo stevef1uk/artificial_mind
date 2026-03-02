@@ -166,13 +166,14 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 
 	// Step 2c: If it's a query, also search the general knowledge base (AgiWiki/News)
 	if intent.Type == "query" {
+		// Parallel search for general wiki and specialized news/Wikipedia
+		// Collection: AgiWiki (vector-based)
 		wikiResult, wikiErr := cl.hdnClient.SearchWeaviate(ctx, req.Message, "AgiWiki", 5)
 		if wikiErr != nil {
 			log.Printf("⚠️ [CONVERSATIONAL] Wiki context search failed: %v", wikiErr)
 		} else if wikiResult != nil && wikiResult.Metadata != nil {
 			if toolSuccess, ok := wikiResult.Metadata["tool_success"].(bool); ok && toolSuccess {
 				if toolResult, ok := wikiResult.Metadata["tool_result"].(map[string]interface{}); ok {
-					// Safely extract results as []interface{}
 					var items []interface{}
 					if i, ok := toolResult["results"].([]interface{}); ok {
 						items = i
@@ -184,8 +185,33 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 
 					if len(items) > 0 {
 						conversationContext["wiki_context"] = wikiResult
-						log.Printf("✅ [CONVERSATIONAL] Found %d relevant news/wiki articles", len(items))
+						log.Printf("✅ [CONVERSATIONAL] Found %d relevant articles in AgiWiki", len(items))
 						cl.reasoningTrace.AddKnowledgeUsed("agi_wiki")
+					}
+				}
+			}
+		}
+
+		// Collection: WikipediaArticle (specialized news/keyword search)
+		newsResult, newsErr := cl.hdnClient.SearchWeaviate(ctx, req.Message, "WikipediaArticle", 5)
+		if newsErr != nil {
+			log.Printf("⚠️ [CONVERSATIONAL] News context search failed: %v", newsErr)
+		} else if newsResult != nil && newsResult.Metadata != nil {
+			if toolSuccess, ok := newsResult.Metadata["tool_success"].(bool); ok && toolSuccess {
+				if toolResult, ok := newsResult.Metadata["tool_result"].(map[string]interface{}); ok {
+					var items []interface{}
+					if i, ok := toolResult["results"].([]interface{}); ok {
+						items = i
+					} else if i, ok := toolResult["results"].([]map[string]interface{}); ok {
+						for _, item := range i {
+							items = append(items, item)
+						}
+					}
+
+					if len(items) > 0 {
+						conversationContext["news_context"] = newsResult
+						log.Printf("✅ [CONVERSATIONAL] Found %d relevant recent news/Wikipedia articles", len(items))
+						cl.reasoningTrace.AddKnowledgeUsed("wikipedia_news")
 					}
 				}
 			}
@@ -622,6 +648,9 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				"can": true, "could": true, "should": true, "would": true, "do": true, "does": true,
 				"did": true, "will": true, "i": true, "you": true, "me": true, "my": true,
 				"tell": true, "say": true, "show": true, "give": true, "please": true,
+				"summarize": true, "summarise": true, "summary": true, "latest": true,
+				"current": true, "recent": true, "update": true, "updated": true,
+				"situation": true, "news": true, "info": true, "information": true,
 			}
 
 			var filtered []string
@@ -677,7 +706,8 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				"is": true, "are": true, "the": true, "a": true, "an": true, "in": true, "of": true,
 				"tell": true, "me": true, "about": true, "current": true, "latest": true, "situation": true,
 				"update": true, "summary": true, "search": true, "for": true, "news": true, "find": true,
-				"get": true, "show": true, "give": true,
+				"get": true, "show": true, "give": true, "summarize": true, "summarise": true,
+				"recent": true, "info": true, "information": true,
 			}
 			startIdx := 0
 			for i, word := range words {

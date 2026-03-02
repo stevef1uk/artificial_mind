@@ -76,6 +76,10 @@ services:
       - HDN_URL=http://hdn:8080
       - DOCKER_SHARED_DIR=/tmp/agi_regression
       - PLAYWRIGHT_SCRAPER_URL=http://scraper:8085
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASS=test1234
+      - WEAVIATE_URL=http://weaviate:8080
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /tmp/agi_regression:/tmp/agi_regression

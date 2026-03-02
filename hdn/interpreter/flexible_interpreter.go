@@ -72,8 +72,8 @@ func (f *FlexibleInterpreter) InterpretWithPriority(ctx context.Context, req *Na
 		log.Printf("✅ [FLEXIBLE-INTERPRETER] Retrieved %d tools for LLM to use", len(tools))
 	}
 
-	// Process with flexible LLM using priority
-	response, err := f.llmAdapter.ProcessNaturalLanguageWithPriority(req.Input, tools, highPriority)
+	// Process with flexible LLM using priority and original context (e.g., news_context, wiki_context)
+	response, err := f.llmAdapter.ProcessNaturalLanguageWithPriority(req.Input, tools, req.Context, highPriority)
 	if err != nil {
 		return &FlexibleInterpretationResult{
 			Success:   false,

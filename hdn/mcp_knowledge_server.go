@@ -297,7 +297,7 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 					},
 					"collection": map[string]interface{}{
 						"type":        "string",
-						"description": "Collection name to search (default: 'AgiEpisodes')",
+						"description": "Collection name to search (options: 'AgiEpisodes', 'AgiWiki', 'WikipediaArticle'). Use 'WikipediaArticle' for latest news and Wikipedia content. (default: 'AgiEpisodes')",
 						"default":     "AgiEpisodes",
 					},
 				},
