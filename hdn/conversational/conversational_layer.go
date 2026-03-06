@@ -1076,7 +1076,13 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 
 	default:
 		// For general conversation, use HDN's natural language interpretation
-		interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, action.Goal, hdnContext)
+		// Pass the original message directly so the LLM gets the context needed for tool selection
+		queryToUse := action.Goal
+		if origMsg, ok := hdnContext["original_message"]; ok && origMsg != "" {
+			queryToUse = origMsg
+		}
+
+		interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, queryToUse, hdnContext)
 		if err != nil {
 			return nil, fmt.Errorf("general conversation failed: %w", err)
 		}

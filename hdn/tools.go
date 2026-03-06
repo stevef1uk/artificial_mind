@@ -689,8 +689,8 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[HDN-DEBUG] Switching on id: '%s' (len=%d)", id, len(id))
-	switch id {
-	case "mcp_query_neo4j", "mcp_search_weaviate", "mcp_get_concept", "mcp_find_related_concepts", "mcp_search_avatar_context", "mcp_save_avatar_context", "mcp_scrape_url", "mcp_execute_code", "mcp_read_file", "mcp_read_google_data", "mcp_browse_web", "mcp_smart_scrape", "mcp_get_scrape_status", "mcp_save_episode":
+
+	if strings.HasPrefix(id, "mcp_") {
 		if s.mcpKnowledgeServer == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "MCP knowledge server not available"})
@@ -706,7 +706,9 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.NewEncoder(w).Encode(result)
 		return
+	}
 
+	switch id {
 	case "tool_http_get":
 		url, _ := getString(params, "url")
 		if strings.TrimSpace(url) == "" {
