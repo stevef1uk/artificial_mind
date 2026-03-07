@@ -458,6 +458,7 @@ func main() {
 	})
 	r.GET("/chat", monitor.chatPage)
 	r.GET("/thinking", monitor.thinkingPanel)
+	r.GET("/wow", monitor.wowFactor)
 	r.POST("/api/chat", monitor.chatAPI)
 	r.POST("/api/v1/chat", monitor.chatAPI) // Proxy chat API to HDN
 
@@ -484,6 +485,7 @@ func main() {
 	r.GET("/api/workflow/:workflow_id/files/:filename", monitor.serveWorkflowFile)
 	// Optional: serve general files if needed by other links
 	r.GET("/api/file/:filename", monitor.serveGenericFile)
+	r.Static("/api/file-local", filepath.Join(os.Getenv("AGI_PROJECT_ROOT"), "artifacts"))
 	r.GET("/api/files/*filename", monitor.serveFile)
 	r.GET("/api/metrics", monitor.getExecutionMetrics)
 	r.GET("/api/redis", monitor.getRedisInfo)
@@ -710,6 +712,14 @@ func (m *MonitorService) dashboardTabs(c *gin.Context) {
 func (m *MonitorService) thinkingPanel(c *gin.Context) {
 	c.HTML(http.StatusOK, "thinking_panel.html", gin.H{
 		"title":  "AI Thinking Stream",
+		"hdnURL": m.hdnURL,
+	})
+}
+
+// wowFactor renders the AI Thinking Real-time Visualization (WOW Factor)
+func (m *MonitorService) wowFactor(c *gin.Context) {
+	c.HTML(http.StatusOK, "wow_factor.html", gin.H{
+		"title":  "Artificial Mind - Real-time Visualization",
 		"hdnURL": m.hdnURL,
 	})
 }

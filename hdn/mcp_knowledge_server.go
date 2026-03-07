@@ -1572,6 +1572,20 @@ func (s *MCPKnowledgeServer) browseWeb(ctx context.Context, args map[string]inte
 	}
 
 	screenshotPath, _ := args["screenshot"].(string)
+	if screenshotPath == "" {
+		// Try to get session_id to make a unique but predictable screenshot path
+		sessionID, _ := args["session_id"].(string)
+		if sessionID == "" {
+			sessionID = "current"
+		}
+		// Save in a place accessible by the monitor
+		projectRoot := os.Getenv("AGI_PROJECT_ROOT")
+		if projectRoot == "" {
+			projectRoot = "."
+		}
+		screenshotPath = filepath.Join(projectRoot, "artifacts", fmt.Sprintf("screenshot_%s.png", sessionID))
+		log.Printf("📸 [BROWSE-WEB] No screenshot path provided, using default: %s", screenshotPath)
+	}
 	getHTML, _ := args["get_html"].(bool)
 
 	// Parse actions if provided (optional - LLM will generate if not provided)

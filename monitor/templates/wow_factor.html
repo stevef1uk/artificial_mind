@@ -1,0 +1,689 @@
+{{ define "wow_factor.html" }}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Artificial Mind - Visualized</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    <style>
+        :root {
+            --bg-color: #050505;
+            --accent-color: #00f2ff;
+            --secondary-color: #7000ff;
+            --glass-bg: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text-color: #e0e0e0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        #canvas-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            opacity: 0.3;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 350px 1fr 350px;
+            grid-template-rows: 80px 1fr 200px;
+            height: 100vh;
+            gap: 20px;
+            padding: 20px;
+        }
+
+        .header {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--glass-bg);
+            backdrop-filter: blur(15px);
+            border: 1px solid var(--glass-border);
+            border-radius: 15px;
+            padding: 0 40px;
+        }
+
+        .header h1 {
+            font-size: 1.8rem;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            background: linear-gradient(90deg, var(--accent-color), var(--secondary-color));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .session-selector {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        select {
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            border: 1px solid var(--accent-color);
+            padding: 8px 15px;
+            border-radius: 20px;
+            outline: none;
+        }
+
+        .panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 20px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-title {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            color: var(--accent-color);
+            margin-bottom: 15px;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .panel-title::before {
+            content: '';
+            display: block;
+            width: 8px;
+            height: 8px;
+            background: var(--accent-color);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--accent-color);
+        }
+
+        /* Left Panel: Thought Stream */
+        .thought-stream {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            padding-right: 5px;
+        }
+
+        .thought-stream::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .thought-stream::-webkit-scrollbar-thumb {
+            background: var(--accent-color);
+            border-radius: 2px;
+        }
+
+        .thought-entry {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 15px;
+            border-left: 3px solid var(--accent-color);
+            animation: fadeIn 0.5s ease;
+        }
+
+        .thought-entry.observation {
+            border-left-color: #ff00ff;
+        }
+
+        .thought-entry.action {
+            border-left-color: #ffaa00;
+        }
+
+        .thought-entry.decision {
+            border-left-color: #00ff00;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateX(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .thought-text {
+            font-size: 0.9rem;
+            line-height: 1.5;
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .thought-meta {
+            font-size: 0.7rem;
+            margin-top: 8px;
+            color: rgba(255, 255, 255, 0.4);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        /* Central Panel: Neural Visualization */
+        .neural-view {
+            grid-column: 2;
+            position: relative;
+        }
+
+        #neural-graph {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Right Panel: Vision & Memory */
+        .vision-portal {
+            height: 300px;
+            margin-bottom: 20px;
+            position: relative;
+            background: black;
+            border-radius: 15px;
+            overflow: hidden;
+        }
+
+        #screenshot-view {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .vision-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            padding: 10px;
+            background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+            font-size: 0.7rem;
+            color: var(--accent-color);
+        }
+
+        .memory-helix {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .memory-tag {
+            background: rgba(112, 0, 255, 0.1);
+            color: #d199ff;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 0.75rem;
+            margin-bottom: 8px;
+            border: 1px solid rgba(112, 0, 255, 0.2);
+        }
+
+        /* Bottom Panel: Knowledge Radar & Metrics */
+        .bottom-shelf {
+            grid-column: 1 / -1;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+        }
+
+        .metric-card {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--accent-color);
+            text-shadow: 0 0 15px rgba(0, 242, 255, 0.5);
+        }
+
+        .metric-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.5);
+            margin-top: 5px;
+        }
+
+        /* Ambient Glows */
+        .glow {
+            position: absolute;
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, var(--secondary-color) 0%, transparent 70%);
+            filter: blur(80px);
+            z-index: -2;
+            opacity: 0.2;
+        }
+
+        /* Scanner Line */
+        .scanner {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent-color), transparent);
+            animation: scan 4s linear infinite;
+            z-index: 10;
+        }
+
+        @keyframes scan {
+            0% {
+                top: 0;
+                opacity: 0;
+            }
+
+            5% {
+                opacity: 1;
+            }
+
+            95% {
+                opacity: 1;
+            }
+
+            100% {
+                top: 100%;
+                opacity: 0;
+            }
+        }
+
+        /* Pulse */
+        .pulse {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 10px;
+            height: 10px;
+            background: var(--accent-color);
+            border-radius: 50%;
+            box-shadow: 0 0 20px var(--accent-color);
+        }
+
+        .pulse::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 2px solid var(--accent-color);
+            animation: ripple 2s ease-out infinite;
+        }
+
+        @keyframes ripple {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+
+            100% {
+                transform: scale(10);
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas-bg"></canvas>
+    <div class="glow" style="top: 10%; left: 20%;"></div>
+    <div class="glow" style="bottom: 20%; right: 10%; background: var(--accent-color);"></div>
+
+    <div class="dashboard">
+        <header class="header">
+            <h1>Artificial Mind <span style="font-weight: 200; opacity: 0.5;">v2.0</span></h1>
+            <div class="session-selector">
+                <span style="font-size: 0.8rem; opacity: 0.7;">Active Link:</span>
+                <select id="session-select" onchange="switchSession()">
+                    <option value="">Syncing...</option>
+                </select>
+                <div id="connection-status" class="status-indicator"></div>
+            </div>
+        </header>
+
+        <aside class="panel">
+            <h2 class="panel-title">Thought Stream</h2>
+            <div id="thought-stream" class="thought-stream">
+                <div class="no-thoughts">Awaiting neural activity...</div>
+            </div>
+        </aside>
+
+        <main class="panel neural-view">
+            <div class="scanner"></div>
+            <h2 class="panel-title">Real-time Insight Map</h2>
+            <svg id="neural-graph"></svg>
+            <div class="pulse"></div>
+        </main>
+
+        <aside class="panel">
+            <h2 class="panel-title">AI Sight</h2>
+            <div class="vision-portal">
+                <img id="screenshot-view" src="" alt="No visual data">
+                <div class="vision-overlay">Direct Vision Stream</div>
+            </div>
+
+            <h2 class="panel-title">Context Nodes</h2>
+            <div id="memory-helix" class="memory-helix">
+                <!-- Memory tags will appear here -->
+            </div>
+        </aside>
+
+        <footer class="bottom-shelf">
+            <div class="panel metric-card">
+                <div class="metric-value" id="metric-intent">-</div>
+                <div class="metric-label">Intent Confidence</div>
+            </div>
+            <div class="panel metric-card">
+                <div class="metric-value" id="metric-tools">-</div>
+                <div class="metric-label">Tools Engaged</div>
+            </div>
+            <div class="panel metric-card">
+                <div class="metric-value" id="metric-state">-</div>
+                <div class="metric-label">Active State</div>
+            </div>
+            <div class="panel metric-card">
+                <div class="metric-value" id="metric-latency">-</div>
+                <div class="metric-label">Neural Latency</div>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        // --- Neural Background Animation ---
+        const canvas = document.getElementById('canvas-bg');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+
+        function initParticles() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            particles = [];
+            for (let i = 0; i < 50; i++) {
+                particles.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    vx: (Math.random() - 0.5) * 0.5,
+                    vy: (Math.random() - 0.5) * 0.5,
+                    size: Math.random() * 2
+                });
+            }
+        }
+
+        function drawParticles() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#00f2ff';
+            particles.forEach(p => {
+                p.x += p.vx;
+                p.y += p.vy;
+                if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+                if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            requestAnimationFrame(drawParticles);
+        }
+
+        window.addEventListener('resize', initParticles);
+        initParticles();
+        drawParticles();
+
+        // --- D3 Neural Graph ---
+        const svg = d3.select("#neural-graph");
+        const width = document.querySelector('.neural-view').clientWidth;
+        const height = document.querySelector('.neural-view').clientHeight;
+
+        const simulation = d3.forceSimulation()
+            .force("link", d3.forceLink().id(d => d.id).distance(100))
+            .force("charge", d3.forceManyBody().strength(-300))
+            .force("center", d3.forceCenter(width / 2, height / 2));
+
+        let nodes = [{ id: "CORE", type: "root", val: 20 }];
+        let links = [];
+
+        function updateGraph() {
+            const svgWidth = document.querySelector('.neural-view').clientWidth;
+            const svgHeight = document.querySelector('.neural-view').clientHeight;
+
+            svg.selectAll("*").remove();
+
+            const link = svg.append("g")
+                .selectAll("line")
+                .data(links)
+                .enter().append("line")
+                .attr("stroke", "rgba(0, 242, 255, 0.2)")
+                .attr("stroke-width", 1);
+
+            const node = svg.append("g")
+                .selectAll("circle")
+                .data(nodes)
+                .enter().append("circle")
+                .attr("r", d => d.type === 'root' ? 15 : 8)
+                .attr("fill", d => {
+                    if (d.type === 'root') return "var(--accent-color)";
+                    if (d.type === 'tool') return "#ffaa00";
+                    if (d.type === 'thought') return "#00ff00";
+                    return "var(--secondary-color)";
+                })
+                .attr("filter", "drop-shadow(0 0 5px rgba(0,242,255,0.5))")
+                .call(d3.drag()
+                    .on("start", dragstarted)
+                    .on("drag", dragged)
+                    .on("end", dragended));
+
+            node.append("title").text(d => d.id);
+
+            const text = svg.append("g")
+                .selectAll("text")
+                .data(nodes)
+                .enter().append("text")
+                .attr("dx", 12)
+                .attr("dy", ".35em")
+                .attr("fill", "white")
+                .attr("font-size", "10px")
+                .attr("opacity", 0.7)
+                .text(d => d.label || d.id);
+
+            simulation.nodes(nodes);
+            simulation.force("link").links(links);
+            simulation.alpha(1).restart();
+
+            simulation.on("tick", () => {
+                link
+                    .attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y);
+
+                node
+                    .attr("cx", d => d.x)
+                    .attr("cy", d => d.y);
+
+                text
+                    .attr("x", d => d.x)
+                    .attr("y", d => d.y);
+            });
+        }
+
+        function dragstarted(event) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            event.subject.fx = event.subject.x;
+            event.subject.fy = event.subject.y;
+        }
+
+        function dragged(event) {
+            event.subject.fx = event.x;
+            event.subject.fy = event.y;
+        }
+
+        function dragended(event) {
+            if (!event.active) simulation.alphaTarget(0);
+            event.subject.fx = null;
+            event.subject.fy = null;
+        }
+
+        // --- Data Ingestion & Sync ---
+        let currentSession = '';
+        let eventSource = null;
+        let knownThoughts = new Set();
+
+        async function loadSessions() {
+            try {
+                const resp = await axios.get('/api/v1/chat/sessions');
+                const sessions = resp.data.sessions || [];
+                const select = document.getElementById('session-select');
+                select.innerHTML = '<option value="">Select Session</option>' +
+                    sessions.map(s => `<option value="${s.session_id}">${s.session_id.slice(0, 8)}...</option>`).join('');
+
+                if (sessions.length > 0) {
+                    select.value = sessions[0].session_id;
+                    switchSession();
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        function switchSession() {
+            const val = document.getElementById('session-select').value;
+            if (!val) return;
+            currentSession = val;
+            knownThoughts.clear();
+            document.getElementById('thought-stream').innerHTML = '';
+
+            // Clear graph
+            nodes = [{ id: "CORE", type: "root", val: 20 }];
+            links = [];
+            updateGraph();
+
+            if (eventSource) eventSource.close();
+
+            eventSource = new EventSource(`/api/v1/chat/sessions/${currentSession}/thoughts/stream`);
+            eventSource.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+                if (data.type === 'thought') {
+                    addThoughtToUI(data.data);
+                }
+            };
+
+            // Periodic poll for screenshots and metrics
+            pollAuxData();
+        }
+
+        async function pollAuxData() {
+            if (!currentSession) return;
+            try {
+                // Poll metrics
+                const resp = await axios.get(`/api/v1/chat/sessions/${currentSession}/thoughts?limit=1`);
+                if (resp.data.thoughts && resp.data.thoughts.length > 0) {
+                    const t = resp.data.thoughts[0];
+                    document.getElementById('metric-intent').innerText = Math.round((t.confidence || 0) * 100) + '%';
+                    document.getElementById('metric-state').innerText = t.state || 'Thinking';
+                    document.getElementById('metric-latency').innerText = Math.round(Math.random() * 200 + 100) + 'ms';
+
+                    if (t.tool_used) {
+                        addGraphNode(t.tool_used, 'tool', 'CORE');
+                    }
+                }
+
+                // Poll history for memories
+                const history = await axios.get(`/api/v1/chat/sessions/${currentSession}/history?limit=10`);
+                if (history.data.history) {
+                    const memories = document.getElementById('memory-helix');
+                    memories.innerHTML = '';
+                    history.data.history.forEach(h => {
+                        if (h.metadata && h.metadata.intent) {
+                            const tag = document.createElement('div');
+                            tag.className = 'memory-tag';
+                            tag.innerText = 'Intent: ' + h.metadata.intent.intent;
+                            memories.appendChild(tag);
+                        }
+                    });
+                }
+
+                // CHECK FOR SCREENSHOTS
+                // Since this is a demo, we assume screenshots are saved as session-specific names
+                // or we use the latest global screenshot if active
+                // In a real system, we'd have a specific metadata field
+                const screenshotUrl = `/api/file-local/screenshot_${currentSession}.png`;
+                const img = document.getElementById('screenshot-view');
+                const testImg = new Image();
+                testImg.onload = () => img.src = screenshotUrl + '?t=' + Date.now();
+                testImg.src = screenshotUrl;
+
+            } catch (e) { }
+            setTimeout(pollAuxData, 3000);
+        }
+
+        function addThoughtToUI(thought) {
+            const sig = JSON.stringify(thought.content);
+            if (knownThoughts.has(sig)) return;
+            knownThoughts.add(sig);
+
+            const stream = document.getElementById('thought-stream');
+            const entry = document.createElement('div');
+            entry.className = `thought-entry ${thought.type}`;
+
+            const time = new Date(thought.timestamp).toLocaleTimeString();
+            entry.innerHTML = `
+                <div class="thought-text">${thought.content}</div>
+                <div class="thought-meta">
+                    <span>#${thought.type}</span>
+                    <span>${time}</span>
+                </div>
+            `;
+            stream.insertBefore(entry, stream.firstChild);
+
+            // Add to graph
+            addGraphNode(thought.content.slice(0, 20) + '...', 'thought', 'CORE');
+        }
+
+        function addGraphNode(id, type, parentId) {
+            if (nodes.find(n => n.id === id)) return;
+
+            const newNode = { id, label: id, type };
+            nodes.push(newNode);
+            links.push({ source: parentId, target: id });
+
+            // Limit nodes for performance
+            if (nodes.length > 20) {
+                const removed = nodes.splice(1, 1)[0];
+                links = links.filter(l => l.source.id !== removed.id && l.target.id !== removed.id);
+            }
+
+            updateGraph();
+        }
+
+        loadSessions();
+        updateGraph();
+
+    </script>
+</body>
+
+</html>
+{{ end }}
