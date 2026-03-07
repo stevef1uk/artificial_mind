@@ -110,12 +110,35 @@ func (s *MCPKnowledgeServer) GetPromptHints(toolID string) *PromptHintsConfig {
 	return s.skillRegistry.GetPromptHints(toolID)
 }
 
-// GetAllPromptHints returns all prompt hints from configured skills
+// GetAllPromptHints returns all prompt hints from hardcoded tools and configured skills
 func (s *MCPKnowledgeServer) GetAllPromptHints() map[string]*PromptHintsConfig {
-	if s.skillRegistry == nil {
-		return make(map[string]*PromptHintsConfig)
+	hints := make(map[string]*PromptHintsConfig)
+
+	// Add hints for search_weaviate (News/Knowledge)
+	hints["search_weaviate"] = &PromptHintsConfig{
+		Keywords:      []string{"news", "latest news", "ukraine", "world events", "current events", "update on", "what is happening in", "situation in"},
+		PromptText:    "⚠️ FOR NEWS QUERIES: You MUST use mcp_search_weaviate with collection='WikipediaArticle'. This is the ONLY tool with real-time news access. DO NOT use mcp_get_concept for news.",
+		ForceToolCall: true,
+		AlwaysInclude: []string{"news", "latest news", "ukraine", "situation in"},
+		RejectText:    true,
 	}
-	return s.skillRegistry.GetAllPromptHints()
+
+	// Add hints for search_avatar_context (Personal info)
+	hints["search_avatar_context"] = &PromptHintsConfig{
+		Keywords:   []string{"who am i", "my name", "my work", "worked at", "my skills", "my project"},
+		PromptText: "FOR PERSONAL QUESTIONS: Use mcp_search_avatar_context to find information about Steven Fisher.",
+	}
+
+	if s.skillRegistry == nil {
+		return hints
+	}
+
+	skillHints := s.skillRegistry.GetAllPromptHints()
+	for k, v := range skillHints {
+		hints[k] = v
+	}
+
+	return hints
 }
 
 // HandleRequest handles an MCP JSON-RPC request
