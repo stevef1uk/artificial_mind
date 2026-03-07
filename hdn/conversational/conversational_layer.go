@@ -740,9 +740,9 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			}
 		}
 
-		// Create a very direct tool call instruction for Neo4j
-		directQuery := fmt.Sprintf("Query your knowledge base about '%s'. Use the mcp_get_concept tool with name='%s' and domain='General' to retrieve information.", coreQuery, coreQuery)
-		log.Printf("🔍 [CONVERSATIONAL] Simplified knowledge query: %s (extracted from: %s)", directQuery, searchText)
+		// Create a direct tool call instruction that allows the LLM to choose the best knowledge tool
+		directQuery := fmt.Sprintf("Answer the user's query about '%s'. Use available tools like mcp_get_concept or any web/news search tools you have to retrieve the latest information. Original query for context: %s", coreQuery, originalMessage)
+		log.Printf("🔍 [CONVERSATIONAL] Flexible knowledge query: %s (extracted from: %s)", directQuery, searchText)
 		interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, directQuery, hdnContext)
 		if err != nil {
 			return nil, fmt.Errorf("knowledge query failed: %w", err)
