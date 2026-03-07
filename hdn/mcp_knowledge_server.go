@@ -3026,18 +3026,39 @@ func (s *MCPKnowledgeServer) extractSearchKeywords(query string) []string {
 		"summarize": true, "summarise": true, "summary": true, "latest": true,
 		"current": true, "recent": true, "update": true, "updated": true,
 		"situation": true, "information": true, "info": true, "results": true,
+		"brevity": true, "required": true, "tokens": true, "under": true, "than": true,
+		"within": true, "limit": true, "words": true, "characters": true, "chars": true,
+		"brief": true, "short": true, "quick": true, "concise": true, "length": true,
+		"please": true, "can": true, "you": true, "answer": true,
+		"query": true, "question": true, "regarding": true,
 	}
 
 	var keywords []string
 	for _, word := range queryWords {
 		word = strings.Trim(word, ".,!?;:()[]{}'\"")
-		if !stopWords[word] && len(word) > 2 {
-			// Simple stemming for better matching
-			if strings.HasSuffix(word, "e") && len(word) > 5 {
-				word = strings.TrimSuffix(word, "e")
-			}
-			keywords = append(keywords, word)
+
+		// Skip if empty or a stop word
+		if word == "" || stopWords[word] || len(word) <= 2 {
+			continue
 		}
+
+		// Skip purely numeric words (e.g. "200" from brevity instructions)
+		isNumeric := true
+		for _, char := range word {
+			if char < '0' || char > '9' {
+				isNumeric = false
+				break
+			}
+		}
+		if isNumeric {
+			continue
+		}
+
+		// Simple stemming for better matching
+		if strings.HasSuffix(word, "e") && len(word) > 5 {
+			word = strings.TrimSuffix(word, "e")
+		}
+		keywords = append(keywords, word)
 	}
 
 	// Fallback to meaningful words if no keywords found after strict filtering
