@@ -116,10 +116,10 @@ func (s *MCPKnowledgeServer) GetAllPromptHints() map[string]*PromptHintsConfig {
 
 	// Add hints for search_weaviate (News/Knowledge)
 	hints["search_weaviate"] = &PromptHintsConfig{
-		Keywords:      []string{"news", "latest news", "ukraine", "russia", "world events", "current events", "update on", "what is happening in", "situation in"},
+		Keywords:      []string{"news", "latest news", "world events", "current events", "update on", "what is happening in", "situation in", "happenings", "current affairs"},
 		PromptText:    "⚠️ FOR NEWS QUERIES: You MUST use mcp_search_weaviate with collection='WikipediaArticle'. This is the ONLY tool with real-time news access. DO NOT use mcp_get_concept for news.",
 		ForceToolCall: true,
-		AlwaysInclude: []string{"news", "latest news", "ukraine", "russia", "situation in"},
+		AlwaysInclude: []string{"news", "latest", "update", "happening", "situation in"},
 		RejectText:    true,
 	}
 
