@@ -156,7 +156,8 @@ func main() {
 
 	// Create flexible interpreter
 	adapter := interpreter.NewFlexibleLLMAdapter(mockLLM)
-	flexibleInterpreter := interpreter.NewFlexibleInterpreter(adapter, enhancedToolProvider)
+	// Pass nil for ThoughtExpressionServiceInterface in demo
+	flexibleInterpreter := interpreter.NewFlexibleInterpreter(adapter, enhancedToolProvider, nil)
 
 	ctx := context.Background()
 

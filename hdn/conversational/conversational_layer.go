@@ -320,20 +320,12 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 	// Step 7: Complete reasoning trace
 	reasoningTrace := cl.reasoningTrace.CompleteTrace(req.SessionID)
 
-	// Step 8: Generate thought expression if requested
-	var thoughtExpression *ThoughtExpressionResponse
-	if req.ShowThinking {
-		thoughtReq := &ThoughtExpressionRequest{
-			SessionID: req.SessionID,
-			TraceData: reasoningTrace,
-			Style:     "conversational",
-			Context:   conversationContext,
-		}
-
-		thoughtExpression, err = cl.thoughtExpression.ExpressThoughts(ctx, thoughtReq)
-		if err != nil {
-			log.Printf("⚠️ [CONVERSATIONAL] Failed to generate thought expression: %v", err)
-		}
+	// Step 8: ALWAYS generate and store thought expression for monitoring/dashboards
+	thoughtReq := &ThoughtExpressionRequest{
+		SessionID: req.SessionID,
+		TraceData: reasoningTrace,
+		Style:     "conversational",
+		Context:   conversationContext,
 	}
 
 	// Create response
@@ -350,14 +342,11 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		},
 	}
 
-	// Add thought expression to response if available
-	if thoughtExpression != nil {
-		conversationResponse.Thoughts = thoughtExpression.Thoughts
-		conversationResponse.ThinkingSummary = thoughtExpression.Summary
-		conversationResponse.Metadata["thought_count"] = len(thoughtExpression.Thoughts)
-		conversationResponse.Metadata["thinking_confidence"] = thoughtExpression.Confidence
-
-		// Store thoughts as ThoughtEvents in Redis for later retrieval
+	thoughtExpression, err := cl.thoughtExpression.ExpressThoughts(ctx, thoughtReq)
+	if err != nil {
+		log.Printf("⚠️ [CONVERSATIONAL] Failed to generate thought expression: %v", err)
+	} else if thoughtExpression != nil {
+		// Store thoughts as ThoughtEvents in Redis for later retrieval (dashboards, etc)
 		for _, thought := range thoughtExpression.Thoughts {
 			thoughtEvent := ThoughtEvent{
 				SessionID:  req.SessionID,
@@ -377,11 +366,15 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 			}
 		}
 		log.Printf("💾 [CONVERSATIONAL] Stored %d thought events for session: %s", len(thoughtExpression.Thoughts), req.SessionID)
-	}
 
-	// Add reasoning trace if requested
-	if req.ShowThinking {
-		conversationResponse.ReasoningTrace = reasoningTrace
+		// ONLY add thoughts to the API response if requested
+		if req.ShowThinking {
+			conversationResponse.Thoughts = thoughtExpression.Thoughts
+			conversationResponse.ThinkingSummary = thoughtExpression.Summary
+			conversationResponse.Metadata["thought_count"] = len(thoughtExpression.Thoughts)
+			conversationResponse.Metadata["thinking_confidence"] = thoughtExpression.Confidence
+			conversationResponse.ReasoningTrace = reasoningTrace
+		}
 	}
 
 	return conversationResponse, nil

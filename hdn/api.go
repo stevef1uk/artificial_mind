@@ -492,7 +492,9 @@ func NewAPIServer(domainPath string, redisAddr string) *APIServer {
 	// Initialize interpreter
 	server.llmWrapper = &LLMClientWrapper{client: server.llmClient}
 	llmAdapter := interpreter.NewLLMAdapter(server.llmWrapper)
-	server.interpreter = interpreter.NewInterpreter(llmAdapter)
+	// Create a ThoughtExpressionService so the interpreter can store thought events for the Wow dashboard
+	thoughtExprSvc := conversational.NewThoughtExpressionService(server.redis, nil)
+	server.interpreter = interpreter.NewInterpreterWithThoughtExpression(llmAdapter, thoughtExprSvc)
 	server.interpreterAPI = interpreter.NewInterpreterAPI(server.interpreter)
 
 	// Initialize NATS event bus (best-effort)
@@ -864,10 +866,28 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 			"success": true,
 		}
 
+		// stripLargeFields removes HTML/binary/cookie fields that blow up NLG prompts
+		stripLargeFields := func(m map[string]interface{}) map[string]interface{} {
+			clean := make(map[string]interface{})
+			for k, v := range m {
+				switch k {
+				case "cleaned_html", "raw_html", "screenshot", "cookies":
+					// Skip large fields — not useful for NLG
+					continue
+				default:
+					clean[k] = v
+				}
+			}
+			return clean
+		}
+
 		// Handle different result formats from tools
 		if result.ToolExecutionResult.Result != nil {
 			// Check if result is already in the expected format (map with "results" key)
 			if resultMap, ok := result.ToolExecutionResult.Result.(map[string]interface{}); ok {
+				// Strip large fields before they enter metadata
+				resultMap = stripLargeFields(resultMap)
+
 				// If it has a "results" key, use it directly
 				if _, hasResults := resultMap["results"]; hasResults {
 					toolResult["results"] = resultMap["results"]
@@ -882,7 +902,12 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 					}
 				}
 			} else if resultSlice, ok := result.ToolExecutionResult.Result.([]interface{}); ok {
-				// If result is already a slice, use it directly
+				// If result is already a slice, strip from each item
+				for i, item := range resultSlice {
+					if itemMap, ok := item.(map[string]interface{}); ok {
+						resultSlice[i] = stripLargeFields(itemMap)
+					}
+				}
 				toolResult["results"] = resultSlice
 			} else {
 				// Otherwise, wrap single result in a results array
@@ -932,7 +957,29 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 	// Build interpreted text from result
 	interpretedText := result.Message
 	if result.ToolExecutionResult != nil && result.ToolExecutionResult.Success {
-		interpretedText = fmt.Sprintf("%s\n\nTool result: %v", interpretedText, result.ToolExecutionResult.Result)
+		// For scrape results, strip large binary/HTML fields to avoid blowing up the NLG prompt
+		toolResult := result.ToolExecutionResult.Result
+		if resultMap, ok := toolResult.(map[string]interface{}); ok {
+			// Check for nested "result" map (scrape results have this structure)
+			if innerResult, ok := resultMap["result"].(map[string]interface{}); ok {
+				// Create a clean copy without huge fields
+				cleanResult := make(map[string]interface{})
+				for k, v := range innerResult {
+					switch k {
+					case "cleaned_html", "raw_html", "screenshot", "cookies":
+						// Skip large fields - they're not useful for NLG
+						continue
+					default:
+						cleanResult[k] = v
+					}
+				}
+				interpretedText = fmt.Sprintf("%s\n\nTool result: %v", interpretedText, cleanResult)
+			} else {
+				interpretedText = fmt.Sprintf("%s\n\nTool result: %v", interpretedText, toolResult)
+			}
+		} else {
+			interpretedText = fmt.Sprintf("%s\n\nTool result: %v", interpretedText, toolResult)
+		}
 	}
 
 	return &conversational.InterpretResult{
@@ -3886,112 +3933,6 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 		WorkflowID: wfID,
 		Message:    "Accepted for asynchronous execution",
 	})
-	return
-
-	// Unreachable legacy synchronous path retained below for reference; function returns above
-
-	// Simple prompt heuristic: skip hierarchical planning and execute directly
-	if s.isSimplePrompt(req) {
-		// Create intelligent executor with planner integration
-		executor := NewIntelligentExecutor(
-			s.domainManager,
-			s.codeStorage,
-			s.codeGenerator,
-			s.dockerExecutor,
-			s.llmClient,
-			s.actionManager,
-			s.plannerIntegration,
-			s.selfModelManager,
-			s.toolMetrics,
-			s.fileStorage,
-			s.hdnBaseURL,
-			s.redisAddr,
-		)
-
-		ctx := r.Context()
-		result, err := executor.ExecuteTaskIntelligently(ctx, &ExecutionRequest{
-			TaskName:        req.TaskName,
-			Description:     req.Description,
-			Context:         req.Context,
-			Language:        "python",
-			ForceRegenerate: false,
-			MaxRetries:      2,
-			Timeout:         600,
-		})
-		if err != nil {
-			response := HierarchicalTaskResponse{
-				Success: false,
-				Error:   err.Error(),
-				Message: "Direct intelligent execution failed",
-			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(response)
-			return
-		}
-
-		// Ensure a workflow record exists for monitor UI
-		wfID := result.WorkflowID
-		if wfID == "" {
-			wfID = fmt.Sprintf("intelligent_%d", time.Now().UnixNano())
-		}
-		_ = s.createIntelligentWorkflowRecord(IntelligentExecutionRequest{
-			TaskName:    req.TaskName,
-			Description: req.Description,
-			Context:     req.Context,
-			Language:    "python",
-		}, result, wfID)
-
-		response := HierarchicalTaskResponse{
-			Success:    true,
-			WorkflowID: wfID,
-			Message:    "Executed directly (simple prompt)",
-		}
-
-		// Working memory: record direct execution if session_id present in context
-		if req.Context != nil {
-			if sid, ok := req.Context["session_id"]; ok && sid != "" {
-				_ = s.workingMemory.AddEvent(sid, map[string]any{
-					"type":        "hierarchical_direct",
-					"task_name":   req.TaskName,
-					"workflow_id": wfID,
-					"timestamp":   time.Now().UTC(),
-				}, 100)
-			}
-		}
-
-		// Write episodic trace (best-effort) for hierarchical execution
-		if s.vectorDB != nil {
-			sid := ""
-			if req.Context != nil {
-				sid = req.Context["session_id"]
-			}
-			ep := &mempkg.EpisodicRecord{
-				SessionID: sid,
-				PlanID:    "",
-				Timestamp: time.Now().UTC(),
-				Outcome: func() string {
-					if result.Success {
-						return "success"
-					}
-					return "failure"
-				}(),
-				Reward:    0,
-				Tags:      []string{"hierarchical"},
-				StepIndex: 0,
-				Text:      fmt.Sprintf("%s: %s", req.TaskName, req.Description),
-				Metadata:  map[string]any{"workflow_id": wfID},
-			}
-			vec := toyEmbed(ep.Text, 8)
-			if err := s.vectorDB.IndexEpisode(ep, vec); err != nil {
-				log.Printf("❌ [API] Weaviate indexing failed: %v", err)
-			} else {
-				log.Printf("✅ [API] Episode indexed in Weaviate: %s", ep.Text[:min(50, len(ep.Text))])
-			}
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
-		return
-	}
 
 	// Start hierarchical workflow
 	execution, err := s.plannerIntegration.StartHierarchicalWorkflow(

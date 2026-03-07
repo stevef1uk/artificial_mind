@@ -210,6 +210,11 @@ else
     if [ -d "$AGI_PROJECT_ROOT/data" ]; then
         echo "🔐 Ensuring correct permissions for data directory..."
         sudo chown -R $(id -u):$(id -g) "$AGI_PROJECT_ROOT/data"
+        
+        # Redis container (redis:7-alpine) runs as uid=999. It needs ownership to save .rdb snapshots without MISCONF errors.
+        if [ -d "$AGI_PROJECT_ROOT/data/redis" ]; then
+            sudo chown -R 999:1000 "$AGI_PROJECT_ROOT/data/redis" 2>/dev/null || true
+        fi
     fi
 
     # Wait for Neo4j to be ready

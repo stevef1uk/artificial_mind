@@ -5,28 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
+
+	"hdn/types"
 
 	"github.com/redis/go-redis/v9"
 )
 
-// ThoughtEvent represents an AI's internal thought process
-type ThoughtEvent struct {
-	AgentID    string                 `json:"agent_id"`
-	SessionID  string                 `json:"session_id,omitempty"`
-	Type       string                 `json:"type"`       // "thinking", "decision", "action", "observation"
-	State      string                 `json:"state"`      // Current FSM state
-	Goal       string                 `json:"goal"`       // Current goal/objective
-	Thought    string                 `json:"thought"`    // Natural language thought
-	Confidence float64                `json:"confidence"` // 0.0-1.0
-	ToolUsed   string                 `json:"tool_used,omitempty"`
-	Action     string                 `json:"action,omitempty"`
-	Result     string                 `json:"result,omitempty"`
-	Timestamp  string                 `json:"timestamp"`
-	Context    map[string]interface{} `json:"context,omitempty"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
-}
+// ThoughtEvent is an alias for the shared type in hdn/types
+type ThoughtEvent = types.ThoughtEvent
 
 // ThoughtExpressionService converts reasoning traces to natural language thoughts
 type ThoughtExpressionService struct {
@@ -334,7 +323,7 @@ func (tes *ThoughtExpressionService) generateSummary(thoughts []ExpressedThought
 	}
 }
 
-// GetRecentThoughts retrieves recent thought events for a session
+// GetRecentThoughts retrieves recent thought events for a session (most recent first)
 func (tes *ThoughtExpressionService) GetRecentThoughts(ctx context.Context, sessionID string, limit int) ([]ThoughtEvent, error) {
 	// Get recent thought events from Redis
 	pattern := fmt.Sprintf("thought_events:%s:*", sessionID)
@@ -342,6 +331,12 @@ func (tes *ThoughtExpressionService) GetRecentThoughts(ctx context.Context, sess
 	if err != nil {
 		return nil, fmt.Errorf("failed to get thought event keys: %w", err)
 	}
+
+	// Sort keys in descending order (lexicographical sort on RFC3339Nano also means chronological)
+	// Larger timestamp string (more recent) will be first
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i] > keys[j]
+	})
 
 	var events []ThoughtEvent
 	for i, key := range keys {

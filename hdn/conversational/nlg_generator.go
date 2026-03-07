@@ -162,6 +162,20 @@ func (nlg *NLGGenerator) generateKnowledgeResponse(ctx context.Context, req *NLG
 
 // generateTaskResponse generates a response for task execution
 func (nlg *NLGGenerator) generateTaskResponse(ctx context.Context, req *NLGRequest) (*NLGResponse, error) {
+	// For scrape results with extracted content, present directly without LLM summarization
+	if extractedContent := nlg.getExtractedScrapeContent(req); extractedContent != "" {
+		log.Printf("📤 [NLG] Returning extracted scrape content directly (%d chars), skipping LLM summarization", len(extractedContent))
+		return &NLGResponse{
+			Text:       extractedContent,
+			Confidence: 0.9,
+			Metadata: map[string]interface{}{
+				"response_type": "task",
+				"intent_type":   req.Intent.Type,
+				"scrape_direct": true,
+			},
+		}, nil
+	}
+
 	prompt := nlg.buildTaskPrompt(req)
 
 	response, err := nlg.llmClient.GenerateResponse(ctx, prompt, 400)
@@ -170,6 +184,89 @@ func (nlg *NLGGenerator) generateTaskResponse(ctx context.Context, req *NLGReque
 	}
 
 	return nlg.validateAndWrapResponse(response, "task", req.Intent.Type, 0.7), nil
+}
+
+// getExtractedScrapeContent checks if this task result is a scrape result with extracted_content
+// and returns the content directly if found. It follows the data path:
+// req.Result.Data["result"] → InterpretResult → Metadata["tool_result"] → results[0] → result → extracted_content
+func (nlg *NLGGenerator) getExtractedScrapeContent(req *NLGRequest) string {
+	if req.Result == nil || !req.Result.Success || req.Result.Data == nil {
+		return ""
+	}
+
+	// Extract InterpretResult from data["result"]
+	val := req.Result.Data["result"]
+	if val == nil {
+		return ""
+	}
+
+	var metadata map[string]interface{}
+	if ir, ok := val.(*InterpretResult); ok {
+		metadata = ir.Metadata
+	} else if ir, ok := val.(InterpretResult); ok {
+		metadata = ir.Metadata
+	}
+	if metadata == nil {
+		return ""
+	}
+
+	// Get tool_result from metadata
+	toolResult, ok := metadata["tool_result"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+
+	// Get results list
+	var resultsList []interface{}
+	if list, ok := toolResult["results"].([]interface{}); ok {
+		resultsList = list
+	}
+	if len(resultsList) == 0 {
+		return ""
+	}
+
+	// Check first item for extracted_content (directly or in nested "result")
+	item, ok := resultsList[0].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+
+	extractedContent := ""
+	pageTitle := ""
+
+	// Try top-level
+	if ec, ok := item["extracted_content"].(string); ok && ec != "" {
+		extractedContent = ec
+		if pt, ok := item["page_title"].(string); ok {
+			pageTitle = pt
+		}
+	}
+
+	// Try nested "result" sub-map (scrape results structure)
+	if extractedContent == "" {
+		if innerResult, ok := item["result"].(map[string]interface{}); ok {
+			if ec, ok := innerResult["extracted_content"].(string); ok && ec != "" {
+				extractedContent = ec
+				if pt, ok := innerResult["page_title"].(string); ok {
+					pageTitle = pt
+				}
+			}
+		}
+	}
+
+	if extractedContent == "" {
+		return ""
+	}
+
+	// Build a clean response with the extracted content
+	var sb strings.Builder
+	if pageTitle != "" {
+		sb.WriteString(fmt.Sprintf("Here are the results from **%s**:\n\n", pageTitle))
+	} else {
+		sb.WriteString("Here are the scraped results:\n\n")
+	}
+	sb.WriteString(extractedContent)
+	return sb.String()
 }
 
 // generatePlanningResponse generates a response for planning requests
@@ -536,6 +633,14 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 							keys = append(keys, k)
 						}
 						log.Printf("📧 [NLG] First item keys: %v", keys)
+						// Also log nested result keys if present (for scrape results)
+						if innerResult, ok := firstItem["result"].(map[string]interface{}); ok {
+							var innerKeys []string
+							for k := range innerResult {
+								innerKeys = append(innerKeys, k)
+							}
+							log.Printf("📧 [NLG] Inner result keys: %v", innerKeys)
+						}
 
 						// Case-insensitive email detection
 						hasSubject := false
@@ -607,6 +712,28 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 					resultSb.WriteString(fmt.Sprintf("Found %d relevant items:\n\n", len(resultsList)))
 					for i, res := range resultsList {
 						if item, ok := res.(map[string]interface{}); ok {
+							// Check for scrape results with extracted_content — prioritize that
+							// It may be at the top level OR nested inside a "result" sub-map
+							extractedContent := getStringFromMap(item, "extracted_content")
+							pageTitle := getStringFromMap(item, "page_title")
+							if extractedContent == "" {
+								// Check nested "result" sub-map (scrape results have this structure)
+								if innerResult, ok := item["result"].(map[string]interface{}); ok {
+									extractedContent = getStringFromMap(innerResult, "extracted_content")
+									if pageTitle == "" {
+										pageTitle = getStringFromMap(innerResult, "page_title")
+									}
+								}
+							}
+							if extractedContent != "" {
+								if pageTitle != "" {
+									resultSb.WriteString(fmt.Sprintf("Scraped page: %s\n\n", pageTitle))
+								}
+								resultSb.WriteString(fmt.Sprintf("Extracted content:\n%s\n", extractedContent))
+								log.Printf("\U0001f4e4 [NLG] Using extracted_content for scrape result (%d chars)", len(extractedContent))
+								continue
+							}
+
 							title := getStringFromMap(item, "title")
 							text := getStringFromMap(item, "text")
 							name := getStringFromMap(item, "name")

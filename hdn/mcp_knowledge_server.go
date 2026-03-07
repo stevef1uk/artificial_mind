@@ -5,8 +5,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -27,14 +27,16 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// MCPKnowledgeServer exposes knowledge bases (Neo4j, Weaviate, Qdrant) as MCP tools
 type MCPKnowledgeServer struct {
-	domainKnowledge mempkg.DomainKnowledgeClient
-	vectorDB        mempkg.VectorDBAdapter
-	redis           *redis.Client
-	hdnURL          string                // For proxying queries
-	skillRegistry   *DynamicSkillRegistry // Dynamic skills from configuration
-	llmClient       *LLMClient            // LLM client for prompt-driven browser automation
+	domainKnowledge  mempkg.DomainKnowledgeClient
+	vectorDB         mempkg.VectorDBAdapter
+	redis            *redis.Client
+	hdnURL           string                // For proxying queries
+	skillRegistry    *DynamicSkillRegistry // Dynamic skills from configuration
+	llmClient        *LLMClient            // LLM client for prompt-driven browser automation
+	fileStorage      *FileStorage          // For storing artifacts (screenshots, etc) in Redis
+	latestScreenshot []byte                // In-memory latest screenshot for k3s (no shared volume)
+	screenshotMu     sync.RWMutex          // Protects latestScreenshot
 }
 
 // MCPKnowledgeRequest represents an MCP JSON-RPC request for knowledge server
@@ -67,7 +69,7 @@ type MCPKnowledgeTool struct {
 }
 
 // NewMCPKnowledgeServer creates a new MCP knowledge server
-func NewMCPKnowledgeServer(domainKnowledge mempkg.DomainKnowledgeClient, vectorDB mempkg.VectorDBAdapter, redis *redis.Client, hdnURL string, llmClient *LLMClient) *MCPKnowledgeServer {
+func NewMCPKnowledgeServer(domainKnowledge mempkg.DomainKnowledgeClient, vectorDB mempkg.VectorDBAdapter, redis *redis.Client, hdnURL string, llmClient *LLMClient, fileStorage *FileStorage) *MCPKnowledgeServer {
 	server := &MCPKnowledgeServer{
 		domainKnowledge: domainKnowledge,
 		vectorDB:        vectorDB,
@@ -75,6 +77,7 @@ func NewMCPKnowledgeServer(domainKnowledge mempkg.DomainKnowledgeClient, vectorD
 		hdnURL:          hdnURL,
 		skillRegistry:   NewDynamicSkillRegistry(),
 		llmClient:       llmClient,
+		fileStorage:     fileStorage,
 	}
 
 	// Load skills from configuration
@@ -399,6 +402,29 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 				"required": []string{"content"},
 			},
 		},
+		{
+			Name:        "deep_research",
+			Description: "Perform a multi-step autonomous deep research on a topic. It will search the web, visit multiple sources, capture screenshots, and synthesize a comprehensive report with visual evidence.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"topic": map[string]interface{}{
+						"type":        "string",
+						"description": "The research topic or question",
+					},
+					"depth": map[string]interface{}{
+						"type":        "integer",
+						"description": "Depth of research (1-3). higher depth visits more sources. default: 1",
+						"default":     1,
+					},
+					"session_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional session ID for tracking screenshots in visualizer",
+					},
+				},
+				"required": []string{"topic"},
+			},
+		},
 	}
 
 	// Add standard HDN tools
@@ -574,8 +600,9 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 	case "scrape_url", "execute_code", "read_file", "smart_scrape":
 		// Route to the new wrapper
 		return s.executeToolWrapper(ctx, toolName, arguments)
-	case "browse_web":
 		return s.browseWeb(ctx, arguments)
+	case "deep_research":
+		return s.deepResearch(ctx, arguments)
 	case "get_scrape_status":
 		// Handle nested arguments from n8n
 		args := arguments
@@ -790,6 +817,42 @@ func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, instruct
 		case "completed":
 			duration := time.Since(startTime)
 			log.Printf("✅ [MCP-SCRAPE] Job %s completed in %v", startResp.JobID, duration)
+
+			// Save screenshot to artifacts for Wow dashboard AI Sight pane
+			if screenshotB64, ok := job.Result["screenshot"].(string); ok && screenshotB64 != "" {
+				go func() {
+					raw := screenshotB64
+					if idx := strings.Index(raw, ","); idx >= 0 {
+						raw = raw[idx+1:]
+					}
+					if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil {
+						// Store in memory for k3s (no shared volume between pods)
+						s.screenshotMu.Lock()
+						s.latestScreenshot = decoded
+						s.screenshotMu.Unlock()
+						log.Printf("📸 [MCP-SCRAPE] Screenshot stored in memory (%d bytes)", len(decoded))
+
+						// Also save to disk for local dev
+						projectRoot := os.Getenv("AGI_PROJECT_ROOT")
+						if projectRoot == "" {
+							if wd, err := os.Getwd(); err == nil {
+								projectRoot = wd
+							}
+						}
+						artifactsDir := filepath.Join(projectRoot, "artifacts")
+						if artifactsDir == "/artifacts" || artifactsDir == "artifacts" {
+							artifactsDir = "artifacts"
+						}
+						os.MkdirAll(artifactsDir, 0755)
+						path := filepath.Join(artifactsDir, "latest_screenshot.png")
+						if err := os.WriteFile(path, decoded, 0644); err != nil {
+							log.Printf("⚠️ [MCP-SCRAPE] Failed to save screenshot to disk: %v", err)
+						} else {
+							log.Printf("📸 [MCP-SCRAPE] Screenshot saved to %s (%d bytes)", path, len(decoded))
+						}
+					}
+				}()
+			}
 
 			// Apply extractions to the result if patterns are provided
 			if len(extractions) > 0 && getHTML {
@@ -1553,6 +1616,250 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 	}
 }
 
+// deepResearch performs multi-step autonomous research
+func (s *MCPKnowledgeServer) deepResearch(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	topic, _ := args["topic"].(string)
+	depthVal, _ := args["depth"].(float64)
+	depth := int(depthVal)
+	sessionID, _ := args["session_id"].(string)
+	if sessionID == "" {
+		sessionID = "research_" + time.Now().Format("150405")
+	}
+
+	if topic == "" {
+		return nil, fmt.Errorf("topic is required")
+	}
+
+	if depth <= 0 {
+		depth = 1
+	}
+	if depth > 3 {
+		depth = 3
+	}
+
+	log.Printf("🔍 [DEEP-RESEARCH] Starting research on: %s (depth: %d, session: %s)", topic, depth, sessionID)
+
+	// Step 1: Generate search queries
+	queryPrompt := fmt.Sprintf("Generate 3 diverse search queries to thoroughly research this topic: %s. Return only the queries, one per line.", topic)
+	queriesStr, err := s.llmClient.callLLMWithContextAndPriority(ctx, queryPrompt, PriorityHigh)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate queries: %w", err)
+	}
+	queries := strings.Split(queriesStr, "\n")
+	var activeQueries []string
+	for _, q := range queries {
+		q = strings.TrimSpace(q)
+		if q != "" {
+			activeQueries = append(activeQueries, q)
+		}
+	}
+	if len(activeQueries) == 0 {
+		activeQueries = []string{topic}
+	}
+
+	results := []map[string]interface{}{}
+	visitedURLs := make(map[string]bool)
+
+	// Limit queries based on depth
+	queryLimit := depth
+	if queryLimit > len(activeQueries) {
+		queryLimit = len(activeQueries)
+	}
+
+	for i := 0; i < queryLimit; i++ {
+		query := activeQueries[i]
+		log.Printf("🌐 [DEEP-RESEARCH] Researching query %d/%d: %s", i+1, queryLimit, query)
+
+		// Use Bing with a TypeScript selector script that extracts real URLs
+		// from the .b_algo results (which store the real link in the h2 > a data-attr or
+		// as the href before JS rewrites it). We use page.$$eval to collect them before any redirect.
+		searchURL := fmt.Sprintf("https://www.bing.com/search?q=%s", url.QueryEscape(query))
+		log.Printf("🔎 [DEEP-RESEARCH] Searching Bing for: %s", query)
+
+		// TypeScript config: extract top 5 result links from Bing's organic results
+		// .b_algo h2 a is the standard Bing organic anchor - href may be a redirect,
+		// but the cite tag holds the real URL domain.
+		extractScript := `
+const items = await page.$$eval('.b_algo', els => els.slice(0,8).map(el => {
+  const a = el.querySelector('h2 a');
+  const cite = el.querySelector('cite');
+  if (!a) return null;
+  // Bing may store the real URL in data-href or keep it as href before JS rewrites
+  const href = a.getAttribute('data-href') || a.getAttribute('href') || '';
+  const title = a.innerText || a.textContent || '';
+  const displayUrl = cite ? (cite.innerText || cite.textContent || '') : '';
+  return {href, title, displayUrl};
+})).filter(x => x && x.href);
+await page.evaluate(r => { window.__searchResults = r; }, items);
+`
+
+		tsExtractionResult, err := s.scrapeWithConfig(ctx, searchURL, "", extractScript, false, nil, false, nil)
+		if err != nil {
+			log.Printf("⚠️ [DEEP-RESEARCH] Bing search failed for query '%s': %v", query, err)
+			continue
+		}
+
+		// Also get the HTML for fallback link extraction
+		searchResult, _ := s.scrapeWithConfig(ctx, searchURL, "", "", false, nil, true, nil)
+
+		// Build a list of real external URLs
+		var topLinks []map[string]string
+
+		// Primary: parse from TypeScript result's page_url list or raw HTML cite elements
+		getHTML := func(res interface{}) string {
+			if m, ok := res.(map[string]interface{}); ok {
+				if r, ok := m["result"].(map[string]interface{}); ok {
+					for _, k := range []string{"cleaned_html", "raw_html"} {
+						if h, ok := r[k].(string); ok && h != "" {
+							return h
+						}
+					}
+				}
+			}
+			return ""
+		}
+
+		// Parse real URLs from <cite> + nearest <h2> a text in the raw HTML
+		searchHTML := getHTML(searchResult)
+		_ = getHTML(tsExtractionResult) // for future use
+
+		if searchHTML != "" {
+			// Bing puts the clean display URL in <cite> and title in nearby <h2>
+			// Strategy: find cite text (contains real domain) and pair with next/prev h2
+			// We also look for actual full https:// URLs in cite text
+			citeRe := regexp.MustCompile(`(?s)<li[^>]*class="[^"]*b_algo[^"]*"[^>]*>(.*?)</li>`)
+			algoBlocks := citeRe.FindAllStringSubmatch(searchHTML, -1)
+			titleRe := regexp.MustCompile(`<h2[^>]*>.*?<a[^>]*>([^<]+)</a>`)
+			citeTextRe := regexp.MustCompile(`<cite[^>]*>(https?://[^<\s]+)</cite>`)
+			citeDomainRe := regexp.MustCompile(`<cite[^>]*>([^<]+)</cite>`)
+
+			for _, block := range algoBlocks {
+				blockHTML := block[1]
+				// Get title
+				title := ""
+				if m := titleRe.FindStringSubmatch(blockHTML); len(m) > 1 {
+					title = strings.TrimSpace(m[1])
+				}
+				// Try to get a full URL from cite
+				fullURL := ""
+				if m := citeTextRe.FindStringSubmatch(blockHTML); len(m) > 1 {
+					fullURL = strings.TrimSpace(m[1])
+				} else if m := citeDomainRe.FindStringSubmatch(blockHTML); len(m) > 1 {
+					// cite has domain like "example.com › path" — reconstruct https URL
+					domainPart := strings.TrimSpace(m[1])
+					domainPart = strings.SplitN(domainPart, "›", 2)[0]
+					domainPart = strings.TrimSpace(domainPart)
+					if domainPart != "" && !strings.Contains(domainPart, " ") {
+						fullURL = "https://" + domainPart
+					}
+				}
+				if title != "" && fullURL != "" {
+					topLinks = append(topLinks, map[string]string{
+						"title": title,
+						"url":   fullURL,
+					})
+					if len(topLinks) >= 5 {
+						break
+					}
+				}
+			}
+			log.Printf("🔗 [DEEP-RESEARCH] Extracted %d links from Bing SERP HTML", len(topLinks))
+		}
+
+		if len(topLinks) == 0 {
+			log.Printf("⚠️ [DEEP-RESEARCH] No links found in Bing search for query '%s'", query)
+		}
+
+		// Visit top links and grab their page text
+		for _, link := range topLinks {
+			targetURL := link["url"]
+			if targetURL == "" || visitedURLs[targetURL] || !strings.HasPrefix(targetURL, "http") {
+				continue
+			}
+			visitedURLs[targetURL] = true
+
+			log.Printf("📄 [DEEP-RESEARCH] Visiting source: %s", targetURL)
+
+			// Scrape the page and request HTML so we can extract readable text
+			pageResult, err := s.scrapeWithConfig(ctx, targetURL, "", "", false, nil, true, nil)
+			if err != nil {
+				log.Printf("⚠️ [DEEP-RESEARCH] Failed to visit %s: %v", targetURL, err)
+				continue
+			}
+
+			// Pull readable text from the page HTML
+			pageText := ""
+			if m, ok := pageResult.(map[string]interface{}); ok {
+				if r, ok := m["result"].(map[string]interface{}); ok {
+					for _, key := range []string{"page_content", "cleaned_html", "raw_html"} {
+						if h, ok := r[key].(string); ok && h != "" {
+							// Strip HTML tags to get plain text
+							tagRe := regexp.MustCompile(`<[^>]+>`)
+							pageText = tagRe.ReplaceAllString(h, " ")
+							// Collapse whitespace
+							wsRe := regexp.MustCompile(`\s+`)
+							pageText = wsRe.ReplaceAllString(pageText, " ")
+							if len(pageText) > 4000 {
+								pageText = pageText[:4000]
+							}
+							break
+						}
+					}
+				}
+			}
+
+			if pageText == "" {
+				log.Printf("⚠️ [DEEP-RESEARCH] No text extracted from %s, skipping", targetURL)
+				continue
+			}
+
+			log.Printf("✅ [DEEP-RESEARCH] Got %d chars from %s", len(pageText), targetURL)
+			results = append(results, map[string]interface{}{
+				"source":  targetURL,
+				"title":   link["title"],
+				"content": pageText,
+			})
+
+			// Stop if we have enough results per query
+			if len(results) >= (i+1)*3 {
+				break
+			}
+		}
+	}
+
+	// Step 3: Final Synthesis
+	log.Printf("✍️ [DEEP-RESEARCH] Synthesizing report from %d sources...", len(results))
+	resultsJSON, _ := json.MarshalIndent(results, "", "  ")
+
+	synthesisPrompt := fmt.Sprintf(`You are a lead researcher. I have gathered the following information on the topic: "%s".
+
+Data Gathered:
+%s
+
+Please synthesize this into a professional research report. 
+The report MUST include:
+1. Executive Summary
+2. Key Findings (with bullet points)
+3. Diverse Perspectives (if applicable)
+4. List of Sources correctly cited
+
+Format the output in high-quality Markdown.`, topic, string(resultsJSON))
+
+	report, err := s.llmClient.callLLMWithContextAndPriority(ctx, synthesisPrompt, PriorityHigh)
+	if err != nil {
+		return nil, fmt.Errorf("synthesis failed: %w", err)
+	}
+
+	return map[string]interface{}{
+		"topic":       topic,
+		"report":      report,
+		"sources":     results,
+		"session_id":  sessionID,
+		"status":      "completed",
+		"sources_cnt": len(results),
+	}, nil
+}
+
 // browseWeb uses a headless browser to navigate, fill forms, click buttons, and extract data
 // It's prompt-driven: if instructions are provided, uses LLM to generate actions from page HTML
 func (s *MCPKnowledgeServer) browseWeb(ctx context.Context, args map[string]interface{}) (interface{}, error) {
@@ -1566,394 +1873,24 @@ func (s *MCPKnowledgeServer) browseWeb(ctx context.Context, args map[string]inte
 		return nil, fmt.Errorf("instructions parameter required - describe what to do on the page")
 	}
 
-	timeout := 60
-	if t, ok := args["timeout"].(float64); ok && t > 0 {
-		timeout = int(t)
+	log.Printf("🌐 [BROWSE-WEB] Delegating to Playwright scraper. URL: %s", url)
+
+	// Delegate to the remote Playwright scraper service instead of local binary
+	res, err := s.scrapeWithConfig(ctx, url, instructions, "", false, nil, false, nil)
+	if err != nil {
+		return nil, err
 	}
 
-	screenshotPath, _ := args["screenshot"].(string)
-	if screenshotPath == "" {
-		// Try to get session_id to make a unique but predictable screenshot path
-		sessionID, _ := args["session_id"].(string)
-		if sessionID == "" {
-			sessionID = "current"
-		}
-		// Save in a place accessible by the monitor
-		projectRoot := os.Getenv("AGI_PROJECT_ROOT")
-		if projectRoot == "" {
-			projectRoot = "."
-		}
-		screenshotPath = filepath.Join(projectRoot, "artifacts", fmt.Sprintf("screenshot_%s.png", sessionID))
-		log.Printf("📸 [BROWSE-WEB] No screenshot path provided, using default: %s", screenshotPath)
-	}
-	getHTML, _ := args["get_html"].(bool)
-
-	// Parse actions if provided (optional - LLM will generate if not provided)
-	var actions []map[string]interface{}
-	if actionsRaw, ok := args["actions"].([]interface{}); ok && len(actionsRaw) > 0 {
-		for _, actionRaw := range actionsRaw {
-			if actionMap, ok := actionRaw.(map[string]interface{}); ok {
-				actions = append(actions, actionMap)
-			}
-		}
-		log.Printf("🌐 [BROWSE-WEB] Using %d pre-defined actions", len(actions))
-	} else {
-		log.Printf("🌐 [BROWSE-WEB] No actions provided, will use LLM to generate from instructions")
-	}
-
-	// Find the headless_browser binary
-	projectRoot := os.Getenv("AGI_PROJECT_ROOT")
-	if projectRoot == "" {
-		if wd, err := os.Getwd(); err == nil {
-			projectRoot = wd
+	// deepResearch needs the raw JSON fields (e.g. "results" or "extracted_data")
+	// scrapeWithConfig returns a map containing { "content": [...], "result": map[string]interface{}{...}, "status": "completed" }
+	if m, ok := res.(map[string]interface{}); ok {
+		if resultData, ok2 := m["result"].(map[string]interface{}); ok2 {
+			log.Printf("✅ [BROWSE-WEB] Successfully extracted data using Playwright scraper")
+			return resultData, nil
 		}
 	}
 
-	candidates := []string{
-		filepath.Join(projectRoot, "bin", "headless-browser"),
-		filepath.Join(projectRoot, "bin", "tools", "headless_browser"),
-		"bin/headless-browser",
-		"../bin/headless-browser",
-	}
-
-	browserBin := ""
-	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
-			if abs, err := filepath.Abs(candidate); err == nil {
-				browserBin = abs
-			} else {
-				browserBin = candidate
-			}
-			break
-		}
-	}
-
-	if browserBin == "" {
-		return nil, fmt.Errorf("headless-browser binary not found. Please build it first: cd tools/headless_browser && go build -o ../../bin/headless-browser")
-	}
-
-	// If no actions provided, use LLM to generate them from instructions
-	if len(actions) == 0 {
-		if s.llmClient == nil {
-			log.Printf("⚠️ [BROWSE-WEB] LLM client not available, cannot generate actions from instructions")
-		} else {
-			// Update progress early
-			if screenshotPath != "" {
-				saveProgress(screenshotPath, "Analyzing page structure...", -1, -1, "")
-			}
-			log.Printf("🤖 [BROWSE-WEB] Generating actions from instructions using LLM...")
-
-			// First, get the page HTML to analyze
-			var htmlOutputStr string
-			var skipFetch bool
-
-			// OPTIMIZATION: If HTML was provided in arguments, use it directly
-			providedHTML, _ := args["page_html"].(string)
-			if providedHTML != "" {
-				log.Printf("📄 [BROWSE-WEB] Using provided page HTML (%d bytes) for action generation", len(providedHTML))
-				htmlMap := map[string]interface{}{"success": true, "html": providedHTML}
-				jsonBytes, _ := json.Marshal(htmlMap)
-				htmlOutputStr = string(jsonBytes)
-				skipFetch = true
-
-				// Update progress with provided HTML
-				if screenshotPath != "" {
-					saveProgress(screenshotPath, "Generating action plan...", -1, -1, providedHTML)
-				}
-			}
-
-			if !skipFetch {
-				log.Printf("🌐 [BROWSE-WEB] Fetching page HTML for analysis...")
-				if screenshotPath != "" {
-					saveProgress(screenshotPath, "Fetching live page...", -1, -1, "")
-				}
-				// Use shorter timeout for HTML fetch - we just need the HTML structure, not full rendering
-				htmlCtx, htmlCancel := context.WithTimeout(ctx, 20*time.Second)
-				defer htmlCancel()
-				getHTMLCmd := exec.CommandContext(htmlCtx, browserBin,
-					"-url", url,
-					"-actions", "[]", // Empty actions - just navigate
-					"-timeout", "15", // Reduced from 30 to 15 for faster HTML fetch
-					"-html", // Return HTML
-					"-fast", // Use fast mode for HTML-only operations
-				)
-
-				var stderrHTML string
-				var err error
-				htmlOutputStr, stderrHTML, err = runCommandWithLiveOutput(htmlCtx, getHTMLCmd, "🔍 [BROWSE-WEB][HTML]")
-				if err != nil {
-					if errors.Is(htmlCtx.Err(), context.DeadlineExceeded) {
-						log.Printf("⚠️ [BROWSE-WEB] HTML fetch timed out after 20s")
-					} else {
-						log.Printf("⚠️ [BROWSE-WEB] Failed to get page HTML: %v, will proceed without it", err)
-					}
-					if stderrHTML != "" {
-						log.Printf("🔍 [BROWSE-WEB][HTML] stderr:\n%s", stderrHTML)
-					}
-				}
-			}
-
-			if htmlOutputStr != "" {
-				// Extract JSON from output - look for the browser result JSON object
-				// The browser tool outputs JSON with fields: success, url, title, extracted, html
-				outputStr := htmlOutputStr
-
-				// Try to find JSON that looks like our browser result (contains "success" and "html" fields)
-				// Look for the pattern: {"success":... which is the actual result
-				resultPattern := `{"success"`
-				resultStart := strings.Index(outputStr, resultPattern)
-
-				if resultStart == -1 {
-					// Fallback: look for any JSON object
-					resultStart = strings.Index(outputStr, "{")
-				}
-
-				if resultStart == -1 {
-					log.Printf("⚠️ [BROWSE-WEB] Could not find JSON object in HTML output")
-				} else {
-					// Find matching closing brace by counting braces (respecting string boundaries)
-					braceCount := 0
-					jsonEnd := -1
-					inString := false
-					escapeNext := false
-
-					for i := resultStart; i < len(outputStr); i++ {
-						if escapeNext {
-							escapeNext = false
-							continue
-						}
-
-						if outputStr[i] == '\\' && i+1 < len(outputStr) {
-							escapeNext = true
-							continue
-						}
-
-						if outputStr[i] == '"' && !escapeNext {
-							inString = !inString
-							continue
-						}
-
-						if !inString {
-							if outputStr[i] == '{' {
-								braceCount++
-							} else if outputStr[i] == '}' {
-								braceCount--
-								if braceCount == 0 {
-									jsonEnd = i
-									break
-								}
-							}
-						}
-					}
-
-					if jsonEnd != -1 {
-						jsonStr := outputStr[resultStart : jsonEnd+1]
-
-						// Try to parse JSON
-						var htmlResult map[string]interface{}
-						if err := json.Unmarshal([]byte(jsonStr), &htmlResult); err != nil {
-							log.Printf("⚠️ [BROWSE-WEB] Failed to parse HTML result JSON: %v", err)
-							log.Printf("📄 [BROWSE-WEB] JSON preview (first 200 chars): %s", jsonStr[:min(200, len(jsonStr))])
-						} else {
-							// Successfully parsed JSON - verify it's our result object
-							if _, hasSuccess := htmlResult["success"]; hasSuccess {
-								if html, ok := htmlResult["html"].(string); ok && html != "" {
-									log.Printf("📄 [BROWSE-WEB] Got page HTML: %d bytes", len(html))
-									// Update progress for planning
-									if screenshotPath != "" {
-										saveProgress(screenshotPath, "Planning interaction sequence...", -1, -1, html)
-									}
-									// Use LLM to generate actions from HTML and instructions
-									actions, err = s.generateActionsFromInstructions(ctx, url, instructions, html)
-									if err != nil {
-										log.Printf("⚠️ [BROWSE-WEB] LLM action generation failed: %v, will try with empty actions", err)
-										actions = []map[string]interface{}{}
-									} else {
-										log.Printf("✅ [BROWSE-WEB] LLM generated %d actions", len(actions))
-									}
-								} else {
-									log.Printf("⚠️ [BROWSE-WEB] HTML field missing or empty in result")
-								}
-							} else {
-								log.Printf("⚠️ [BROWSE-WEB] Extracted JSON doesn't look like browser result (no 'success' field)")
-							}
-						}
-					} else {
-						log.Printf("⚠️ [BROWSE-WEB] Could not find complete JSON in HTML output")
-					}
-				}
-			}
-		}
-	}
-
-	var lastErr error
-	var successfulActions []map[string]interface{}
-
-	// SELF-HEALING LOOP: Try up to 3 times to complete the task by re-planning if actions fail
-	for attempt := 0; attempt < 3; attempt++ {
-		toolCtx, toolCancel := context.WithTimeout(ctx, time.Duration(timeout+15)*time.Second)
-
-		if attempt > 0 {
-			log.Printf("🔄 [BROWSE-WEB] Healing attempt %d/3...", attempt)
-		}
-
-		// Convert CURRENT actions to JSON
-		actionsJSON, err := json.Marshal(actions)
-		if err != nil {
-			toolCancel()
-			return nil, fmt.Errorf("failed to marshal actions: %w", err)
-		}
-
-		browserArgs := []string{
-			"-url", url,
-			"-actions", string(actionsJSON),
-			"-timeout", fmt.Sprintf("%d", 15),
-			"-fast",
-		}
-		if screenshotPath != "" {
-			browserArgs = append(browserArgs, "-screenshot", screenshotPath)
-		}
-		if getHTML {
-			browserArgs = append(browserArgs, "-html")
-		}
-
-		runCmd := exec.CommandContext(toolCtx, browserBin, browserArgs...)
-		stdoutStr, stderrStr, runErr := runCommandWithLiveOutput(toolCtx, runCmd, "🔍 [BROWSE-WEB][TOOL]")
-		toolCancel() // Cancel context immediately after command finishes
-
-		// Log stderr
-		if stderrStr != "" {
-			log.Printf("🔍 [BROWSE-WEB] Browser tool debug output (attempt %d):\n%s", attempt, stderrStr)
-		}
-
-		// Extract JSON from result
-		outputStr := stdoutStr
-		jsonStart := strings.Index(outputStr, "{")
-		if jsonStart == -1 {
-			log.Printf("⚠️ [BROWSE-WEB] Attempt %d: No JSON found in output (stdout len: %d)", attempt, len(stdoutStr))
-			// If it's the last attempt and we have no JSON, return error
-			if attempt == 2 {
-				return nil, fmt.Errorf("failed to find JSON object in browser output after 3 attempts. Last stdout: %s", stdoutStr)
-			}
-			lastErr = fmt.Errorf("no JSON found in output")
-			continue
-		}
-
-		// Find matching closing brace
-		braceCount := 0
-		jsonEnd := -1
-		inString := false
-		escapeNext := false
-		for i := jsonStart; i < len(outputStr); i++ {
-			if escapeNext {
-				escapeNext = false
-				continue
-			}
-			if outputStr[i] == '\\' && i+1 < len(outputStr) {
-				escapeNext = true
-				continue
-			}
-			if outputStr[i] == '"' && !escapeNext {
-				inString = !inString
-				continue
-			}
-			if !inString {
-				if outputStr[i] == '{' {
-					braceCount++
-				} else if outputStr[i] == '}' {
-					braceCount--
-					if braceCount == 0 {
-						jsonEnd = i
-						break
-					}
-				}
-			}
-		}
-
-		if jsonEnd == -1 {
-			if attempt == 2 {
-				return nil, fmt.Errorf("failed to find complete JSON in browser output")
-			}
-			continue
-		}
-
-		jsonStr := outputStr[jsonStart : jsonEnd+1]
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
-			lastErr = err
-			continue
-		}
-
-		// Check if it failed at a specific step
-		status, _ := result["status"].(string)
-		if status == "Failed" {
-			failedStepIdx, _ := result["failed_step"].(float64)
-			idx := int(failedStepIdx)
-			log.Printf("⚠️ [BROWSE-WEB] Action %d failed. Attempting to heal...", idx)
-
-			// Capture the ones that worked
-			if idx > 0 {
-				successfulActions = append(successfulActions, actions[:idx]...)
-			}
-
-			// Get current HTML to plan repair
-			currentHTML, _ := result["html"].(string)
-			if currentHTML == "" {
-				return nil, fmt.Errorf("action %d failed and no HTML returned for healing", idx)
-			}
-
-			// Call LLM with the *current* state to get a REPAIR plan
-			log.Printf("🤖 [BROWSE-WEB] Asking LLM for repair actions starting from failed step...")
-			failedAction, _ := json.Marshal(actions[idx])
-			repairPrompt := fmt.Sprintf(`### SELF-HEAL REQUEST ###
-The previous action sequence failed. 
-FAILED ACTION: %s
-ERROR: %v
-
-Original Goal: %s
-
-INSTRUCTION: 
-1. Analyze why the previous action failed using the provided HTML.
-2. Provide a NEW sequence of actions to RECOVER and COMPLETE the task.
-3. Your response MUST be a complete plan from this current state to the goal.
-4. Do not just return one step. Return ALL remaining steps.`, string(failedAction), result["error"], instructions)
-
-			repairActions, err := s.generateActionsFromInstructions(ctx, url, repairPrompt, currentHTML)
-			if err != nil {
-				return nil, fmt.Errorf("healing failed — LLM could not generate repair plan: %v", err)
-			}
-
-			// New sequence is Successful Steps + Repair Steps
-			actions = append(successfulActions, repairActions...)
-			lastErr = fmt.Errorf("step %d failed: %v", idx, result["error"])
-			continue // Try again with the healed sequence
-		}
-
-		// If success!
-		if runErr != nil && status != "Failed" {
-			return nil, fmt.Errorf("browser execution failed: %v", runErr)
-		}
-
-		extracted := result["extracted"]
-		if extracted == nil {
-			extracted = make(map[string]interface{})
-		}
-
-		return map[string]interface{}{
-			"content": []map[string]interface{}{
-				{
-					"type": "text",
-					"text": fmt.Sprintf("Successfully browsed to %s\n\nExtracted data:\n%s", url, formatExtractedData(extracted)),
-				},
-			},
-			"extracted": extracted,
-			"url":       url,
-			"title":     result["title"],
-			"html":      result["html"],
-		}, nil
-	}
-
-	return nil, fmt.Errorf("max healing attempts reached. Last error: %v", lastErr)
+	return res, nil
 }
 
 // formatExtractedData formats extracted data as a readable string
@@ -2259,7 +2196,7 @@ func runCommandWithLiveOutput(ctx context.Context, cmd *exec.Cmd, logPrefix stri
 
 	return stdoutBuf.String(), stderrBuf.String(), waitErr
 }
-func saveProgress(path string, status string, step int, total int, html string) {
+func (s *MCPKnowledgeServer) saveProgress(path string, status string, step int, total int, html string) {
 	progressPath := path + ".progress"
 	prog := map[string]interface{}{
 		"status": status,
@@ -2269,6 +2206,22 @@ func saveProgress(path string, status string, step int, total int, html string) 
 	}
 	data, _ := json.Marshal(prog)
 	_ = os.WriteFile(progressPath, data, 0644)
+
+	// If we have file storage, also save to Redis so monitor-ui can see it on Kubernetes
+	if s.fileStorage != nil {
+		filename := filepath.Base(progressPath)
+		file := &StoredFile{
+			Filename:    filename,
+			Content:     data,
+			ContentType: "application/json",
+			Size:        int64(len(data)),
+		}
+		if err := s.fileStorage.StoreFile(file); err != nil {
+			log.Printf("⚠️ [MCP-KNOWLEDGE] Failed to store progress in Redis: %v", err)
+		} else {
+			log.Printf("💾 [MCP-KNOWLEDGE] Stored progress in Redis: %s", filename)
+		}
+	}
 }
 
 // generateActionsFromInstructions uses LLM to generate browser actions from natural language instructions
@@ -3454,6 +3407,7 @@ func (s *APIServer) RegisterMCPKnowledgeServerRoutes() {
 			s.redis,
 			hdnURL,
 			s.llmClient, // Pass LLM client for prompt-driven browser automation
+			s.fileStorage,
 		)
 
 		// Register prompt hints from configured skills with interpreter
@@ -3467,7 +3421,26 @@ func (s *APIServer) RegisterMCPKnowledgeServerRoutes() {
 	s.router.HandleFunc("/sse", s.mcpKnowledgeServer.HandleRequest).Methods("GET", "OPTIONS")
 	s.router.HandleFunc("/api/v1/sse", s.mcpKnowledgeServer.HandleRequest).Methods("GET", "OPTIONS")
 
+	// Serve latest scrape screenshot (in-memory, works in k3s without shared volumes)
+	s.router.HandleFunc("/api/v1/scrape/screenshot", s.mcpKnowledgeServer.HandleScreenshot).Methods("GET")
+
 	log.Printf("✅ [MCP-KNOWLEDGE] MCP knowledge server registered at /mcp, /sse and /api/v1/mcp")
+}
+
+// HandleScreenshot serves the latest scrape screenshot from memory
+func (s *MCPKnowledgeServer) HandleScreenshot(w http.ResponseWriter, r *http.Request) {
+	s.screenshotMu.RLock()
+	data := s.latestScreenshot
+	s.screenshotMu.RUnlock()
+
+	if len(data) == 0 {
+		http.Error(w, "No screenshot available", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Write(data)
 }
 
 // isSelfConnectionHDN checks if the endpoint is pointing to the same server (self-connection)
@@ -3893,6 +3866,14 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 }
 
 // executeSmartScrape performs an AI-powered scrape by first fetching and then planning
+// stripScrapeResultFields removes large/binary fields from a results map before serialization
+// so that the NLG receives clean, readable content instead of raw HTML.
+func stripScrapeResultFields(m map[string]interface{}) {
+	for _, key := range []string{"cleaned_html", "raw_html", "screenshot", "cookies"} {
+		delete(m, key)
+	}
+}
+
 func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string, goal string, userConfig *ScrapeConfig) (interface{}, error) {
 	log.Printf("🧠 [MCP-SMART-SCRAPE] Starting smart scrape for %s with goal: %s", url, goal)
 
@@ -4115,6 +4096,7 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 			}
 		}
 		if foundAny {
+			stripScrapeResultFields(results)
 			resultJSON, _ := json.MarshalIndent(results, "", "  ")
 			return map[string]interface{}{
 				"content": []map[string]interface{}{
@@ -4126,6 +4108,54 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 				"result": results,
 			}, nil
 		}
+
+		// Fast-path regex extraction failed — try LLM content extraction before falling back to full scrape
+		if s.llmClient != nil && cleanedHTML != "" {
+			log.Printf("🧠 [MCP-SMART-SCRAPE] Fast-path regex failed — trying LLM content extraction from existing HTML (%d chars)", len(cleanedHTML))
+
+			extractionHTML := cleanHTMLForPlanning(cleanedHTML)
+			if len(extractionHTML) > 30000 {
+				extractionHTML = extractionHTML[:30000] + "...(truncated)"
+			}
+
+			extractionPrompt := fmt.Sprintf(`You are a web scraping data extraction expert.
+
+TASK: Extract the requested information from the HTML content below.
+
+GOAL: %s
+
+HTML CONTENT:
+%s
+
+INSTRUCTIONS:
+- Extract ONLY the specific data requested in the goal.
+- Return the data as a clean, structured list or text.
+- Include actual titles, names, URLs, or values — not HTML tags.
+- If the page has multiple items (e.g. news articles), list them numbered.
+- Be concise but complete. Include all relevant items found.
+- Do NOT wrap in JSON or code blocks. Just return the extracted content as plain text.`, goal, extractionHTML)
+
+			llmResult, err := s.llmClient.callLLMWithContextAndPriority(planCtx, extractionPrompt, PriorityHigh)
+			if err == nil && strings.TrimSpace(llmResult) != "" {
+				log.Printf("✅ [MCP-SMART-SCRAPE] Fast-path LLM extraction produced %d chars of content", len(llmResult))
+				results["extracted_content"] = strings.TrimSpace(llmResult)
+				results["extraction_method"] = "llm_content_extraction"
+
+				stripScrapeResultFields(results)
+				resultJSON, _ := json.MarshalIndent(results, "", "  ")
+				return map[string]interface{}{
+					"content": []map[string]interface{}{
+						{
+							"type": "text",
+							"text": fmt.Sprintf("Scrape Results (LLM Extracted):\n%s", string(resultJSON)),
+						},
+					},
+					"result": results,
+				}, nil
+			}
+			log.Printf("⚠️ [MCP-SMART-SCRAPE] Fast-path LLM extraction failed: %v", err)
+		}
+
 		log.Printf("⚠️ [MCP-SMART-SCRAPE] Fast-path failed to extract any data, falling back to full scrape")
 	}
 
@@ -4209,6 +4239,81 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 				}
 			}
 		}
+	}
+
+	// FINAL FALLBACK: LLM Content Extraction
+	// If we have HTML but no useful data was extracted (only metadata keys), use the LLM to
+	// extract relevant content from the HTML based on the original goal.
+	metadataKeys := map[string]bool{
+		"page_title": true, "page_url": true, "cleaned_html": true, "raw_html": true,
+		"screenshot": true, "cookies": true, "status": true, "extracted_at": true,
+		"execution_time_ms": true, "page_content": true, "url": true,
+	}
+	hasUsefulData := false
+	for key := range finalInnerResult {
+		if !metadataKeys[key] {
+			hasUsefulData = true
+			break
+		}
+	}
+
+	if !hasUsefulData {
+		// Try to get HTML for LLM extraction
+		finalHTML := ""
+		if h, ok := finalInnerResult["cleaned_html"].(string); ok && h != "" {
+			finalHTML = h
+		} else if h, ok := finalInnerResult["raw_html"].(string); ok && h != "" {
+			finalHTML = h
+		}
+
+		if finalHTML != "" && s.llmClient != nil {
+			log.Printf("🧠 [MCP-SMART-SCRAPE] No structured data extracted — performing LLM content extraction from HTML (%d chars)", len(finalHTML))
+
+			// Clean and truncate HTML for LLM context window
+			extractionHTML := cleanHTMLForPlanning(finalHTML)
+			if len(extractionHTML) > 30000 {
+				extractionHTML = extractionHTML[:30000] + "...(truncated)"
+			}
+
+			extractionPrompt := fmt.Sprintf(`You are a web scraping data extraction expert.
+
+TASK: Extract the requested information from the HTML content below.
+
+GOAL: %s
+
+HTML CONTENT:
+%s
+
+INSTRUCTIONS:
+- Extract ONLY the specific data requested in the goal.
+- Return the data as a clean, structured list or text.
+- Include actual titles, names, URLs, or values — not HTML tags.
+- If the page has multiple items (e.g. news articles), list them numbered.
+- Be concise but complete. Include all relevant items found.
+- Do NOT wrap in JSON or code blocks. Just return the extracted content as plain text.`, goal, extractionHTML)
+
+			llmResult, err := s.llmClient.callLLMWithContextAndPriority(planCtx, extractionPrompt, PriorityHigh)
+			if err == nil && strings.TrimSpace(llmResult) != "" {
+				log.Printf("✅ [MCP-SMART-SCRAPE] LLM extraction produced %d chars of content", len(llmResult))
+				finalInnerResult["extracted_content"] = strings.TrimSpace(llmResult)
+				finalInnerResult["extraction_method"] = "llm_content_extraction"
+
+				// Strip large fields before serialization
+				stripScrapeResultFields(finalInnerResult)
+				// Update the display text in scrapeResult
+				resultJSON, _ := json.MarshalIndent(finalInnerResult, "", "  ")
+				if content, ok := scrapeResult["content"].([]map[string]interface{}); ok && len(content) > 0 {
+					content[0]["text"] = fmt.Sprintf("Scrape Results (LLM Extracted):\n%s", string(resultJSON))
+				}
+			} else {
+				log.Printf("⚠️ [MCP-SMART-SCRAPE] LLM extraction failed or returned empty: %v", err)
+			}
+		}
+	}
+
+	// Strip large fields from the final result before returning
+	if innerResult, ok := scrapeResult["result"].(map[string]interface{}); ok {
+		stripScrapeResultFields(innerResult)
 	}
 
 	return scrapeResult, nil
@@ -4542,9 +4647,13 @@ INSTRUCTIONS:
 					}
 				}
 
-				// RESILIENCE: Handle typescript_config as string or object anywhere in the response
+				// RESILIENCE: Handle typescript_config as string, array, or object anywhere in the response
 				if ts, ok := rawMap["typescript_config"].(string); ok {
 					config.TypeScriptConfig = ts
+				} else if tsArr, ok := rawMap["typescript_config"].([]interface{}); ok {
+					// Handle array of string commands (e.g. ["await page.click('...')", "await page.fill('...')"])
+					log.Printf("🩹 [MCP-SMART-SCRAPE] Converting typescript_config array (%d items) to JS string...", len(tsArr))
+					config.TypeScriptConfig = convertStepsToJS(map[string]interface{}{"steps": tsArr})
 				} else if tsObj, ok := rawMap["typescript_config"].(map[string]interface{}); ok {
 					// Handle known keys or flat objects
 					log.Printf("🩹 [MCP-SMART-SCRAPE] Converting typescript_config object to JS string...")
@@ -4717,6 +4826,12 @@ func convertStepsToJS(tsObj map[string]interface{}) string {
 	if ok && len(steps) > 0 {
 		log.Printf("🩹 [MCP-SMART-SCRAPE] Converting structured steps array to JS...")
 		for _, s := range steps {
+			// Handle raw string steps (e.g. "await page.click('...')")
+			if rawCmd, ok := s.(string); ok && rawCmd != "" {
+				js += rawCmd + "\n"
+				continue
+			}
+
 			step, ok := s.(map[string]interface{})
 			if !ok {
 				continue

@@ -485,7 +485,8 @@ func main() {
 	r.GET("/api/workflow/:workflow_id/files/:filename", monitor.serveWorkflowFile)
 	// Optional: serve general files if needed by other links
 	r.GET("/api/file/:filename", monitor.serveGenericFile)
-	r.Static("/api/file-local", filepath.Join(os.Getenv("AGI_PROJECT_ROOT"), "artifacts"))
+	// Screenshot serving: try local file first, fall back to proxying from HDN (works in k3s)
+	r.GET("/api/artifacts/*filepath", monitor.serveLocalFileOrProxy)
 	r.GET("/api/files/*filename", monitor.serveFile)
 	r.GET("/api/metrics", monitor.getExecutionMetrics)
 	r.GET("/api/redis", monitor.getRedisInfo)
@@ -1594,6 +1595,10 @@ func (m *MonitorService) checkNATS() ServiceInfo {
 // getSystemMetrics retrieves system-wide metrics
 func (m *MonitorService) getSystemMetrics() SystemMetrics {
 	metrics := SystemMetrics{}
+
+	if m.redisClient == nil {
+		return metrics
+	}
 
 	// Get active workflows count from Redis
 	ctx := context.Background()
@@ -4043,9 +4048,49 @@ func (m *MonitorService) serveGenericFile(c *gin.Context) {
 	}
 }
 
+// serveLocalFileOrProxy serves files from local artifacts directory, falling back to HDN proxy (for k3s)
+func (m *MonitorService) serveLocalFileOrProxy(c *gin.Context) {
+	fp := strings.TrimPrefix(c.Param("filepath"), "/")
+	if fp == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "filename required"})
+		return
+	}
+
+	// 1. Try local file from artifacts directory
+	projectRoot := os.Getenv("AGI_PROJECT_ROOT")
+	if projectRoot != "" {
+		localPath := filepath.Join(projectRoot, "artifacts", fp)
+		if info, err := os.Stat(localPath); err == nil && !info.IsDir() {
+			c.File(localPath)
+			return
+		}
+	}
+
+	// 2. Proxy from HDN screenshot endpoint (works in k3s without shared volumes)
+	if fp == "latest_screenshot.png" && m.hdnURL != "" {
+		resp, err := http.Get(m.hdnURL + "/api/v1/scrape/screenshot")
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				c.Header("Content-Type", "image/png")
+				c.Header("Cache-Control", "no-cache")
+				c.Status(http.StatusOK)
+				io.Copy(c.Writer, resp.Body)
+				return
+			}
+		}
+	}
+
+	c.String(http.StatusNotFound, "file not found")
+}
+
 // getFileFromIntelligentWorkflows retrieves a file from intelligent execution workflows stored in Redis
 func (m *MonitorService) getFileFromIntelligentWorkflows(filename string) ([]byte, string, error) {
 	ctx := context.Background()
+
+	if m.redisClient == nil {
+		return nil, "", fmt.Errorf("redis client not initialized")
+	}
 
 	// Get list of intelligent workflow IDs
 	workflowIDs, err := m.redisClient.SMembers(ctx, "active_workflows").Result()
@@ -4289,6 +4334,10 @@ func extractPDFFromConsoleOutput(content string) []byte {
 // getIntelligentWorkflows retrieves intelligent execution workflows from Redis
 func (m *MonitorService) getIntelligentWorkflows() ([]WorkflowStatus, error) {
 	ctx := context.Background()
+
+	if m.redisClient == nil {
+		return []WorkflowStatus{}, nil
+	}
 
 	// Get list of intelligent workflow IDs from set
 	workflowIDs, _ := m.redisClient.SMembers(ctx, "active_workflows").Result()

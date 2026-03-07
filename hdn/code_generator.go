@@ -735,7 +735,7 @@ Code:`
 					toolInstructions += "\n🚨 CRITICAL: Always use the HDN_URL environment variable with the provided default URL!\n"
 					toolInstructions += "- Call tool via POST request: `requests.post(f'{hdn_url}/api/v1/tools/{tool_id}/invoke', json={params})`\n"
 					toolInstructions += "- Example for tool_http_get: `requests.post(f'{hdn_url}/api/v1/tools/tool_http_get/invoke', json={'url': 'https://example.com'})`\n"
-					toolInstructions += "- Make sure to import `requests` and `os` modules, and handle the response JSON properly.\n"
+					toolInstructions += "- 🚨 MUST DO: You MUST explicitly include `import requests`, `import json`, and `import os` at the top of your code!\n"
 					toolInstructions += "🚨 CRITICAL: Python uses `None`, NOT `null`. If you see `null` in context, use `None` in your code!\n"
 					toolInstructions += "- PREFER using available tools over writing custom code when a tool can accomplish the task!\n"
 				} else {

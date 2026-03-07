@@ -8,6 +8,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -1260,6 +1261,15 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 
 	// Store raw text for debugging (Disabled to reduce payload size)
 	// results["raw_text"] = bodyContent
+
+	// Capture screenshot for Wow dashboard AI Sight panel
+	screenshot, err := page.Screenshot(pw.PageScreenshotOptions{})
+	if err == nil && screenshot != nil {
+		results["screenshot"] = "data:image/png;base64," + base64.StdEncoding.EncodeToString(screenshot)
+		log.Printf("📸 Screenshot captured (%d bytes)", len(screenshot))
+	} else if err != nil {
+		log.Printf("⚠️ Screenshot capture failed: %v", err)
+	}
 
 	return results, nil
 }

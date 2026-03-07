@@ -1,5 +1,7 @@
 package conversational
 
+import "hdn/types"
+
 // TaskResult represents the result of a task execution
 type TaskResult struct {
 	Success  bool                   `json:"success"`
@@ -31,3 +33,6 @@ type InterpretResult struct {
 	Error       string                 `json:"error,omitempty"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
+
+// ThoughtExpressionServiceInterface is an alias for the shared interface in hdn/types
+type ThoughtExpressionServiceInterface = types.ThoughtExpressionServiceInterface

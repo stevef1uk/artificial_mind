@@ -306,12 +306,6 @@ run-memory-smoke-neo4j: build-memory-smoke-neo4j
 	@echo "🚀 Running memory smoke (neo4j + episodic)..."
 	@RAG_URL=$(RAG_URL) NEO4J_URI=$(NEO4J_URI) NEO4J_USER=$(NEO4J_USER) NEO4J_PASS=$(NEO4J_PASS) $(BIN_DIR)/memory-smoke | cat
 
-# Run regression tests
-.PHONY: test-regression
-test-regression:
-	@echo "🧪 Running regression tests..."
-	@cd tests/regression && $(MAKE) test
-
 # Clean build artifacts
 .PHONY: clean
 clean:
@@ -792,7 +786,6 @@ help:
 	@echo "  test-hdn           - Test HDN component"
 	@echo "  test-monitor       - Test monitor component"
 	@echo "  test-fsm           - Test FSM component"
-	@echo "  test-regression    - Run regression tests (Docker-based)"
 	@echo "  test-integration   - Run integration test"
 	@echo "  test-hdn-principles - Run HDN principles test"
 	@echo "  test-tool-generation - Test tool generation lifecycle"

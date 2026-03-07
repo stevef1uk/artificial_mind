@@ -385,6 +385,7 @@ func startAPIServer(domainPath string, config *ServerConfig) {
 			server.redis,
 			hdnBaseURL,
 			llmClient, // Pass LLM client
+			server.fileStorage,
 		)
 		server.SetMCPKnowledgeServer(s)
 		log.Printf("✅ [HDN] MCP knowledge server initialized and hints synchronized")

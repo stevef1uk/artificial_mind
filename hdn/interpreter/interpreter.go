@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"hdn/types"
 )
 
 // Interpreter handles natural language input processing
@@ -50,6 +52,11 @@ type InterpretationResult struct {
 
 // NewInterpreter creates a new interpreter instance
 func NewInterpreter(llmClient LLMClientInterface) *Interpreter {
+	return NewInterpreterWithThoughtExpression(llmClient, nil)
+}
+
+// NewInterpreterWithThoughtExpression creates a new interpreter with an optional ThoughtExpressionService
+func NewInterpreterWithThoughtExpression(llmClient LLMClientInterface, thoughtExpr types.ThoughtExpressionServiceInterface) *Interpreter {
 	// Create a composite tool provider that combines HDN and MCP tools
 	// Use environment variable or default to localhost for backward compatibility
 	hdnURL := os.Getenv("HDN_URL")
@@ -61,8 +68,8 @@ func NewInterpreter(llmClient LLMClientInterface) *Interpreter {
 	// Create flexible LLM adapter
 	flexibleLLM := NewFlexibleLLMAdapter(llmClient)
 
-	// Create flexible interpreter
-	flexibleInterpreter := NewFlexibleInterpreter(flexibleLLM, toolProvider)
+	// Create flexible interpreter with thought expression service
+	flexibleInterpreter := NewFlexibleInterpreter(flexibleLLM, toolProvider, thoughtExpr)
 
 	return &Interpreter{
 		llmClient:           llmClient,
@@ -204,7 +211,7 @@ func (i *Interpreter) convertFlexibleToLegacy(flexibleResult *FlexibleInterpreta
 		toolResult := map[string]interface{}{
 			"success": true,
 		}
-		
+
 		// Handle different result formats from tools
 		if flexibleResult.ToolExecutionResult.Result != nil {
 			// Check if result is already in the expected format (map with "results" key)
@@ -224,10 +231,10 @@ func (i *Interpreter) convertFlexibleToLegacy(flexibleResult *FlexibleInterpreta
 				toolResult["results"] = []interface{}{flexibleResult.ToolExecutionResult.Result}
 			}
 		}
-		
+
 		result.Metadata["tool_result"] = toolResult
 		result.Metadata["tool_used"] = flexibleResult.ToolCall.ToolID
-		
+
 		// Log the structure for debugging
 		if results, ok := toolResult["results"]; ok {
 			if resultsArray, ok := results.([]interface{}); ok {

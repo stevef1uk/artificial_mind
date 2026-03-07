@@ -560,10 +560,10 @@
                 const sessions = resp.data.sessions || [];
                 const select = document.getElementById('session-select');
                 select.innerHTML = '<option value="">Select Session</option>' +
-                    sessions.map(s => `<option value="${s.session_id}">${s.session_id.slice(0, 8)}...</option>`).join('');
+                    sessions.map(s => `<option value="${s}">${String(s).slice(0, 8)}...</option>`).join('');
 
                 if (sessions.length > 0) {
-                    select.value = sessions[0].session_id;
+                    select.value = sessions[0];
                     switchSession();
                 }
             } catch (e) { console.error(e); }
@@ -599,16 +599,25 @@
             if (!currentSession) return;
             try {
                 // Poll metrics
-                const resp = await axios.get(`/api/v1/chat/sessions/${currentSession}/thoughts?limit=1`);
+                const resp = await axios.get(`/api/v1/chat/sessions/${currentSession}/thoughts?limit=20`);
                 if (resp.data.thoughts && resp.data.thoughts.length > 0) {
                     const t = resp.data.thoughts[0];
                     document.getElementById('metric-intent').innerText = Math.round((t.confidence || 0) * 100) + '%';
                     document.getElementById('metric-state').innerText = t.state || 'Thinking';
                     document.getElementById('metric-latency').innerText = Math.round(Math.random() * 200 + 100) + 'ms';
 
-                    if (t.tool_used) {
-                        addGraphNode(t.tool_used, 'tool', 'CORE');
-                    }
+                    // Count unique tools used across recent thoughts
+                    const tools = new Set();
+                    resp.data.thoughts.forEach(th => {
+                        if (th.tool_used) {
+                            tools.add(th.tool_used);
+                            addGraphNode(th.tool_used, 'tool', 'CORE');
+                        }
+                        if (th.metadata && th.metadata.step) {
+                            tools.add(th.metadata.step);
+                        }
+                    });
+                    document.getElementById('metric-tools').innerText = tools.size || '-';
                 }
 
                 // Poll history for memories
@@ -627,21 +636,24 @@
                 }
 
                 // CHECK FOR SCREENSHOTS
-                // Since this is a demo, we assume screenshots are saved as session-specific names
-                // or we use the latest global screenshot if active
-                // In a real system, we'd have a specific metadata field
-                const screenshotUrl = `/api/file-local/screenshot_${currentSession}.png`;
+                // Show the latest screenshot from any scrape operation
+                const screenshotUrl = `/api/artifacts/latest_screenshot.png`;
                 const img = document.getElementById('screenshot-view');
                 const testImg = new Image();
-                testImg.onload = () => img.src = screenshotUrl + '?t=' + Date.now();
-                testImg.src = screenshotUrl;
+                testImg.onload = () => {
+                    img.src = screenshotUrl + '?t=' + Date.now();
+                    img.alt = 'Latest scrape screenshot';
+                };
+                testImg.onerror = () => {}; // Silently ignore if no screenshot yet
+                testImg.src = screenshotUrl + '?t=' + Date.now();
 
             } catch (e) { }
             setTimeout(pollAuxData, 3000);
         }
 
         function addThoughtToUI(thought) {
-            const sig = JSON.stringify(thought.content);
+            const text = thought.thought || thought.content || '';
+            const sig = JSON.stringify(text);
             if (knownThoughts.has(sig)) return;
             knownThoughts.add(sig);
 
@@ -651,7 +663,7 @@
 
             const time = new Date(thought.timestamp).toLocaleTimeString();
             entry.innerHTML = `
-                <div class="thought-text">${thought.content}</div>
+                <div class="thought-text">${text}</div>
                 <div class="thought-meta">
                     <span>#${thought.type}</span>
                     <span>${time}</span>
@@ -660,7 +672,7 @@
             stream.insertBefore(entry, stream.firstChild);
 
             // Add to graph
-            addGraphNode(thought.content.slice(0, 20) + '...', 'thought', 'CORE');
+            addGraphNode(text.slice(0, 20) + '...', 'thought', 'CORE');
         }
 
         function addGraphNode(id, type, parentId) {

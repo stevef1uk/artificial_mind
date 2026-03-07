@@ -74,6 +74,16 @@ func MatchesConfiguredToolKeywords(message string) string {
 	messageLower := strings.ToLower(message)
 	allHints := GetAllPromptHints()
 
+	// If the message contains a URL with "scrape" intent, route directly to mcp_smart_scrape
+	// instead of letting search_weaviate keywords ("news", "latest") hijack the request
+	hasURL := strings.Contains(messageLower, "http://") || strings.Contains(messageLower, "https://") || strings.Contains(messageLower, "www.")
+	hasScrapeIntent := strings.Contains(messageLower, "scrape") || strings.Contains(messageLower, "browse") || strings.Contains(messageLower, "crawl") || strings.Contains(messageLower, "fetch") || strings.Contains(messageLower, "crape")
+
+	if hasURL && hasScrapeIntent {
+		log.Printf("🔗 [KEYWORD-MATCH] URL + scrape intent detected - routing to mcp_smart_scrape")
+		return "mcp_smart_scrape"
+	}
+
 	for toolID, hints := range allHints {
 		if hints == nil {
 			continue
@@ -209,9 +219,19 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 		inputLower := strings.ToLower(input)
 		allHints := GetAllPromptHints()
 
+		// Detect URL + scrape intent to skip search_weaviate hint enforcement
+		hasURLInInput := strings.Contains(inputLower, "http://") || strings.Contains(inputLower, "https://") || strings.Contains(inputLower, "www.")
+		hasScrapeIntentInInput := strings.Contains(inputLower, "scrape") || strings.Contains(inputLower, "browse") || strings.Contains(inputLower, "crawl") || strings.Contains(inputLower, "fetch") || strings.Contains(inputLower, "crape")
+
 		// Check each tool with prompt hints
 		for toolID, hints := range allHints {
 			if hints == nil {
+				continue
+			}
+
+			// Skip search_weaviate hints when user wants to scrape a URL
+			if hasURLInInput && hasScrapeIntentInInput && (toolID == "search_weaviate" || toolID == "mcp_search_weaviate") {
+				log.Printf("ℹ️ [FLEXIBLE-LLM] Skipping %s hint enforcement — URL + scrape intent detected", toolID)
 				continue
 			}
 
@@ -264,19 +284,31 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 				}
 
 				// Reject wrong tool calls if configured
+				// BUT: Don't reject if the LLM chose a scraping/browsing tool - those are more
+				// appropriate for URL-based requests than search_weaviate
 				if parsedResponse.Type == ResponseTypeToolCall && parsedResponse.ToolCall != nil {
 					responseToolID := parsedResponse.ToolCall.ToolID
 					if responseToolID != actualToolID && strings.TrimPrefix(responseToolID, "mcp_") != strings.TrimPrefix(actualToolID, "mcp_") {
-						log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s'. Forcing %s.", responseToolID, actualToolID)
-						// Force correct tool call
-						return &FlexibleLLMResponse{
-							Type: ResponseTypeToolCall,
-							ToolCall: &ToolCall{
-								ToolID:      actualToolID,
-								Parameters:  map[string]interface{}{},
-								Description: fmt.Sprintf("Using %s as requested", actualToolID),
-							},
-						}, nil
+						// Allow scraping/browsing tools to take priority - the LLM chose them for a reason
+						responseLower := strings.ToLower(responseToolID)
+						isScrapeOrBrowseTool := strings.Contains(responseLower, "scrape") ||
+							strings.Contains(responseLower, "browse") ||
+							strings.Contains(responseLower, "html_scraper") ||
+							strings.Contains(responseLower, "http_get")
+						if isScrapeOrBrowseTool {
+							log.Printf("✅ [FLEXIBLE-LLM] Allowing LLM's tool choice '%s' (scrape/browse tool takes priority over %s)", responseToolID, actualToolID)
+						} else {
+							log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s'. Forcing %s.", responseToolID, actualToolID)
+							// Force correct tool call
+							return &FlexibleLLMResponse{
+								Type: ResponseTypeToolCall,
+								ToolCall: &ToolCall{
+									ToolID:      actualToolID,
+									Parameters:  map[string]interface{}{},
+									Description: fmt.Sprintf("Using %s as requested", actualToolID),
+								},
+							}, nil
+						}
 					}
 				}
 			}
@@ -303,9 +335,19 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 	inputLower := strings.ToLower(input)
 	allHints := GetAllPromptHints()
 
+	// Detect URL + scrape intent to skip search_weaviate hint enforcement
+	hasURLInInput2 := strings.Contains(inputLower, "http://") || strings.Contains(inputLower, "https://") || strings.Contains(inputLower, "www.")
+	hasScrapeIntentInInput2 := strings.Contains(inputLower, "scrape") || strings.Contains(inputLower, "browse") || strings.Contains(inputLower, "crawl") || strings.Contains(inputLower, "fetch") || strings.Contains(inputLower, "crape")
+
 	// Check each tool with prompt hints
 	for toolID, hints := range allHints {
 		if hints == nil {
+			continue
+		}
+
+		// Skip search_weaviate hints when user wants to scrape a URL
+		if hasURLInInput2 && hasScrapeIntentInInput2 && (toolID == "search_weaviate" || toolID == "mcp_search_weaviate") {
+			log.Printf("ℹ️ [FLEXIBLE-LLM] Skipping %s hint enforcement — URL + scrape intent detected (block 2)", toolID)
 			continue
 		}
 
@@ -358,19 +400,31 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 			}
 
 			// Reject wrong tool calls if configured
+			// BUT: Don't reject if the LLM chose a scraping/browsing tool - those are more
+			// appropriate for URL-based requests than search_weaviate
 			if parsedResponse.Type == ResponseTypeToolCall && parsedResponse.ToolCall != nil {
 				responseToolID := parsedResponse.ToolCall.ToolID
 				if responseToolID != actualToolID && strings.TrimPrefix(responseToolID, "mcp_") != strings.TrimPrefix(actualToolID, "mcp_") {
-					log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s'. Forcing %s.", responseToolID, actualToolID)
-					// Force correct tool call
-					return &FlexibleLLMResponse{
-						Type: ResponseTypeToolCall,
-						ToolCall: &ToolCall{
-							ToolID:      actualToolID,
-							Parameters:  map[string]interface{}{},
-							Description: fmt.Sprintf("Using %s as requested", actualToolID),
-						},
-					}, nil
+					// Allow scraping/browsing tools to take priority - the LLM chose them for a reason
+					responseLower := strings.ToLower(responseToolID)
+					isScrapeOrBrowseTool := strings.Contains(responseLower, "scrape") ||
+						strings.Contains(responseLower, "browse") ||
+						strings.Contains(responseLower, "html_scraper") ||
+						strings.Contains(responseLower, "http_get")
+					if isScrapeOrBrowseTool {
+						log.Printf("✅ [FLEXIBLE-LLM] Allowing LLM's tool choice '%s' (scrape/browse tool takes priority over %s)", responseToolID, actualToolID)
+					} else {
+						log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s'. Forcing %s.", responseToolID, actualToolID)
+						// Force correct tool call
+						return &FlexibleLLMResponse{
+							Type: ResponseTypeToolCall,
+							ToolCall: &ToolCall{
+								ToolID:      actualToolID,
+								Parameters:  map[string]interface{}{},
+								Description: fmt.Sprintf("Using %s as requested", actualToolID),
+							},
+						}, nil
+					}
 				}
 			}
 		}
@@ -711,10 +765,21 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 
 	prompt.WriteString("🚨 CRITICAL: You MUST respond with ONLY a valid JSON object. NO explanatory text before or after the JSON.\n\n")
 
+	// Detect URL + scrape intent — if present, skip search_weaviate prompt hints
+	inputLowerForHints := strings.ToLower(input)
+	hasURLForHints := strings.Contains(inputLowerForHints, "http://") || strings.Contains(inputLowerForHints, "https://") || strings.Contains(inputLowerForHints, "www.")
+	hasScrapeForHints := strings.Contains(inputLowerForHints, "scrape") || strings.Contains(inputLowerForHints, "crape") || strings.Contains(inputLowerForHints, "browse") || strings.Contains(inputLowerForHints, "visit") || strings.Contains(inputLowerForHints, "open ") || strings.Contains(inputLowerForHints, "fetch ") || strings.Contains(inputLowerForHints, "go to ")
+	skipWeaviateHints := hasURLForHints && hasScrapeForHints
+
 	// Add configured prompt hints
 	allHints := GetAllPromptHints()
 	for toolID, hints := range allHints {
 		if hints != nil && hints.PromptText != "" {
+			// Skip search_weaviate hints when user wants to scrape a URL
+			if skipWeaviateHints && (toolID == "search_weaviate" || toolID == "mcp_search_weaviate") {
+				log.Printf("ℹ️ [FLEXIBLE-LLM] Skipping search_weaviate PromptText injection — URL + scrape intent detected in: %s", input)
+				continue
+			}
 			// Replace tool ID placeholder if present
 			promptText := strings.ReplaceAll(hints.PromptText, "mcp_read_google_data", toolID)
 			promptText = strings.ReplaceAll(promptText, "read_google_data", toolID)
@@ -722,6 +787,12 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 			prompt.WriteString("\n\n")
 		}
 	}
+
+	// If URL + scrape intent detected, inject a positive hint for mcp_smart_scrape
+	if skipWeaviateHints {
+		prompt.WriteString("⚠️ FOR WEB SCRAPING: The user wants to scrape/visit a specific URL. You MUST use mcp_smart_scrape with the 'url' parameter set to the URL from the user's message. Do NOT use search_weaviate for scraping URLs.\n\n")
+	}
+
 	prompt.WriteString("Respond using EXACTLY ONE of these JSON formats (no extra text, no markdown, no code blocks):\n")
 	prompt.WriteString("1. STRONGLY PREFER (use this if ANY tool can help): {\"type\": \"tool_call\", \"tool_call\": {\"tool_id\": \"tool_name\", \"parameters\": {...}, \"description\": \"...\"}}\n")
 	prompt.WriteString("2. Or: {\"type\": \"structured_task\", \"structured_task\": {\"task_name\": \"...\", \"description\": \"...\", \"subtasks\": [...]}}\n")
@@ -739,6 +810,10 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 	// Add configured tool-specific guidance from prompt hints (reuse allHints from above)
 	for toolID, hints := range allHints {
 		if hints != nil && hints.PromptText != "" {
+			// Skip search_weaviate guidance when user wants to scrape a URL
+			if skipWeaviateHints && (toolID == "search_weaviate" || toolID == "mcp_search_weaviate") {
+				continue
+			}
 			// Add tool-specific guidance
 			promptText := strings.ReplaceAll(hints.PromptText, "mcp_read_google_data", toolID)
 			promptText = strings.ReplaceAll(promptText, "read_google_data", toolID)

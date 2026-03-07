@@ -6,6 +6,8 @@ import (
 	"log"
 	"strings"
 	"time"
+
+	"hdn/types"
 )
 
 // FlexibleInterpretationResult represents the result of flexible interpretation
@@ -36,17 +38,19 @@ type ToolExecutionResult struct {
 
 // FlexibleInterpreter handles flexible natural language processing
 type FlexibleInterpreter struct {
-	llmAdapter      *FlexibleLLMAdapter
-	toolProvider    ToolProviderInterface
-	recentToolCalls map[string]time.Time // Loop protection: track recent tool calls
+	llmAdapter        *FlexibleLLMAdapter
+	toolProvider      ToolProviderInterface
+	thoughtExpression types.ThoughtExpressionServiceInterface // NEW: for storing ThoughtEvents
+	recentToolCalls   map[string]time.Time                    // Loop protection: track recent tool calls
 }
 
 // NewFlexibleInterpreter creates a new flexible interpreter
-func NewFlexibleInterpreter(llmAdapter *FlexibleLLMAdapter, toolProvider ToolProviderInterface) *FlexibleInterpreter {
+func NewFlexibleInterpreter(llmAdapter *FlexibleLLMAdapter, toolProvider ToolProviderInterface, thoughtExpression types.ThoughtExpressionServiceInterface) *FlexibleInterpreter {
 	return &FlexibleInterpreter{
-		llmAdapter:      llmAdapter,
-		toolProvider:    toolProvider,
-		recentToolCalls: make(map[string]time.Time),
+		llmAdapter:        llmAdapter,
+		toolProvider:      toolProvider,
+		thoughtExpression: thoughtExpression,
+		recentToolCalls:   make(map[string]time.Time),
 	}
 }
 
@@ -275,6 +279,31 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 				Result:  executionResult,
 			}
 			result.Message = "Tool executed successfully"
+
+			// --- Store ThoughtEvent for dashboard/Wow UI ---
+			if f.thoughtExpression != nil && req.SessionID != "" {
+				event := types.ThoughtEvent{
+					SessionID:  req.SessionID,
+					Type:       "action",
+					State:      "", // Optionally fill with FSM state if available
+					Goal:       "", // Optionally fill with goal if available
+					Thought:    fmt.Sprintf("Tool '%s' executed", result.ToolCall.ToolID),
+					Confidence: 1.0,
+					ToolUsed:   result.ToolCall.ToolID,
+					Action:     "tool_execution",
+					Result:     fmt.Sprintf("%v", executionResult),
+					Timestamp:  time.Now().Format(time.RFC3339Nano),
+					Metadata: map[string]interface{}{
+						"parameters": result.ToolCall.Parameters,
+						"success":    true,
+					},
+				}
+				if err := f.thoughtExpression.StoreThoughtEvent(ctx, event); err != nil {
+					log.Printf("⚠️ [FLEXIBLE-INTERPRETER] Failed to store ThoughtEvent after tool execution: %v", err)
+				} else {
+					log.Printf("💾 [FLEXIBLE-INTERPRETER] Stored ThoughtEvent for tool execution: %s", result.ToolCall.ToolID)
+				}
+			}
 		}
 	} else {
 		// For scoring requests, text response without tool call is expected and correct
