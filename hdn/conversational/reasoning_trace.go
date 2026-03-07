@@ -85,11 +85,11 @@ func (rt *ReasoningTrace) StartTrace(sessionID string) {
 }
 
 // AddStep adds a reasoning step to the trace
-func (rt *ReasoningTrace) AddStep(step string, description string, input map[string]interface{}) {
-	latestTrace := rt.getLatestTrace()
+func (rt *ReasoningTrace) AddStep(sessionID string, step string, description string, input map[string]interface{}) {
+	trace := rt.GetTrace(sessionID)
 
-	if latestTrace == nil {
-		log.Printf("⚠️ [REASONING-TRACE] No active trace found for step: %s", step)
+	if trace == nil {
+		log.Printf("⚠️ [REASONING-TRACE] No active trace found for session %s at step: %s", sessionID, step)
 		return
 	}
 
@@ -102,23 +102,22 @@ func (rt *ReasoningTrace) AddStep(step string, description string, input map[str
 	}
 
 	// Calculate duration if this is not the first step
-	if len(latestTrace.ReasoningSteps) > 0 {
-		lastStep := latestTrace.ReasoningSteps[len(latestTrace.ReasoningSteps)-1]
+	if len(trace.ReasoningSteps) > 0 {
+		lastStep := trace.ReasoningSteps[len(trace.ReasoningSteps)-1]
 		reasoningStep.Duration = reasoningStep.Timestamp.Sub(lastStep.Timestamp)
 	}
 
-	latestTrace.ReasoningSteps = append(latestTrace.ReasoningSteps, reasoningStep)
+	trace.ReasoningSteps = append(trace.ReasoningSteps, reasoningStep)
 
-	log.Printf("🧠 [REASONING-TRACE] Added step: %s - %s", step, description)
+	log.Printf("🧠 [REASONING-TRACE] [%s] Added step: %s - %s", sessionID, step, description)
 }
 
 // AddDecision adds a decision point to the trace
-func (rt *ReasoningTrace) AddDecision(description string, options []string, chosen string, reasoning string, confidence float64) {
-	// Find the most recent trace
-	latestTrace := rt.getLatestTrace()
+func (rt *ReasoningTrace) AddDecision(sessionID string, description string, options []string, chosen string, reasoning string, confidence float64) {
+	trace := rt.GetTrace(sessionID)
 
-	if latestTrace == nil {
-		log.Printf("⚠️ [REASONING-TRACE] No active trace found for decision: %s", description)
+	if trace == nil {
+		log.Printf("⚠️ [REASONING-TRACE] No active trace found for session %s at decision: %s", sessionID, description)
 		return
 	}
 
@@ -132,93 +131,87 @@ func (rt *ReasoningTrace) AddDecision(description string, options []string, chos
 		Metadata:    make(map[string]interface{}),
 	}
 
-	latestTrace.Decisions = append(latestTrace.Decisions, decision)
+	trace.Decisions = append(trace.Decisions, decision)
 
-	log.Printf("🧠 [REASONING-TRACE] Added decision: %s -> %s (confidence: %.2f)", description, chosen, confidence)
+	log.Printf("🧠 [REASONING-TRACE] [%s] Added decision: %s -> %s (confidence: %.2f)", sessionID, description, chosen, confidence)
 }
 
 // AddAction adds an action to the trace
-func (rt *ReasoningTrace) AddAction(action string) {
-	// Find the most recent trace
-	latestTrace := rt.getLatestTrace()
+func (rt *ReasoningTrace) AddAction(sessionID string, action string) {
+	trace := rt.GetTrace(sessionID)
 
-	if latestTrace == nil {
-		log.Printf("⚠️ [REASONING-TRACE] No active trace found for action: %s", action)
+	if trace == nil {
+		log.Printf("⚠️ [REASONING-TRACE] No active trace found for session %s at action: %s", sessionID, action)
 		return
 	}
 
-	latestTrace.Actions = append(latestTrace.Actions, action)
-	log.Printf("🧠 [REASONING-TRACE] Added action: %s", action)
+	trace.Actions = append(trace.Actions, action)
+	log.Printf("🧠 [REASONING-TRACE] [%s] Added action: %s", sessionID, action)
 }
 
 // AddKnowledgeUsed adds knowledge source to the trace
-func (rt *ReasoningTrace) AddKnowledgeUsed(source string) {
-	// Find the most recent trace
-	latestTrace := rt.getLatestTrace()
+func (rt *ReasoningTrace) AddKnowledgeUsed(sessionID string, source string) {
+	trace := rt.GetTrace(sessionID)
 
-	if latestTrace == nil {
-		log.Printf("⚠️ [REASONING-TRACE] No active trace found for knowledge: %s", source)
+	if trace == nil {
+		log.Printf("⚠️ [REASONING-TRACE] No active trace found for session %s at knowledge: %s", sessionID, source)
 		return
 	}
 
-	latestTrace.KnowledgeUsed = append(latestTrace.KnowledgeUsed, source)
-	log.Printf("🧠 [REASONING-TRACE] Added knowledge source: %s", source)
+	trace.KnowledgeUsed = append(trace.KnowledgeUsed, source)
+	log.Printf("🧠 [REASONING-TRACE] [%s] Added knowledge source: %s", sessionID, source)
 }
 
 // AddToolInvoked adds a tool invocation to the trace
-func (rt *ReasoningTrace) AddToolInvoked(tool string) {
-	// Find the most recent trace
-	latestTrace := rt.getLatestTrace()
+func (rt *ReasoningTrace) AddToolInvoked(sessionID string, tool string) {
+	trace := rt.GetTrace(sessionID)
 
-	if latestTrace == nil {
-		log.Printf("⚠️ [REASONING-TRACE] No active trace found for tool: %s", tool)
+	if trace == nil {
+		log.Printf("⚠️ [REASONING-TRACE] No active trace found for session %s at tool: %s", sessionID, tool)
 		return
 	}
 
-	latestTrace.ToolsInvoked = append(latestTrace.ToolsInvoked, tool)
-	log.Printf("🧠 [REASONING-TRACE] Added tool invocation: %s", tool)
+	trace.ToolsInvoked = append(trace.ToolsInvoked, tool)
+	log.Printf("🧠 [REASONING-TRACE] [%s] Added tool invocation: %s", sessionID, tool)
 }
 
 // SetGoal sets the current goal for the trace
-func (rt *ReasoningTrace) SetGoal(goal string) {
-	// Find the most recent trace
-	latestTrace := rt.getLatestTrace()
+func (rt *ReasoningTrace) SetGoal(sessionID string, goal string) {
+	trace := rt.GetTrace(sessionID)
 
-	if latestTrace == nil {
-		log.Printf("⚠️ [REASONING-TRACE] No active trace found for goal: %s", goal)
+	if trace == nil {
+		log.Printf("⚠️ [REASONING-TRACE] No active trace found for session %s at goal: %s", sessionID, goal)
 		return
 	}
 
-	latestTrace.CurrentGoal = goal
-	log.Printf("🧠 [REASONING-TRACE] Set goal: %s", goal)
+	trace.CurrentGoal = goal
+	log.Printf("🧠 [REASONING-TRACE] [%s] Set goal: %s", sessionID, goal)
 }
 
 // SetFSMState sets the current FSM state for the trace
-func (rt *ReasoningTrace) SetFSMState(state string) {
-	// Find the most recent trace
-	latestTrace := rt.getLatestTrace()
+func (rt *ReasoningTrace) SetFSMState(sessionID string, state string) {
+	trace := rt.GetTrace(sessionID)
 
-	if latestTrace == nil {
-		log.Printf("⚠️ [REASONING-TRACE] No active trace found for FSM state: %s", state)
+	if trace == nil {
+		log.Printf("⚠️ [REASONING-TRACE] No active trace found for session %s at FSM state: %s", sessionID, state)
 		return
 	}
 
-	latestTrace.FSMState = state
-	log.Printf("🧠 [REASONING-TRACE] Set FSM state: %s", state)
+	trace.FSMState = state
+	log.Printf("🧠 [REASONING-TRACE] [%s] Set FSM state: %s", sessionID, state)
 }
 
 // SetConfidence sets the overall confidence for the trace
-func (rt *ReasoningTrace) SetConfidence(confidence float64) {
-	// Find the most recent trace
-	latestTrace := rt.getLatestTrace()
+func (rt *ReasoningTrace) SetConfidence(sessionID string, confidence float64) {
+	trace := rt.GetTrace(sessionID)
 
-	if latestTrace == nil {
-		log.Printf("⚠️ [REASONING-TRACE] No active trace found for confidence: %.2f", confidence)
+	if trace == nil {
+		log.Printf("⚠️ [REASONING-TRACE] No active trace found for session %s at confidence: %.2f", sessionID, confidence)
 		return
 	}
 
-	latestTrace.Confidence = confidence
-	log.Printf("🧠 [REASONING-TRACE] Set confidence: %.2f", confidence)
+	trace.Confidence = confidence
+	log.Printf("🧠 [REASONING-TRACE] [%s] Set confidence: %.2f", sessionID, confidence)
 }
 
 // CompleteTrace completes the reasoning trace and returns it
@@ -383,15 +376,8 @@ func (rt *ReasoningTrace) ClearOldTraces(olderThan time.Duration) error {
 	return nil
 }
 
-// getLatestTrace returns the most recently started trace
-func (rt *ReasoningTrace) getLatestTrace() *ReasoningTraceData {
-	var latestTrace *ReasoningTraceData
+func (rt *ReasoningTrace) getTraceForSession(sessionID string) *ReasoningTraceData {
 	rt.mu.RLock()
 	defer rt.mu.RUnlock()
-	for _, trace := range rt.traces {
-		if latestTrace == nil || trace.StartTime.After(latestTrace.StartTime) {
-			latestTrace = trace
-		}
-	}
-	return latestTrace
+	return rt.traces[sessionID]
 }

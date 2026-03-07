@@ -101,7 +101,7 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		return cl.handleError("Failed to parse intent", err, req.SessionID)
 	}
 
-	cl.reasoningTrace.AddStep("intent_parsing", fmt.Sprintf("Parsed user intent: %s (confidence: %.2f)", intent.Type, intent.Confidence), map[string]interface{}{
+	cl.reasoningTrace.AddStep(req.SessionID, "intent_parsing", fmt.Sprintf("Parsed user intent: %s (confidence: %.2f)", intent.Type, intent.Confidence), map[string]interface{}{
 		"intent_type": intent.Type,
 		"confidence":  intent.Confidence,
 		"entities":    intent.Entities,
@@ -123,7 +123,7 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		}
 	}
 
-	cl.reasoningTrace.AddStep("context_loading", "Loaded conversation context", map[string]interface{}{
+	cl.reasoningTrace.AddStep(req.SessionID, "context_loading", "Loaded conversation context", map[string]interface{}{
 		"context_keys": len(conversationContext),
 	})
 
@@ -133,7 +133,7 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		log.Printf("⚠️ [CONVERSATIONAL] Failed to load conversation summaries: %v", err)
 	} else if len(summaries) > 0 {
 		conversationContext["conversation_summaries"] = summaries
-		cl.reasoningTrace.AddStep("summary_retrieval", fmt.Sprintf("Retrieved %d relevant conversation summaries", len(summaries)), map[string]interface{}{
+		cl.reasoningTrace.AddStep(req.SessionID, "summary_retrieval", fmt.Sprintf("Retrieved %d relevant conversation summaries", len(summaries)), map[string]interface{}{
 			"summary_count": len(summaries) + 1, // +1 for personal context
 		})
 	}
@@ -158,7 +158,7 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 				if len(items) > 0 {
 					conversationContext["avatar_context"] = avatarResult
 					log.Printf("✅ [CONVERSATIONAL] Found %d relevant personal facts", len(items))
-					cl.reasoningTrace.AddKnowledgeUsed("avatar_context")
+					cl.reasoningTrace.AddKnowledgeUsed(req.SessionID, "avatar_context")
 				}
 			}
 		}
@@ -186,7 +186,7 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 					if len(items) > 0 {
 						conversationContext["wiki_context"] = wikiResult
 						log.Printf("✅ [CONVERSATIONAL] Found %d relevant articles in AgiWiki", len(items))
-						cl.reasoningTrace.AddKnowledgeUsed("agi_wiki")
+						cl.reasoningTrace.AddKnowledgeUsed(req.SessionID, "agi_wiki")
 					}
 				}
 			}
@@ -211,7 +211,7 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 					if len(items) > 0 {
 						conversationContext["news_context"] = newsResult
 						log.Printf("✅ [CONVERSATIONAL] Found %d relevant recent news/Wikipedia articles", len(items))
-						cl.reasoningTrace.AddKnowledgeUsed("wikipedia_news")
+						cl.reasoningTrace.AddKnowledgeUsed(req.SessionID, "wikipedia_news")
 					}
 				}
 			}
@@ -224,7 +224,7 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		return cl.handleError("Failed to determine action", err, req.SessionID)
 	}
 
-	cl.reasoningTrace.AddStep("action_determination", fmt.Sprintf("Determined action: %s to achieve: %s", action.Type, action.Goal), map[string]interface{}{
+	cl.reasoningTrace.AddStep(req.SessionID, "action_determination", fmt.Sprintf("Determined action: %s to achieve: %s", action.Type, action.Goal), map[string]interface{}{
 		"action_type": action.Type,
 		"action_goal": action.Goal,
 	})
@@ -243,7 +243,7 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 	} else {
 		resultDesc = fmt.Sprintf("Action execution failed: %s", result.Error)
 	}
-	cl.reasoningTrace.AddStep("action_execution", resultDesc, map[string]interface{}{
+	cl.reasoningTrace.AddStep(req.SessionID, "action_execution", resultDesc, map[string]interface{}{
 		"success":     result.Success,
 		"output_type": result.Type,
 		"error":       result.Error,
@@ -267,7 +267,7 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 	if len(responsePreview) > 100 {
 		responsePreview = responsePreview[:100] + "..."
 	}
-	cl.reasoningTrace.AddStep("response_generation", fmt.Sprintf("Generated response (confidence: %.2f): %s", response.Confidence, responsePreview), map[string]interface{}{
+	cl.reasoningTrace.AddStep(req.SessionID, "response_generation", fmt.Sprintf("Generated response (confidence: %.2f): %s", response.Confidence, responsePreview), map[string]interface{}{
 		"response_length": len(response.Text),
 		"confidence":      response.Confidence,
 	})
@@ -484,7 +484,8 @@ func (cl *ConversationalLayer) determineAction(ctx context.Context, intent *Inte
 
 // executeAction executes the determined action using FSM + HDN
 func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action, context map[string]interface{}) (*ActionResult, error) {
-	log.Printf("🎯 [CONVERSATIONAL] Executing action: %s - %s", action.Type, action.Goal)
+	sessionID, _ := context["session_id"].(string)
+	log.Printf("🎯 [CONVERSATIONAL] [%s] Executing action: %s - %s", sessionID, action.Type, action.Goal)
 
 	// Convert context to string map for HDN
 	hdnContext := make(map[string]string)
@@ -751,7 +752,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		// Track tool usage if present in the result
 		if interpretResult != nil && interpretResult.Metadata != nil {
 			if toolID, ok := interpretResult.Metadata["tool_used"].(string); ok && toolID != "" {
-				cl.reasoningTrace.AddToolInvoked(toolID)
+				cl.reasoningTrace.AddToolInvoked(sessionID, toolID)
 				log.Printf("🔧 [CONVERSATIONAL] Tracked tool invocation: %s", toolID)
 			}
 		}
@@ -1010,7 +1011,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		// Track tool usage if present in the result
 		if interpretResult != nil && interpretResult.Metadata != nil {
 			if toolID, ok := interpretResult.Metadata["tool_used"].(string); ok && toolID != "" {
-				cl.reasoningTrace.AddToolInvoked(toolID)
+				cl.reasoningTrace.AddToolInvoked(sessionID, toolID)
 				log.Printf("🔧 [CONVERSATIONAL] Tracked tool invocation: %s", toolID)
 			}
 		}
@@ -1034,7 +1035,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		// Track tool usage if present in the result
 		if interpretResult != nil && interpretResult.Metadata != nil {
 			if toolID, ok := interpretResult.Metadata["tool_used"].(string); ok && toolID != "" {
-				cl.reasoningTrace.AddToolInvoked(toolID)
+				cl.reasoningTrace.AddToolInvoked(sessionID, toolID)
 				log.Printf("🔧 [CONVERSATIONAL] Tracked tool invocation: %s", toolID)
 			}
 		}
@@ -1060,7 +1061,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		// Track tool usage if present in the result
 		if interpretResult != nil && interpretResult.Metadata != nil {
 			if toolID, ok := interpretResult.Metadata["tool_used"].(string); ok && toolID != "" {
-				cl.reasoningTrace.AddToolInvoked(toolID)
+				cl.reasoningTrace.AddToolInvoked(sessionID, toolID)
 				log.Printf("🔧 [CONVERSATIONAL] Tracked tool invocation: %s", toolID)
 			}
 		}
@@ -1090,7 +1091,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		// Track tool usage if present in the result
 		if interpretResult != nil && interpretResult.Metadata != nil {
 			if toolID, ok := interpretResult.Metadata["tool_used"].(string); ok && toolID != "" {
-				cl.reasoningTrace.AddToolInvoked(toolID)
+				cl.reasoningTrace.AddToolInvoked(sessionID, toolID)
 				log.Printf("🔧 [CONVERSATIONAL] Tracked tool invocation: %s", toolID)
 			}
 		}
@@ -1111,7 +1112,7 @@ func (cl *ConversationalLayer) handleError(message string, err error, sessionID 
 	log.Printf("❌ [CONVERSATIONAL] %s: %v", message, err)
 
 	// Complete reasoning trace with error
-	cl.reasoningTrace.AddStep("error", message, map[string]interface{}{
+	cl.reasoningTrace.AddStep(sessionID, "error", message, map[string]interface{}{
 		"error": err.Error(),
 	})
 	reasoningTrace := cl.reasoningTrace.CompleteTrace(sessionID)

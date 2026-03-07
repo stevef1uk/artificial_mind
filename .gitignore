@@ -191,3 +191,20 @@ llm_playwright_generator
 failed_jobs/
 monitor/static/smart_scrape/screenshots/
 
+# Large/sensitive files
+node_modules/
+package-lock.json
+state.json
+.env.docker
+.agent/
+*.json
+!hdn/config/**/*.json
+!config/*.yaml
+!config/*.json
+
+# Binaries
+monitor/monitor-server
+monitor/monitor-ui-test
+tools/html_scraper/html_scraper
+hdn/config/
+

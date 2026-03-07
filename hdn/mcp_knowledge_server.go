@@ -116,10 +116,10 @@ func (s *MCPKnowledgeServer) GetAllPromptHints() map[string]*PromptHintsConfig {
 
 	// Add hints for search_weaviate (News/Knowledge)
 	hints["search_weaviate"] = &PromptHintsConfig{
-		Keywords:      []string{"news", "latest news", "ukraine", "world events", "current events", "update on", "what is happening in", "situation in"},
+		Keywords:      []string{"news", "latest news", "ukraine", "russia", "world events", "current events", "update on", "what is happening in", "situation in"},
 		PromptText:    "⚠️ FOR NEWS QUERIES: You MUST use mcp_search_weaviate with collection='WikipediaArticle'. This is the ONLY tool with real-time news access. DO NOT use mcp_get_concept for news.",
 		ForceToolCall: true,
-		AlwaysInclude: []string{"news", "latest news", "ukraine", "situation in"},
+		AlwaysInclude: []string{"news", "latest news", "ukraine", "russia", "situation in"},
 		RejectText:    true,
 	}
 
@@ -3038,7 +3038,7 @@ func (s *MCPKnowledgeServer) extractSearchKeywords(query string) []string {
 		word = strings.Trim(word, ".,!?;:()[]{}'\"")
 
 		// Skip if empty or a stop word
-		if word == "" || stopWords[word] || len(word) <= 2 {
+		if word == "" || stopWords[word] || len(word) <= 1 {
 			continue
 		}
 
