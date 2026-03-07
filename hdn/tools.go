@@ -271,7 +271,22 @@ func (s *APIServer) listTools(ctx context.Context) ([]Tool, error) {
 		mcpResult, err := s.mcpKnowledgeServer.listTools()
 		if err == nil {
 			if m, ok := mcpResult.(map[string]interface{}); ok {
-				if mTools, ok := m["tools"].([]MCPKnowledgeTool); ok {
+				// Handle both []MCPKnowledgeTool and []interface{} for maximum resilience
+				var mTools []MCPKnowledgeTool
+
+				if directSlice, ok := m["tools"].([]MCPKnowledgeTool); ok {
+					mTools = directSlice
+				} else if interfSlice, ok := m["tools"].([]interface{}); ok {
+					// Convert generic slice to MCPKnowledgeTool slice if needed
+					for _, item := range interfSlice {
+						if tool, ok := item.(MCPKnowledgeTool); ok {
+							mTools = append(mTools, tool)
+						}
+					}
+				}
+
+				if len(mTools) > 0 {
+					log.Printf("🔧 [LIST-TOOLS] Found %d MCP tools to register", len(mTools))
 					for _, mt := range mTools {
 						// Convert MCP tool to HDN tool
 						t := Tool{
@@ -294,8 +309,12 @@ func (s *APIServer) listTools(ctx context.Context) ([]Tool, error) {
 						tools = append(tools, t)
 						log.Printf("✅ [LIST-TOOLS] Successfully loaded MCP tool: %s", t.ID)
 					}
+				} else {
+					log.Printf("⚠️ [LIST-TOOLS] MCP tools list was empty or couldn't be parsed")
 				}
 			}
+		} else {
+			log.Printf("❌ [LIST-TOOLS] Failed to list MCP tools: %v", err)
 		}
 	}
 
