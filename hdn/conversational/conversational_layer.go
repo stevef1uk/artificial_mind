@@ -740,8 +740,8 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			}
 		}
 
-		// Create a direct tool call instruction that allows the LLM to choose the best knowledge tool
-		directQuery := fmt.Sprintf("Answer the user's query about '%s'. Use available tools like mcp_get_concept or any web/news search tools you have to retrieve the latest information. Original query for context: %s", coreQuery, originalMessage)
+		// Construct a prompt that encourages tool usage for research/news
+		directQuery := fmt.Sprintf("Answer the user's query about '%s'. For NEWS or LATEST UPDATES (e.g. Ukraine), YOU MUST USE mcp_search_weaviate with collection='WikipediaArticle'. If it is a definition or general concept, use mcp_get_concept. Original query for context: %s", coreQuery, originalMessage)
 		log.Printf("🔍 [CONVERSATIONAL] Flexible knowledge query: %s (extracted from: %s)", directQuery, searchText)
 		interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, directQuery, hdnContext)
 		if err != nil {
