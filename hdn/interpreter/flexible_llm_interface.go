@@ -15,6 +15,20 @@ var (
 	promptHintsMutex    sync.RWMutex
 )
 
+// urlRe extracts the first URL from a string
+var urlRe = regexp.MustCompile(`https?://[^\s"'<>]+`)
+
+func init() {
+	// Register built-in prompt hints for core MCP tools
+	SetPromptHints("mcp_smart_scrape", &PromptHintsConfig{
+		Keywords:      []string{"scrape", "browse", "crawl", "fetch", "visit"},
+		PromptText:    "⚠️ FOR WEB SCRAPING: You MUST use mcp_smart_scrape with the 'url' and 'goal' parameters. Do NOT return a text description of how to scrape.",
+		ForceToolCall: true,
+		AlwaysInclude: []string{"scrape", "browse", "crawl"},
+		RejectText:    true,
+	})
+}
+
 // PromptHintsConfig defines LLM prompt hints for a skill (imported from main package)
 type PromptHintsConfig struct {
 	Keywords      []string `json:"keywords,omitempty"`
@@ -270,14 +284,22 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 
 			if hasTool && hints.ForceToolCall {
 				// Reject text responses if configured
-				if hints.RejectText && parsedResponse.Type == ResponseTypeText {
+			if hints.RejectText && parsedResponse.Type == ResponseTypeText {
 					log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response when %s tool is available. Forcing tool call.", actualToolID)
-					// Force tool call with default parameters
+					// Force tool call — extract parameters from input where possible
+					params := map[string]interface{}{}
+					if actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape" {
+						if match := urlRe.FindString(input); match != "" {
+							params["url"] = match
+							params["goal"] = input // pass the whole message as the goal
+							log.Printf("🔗 [FLEXIBLE-LLM] Extracted URL=%s for forced mcp_smart_scrape call", match)
+						}
+					}
 					return &FlexibleLLMResponse{
 						Type: ResponseTypeToolCall,
 						ToolCall: &ToolCall{
 							ToolID:      actualToolID,
-							Parameters:  map[string]interface{}{},
+							Parameters:  params,
 							Description: fmt.Sprintf("Using %s as requested", actualToolID),
 						},
 					}, nil
@@ -435,6 +457,22 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 
 // filterRelevantTools filters tools based on task relevance to reduce prompt size
 func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []Tool {
+	// First: strip auto-learned utility tools — they bloat the prompt and confuse small LLMs.
+	// They remain available for direct execution but are not presented for LLM tool selection.
+	coreTools := make([]Tool, 0, len(tools))
+	skippedUtil := 0
+	for _, tool := range tools {
+		if strings.HasPrefix(tool.ID, "tool_python_util_") || strings.HasPrefix(tool.ID, "tool_go_util_") {
+			skippedUtil++
+			continue
+		}
+		coreTools = append(coreTools, tool)
+	}
+	if skippedUtil > 0 {
+		log.Printf("🧹 [FLEXIBLE-LLM] Excluded %d auto-learned utility tools from LLM selection (keeping %d core tools)", skippedUtil, len(coreTools))
+	}
+	tools = coreTools
+
 	if len(tools) <= 15 {
 		// If we have 15 or fewer tools, include all of them
 		return tools
