@@ -23,21 +23,18 @@ var urlRe = regexp.MustCompile(`https?://[^\s"'<>]+`)
 var wellKnownSites = map[string]string{
 	"hacker news":      "https://news.ycombinator.com",
 	"hackernews":       "https://news.ycombinator.com",
-	"hn":               "https://news.ycombinator.com",
 	"bbc news":         "https://www.bbc.co.uk/news",
-	"bbc":              "https://www.bbc.co.uk/news",
 	"reddit":           "https://www.reddit.com",
-	"github":           "https://github.com",
 	"github trending":  "https://github.com/trending",
+	"github":           "https://github.com",
 	"product hunt":     "https://www.producthunt.com",
 	"producthunt":      "https://www.producthunt.com",
 	"techcrunch":       "https://techcrunch.com",
 	"the verge":        "https://www.theverge.com",
 	"ars technica":     "https://arstechnica.com",
 	"slashdot":         "https://slashdot.org",
-	"cnn":              "https://www.cnn.com",
-	"nytimes":          "https://www.nytimes.com",
 	"new york times":   "https://www.nytimes.com",
+	"nytimes":          "https://www.nytimes.com",
 	"wikipedia":        "https://en.wikipedia.org",
 	"stack overflow":   "https://stackoverflow.com",
 	"stackoverflow":    "https://stackoverflow.com",
@@ -45,17 +42,37 @@ var wellKnownSites = map[string]string{
 	"ebay":             "https://www.ebay.com",
 	"youtube":          "https://www.youtube.com",
 	"twitter":          "https://x.com",
-	"x":                "https://x.com",
 }
 
-// resolveWellKnownURL tries to match a site name in the input text to a known URL
+// resolveWellKnownURL tries to match a site name in the input text to a known URL.
+// Uses word-boundary matching to avoid false positives (e.g. "x" in "example").
 func resolveWellKnownURL(input string) string {
 	lower := strings.ToLower(input)
-	// Try longest matches first to avoid "bbc" matching before "bbc news"
 	bestMatch := ""
 	bestURL := ""
 	for name, url := range wellKnownSites {
-		if strings.Contains(lower, name) && len(name) > len(bestMatch) {
+		// Require word boundaries: the character before and after the match
+		// must be a space, punctuation, or start/end of string.
+		idx := strings.Index(lower, name)
+		if idx < 0 {
+			continue
+		}
+		// Check left boundary
+		if idx > 0 {
+			ch := lower[idx-1]
+			if ch != ' ' && ch != '\t' && ch != '\n' && ch != '"' && ch != '\'' && ch != '(' && ch != ',' && ch != ':' {
+				continue
+			}
+		}
+		// Check right boundary
+		end := idx + len(name)
+		if end < len(lower) {
+			ch := lower[end]
+			if ch != ' ' && ch != '\t' && ch != '\n' && ch != '"' && ch != '\'' && ch != ')' && ch != ',' && ch != ':' && ch != '.' && ch != '!' && ch != '?' {
+				continue
+			}
+		}
+		if len(name) > len(bestMatch) {
 			bestMatch = name
 			bestURL = url
 		}
