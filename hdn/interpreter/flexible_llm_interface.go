@@ -308,8 +308,9 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 		}
 
 		// Detect URL + scrape intent to skip search_weaviate hint enforcement
-		hasURLInInput := strings.Contains(inputLower, "http://") || strings.Contains(inputLower, "https://") || strings.Contains(inputLower, "www.")
-		hasScrapeIntentInInput := strings.Contains(inputLower, "scrape") || strings.Contains(inputLower, "browse") || strings.Contains(inputLower, "crawl") || strings.Contains(inputLower, "fetch") || strings.Contains(inputLower, "crape")
+		wellKnownResolved := resolveWellKnownURL(input)
+		hasURLInInput := strings.Contains(inputLower, "http://") || strings.Contains(inputLower, "https://") || strings.Contains(inputLower, "www.") || wellKnownResolved != ""
+		hasScrapeIntentInInput := strings.Contains(inputLower, "scrape") || strings.Contains(inputLower, "browse") || strings.Contains(inputLower, "crawl") || strings.Contains(inputLower, "fetch") || strings.Contains(inputLower, "crape") || wellKnownResolved != ""
 
 		// Check each tool with prompt hints
 		for toolID, hints := range allHints {
@@ -338,6 +339,14 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 				if strings.Contains(inputLower, strings.ToLower(keyword)) {
 					matchesAlwaysInclude = true
 					break
+				}
+			}
+
+			// For mcp_smart_scrape: also match if input mentions a well-known site (handles typos like "scape", natural phrasing like "get me hacker news")
+			if !matchesKeywords && !matchesAlwaysInclude {
+				if (toolID == "mcp_smart_scrape" || toolID == "smart_scrape") && wellKnownResolved != "" {
+					matchesKeywords = true
+					log.Printf("🔗 [FLEXIBLE-LLM] Well-known site detected (%s) — treating as scrape intent for %s", wellKnownResolved, toolID)
 				}
 			}
 
@@ -465,8 +474,9 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 	}
 
 	// Detect URL + scrape intent to skip search_weaviate hint enforcement
-	hasURLInInput2 := strings.Contains(inputLower, "http://") || strings.Contains(inputLower, "https://") || strings.Contains(inputLower, "www.") || resolveWellKnownURL(input) != ""
-	hasScrapeIntentInInput2 := strings.Contains(inputLower, "scrape") || strings.Contains(inputLower, "browse") || strings.Contains(inputLower, "crawl") || strings.Contains(inputLower, "fetch") || strings.Contains(inputLower, "crape")
+	wellKnownResolved2 := resolveWellKnownURL(input)
+	hasURLInInput2 := strings.Contains(inputLower, "http://") || strings.Contains(inputLower, "https://") || strings.Contains(inputLower, "www.") || wellKnownResolved2 != ""
+	hasScrapeIntentInInput2 := strings.Contains(inputLower, "scrape") || strings.Contains(inputLower, "browse") || strings.Contains(inputLower, "crawl") || strings.Contains(inputLower, "fetch") || strings.Contains(inputLower, "crape") || wellKnownResolved2 != ""
 
 	// Check each tool with prompt hints
 	for toolID, hints := range allHints {
@@ -495,6 +505,14 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 			if strings.Contains(inputLower, strings.ToLower(keyword)) {
 				matchesAlwaysInclude = true
 				break
+			}
+		}
+
+		// For mcp_smart_scrape: also match if input mentions a well-known site (handles typos like "scape", natural phrasing like "get me hacker news")
+		if !matchesKeywords && !matchesAlwaysInclude {
+			if (toolID == "mcp_smart_scrape" || toolID == "smart_scrape") && wellKnownResolved2 != "" {
+				matchesKeywords = true
+				log.Printf("🔗 [FLEXIBLE-LLM] Well-known site detected (%s) — treating as scrape intent for %s (block 2)", wellKnownResolved2, toolID)
 			}
 		}
 
