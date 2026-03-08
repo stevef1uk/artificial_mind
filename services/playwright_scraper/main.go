@@ -663,6 +663,15 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 
 	launchOptions := pw.BrowserTypeLaunchOptions{
 		Headless: pw.Bool(true),
+		Args: []string{
+			"--no-sandbox",
+			"--disable-dev-shm-usage",
+			"--disable-gpu",
+			"--disable-software-rasterizer",
+			"--disable-extensions",
+			"--disable-background-networking",
+			"--single-process",
+		},
 	}
 	if executablePath != "" {
 		launchOptions.ExecutablePath = &executablePath
@@ -719,17 +728,20 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 	}
 	defer page.Close()
 
-	defaultTimeoutMS := 30000
+	defaultTimeoutMS := 60000 // 60s default — ARM/RPi needs more time for heavy pages
 	if envTimeout := os.Getenv("SCRAPE_ACTION_TIMEOUT_MS"); envTimeout != "" {
 		if parsed, err := strconv.Atoi(envTimeout); err == nil && parsed > 0 {
 			defaultTimeoutMS = parsed
 		}
 	}
+	log.Printf("⏱️ Browser timeout: %dms", defaultTimeoutMS)
 	page.SetDefaultTimeout(float64(defaultTimeoutMS))
 
-	waitUntil := pw.WaitUntilStateLoad
+	waitUntil := pw.WaitUntilStateDomcontentloaded // Faster than 'load' for scraping in containers
 	if os.Getenv("SCRAPE_WAIT_UNTIL") == "networkidle" {
 		waitUntil = pw.WaitUntilStateNetworkidle
+	} else if os.Getenv("SCRAPE_WAIT_UNTIL") == "load" {
+		waitUntil = pw.WaitUntilStateLoad
 	}
 
 	if _, err := page.Goto(url, pw.PageGotoOptions{

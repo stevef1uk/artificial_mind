@@ -86,11 +86,17 @@ spec:
         - name: customer-key
           mountPath: /keys
           readOnly: true
+        - name: dshm
+          mountPath: /dev/shm
       
       volumes:
       - name: customer-key
         secret:
           secretName: secure-customer-private
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 256Mi
       
       securityContext:
         runAsNonRoot: false
