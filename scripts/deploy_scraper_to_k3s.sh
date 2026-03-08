@@ -11,16 +11,16 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 # Configuration
-SCRAPER_IMAGE="stevef1uk/playwright-scraper:latest"
+SCRAPER_IMAGE="stevef1uk/playwright-scraper:secure"
 HDN_IMAGE="stevef1uk/hdn-server:secure"
 NAMESPACE="agi"
 
 echo -e "${YELLOW}Step 1: Building Playwright Scraper Docker image (with secure packaging)${NC}"
-# Build from project root with scraper context
+# Build from project root using the standard secure Dockerfile
 docker build \
   --build-arg CUSTOMER_PUBLIC_KEY=secure/customer_public.pem \
   --build-arg VENDOR_PUBLIC_KEY=secure/vendor_public.pem \
-  -f services/playwright_scraper/Dockerfile \
+  -f Dockerfile.playwright-scraper.secure \
   -t ${SCRAPER_IMAGE} .
 
 echo -e "${GREEN}✅ Scraper image built${NC}"

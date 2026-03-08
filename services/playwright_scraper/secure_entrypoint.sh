@@ -13,12 +13,12 @@ echo "⏰ Timezone: $TZ"
 
 # Check if this is a health check
 if [ "${1:-}" = "-health-check" ]; then
-    # Simple health check: try to connect to port 8080
+    # Simple health check: try to connect to port 8085
     if command -v wget &> /dev/null; then
-        wget -q -O- http://localhost:8080/health > /dev/null 2>&1
+        wget -q -O- http://localhost:8085/health > /dev/null 2>&1
         exit $?
     elif command -v curl &> /dev/null; then
-        curl -sf http://localhost:8080/health > /dev/null 2>&1
+        curl -sf http://localhost:8085/health > /dev/null 2>&1
         exit $?
     else
         # No health check tool available, assume healthy if process is running
@@ -96,7 +96,7 @@ echo "   - Worker Count: 3"
 echo "   - Job Queue Size: 100"
 echo "   - Job Retention: 30 minutes"
 echo "   - Page Timeout: 20 seconds"
-echo "   - Port: 8080"
+echo "   - Port: 8085"
 echo ""
 
 # Change to scraper user and run the binary

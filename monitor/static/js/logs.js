@@ -60,7 +60,7 @@ function getOrCreateLogsContainer() {
     // Populate services select from backend; fallback to known label values
     const svcSelect = wrapper.querySelector('#k8s-service-select');
     if (svcSelect) {
-        const fallback = ['nats', 'neo4j', 'redis', 'weaviate', 'weaviate-health-proxy', 'hdn-server-rpi58', 'fsm-server-rpi58', 'goal-manager', 'principles-server'];
+        const fallback = ['nats', 'neo4j', 'redis', 'weaviate', 'weaviate-health-proxy', 'hdn-server-rpi58', 'fsm-server-rpi58', 'goal-manager', 'principles-server', 'playwright-scraper', 'monitor-ui'];
         try {
             axios.get('/api/k8s/services', { timeout: 4000 }).then(resp => {
                 const items = Array.isArray(resp.data) ? resp.data : [];
@@ -250,7 +250,7 @@ function setLogSource(source) {
     if (useKubernetesLogs) {
         const svcSelect = document.getElementById('k8s-service-select');
         if (svcSelect && (svcSelect.options.length === 0 || svcSelect.options.length === 1 && svcSelect.options[0].value === '')) {
-            const fallback = ['nats', 'neo4j', 'redis', 'weaviate', 'weaviate-health-proxy', 'hdn-server-rpi58', 'fsm-server-rpi58', 'goal-manager', 'principles-server'];
+            const fallback = ['nats', 'neo4j', 'redis', 'weaviate', 'weaviate-health-proxy', 'hdn-server-rpi58', 'fsm-server-rpi58', 'goal-manager', 'principles-server', 'playwright-scraper', 'monitor-ui'];
             try {
                 axios.get('/api/k8s/services', { timeout: 4000 }).then(resp => {
                     const items = Array.isArray(resp.data) ? resp.data : [];
@@ -421,7 +421,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Always populate K8s service selector so it's ready when switching to K8s mode
     const svcSelect = document.getElementById('k8s-service-select');
     if (svcSelect) {
-        const fallback = ['nats', 'neo4j', 'redis', 'weaviate', 'weaviate-health-proxy', 'hdn-server-rpi58', 'fsm-server-rpi58', 'goal-manager', 'principles-server'];
+        const fallback = ['nats', 'neo4j', 'redis', 'weaviate', 'weaviate-health-proxy', 'hdn-server-rpi58', 'fsm-server-rpi58', 'goal-manager', 'principles-server', 'playwright-scraper', 'monitor-ui'];
         console.log('DOMContentLoaded: Populating K8s service selector...');
         console.log('DOMContentLoaded: svcSelect current options:', svcSelect.options.length);
         // Always populate, even if it already has options (to replace "Loading...")

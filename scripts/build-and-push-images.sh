@@ -63,6 +63,7 @@ required_files=(
     "Dockerfile.wiki-summarizer.secure"
     "Dockerfile.news-ingestor.secure"
     "Dockerfile.telegram-bot.secure"
+    "Dockerfile.playwright-scraper.secure"
 )
 
 for file in "${required_files[@]}"; do
@@ -147,6 +148,7 @@ build_and_push "Dockerfile.wiki-bootstrapper.secure" "knowledge-builder" "Knowle
 build_and_push "Dockerfile.wiki-summarizer.secure" "wiki-summarizer" "Wiki Summarizer"
 build_and_push "Dockerfile.news-ingestor.secure" "data-processor" "Data Processor"
 build_and_push "Dockerfile.telegram-bot.secure" "telegram-agi-bot" "Telegram AGI Bot"
+build_and_push "Dockerfile.playwright-scraper.secure" "playwright-scraper" "Playwright Scraper"
 
 
 print_success "All Docker images have been built and pushed successfully!"
@@ -162,5 +164,6 @@ echo "  - $DOCKER_USERNAME/knowledge-builder:secure"
 echo "  - $DOCKER_USERNAME/wiki-summarizer:secure"
 echo "  - $DOCKER_USERNAME/data-processor:secure"
 echo "  - $DOCKER_USERNAME/telegram-agi-bot:secure"
+echo "  - $DOCKER_USERNAME/playwright-scraper:secure"
 
 print_status "You can now deploy these images to your Kubernetes cluster."
