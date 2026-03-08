@@ -1492,8 +1492,15 @@ func main() {
 		}
 	}
 
-	// Create scraper service with 3 worker threads
-	service := NewScraperService(3)
+	// Create scraper service — configurable via SCRAPER_WORKERS env var
+	workerCount := 1 // Default: 1 worker (safe for ARM)
+	if wStr := os.Getenv("SCRAPER_WORKERS"); wStr != "" {
+		if w, err := strconv.Atoi(wStr); err == nil && w > 0 {
+			workerCount = w
+		}
+	}
+	log.Printf("🔧 Starting scraper with %d workers (set SCRAPER_WORKERS to override)", workerCount)
+	service := NewScraperService(workerCount)
 	service.Start()
 
 	// Setup HTTP routes

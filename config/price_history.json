@@ -1,3 +1,14 @@
 {
-    "last_price": "€3,800.00"
+  "https://www.amazon.fr/-/en/dp/B0DLBY53D5": {
+    "price": "€26.99",
+    "updated_at": "2026-03-08T09:03:13+01:00"
+  },
+  "https://www.amazon.fr/-/en/dp/B0G345VHB8": {
+    "price": "€2,999.00",
+    "updated_at": "2026-02-27T17:02:45+01:00"
+  },
+  "https://www.amazon.fr/-/en/gp/product/B0G1CC2949": {
+    "price": "€38.79",
+    "updated_at": "2026-03-08T09:02:25+01:00"
+  }
 }

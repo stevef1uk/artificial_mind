@@ -79,6 +79,8 @@ spec:
             secretKeyRef:
               name: secure-vendor
               key: token
+        - name: SCRAPER_WORKERS
+          value: "1"
         - name: UNPACK_WORK_DIR
           value: "/tmp/unpack"
         
