@@ -21,27 +21,27 @@ var urlRe = regexp.MustCompile(`https?://[^\s"'<>]+`)
 // wellKnownSites maps common site names/aliases to their URLs.
 // Used to resolve URLs when users mention a site by name without a URL.
 var wellKnownSites = map[string]string{
-	"hacker news":      "https://news.ycombinator.com",
-	"hackernews":       "https://news.ycombinator.com",
-	"bbc news":         "https://www.bbc.co.uk/news",
-	"reddit":           "https://www.reddit.com",
-	"github trending":  "https://github.com/trending",
-	"github":           "https://github.com",
-	"product hunt":     "https://www.producthunt.com",
-	"producthunt":      "https://www.producthunt.com",
-	"techcrunch":       "https://techcrunch.com",
-	"the verge":        "https://www.theverge.com",
-	"ars technica":     "https://arstechnica.com",
-	"slashdot":         "https://slashdot.org",
-	"new york times":   "https://www.nytimes.com",
-	"nytimes":          "https://www.nytimes.com",
-	"wikipedia":        "https://en.wikipedia.org",
-	"stack overflow":   "https://stackoverflow.com",
-	"stackoverflow":    "https://stackoverflow.com",
-	"amazon":           "https://www.amazon.com",
-	"ebay":             "https://www.ebay.com",
-	"youtube":          "https://www.youtube.com",
-	"twitter":          "https://x.com",
+	"hacker news":     "https://news.ycombinator.com",
+	"hackernews":      "https://news.ycombinator.com",
+	"bbc news":        "https://www.bbc.co.uk/news",
+	"reddit":          "https://www.reddit.com",
+	"github trending": "https://github.com/trending",
+	"github":          "https://github.com",
+	"product hunt":    "https://www.producthunt.com",
+	"producthunt":     "https://www.producthunt.com",
+	"techcrunch":      "https://techcrunch.com",
+	"the verge":       "https://www.theverge.com",
+	"ars technica":    "https://arstechnica.com",
+	"slashdot":        "https://slashdot.org",
+	"new york times":  "https://www.nytimes.com",
+	"nytimes":         "https://www.nytimes.com",
+	"wikipedia":       "https://en.wikipedia.org",
+	"stack overflow":  "https://stackoverflow.com",
+	"stackoverflow":   "https://stackoverflow.com",
+	"amazon":          "https://www.amazon.com",
+	"ebay":            "https://www.ebay.com",
+	"youtube":         "https://www.youtube.com",
+	"twitter":         "https://x.com",
 }
 
 // resolveWellKnownURL tries to match a site name in the input text to a known URL.
@@ -295,6 +295,18 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 		inputLower := strings.ToLower(input)
 		allHints := GetAllPromptHints()
 
+		// Skip ALL tool-forcing when input explicitly says "don't use tools/plugins"
+		// This prevents the experiment-ideas generator (which mentions "scrape" in examples)
+		// from accidentally triggering forced mcp_smart_scrape calls.
+		isAntiToolPrompt := strings.Contains(inputLower, "do not attempt to use any plugins") ||
+			strings.Contains(inputLower, "do not use any tools") ||
+			strings.Contains(inputLower, "do not use any plugins") ||
+			strings.Contains(inputLower, "just return a json array")
+		if isAntiToolPrompt {
+			log.Printf("ℹ️ [FLEXIBLE-LLM] Skipping all ForceToolCall enforcement — input explicitly requests no tool usage")
+			return parsedResponse, nil
+		}
+
 		// Detect URL + scrape intent to skip search_weaviate hint enforcement
 		hasURLInInput := strings.Contains(inputLower, "http://") || strings.Contains(inputLower, "https://") || strings.Contains(inputLower, "www.")
 		hasScrapeIntentInInput := strings.Contains(inputLower, "scrape") || strings.Contains(inputLower, "browse") || strings.Contains(inputLower, "crawl") || strings.Contains(inputLower, "fetch") || strings.Contains(inputLower, "crape")
@@ -347,7 +359,6 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 			if hasTool && hints.ForceToolCall {
 				// Reject text responses if configured
 				if hints.RejectText && parsedResponse.Type == ResponseTypeText {
-					log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response when %s tool is available. Forcing tool call.", actualToolID)
 					// Force tool call — extract parameters from input where possible
 					params := map[string]interface{}{}
 					if actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape" {
@@ -361,6 +372,12 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 							log.Printf("🔗 [FLEXIBLE-LLM] Resolved well-known site URL=%s for forced mcp_smart_scrape call", resolved)
 						}
 					}
+					// Don't force mcp_smart_scrape without a URL — it will fail and waste scraper resources
+					if (actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape") && params["url"] == nil {
+						log.Printf("⚠️ [FLEXIBLE-LLM] Skipping forced %s — no URL could be extracted from input", actualToolID)
+						return parsedResponse, nil
+					}
+					log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response when %s tool is available. Forcing tool call.", actualToolID)
 					return &FlexibleLLMResponse{
 						Type: ResponseTypeToolCall,
 						ToolCall: &ToolCall{
@@ -386,13 +403,27 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 						if isScrapeOrBrowseTool {
 							log.Printf("✅ [FLEXIBLE-LLM] Allowing LLM's tool choice '%s' (scrape/browse tool takes priority over %s)", responseToolID, actualToolID)
 						} else {
+							// For mcp_smart_scrape, try to extract URL before forcing
+							forceParams := map[string]interface{}{}
+							if actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape" {
+								if match := urlRe.FindString(input); match != "" {
+									forceParams["url"] = match
+									forceParams["goal"] = input
+								} else if resolved := resolveWellKnownURL(input); resolved != "" {
+									forceParams["url"] = resolved
+									forceParams["goal"] = input
+								} else {
+									// No URL available — don't force a useless scrape
+									log.Printf("⚠️ [FLEXIBLE-LLM] Skipping forced %s (wrong tool '%s') — no URL could be extracted", actualToolID, responseToolID)
+									break
+								}
+							}
 							log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s'. Forcing %s.", responseToolID, actualToolID)
-							// Force correct tool call
 							return &FlexibleLLMResponse{
 								Type: ResponseTypeToolCall,
 								ToolCall: &ToolCall{
 									ToolID:      actualToolID,
-									Parameters:  map[string]interface{}{},
+									Parameters:  forceParams,
 									Description: fmt.Sprintf("Using %s as requested", actualToolID),
 								},
 							}, nil
@@ -422,6 +453,16 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 	// Validation: Check configured prompt hints and enforce tool usage
 	inputLower := strings.ToLower(input)
 	allHints := GetAllPromptHints()
+
+	// Skip ALL tool-forcing when input explicitly says "don't use tools/plugins"
+	isAntiToolPrompt2 := strings.Contains(inputLower, "do not attempt to use any plugins") ||
+		strings.Contains(inputLower, "do not use any tools") ||
+		strings.Contains(inputLower, "do not use any plugins") ||
+		strings.Contains(inputLower, "just return a json array")
+	if isAntiToolPrompt2 {
+		log.Printf("ℹ️ [FLEXIBLE-LLM] Skipping all ForceToolCall enforcement — input explicitly requests no tool usage (block 2)")
+		return parsedResponse, nil
+	}
 
 	// Detect URL + scrape intent to skip search_weaviate hint enforcement
 	hasURLInInput2 := strings.Contains(inputLower, "http://") || strings.Contains(inputLower, "https://") || strings.Contains(inputLower, "www.") || resolveWellKnownURL(input) != ""
@@ -475,7 +516,6 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 		if hasTool && hints.ForceToolCall {
 			// Reject text responses if configured
 			if hints.RejectText && parsedResponse.Type == ResponseTypeText {
-				log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response when %s tool is available. Forcing tool call.", actualToolID)
 				// Force tool call — extract parameters from input where possible
 				params := map[string]interface{}{}
 				if actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape" {
@@ -489,6 +529,12 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 						log.Printf("🔗 [FLEXIBLE-LLM] Resolved well-known site URL=%s for forced mcp_smart_scrape call (block 2)", resolved)
 					}
 				}
+				// Don't force mcp_smart_scrape without a URL — it will fail and waste scraper resources
+				if (actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape") && params["url"] == nil {
+					log.Printf("⚠️ [FLEXIBLE-LLM] Skipping forced %s — no URL could be extracted from input (block 2)", actualToolID)
+					return parsedResponse, nil
+				}
+				log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response when %s tool is available. Forcing tool call. (block 2)", actualToolID)
 				return &FlexibleLLMResponse{
 					Type: ResponseTypeToolCall,
 					ToolCall: &ToolCall{
@@ -514,13 +560,27 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 					if isScrapeOrBrowseTool {
 						log.Printf("✅ [FLEXIBLE-LLM] Allowing LLM's tool choice '%s' (scrape/browse tool takes priority over %s)", responseToolID, actualToolID)
 					} else {
-						log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s'. Forcing %s.", responseToolID, actualToolID)
-						// Force correct tool call
+						// For mcp_smart_scrape, try to extract URL before forcing
+						forceParams2 := map[string]interface{}{}
+						if actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape" {
+							if match := urlRe.FindString(input); match != "" {
+								forceParams2["url"] = match
+								forceParams2["goal"] = input
+							} else if resolved := resolveWellKnownURL(input); resolved != "" {
+								forceParams2["url"] = resolved
+								forceParams2["goal"] = input
+							} else {
+								// No URL available — don't force a useless scrape
+								log.Printf("⚠️ [FLEXIBLE-LLM] Skipping forced %s (wrong tool '%s') — no URL could be extracted (block 2)", actualToolID, responseToolID)
+								break
+							}
+						}
+						log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s'. Forcing %s. (block 2)", responseToolID, actualToolID)
 						return &FlexibleLLMResponse{
 							Type: ResponseTypeToolCall,
 							ToolCall: &ToolCall{
 								ToolID:      actualToolID,
-								Parameters:  map[string]interface{}{},
+								Parameters:  forceParams2,
 								Description: fmt.Sprintf("Using %s as requested", actualToolID),
 							},
 						}, nil
