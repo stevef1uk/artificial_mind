@@ -30,6 +30,8 @@ RUN go build -o scraper .
 # (The code does this at startup, but pre-installing deps is good)
 RUN go run github.com/playwright-community/playwright-go/cmd/playwright@latest install --with-deps
 
-EXPOSE 8080
+EXPOSE 8085
+
+ENV PORT=8085
 
 CMD ["./scraper"]

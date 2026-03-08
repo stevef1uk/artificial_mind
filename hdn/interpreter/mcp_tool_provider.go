@@ -160,12 +160,3 @@ func (m *MCPToolProvider) ExecuteTool(ctx context.Context, toolID string, parame
 	log.Printf("✅ [MCP-TOOL-PROVIDER] Executed tool %s successfully", toolName)
 	return mcpResponse.Result, nil
 }
-
-
-
-
-
-
-
-
-

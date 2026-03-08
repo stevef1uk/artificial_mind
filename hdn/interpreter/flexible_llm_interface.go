@@ -18,6 +18,51 @@ var (
 // urlRe extracts the first URL from a string
 var urlRe = regexp.MustCompile(`https?://[^\s"'<>]+`)
 
+// wellKnownSites maps common site names/aliases to their URLs.
+// Used to resolve URLs when users mention a site by name without a URL.
+var wellKnownSites = map[string]string{
+	"hacker news":      "https://news.ycombinator.com",
+	"hackernews":       "https://news.ycombinator.com",
+	"hn":               "https://news.ycombinator.com",
+	"bbc news":         "https://www.bbc.co.uk/news",
+	"bbc":              "https://www.bbc.co.uk/news",
+	"reddit":           "https://www.reddit.com",
+	"github":           "https://github.com",
+	"github trending":  "https://github.com/trending",
+	"product hunt":     "https://www.producthunt.com",
+	"producthunt":      "https://www.producthunt.com",
+	"techcrunch":       "https://techcrunch.com",
+	"the verge":        "https://www.theverge.com",
+	"ars technica":     "https://arstechnica.com",
+	"slashdot":         "https://slashdot.org",
+	"cnn":              "https://www.cnn.com",
+	"nytimes":          "https://www.nytimes.com",
+	"new york times":   "https://www.nytimes.com",
+	"wikipedia":        "https://en.wikipedia.org",
+	"stack overflow":   "https://stackoverflow.com",
+	"stackoverflow":    "https://stackoverflow.com",
+	"amazon":           "https://www.amazon.com",
+	"ebay":             "https://www.ebay.com",
+	"youtube":          "https://www.youtube.com",
+	"twitter":          "https://x.com",
+	"x":                "https://x.com",
+}
+
+// resolveWellKnownURL tries to match a site name in the input text to a known URL
+func resolveWellKnownURL(input string) string {
+	lower := strings.ToLower(input)
+	// Try longest matches first to avoid "bbc" matching before "bbc news"
+	bestMatch := ""
+	bestURL := ""
+	for name, url := range wellKnownSites {
+		if strings.Contains(lower, name) && len(name) > len(bestMatch) {
+			bestMatch = name
+			bestURL = url
+		}
+	}
+	return bestURL
+}
+
 func init() {
 	// Register built-in prompt hints for core MCP tools
 	SetPromptHints("mcp_smart_scrape", &PromptHintsConfig{
@@ -284,15 +329,19 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 
 			if hasTool && hints.ForceToolCall {
 				// Reject text responses if configured
-			if hints.RejectText && parsedResponse.Type == ResponseTypeText {
+				if hints.RejectText && parsedResponse.Type == ResponseTypeText {
 					log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response when %s tool is available. Forcing tool call.", actualToolID)
 					// Force tool call — extract parameters from input where possible
 					params := map[string]interface{}{}
 					if actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape" {
 						if match := urlRe.FindString(input); match != "" {
 							params["url"] = match
-							params["goal"] = input // pass the whole message as the goal
+							params["goal"] = input
 							log.Printf("🔗 [FLEXIBLE-LLM] Extracted URL=%s for forced mcp_smart_scrape call", match)
+						} else if resolved := resolveWellKnownURL(input); resolved != "" {
+							params["url"] = resolved
+							params["goal"] = input
+							log.Printf("🔗 [FLEXIBLE-LLM] Resolved well-known site URL=%s for forced mcp_smart_scrape call", resolved)
 						}
 					}
 					return &FlexibleLLMResponse{
@@ -358,7 +407,7 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 	allHints := GetAllPromptHints()
 
 	// Detect URL + scrape intent to skip search_weaviate hint enforcement
-	hasURLInInput2 := strings.Contains(inputLower, "http://") || strings.Contains(inputLower, "https://") || strings.Contains(inputLower, "www.")
+	hasURLInInput2 := strings.Contains(inputLower, "http://") || strings.Contains(inputLower, "https://") || strings.Contains(inputLower, "www.") || resolveWellKnownURL(input) != ""
 	hasScrapeIntentInInput2 := strings.Contains(inputLower, "scrape") || strings.Contains(inputLower, "browse") || strings.Contains(inputLower, "crawl") || strings.Contains(inputLower, "fetch") || strings.Contains(inputLower, "crape")
 
 	// Check each tool with prompt hints
@@ -410,12 +459,24 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 			// Reject text responses if configured
 			if hints.RejectText && parsedResponse.Type == ResponseTypeText {
 				log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response when %s tool is available. Forcing tool call.", actualToolID)
-				// Force tool call with default parameters
+				// Force tool call — extract parameters from input where possible
+				params := map[string]interface{}{}
+				if actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape" {
+					if match := urlRe.FindString(input); match != "" {
+						params["url"] = match
+						params["goal"] = input
+						log.Printf("🔗 [FLEXIBLE-LLM] Extracted URL=%s for forced mcp_smart_scrape call (block 2)", match)
+					} else if resolved := resolveWellKnownURL(input); resolved != "" {
+						params["url"] = resolved
+						params["goal"] = input
+						log.Printf("🔗 [FLEXIBLE-LLM] Resolved well-known site URL=%s for forced mcp_smart_scrape call (block 2)", resolved)
+					}
+				}
 				return &FlexibleLLMResponse{
 					Type: ResponseTypeToolCall,
 					ToolCall: &ToolCall{
 						ToolID:      actualToolID,
-						Parameters:  map[string]interface{}{},
+						Parameters:  params,
 						Description: fmt.Sprintf("Using %s as requested", actualToolID),
 					},
 				}, nil
