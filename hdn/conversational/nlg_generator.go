@@ -258,15 +258,35 @@ func (nlg *NLGGenerator) getExtractedScrapeContent(req *NLGRequest) string {
 		return ""
 	}
 
+	// Strip any markdown formatting so the text is clean for voice/TTS output
+	extractedContent = stripMarkdownFormatting(extractedContent)
+
 	// Build a clean response with the extracted content
 	var sb strings.Builder
 	if pageTitle != "" {
-		sb.WriteString(fmt.Sprintf("Here are the results from **%s**:\n\n", pageTitle))
+		sb.WriteString(fmt.Sprintf("Here are the results from %s:\n\n", pageTitle))
 	} else {
 		sb.WriteString("Here are the scraped results:\n\n")
 	}
 	sb.WriteString(extractedContent)
 	return sb.String()
+}
+
+// stripMarkdownFormatting removes markdown formatting characters (**, *, #, etc.)
+// so that the text reads cleanly when spoken aloud by TTS.
+func stripMarkdownFormatting(text string) string {
+	// Remove bold markers: **text** or __text__
+	text = regexp.MustCompile(`\*\*(.+?)\*\*`).ReplaceAllString(text, "$1")
+	text = regexp.MustCompile(`__(.+?)__`).ReplaceAllString(text, "$1")
+	// Remove italic markers: *text* or _text_ (but not underscores in words like my_var)
+	text = regexp.MustCompile(`(?:^|[ (])\*([^*\n]+?)\*(?:$|[ ),.])`).ReplaceAllString(text, "$1")
+	// Remove heading markers: ### heading
+	text = regexp.MustCompile(`(?m)^#{1,6}\s+`).ReplaceAllString(text, "")
+	// Remove inline code backticks
+	text = regexp.MustCompile("`([^`]+)`").ReplaceAllString(text, "$1")
+	// Remove leftover stray * at start of lines (bullet points → plain text)
+	text = regexp.MustCompile(`(?m)^\s*\*\s+`).ReplaceAllString(text, "- ")
+	return text
 }
 
 // generatePlanningResponse generates a response for planning requests
@@ -726,6 +746,7 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 								}
 							}
 							if extractedContent != "" {
+								extractedContent = stripMarkdownFormatting(extractedContent)
 								if pageTitle != "" {
 									resultSb.WriteString(fmt.Sprintf("Scraped page: %s\n\n", pageTitle))
 								}

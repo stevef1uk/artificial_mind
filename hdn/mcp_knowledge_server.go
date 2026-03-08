@@ -3874,6 +3874,25 @@ func stripScrapeResultFields(m map[string]interface{}) {
 	}
 }
 
+// stripMarkdownFormatting removes markdown formatting characters (**, *, #, backticks, etc.)
+// so that extracted content reads cleanly when spoken aloud by TTS on remote devices.
+var (
+	reMarkdownBold       = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	reMarkdownUnderBold  = regexp.MustCompile(`__(.+?)__`)
+	reMarkdownHeading    = regexp.MustCompile(`(?m)^#{1,6}\s+`)
+	reMarkdownInlineCode = regexp.MustCompile("`([^`]+)`")
+	reMarkdownBullet     = regexp.MustCompile(`(?m)^\s*\*\s+`)
+)
+
+func stripMarkdownFormatting(text string) string {
+	text = reMarkdownBold.ReplaceAllString(text, "$1")
+	text = reMarkdownUnderBold.ReplaceAllString(text, "$1")
+	text = reMarkdownHeading.ReplaceAllString(text, "")
+	text = reMarkdownInlineCode.ReplaceAllString(text, "$1")
+	text = reMarkdownBullet.ReplaceAllString(text, "- ")
+	return text
+}
+
 func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string, goal string, userConfig *ScrapeConfig) (interface{}, error) {
 	log.Printf("🧠 [MCP-SMART-SCRAPE] Starting smart scrape for %s with goal: %s", url, goal)
 
@@ -4012,6 +4031,7 @@ INSTRUCTIONS:
 - If the page has multiple items (e.g. news articles), list them numbered.
 - Be concise but complete. Include all relevant items found.
 - Do NOT wrap in JSON or code blocks. Just return the extracted content as plain text.
+- Do NOT use any markdown formatting — no **, *, #, or other markup. Output plain text only, suitable for reading aloud.
 - If the requested data is NOT present in the HTML, respond with exactly: NO_DATA_FOUND`, goal, earlyHTML)
 
 			earlyResult, earlyErr := s.llmClient.callLLMWithContextAndPriority(planCtx, earlyPrompt, PriorityHigh)
@@ -4023,7 +4043,7 @@ INSTRUCTIONS:
 					results["page_title"] = title
 				}
 				results["page_url"] = url
-				results["extracted_content"] = strings.TrimSpace(earlyResult)
+				results["extracted_content"] = stripMarkdownFormatting(strings.TrimSpace(earlyResult))
 				results["extraction_method"] = "early_llm_fast_path"
 
 				resultJSON, _ := json.MarshalIndent(results, "", "  ")
@@ -4201,12 +4221,13 @@ INSTRUCTIONS:
 - Include actual titles, names, URLs, or values — not HTML tags.
 - If the page has multiple items (e.g. news articles), list them numbered.
 - Be concise but complete. Include all relevant items found.
-- Do NOT wrap in JSON or code blocks. Just return the extracted content as plain text.`, goal, extractionHTML)
+- Do NOT wrap in JSON or code blocks. Just return the extracted content as plain text.
+- Do NOT use any markdown formatting — no **, *, #, or other markup. Output plain text only, suitable for reading aloud.`, goal, extractionHTML)
 
 			llmResult, err := s.llmClient.callLLMWithContextAndPriority(planCtx, extractionPrompt, PriorityHigh)
 			if err == nil && strings.TrimSpace(llmResult) != "" {
 				log.Printf("✅ [MCP-SMART-SCRAPE] Fast-path LLM extraction produced %d chars of content", len(llmResult))
-				results["extracted_content"] = strings.TrimSpace(llmResult)
+				results["extracted_content"] = stripMarkdownFormatting(strings.TrimSpace(llmResult))
 				results["extraction_method"] = "llm_content_extraction"
 
 				stripScrapeResultFields(results)
@@ -4358,12 +4379,13 @@ INSTRUCTIONS:
 - Include actual titles, names, URLs, or values — not HTML tags.
 - If the page has multiple items (e.g. news articles), list them numbered.
 - Be concise but complete. Include all relevant items found.
-- Do NOT wrap in JSON or code blocks. Just return the extracted content as plain text.`, goal, extractionHTML)
+- Do NOT wrap in JSON or code blocks. Just return the extracted content as plain text.
+- Do NOT use any markdown formatting — no **, *, #, or other markup. Output plain text only, suitable for reading aloud.`, goal, extractionHTML)
 
 			llmResult, err := s.llmClient.callLLMWithContextAndPriority(planCtx, extractionPrompt, PriorityHigh)
 			if err == nil && strings.TrimSpace(llmResult) != "" {
 				log.Printf("✅ [MCP-SMART-SCRAPE] LLM extraction produced %d chars of content", len(llmResult))
-				finalInnerResult["extracted_content"] = strings.TrimSpace(llmResult)
+				finalInnerResult["extracted_content"] = stripMarkdownFormatting(strings.TrimSpace(llmResult))
 				finalInnerResult["extraction_method"] = "llm_content_extraction"
 
 				// Strip large fields before serialization
