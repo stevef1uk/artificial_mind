@@ -9,7 +9,9 @@ echo "🚗 Testing Scraper - Car (Portsmouth → London)"
 echo "=============================================="
 
 # TypeScript config for Car (proven pattern)
-TS_CONFIG="await page.locator('#geosuggest__input').first().fill('Portsmouth'); 
+# bypassConsent dismisses cookie consent overlay before form interaction
+TS_CONFIG="bypassConsent;
+    await page.locator('#geosuggest__input').first().fill('Portsmouth'); 
     await page.waitForTimeout(5000); 
     await page.getByText('Portsmouth').first().click(); 
     await page.waitForTimeout(2000); 

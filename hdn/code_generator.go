@@ -187,9 +187,7 @@ func (cg *CodeGenerator) cleanGeneratedCode(code, language string, toolAPIURL st
 			return code
 		}
 	}
-	if strings.HasSuffix(trimmed, "```") {
-		trimmed = strings.TrimSuffix(trimmed, "```")
-	}
+	trimmed = strings.TrimSuffix(trimmed, "```")
 	cleaned := strings.TrimSpace(trimmed)
 
 	// For Go code, ensure it starts with package declaration

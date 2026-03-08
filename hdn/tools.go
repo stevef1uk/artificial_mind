@@ -1674,7 +1674,7 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string, env map[s
 		// Use double quotes and escape properly for shell execution
 		envExports := ""
 		hasPrevOutput := false
-		if env != nil && len(env) > 0 {
+		if len(env) > 0 {
 			for k, v := range env {
 				// Track if we have previous_output available for chained executions
 				if strings.EqualFold(k, "previous_output") && strings.TrimSpace(v) != "" {
@@ -1754,7 +1754,7 @@ GOFLAGS= go build -o app ./main.go || exit 1
 		}
 		// Build environment variable exports for Python execution
 		envExports := ""
-		if env != nil && len(env) > 0 {
+		if len(env) > 0 {
 			for k, v := range env {
 				// Escape for shell: escape $, `, ", and \
 				escapedValue := strings.ReplaceAll(v, "\\", "\\\\")

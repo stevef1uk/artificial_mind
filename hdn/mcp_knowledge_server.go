@@ -600,7 +600,6 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 	case "scrape_url", "execute_code", "read_file", "smart_scrape":
 		// Route to the new wrapper
 		return s.executeToolWrapper(ctx, toolName, arguments)
-		return s.browseWeb(ctx, arguments)
 	case "deep_research":
 		return s.deepResearch(ctx, arguments)
 	case "get_scrape_status":

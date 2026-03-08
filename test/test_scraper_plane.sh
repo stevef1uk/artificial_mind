@@ -9,7 +9,9 @@ echo "✈️  Testing Scraper - Plane (Southampton → Newcastle)"
 echo "=================================================="
 
 # TypeScript config for Plane (proven pattern)
-TS_CONFIG="await page.locator('#airportName').first().fill('SOU'); 
+# bypassConsent dismisses cookie consent overlay before form interaction
+TS_CONFIG="bypassConsent;
+    await page.locator('#airportName').first().fill('SOU'); 
     await page.waitForTimeout(3000); 
     await page.getByText('Southampton, United Kingdom').first().click(); 
     await page.waitForTimeout(1000); 

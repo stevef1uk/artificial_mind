@@ -405,10 +405,8 @@ func (ie *IntelligentExecutor) executeWithSSHTool(ctx context.Context, code, lan
 
 		// Merge provided environment variables with defaults
 		dockerEnv := map[string]string{"QUIET": "0"}
-		if env != nil {
-			for k, v := range env {
-				dockerEnv[k] = v
-			}
+		for k, v := range env {
+			dockerEnv[k] = v
 		}
 
 		req := &DockerExecutionRequest{
@@ -471,7 +469,7 @@ func (ie *IntelligentExecutor) executeWithSSHTool(ctx context.Context, code, lan
 		"timeout":  300, // 5 minutes timeout
 	}
 	// Add environment variables if provided
-	if env != nil && len(env) > 0 {
+	if len(env) > 0 {
 		envJSON, err := json.Marshal(env)
 		if err == nil {
 			params["environment"] = string(envJSON)
@@ -746,12 +744,8 @@ Rules:
 
 	// Clean the response - remove any markdown formatting or extra text
 	cleanResponse := strings.TrimSpace(response)
-	if strings.HasPrefix(cleanResponse, "```json") {
-		cleanResponse = strings.TrimPrefix(cleanResponse, "```json")
-	}
-	if strings.HasSuffix(cleanResponse, "```") {
-		cleanResponse = strings.TrimSuffix(cleanResponse, "```")
-	}
+	cleanResponse = strings.TrimPrefix(cleanResponse, "```json")
+	cleanResponse = strings.TrimSuffix(cleanResponse, "```")
 	cleanResponse = strings.TrimSpace(cleanResponse)
 
 	// Parse the JSON response
@@ -1323,7 +1317,7 @@ func (ie *IntelligentExecutor) executeDirectTool(req *ExecutionRequest, start ti
 				params["url"] = matches[0]
 			} else if strings.Contains(strings.ToLower(req.Description), "wikipedia") {
 				// If Wikipedia is mentioned, try to extract article names and construct URLs
-				
+
 				// Try to find quoted article names or topics first
 				topicPattern := regexp.MustCompile(`'([^']+)'|"([^"]+)"`)
 				var topic string
@@ -1334,7 +1328,7 @@ func (ie *IntelligentExecutor) executeDirectTool(req *ExecutionRequest, start ti
 						topic = matches[2]
 					}
 				}
-				
+
 				// If no quoted topic, try to extract from "for X" or "about X" patterns
 				// but limit to 3 words to avoid capturing "and extract key concepts"
 				if topic == "" {
@@ -1349,7 +1343,7 @@ func (ie *IntelligentExecutor) executeDirectTool(req *ExecutionRequest, start ti
 						}
 					}
 				}
-				
+
 				// If still no topic, try to extract from "article for" or "page for" patterns
 				if topic == "" {
 					articlePattern := regexp.MustCompile(`(?:article|page|fetch|scrape)\s+(?:for|about)\s+([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?)`)
@@ -1357,7 +1351,7 @@ func (ie *IntelligentExecutor) executeDirectTool(req *ExecutionRequest, start ti
 						topic = matches[1]
 					}
 				}
-				
+
 				// Construct Wikipedia URL if we found a topic
 				if topic != "" {
 					// Replace spaces with underscores for Wikipedia
@@ -1463,7 +1457,7 @@ func (ie *IntelligentExecutor) executeExplicitTool(req *ExecutionRequest, toolID
 				params["url"] = matches[0]
 			} else if strings.Contains(strings.ToLower(req.Description), "wikipedia") {
 				// If Wikipedia is mentioned, try to extract article names and construct URLs
-				
+
 				// Try to find quoted article names or topics first
 				topicPattern := regexp.MustCompile(`'([^']+)'|"([^"]+)"`)
 				var topic string
@@ -1474,7 +1468,7 @@ func (ie *IntelligentExecutor) executeExplicitTool(req *ExecutionRequest, toolID
 						topic = matches[2]
 					}
 				}
-				
+
 				// If no quoted topic, try to extract from "for X" or "about X" patterns
 				// but limit to 3 words to avoid capturing "and extract key concepts"
 				if topic == "" {
@@ -1489,7 +1483,7 @@ func (ie *IntelligentExecutor) executeExplicitTool(req *ExecutionRequest, toolID
 						}
 					}
 				}
-				
+
 				// If still no topic, try to extract from "article for" or "page for" patterns
 				if topic == "" {
 					articlePattern := regexp.MustCompile(`(?:article|page|fetch|scrape)\s+(?:for|about)\s+([A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?)`)
@@ -1497,7 +1491,7 @@ func (ie *IntelligentExecutor) executeExplicitTool(req *ExecutionRequest, toolID
 						topic = matches[1]
 					}
 				}
-				
+
 				// Construct Wikipedia URL if we found a topic
 				if topic != "" {
 					// Replace spaces with underscores for Wikipedia
@@ -1563,7 +1557,7 @@ func (ie *IntelligentExecutor) extractHypothesisTerms(hypothesis string) []strin
 		}
 		lower := strings.ToLower(cleaned)
 		// Check for important technical/domain terms
-		importantTerms := []string{"learning", "memory", "consolidation", "pattern", "cognitive", 
+		importantTerms := []string{"learning", "memory", "consolidation", "pattern", "cognitive",
 			"process", "knowledge", "hypothesis", "evidence", "relationship", "insight",
 			"biology", "medicine", "computer", "science", "technology", "system"}
 		for _, term := range importantTerms {
@@ -1579,7 +1573,7 @@ func (ie *IntelligentExecutor) extractHypothesisTerms(hypothesis string) []strin
 				phrase := cleaned + " " + nextWord
 				phraseLower := strings.ToLower(phrase)
 				// Check for common concept patterns
-				conceptPatterns := []string{"learning pattern", "memory consolidation", 
+				conceptPatterns := []string{"learning pattern", "memory consolidation",
 					"cognitive process", "knowledge graph", "system state"}
 				for _, pattern := range conceptPatterns {
 					if phraseLower == pattern {
@@ -2955,7 +2949,7 @@ func (ie *IntelligentExecutor) checkParameterCompatibility(cachedCode *Generated
 	log.Printf("🔍 [COMPATIBILITY] Current context: %+v", currentContext)
 
 	// Hard guard 1: language must match when requested
-	if strings.TrimSpace(req.Language) != "" && strings.ToLower(cachedCode.Language) != strings.ToLower(req.Language) {
+	if strings.TrimSpace(req.Language) != "" && !strings.EqualFold(cachedCode.Language, req.Language) {
 		return ParameterCompatibility{
 			IsCompatible: false,
 			Status:       "language_mismatch",
@@ -3508,7 +3502,7 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 			strings.Contains(strings.ToLower(req.Description), "create") && strings.Contains(strings.ToLower(req.Description), "program")
 
 		// Check if files were created (indicates success even without output)
-		hasFiles := result.Files != nil && len(result.Files) > 0
+		hasFiles := len(result.Files) > 0
 
 		if isChainedProgram && hasFiles {
 			log.Printf("✅ [VALIDATION] Chained program executed successfully and created files (no output required)")
@@ -4910,12 +4904,12 @@ func (ie *IntelligentExecutor) generatePerformanceReport(timings []map[string]in
 			report.WriteString(fmt.Sprintf("  Algorithm Duration: %d ms (%.2f seconds)\n", durationMs, float64(durationMs)/1000.0))
 			report.WriteString(fmt.Sprintf("  Algorithm Duration: %d nanoseconds\n", durationNs))
 			report.WriteString(fmt.Sprintf("  Total Execution Time: %d ms (includes compilation/Docker overhead)\n", totalMs))
-			report.WriteString(fmt.Sprintf("  Note: Algorithm time is the actual sorting performance, not total execution overhead\n"))
+			report.WriteString("  Note: Algorithm time is the actual sorting performance, not total execution overhead\n")
 		} else if !usingExtracted && hasTotal {
 			// No timing found in output, show total time with a note
 			report.WriteString(fmt.Sprintf("  Duration: %d ms (%.2f seconds)\n", durationMs, float64(durationMs)/1000.0))
 			report.WriteString(fmt.Sprintf("  Duration: %d nanoseconds\n", durationNs))
-			report.WriteString(fmt.Sprintf("  Note: Program did not print execution time, showing total execution time\n"))
+			report.WriteString("  Note: Program did not print execution time, showing total execution time\n")
 		} else {
 			report.WriteString(fmt.Sprintf("  Duration: %d ms (%.2f seconds)\n", durationMs, float64(durationMs)/1000.0))
 			report.WriteString(fmt.Sprintf("  Duration: %d nanoseconds\n", durationNs))
@@ -5354,7 +5348,7 @@ func extractTimingFromOutput(output string, language string) int64 {
 	}
 
 	// Process the last match found
-	if lastMatch != nil && len(lastMatch) >= 3 {
+	if len(lastMatch) >= 3 {
 		valueStr := lastMatch[1]
 		unit := strings.ToLower(lastMatch[2])
 

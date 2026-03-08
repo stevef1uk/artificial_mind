@@ -188,9 +188,7 @@ func normalizeRedisAddr(addr string) string {
 		return "localhost:6379"
 	}
 	// Strip redis:// prefix if present
-	if strings.HasPrefix(addr, "redis://") {
-		addr = strings.TrimPrefix(addr, "redis://")
-	}
+	addr = strings.TrimPrefix(addr, "redis://")
 	// Remove trailing slash if present
 	addr = strings.TrimSuffix(addr, "/")
 	// Ensure we have a valid address format (host:port)

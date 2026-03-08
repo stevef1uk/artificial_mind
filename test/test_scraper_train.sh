@@ -9,7 +9,9 @@ echo "🚆 Testing Scraper - Train (Petersfield → London Waterloo)"
 echo "=========================================================="
 
 # TypeScript config for Train (proven pattern)
-TS_CONFIG="await page.locator('.geosuggest').first().locator('input').fill('Petersfield'); 
+# bypassConsent dismisses cookie consent overlay before form interaction
+TS_CONFIG="bypassConsent;
+    await page.locator('.geosuggest').first().locator('input').fill('Petersfield'); 
     await page.waitForTimeout(2000); 
     await page.locator('.geosuggest').first().locator('.geosuggest__item').first().click(); 
     await page.waitForTimeout(1000); 

@@ -1250,16 +1250,80 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 		}
 	}
 
-	// 3. Smart Extraction (if instructions provided and no results yet)
-	if instructions != "" && len(results) <= 3 { // 3 is basic fields: url, title, cookies
+	// 3. Smart Extraction (if instructions provided)
+	// Always run for price-related goals, even if CSS selectors already matched something,
+	// because CSS selectors can break when sites change their DOM.
+	goalMentionsPrice := strings.Contains(strings.ToLower(instructions), "price")
+	if instructions != "" && (len(results) <= 3 || goalMentionsPrice) {
 		log.Printf("🔍 Running smart extraction for goal: %s", instructions)
-		// Try to find prices, dates, or emails if mentioned
 		content, _ := page.InnerText("body")
 
-		if strings.Contains(strings.ToLower(instructions), "price") {
-			re := regexp.MustCompile(`\$?\d+\.?\d*|\€\d+\.?\d*|£\d+\.?\d*`)
-			if m := re.FindString(content); m != "" {
-				results["price_found"] = m
+		if goalMentionsPrice {
+			// --- Phase A: Try semantic/structured CSS selectors (site-agnostic) ---
+			var priceFromSelector string
+			semanticPriceSelectors := []string{
+				// Schema.org / microdata
+				`[itemprop="price"]`,
+				`[itemprop="lowPrice"]`,
+				// data-attribute conventions
+				`[data-price]`,
+				`[data-product-price]`,
+				// Common e-commerce class patterns
+				`.price .current`,
+				`.price-current`,
+				`.product-price`,
+				`.sale-price`,
+				`.offer-price`,
+				`.final-price`,
+			}
+			for _, sel := range semanticPriceSelectors {
+				loc := page.Locator(sel).First()
+				if cnt, err := loc.Count(); err == nil && cnt > 0 {
+					// Try content attribute first (e.g. <meta itemprop="price" content="3309.99">)
+					if val, err := loc.GetAttribute("content"); err == nil && val != "" {
+						priceFromSelector = val
+					} else if val, err := loc.GetAttribute("data-price"); err == nil && val != "" {
+						priceFromSelector = val
+					} else if val, err := loc.GetAttribute("data-product-price"); err == nil && val != "" {
+						priceFromSelector = val
+					} else if text, err := loc.TextContent(); err == nil && strings.TrimSpace(text) != "" {
+						priceFromSelector = strings.TrimSpace(text)
+					}
+					if priceFromSelector != "" {
+						log.Printf("🛍️ Smart extraction found price via semantic selector '%s': %s", sel, priceFromSelector)
+						break
+					}
+				}
+			}
+
+			// Also try Open Graph / meta tags (very reliable, site-agnostic)
+			if priceFromSelector == "" {
+				for _, metaSel := range []string{
+					`meta[property="product:price:amount"]`,
+					`meta[property="og:price:amount"]`,
+					`meta[name="price"]`,
+					`meta[name="product:price"]`,
+				} {
+					loc := page.Locator(metaSel).First()
+					if cnt, err := loc.Count(); err == nil && cnt > 0 {
+						if val, err := loc.GetAttribute("content"); err == nil && val != "" {
+							priceFromSelector = val
+							log.Printf("🛍️ Smart extraction found price via meta tag '%s': %s", metaSel, priceFromSelector)
+							break
+						}
+					}
+				}
+			}
+
+			// --- Phase B: Regex fallback on visible text ---
+			if priceFromSelector != "" {
+				results["price_found"] = priceFromSelector
+			} else {
+				// Use the robust regex that handles EU/US prices with thousands separators
+				if p := extractMainPriceFromText(content); p != "" {
+					results["price_found"] = p
+					log.Printf("🛍️ Smart extraction found price via regex: %s", p)
+				}
 			}
 		}
 
@@ -1284,6 +1348,80 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 	}
 
 	return results, nil
+}
+
+// extractMainPriceFromText searches for price patterns in text and picks the most likely main price.
+// Handles EU-style (3.309,99 €) and US-style ($3,309.99) prices with thousands separators.
+// This is site-agnostic — no selectors, just pattern matching on visible text.
+func extractMainPriceFromText(text string) string {
+	// Match prices like €3,309.99, 3.291,04 €, £45.00, etc.
+	// Supports: currency before or after, thousands separators (comma, dot, space), EU/US decimals
+	re := regexp.MustCompile(`(?i)(?:€|\$|£|GBP|EUR|USD)\s*(\d{1,3}(?:[.,\s]\d{3})*[.,]\d{2})|(\d{1,3}(?:[.,\s]\d{3})*[.,]\d{2})\s*(?:€|\$|£|EUR|GBP|USD)`)
+
+	matches := re.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+
+	type parsedPrice struct {
+		matchStr string
+		val      float64
+	}
+	var prices []parsedPrice
+	var maxVal float64 = -1
+
+	for _, m := range matches {
+		matchStr := m[0]
+		numStr := m[1]
+		if numStr == "" {
+			numStr = m[2]
+		}
+
+		cleanNum := strings.ReplaceAll(numStr, " ", "")
+		lastDot := strings.LastIndex(cleanNum, ".")
+		lastComma := strings.LastIndex(cleanNum, ",")
+
+		if lastDot > lastComma {
+			cleanNum = strings.ReplaceAll(cleanNum, ",", "")
+		} else if lastComma > lastDot {
+			cleanNum = strings.ReplaceAll(cleanNum, ".", "")
+			cleanNum = strings.ReplaceAll(cleanNum, ",", ".")
+		}
+
+		val, err := strconv.ParseFloat(cleanNum, 64)
+		if err == nil {
+			prices = append(prices, parsedPrice{matchStr: matchStr, val: val})
+			if val > maxVal {
+				maxVal = val
+			}
+		}
+	}
+
+	if len(prices) == 0 {
+		return ""
+	}
+	if len(prices) == 1 {
+		return prices[0].matchStr
+	}
+
+	// Return the first price >= 40% of the max (skips shipping, picks discount over RRP)
+	threshold := maxVal * 0.4
+	for _, p := range prices {
+		if p.val >= threshold {
+			return p.matchStr
+		}
+	}
+
+	// Fallback to largest
+	var bestPrice string
+	maxVal = -1
+	for _, p := range prices {
+		if p.val > maxVal {
+			maxVal = p.val
+			bestPrice = p.matchStr
+		}
+	}
+	return bestPrice
 }
 
 // HTTP Handlers

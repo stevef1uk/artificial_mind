@@ -510,14 +510,12 @@ func (sde *SimpleDockerExecutor) buildDockerCommand(image, cmd, codeFile, contai
 	}
 
 	// Pass environment variables
-	if context != nil {
-		for key, value := range context {
-			key = strings.TrimSpace(key)
-			if key == "" {
-				continue
-			}
-			args = append(args, "-e", fmt.Sprintf("%s=%s", key, value))
+	for key, value := range context {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
 		}
+		args = append(args, "-e", fmt.Sprintf("%s=%s", key, value))
 	}
 
 	// Mount local input_files directory into the container at /app/input_files (read-only) if it exists

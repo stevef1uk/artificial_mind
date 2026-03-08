@@ -128,7 +128,7 @@ func (we *WorkflowExecutor) Execute(ctx context.Context, workflow *WorkflowDefin
 	result.URL = finalURL
 
 	// Extract results
-	if workflow.Extractions != nil && len(workflow.Extractions) > 0 {
+	if len(workflow.Extractions) > 0 {
 		we.logger.Printf("📊 Extracting data...")
 		content, _ := page.Content()
 

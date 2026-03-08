@@ -60,10 +60,10 @@ kubectl logs -n agi deployment/playwright-scraper --tail=50
    - Job Queue Size: 100
    - Job Retention: 30 minutes
    - Page Timeout: 20 seconds
-   - Port: 8080
+   - Port: 8085
 🎬 Starting scraper service...
 ✅ Started 3 scraper workers
-🚀 Playwright Scraper Service starting on :8080
+🚀 Playwright Scraper Service starting on :8085
 📊 Running 2 dynamic extractions...
    ✅ Found co2: 12.5
    ✅ Found distance: 104
@@ -75,7 +75,7 @@ kubectl logs -n agi deployment/playwright-scraper --tail=50
 
 ```bash
 # Port-forward to test locally
-kubectl port-forward -n agi svc/playwright-scraper 8080:8080 &
+kubectl port-forward -n agi svc/playwright-scraper 8085:8085 &
 
 # Run test script
 ./test/test_scraper_service.sh
@@ -88,7 +88,7 @@ pkill -f "port-forward.*playwright-scraper"
 ```
 🧪 Testing Playwright Scraper Service
 ======================================
-Service URL: http://localhost:8080
+Service URL: http://localhost:8085
 
 1️⃣  Testing health endpoint...
 ✅ Health check passed
@@ -164,7 +164,7 @@ kubectl logs -n agi deployment/hdn-server-rpi58 --tail=50 | grep MCP-SCRAPE
 **Expected HDN logs (when scraping):**
 ```
 📝 [MCP-SCRAPE] Received TypeScript config (646 bytes)
-🚀 [MCP-SCRAPE] Starting scrape job at http://playwright-scraper.agi.svc.cluster.local:8080/scrape/start
+🚀 [MCP-SCRAPE] Starting scrape job at http://playwright-scraper.agi.svc.cluster.local:8085/scrape/start
 ⏳ [MCP-SCRAPE] Job 550e8400-... started, polling for results...
 ⏳ [MCP-SCRAPE] Job 550e8400-... status: running (elapsed: 2s)
 ⏳ [MCP-SCRAPE] Job 550e8400-... status: running (elapsed: 4s)
@@ -227,7 +227,7 @@ kubectl get svc -n agi playwright-scraper
 
 # Test DNS from HDN pod
 kubectl exec -n agi deployment/hdn-server-rpi58 -- \
-  wget -qO- http://playwright-scraper.agi.svc.cluster.local:8080/health
+  wget -qO- http://playwright-scraper.agi.svc.cluster.local:8085/health
 ```
 
 ### Scraper jobs timing out
@@ -290,7 +290,7 @@ pollTimeout := 120 * time.Second  # Increase to 2 minutes
 **HDN Server:**
 ```bash
 # Optional: Override scraper URL
-export PLAYWRIGHT_SCRAPER_URL=http://custom-scraper:8080
+export PLAYWRIGHT_SCRAPER_URL=http://custom-scraper:8085
 ```
 
 **Scraper Service:**

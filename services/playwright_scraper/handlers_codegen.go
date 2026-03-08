@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -59,12 +58,9 @@ func handleCodegenStart(w http.ResponseWriter, r *http.Request) {
 
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("CODEGEN_MODE")))
 
-	log.Printf("📥 Codegen start request for URL: %s (Mode: %s)", req.URL, mode)
-
 	id := uuid.New().String()
-	outputDir := getenvDefault("CODEGEN_OUTPUT_DIR", filepath.Join(os.TempDir(), "agi_codegen"))
+	outputDir := filepath.Join(os.TempDir(), "agi_codegen")
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		log.Printf("❌ [CODEGEN] Failed to create output directory %s: %v", outputDir, err)
 		http.Error(w, fmt.Sprintf("Failed to create output dir: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -75,31 +71,25 @@ func handleCodegenStart(w http.ResponseWriter, r *http.Request) {
 	}
 	logPath := filepath.Join(outputDir, fmt.Sprintf("codegen_%s.log", id))
 
-	// Create log file for both modes
-	logFile, err := os.Create(logPath)
-	if err != nil {
-		log.Printf("❌ [CODEGEN] Failed to create log file at %s: %v", logPath, err)
-		http.Error(w, fmt.Sprintf("Failed to create log file: %v", err), http.StatusInternalServerError)
-		return
-	}
-
 	var cmd *exec.Cmd
 	var novncURL string
-
 	if mode == "container" {
 		// In container mode, the codegen container should be running (e.g., via docker-compose)
 		// Start codegen inside the running container and return session info + noVNC URL
-		cmd, err = startCodegenInContainer(req.URL, outputPath, logFile)
-		if err != nil {
-			_ = logFile.Close()
+		if err := startCodegenInContainer(req.URL, outputPath); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to start container codegen: %v", err), http.StatusInternalServerError)
 			return
 		}
 		novncURL = getenvDefault("CODEGEN_NOVNC_URL", "http://localhost:7000/vnc.html?autoconnect=1&resize=remote")
+		logPath = ""
 	} else {
 		if _, err := exec.LookPath("npx"); err != nil {
-			_ = logFile.Close()
 			http.Error(w, "npx not found on PATH", http.StatusBadRequest)
+			return
+		}
+		logFile, err := os.Create(logPath)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to create log file: %v", err), http.StatusInternalServerError)
 			return
 		}
 
@@ -112,28 +102,27 @@ func handleCodegenStart(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, fmt.Sprintf("Failed to start codegen: %v", err), http.StatusInternalServerError)
 			return
 		}
+
+		go func() {
+			err := cmd.Wait()
+			_ = logFile.Close()
+
+			codegenMu.Lock()
+			defer codegenMu.Unlock()
+			finished := time.Now()
+			session := codegenSessions[id]
+			if session == nil {
+				return
+			}
+			session.CompletedAt = &finished
+			if err != nil {
+				session.Status = "failed"
+				session.Error = err.Error()
+				return
+			}
+			session.Status = "completed"
+		}()
 	}
-
-	// Monitor process in background
-	go func() {
-		err := cmd.Wait()
-		_ = logFile.Close()
-
-		codegenMu.Lock()
-		defer codegenMu.Unlock()
-		finished := time.Now()
-		session := codegenSessions[id]
-		if session == nil {
-			return
-		}
-		session.CompletedAt = &finished
-		if err != nil {
-			session.Status = "failed"
-			session.Error = err.Error()
-			return
-		}
-		session.Status = "completed"
-	}()
 
 	session := &CodegenSession{
 		ID:         id,
@@ -155,41 +144,39 @@ func handleCodegenStart(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(session)
 }
 
-func startCodegenInContainer(url, outputHostPath string, logFile *os.File) (*exec.Cmd, error) {
+func startCodegenInContainer(url, outputHostPath string) error {
 	if _, err := exec.LookPath("docker"); err != nil {
-		return nil, fmt.Errorf("docker not found on PATH")
+		return fmt.Errorf("docker not found on PATH")
 	}
 
 	containerName, err := resolveCodegenContainerName()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	log.Printf("🐳 Using codegen container: %s", containerName)
-
-	// Clean up any existing codegen processes first
-	cleanupCmd := exec.Command("docker", "exec", containerName, "pkill", "-f", "playwright codegen")
-	_ = cleanupCmd.Run() // Ignore error if no process found
 
 	outputContainerPath := filepath.Join("/output", filepath.Base(outputHostPath))
-
-	// Note: We avoid passing complex flags to playwright codegen as it doesn't support
-	// arbitrary browser arguments via CLI cleanly. Rely on standard environment or default behavior.
+	chromiumFlags := []string{
+		"--no-sandbox",
+		"--disable-gpu",
+		"--disable-dev-shm-usage",
+		"--disable-software-rasterizer",
+		"--disable-setuid-sandbox",
+		"--disable-accelerated-2d-canvas",
+		"--disable-accelerated-video-decode",
+	}
 	args := []string{
 		"exec", "-e", "DISPLAY=:99", containerName,
 		"npx", "playwright", "codegen", "--output", outputContainerPath, url,
 		"--browser=chromium",
+		"--",
 	}
-
+	args = append(args, chromiumFlags...)
 	cmd := exec.Command("docker", args...)
-	if logFile != nil {
-		cmd.Stdout = logFile
-		cmd.Stderr = logFile
-	}
 
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return err
 	}
-	return cmd, nil
+	return nil
 }
 
 func resolveCodegenContainerName() (string, error) {
@@ -247,26 +234,20 @@ func handleCodegenStatus(w http.ResponseWriter, r *http.Request) {
 
 	codegenMu.Lock()
 	session, ok := codegenSessions[id]
-	if !ok {
-		// Attempt to reconstruct from filesystem (if restart happened)
-		outputDir := getenvDefault("CODEGEN_OUTPUT_DIR", filepath.Join(os.TempDir(), "agi_codegen"))
-		outputPath := filepath.Join(outputDir, fmt.Sprintf("codegen_%s.ts", id))
-		if _, err := os.Stat(outputPath); err == nil {
-			session = &CodegenSession{
-				ID:         id,
-				OutputPath: outputPath,
-				Status:     "completed",
-				StartedAt:  time.Now(), // approximate
-			}
-			codegenSessions[id] = session
-			ok = true
-		}
-	}
 	codegenMu.Unlock()
-
 	if !ok {
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
+	}
+
+	if strings.ToLower(strings.TrimSpace(os.Getenv("CODEGEN_MODE"))) == "container" {
+		if _, err := os.Stat(session.OutputPath); err == nil {
+			if session.Status != "completed" {
+				finished := time.Now()
+				session.CompletedAt = &finished
+				session.Status = "completed"
+			}
+		}
 	}
 
 	setCORSHeaders(w)
@@ -291,30 +272,13 @@ func handleCodegenResult(w http.ResponseWriter, r *http.Request) {
 
 	codegenMu.Lock()
 	session, ok := codegenSessions[id]
-	if !ok {
-		// Attempt to reconstruct from filesystem (if restart happened)
-		outputDir := getenvDefault("CODEGEN_OUTPUT_DIR", filepath.Join(os.TempDir(), "agi_codegen"))
-		outputPath := filepath.Join(outputDir, fmt.Sprintf("codegen_%s.ts", id))
-		if _, err := os.Stat(outputPath); err == nil {
-			session = &CodegenSession{
-				ID:         id,
-				OutputPath: outputPath,
-				Status:     "completed",
-				StartedAt:  time.Now(),
-			}
-			codegenSessions[id] = session
-			ok = true
-		}
-	}
 	codegenMu.Unlock()
-
 	if !ok {
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
-	// Allow reading output even if not completed (peek)
-	if _, err := os.Stat(session.OutputPath); os.IsNotExist(err) {
-		http.Error(w, "Output not ready yet", http.StatusAccepted) // 202
+	if session.Status != "completed" {
+		http.Error(w, "Codegen not completed", http.StatusConflict)
 		return
 	}
 
@@ -326,6 +290,49 @@ func handleCodegenResult(w http.ResponseWriter, r *http.Request) {
 
 	setCORSHeaders(w)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+// handleCodegenLatest returns the most recently completed codegen script
+func handleCodegenLatest(w http.ResponseWriter, r *http.Request) {
+	if handleCORSPreflight(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	codegenMu.Lock()
+	var latest *CodegenSession
+	for _, s := range codegenSessions {
+		if s.Status != "completed" || s.OutputPath == "" {
+			continue
+		}
+		if latest == nil || (s.CompletedAt != nil && latest.CompletedAt != nil && s.CompletedAt.After(*latest.CompletedAt)) {
+			latest = s
+		}
+	}
+	codegenMu.Unlock()
+
+	if latest == nil {
+		http.Error(w, "No completed codegen sessions", http.StatusNotFound)
+		return
+	}
+
+	data, err := os.ReadFile(latest.OutputPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read output: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	setCORSHeaders(w)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("X-Script-File", filepath.Base(latest.OutputPath))
+	if latest.CompletedAt != nil {
+		w.Header().Set("X-Script-Modified", latest.CompletedAt.Format(time.RFC3339))
+	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }
@@ -346,56 +353,4 @@ func getenvDefault(key, fallback string) string {
 		return fallback
 	}
 	return val
-}
-
-// handleCodegenLatest returns the most recently modified .ts file in the output directory
-func handleCodegenLatest(w http.ResponseWriter, r *http.Request) {
-	if handleCORSPreflight(w, r) {
-		return
-	}
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	outputDir := getenvDefault("CODEGEN_OUTPUT_DIR", filepath.Join(os.TempDir(), "agi_codegen"))
-	entries, err := os.ReadDir(outputDir)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Cannot read output dir: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	var latestPath string
-	var latestMod time.Time
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".ts") {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		if info.ModTime().After(latestMod) {
-			latestMod = info.ModTime()
-			latestPath = filepath.Join(outputDir, e.Name())
-		}
-	}
-
-	if latestPath == "" {
-		http.Error(w, "No recorded scripts found", http.StatusNotFound)
-		return
-	}
-
-	data, err := os.ReadFile(latestPath)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to read script: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	setCORSHeaders(w)
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("X-Script-File", filepath.Base(latestPath))
-	w.Header().Set("X-Script-Modified", latestMod.Format(time.RFC3339))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
 }

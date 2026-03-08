@@ -3584,7 +3584,7 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 							if time.Since(startedAt) < 1*time.Hour {
 								response := HierarchicalTaskResponse{
 									Success:    false,
-									Error:      fmt.Sprintf("This task was processed recently. Please wait before requesting again."),
+									Error:      "This task was processed recently. Please wait before requesting again.",
 									Message:    "Duplicate workflow",
 									WorkflowID: existingWorkflowID,
 								}
@@ -3814,9 +3814,7 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 					redisAddr = "localhost:6379"
 				} else {
 					// Strip redis:// prefix if present
-					if strings.HasPrefix(redisAddr, "redis://") {
-						redisAddr = strings.TrimPrefix(redisAddr, "redis://")
-					}
+					redisAddr = strings.TrimPrefix(redisAddr, "redis://")
 					// Remove trailing slash if present
 					redisAddr = strings.TrimSuffix(redisAddr, "/")
 				}
@@ -5951,15 +5949,12 @@ func (s *APIServer) startTokenAggregationScheduler() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 
-		for {
-			select {
-			case <-ticker.C:
-				ctx := context.Background()
-				if err := s.aggregateTokenUsage(ctx); err != nil {
-					log.Printf("❌ [TOKEN-AGG] Hourly aggregation failed: %v", err)
-				} else {
-					log.Printf("✅ [TOKEN-AGG] Hourly aggregation completed")
-				}
+		for range ticker.C {
+			ctx := context.Background()
+			if err := s.aggregateTokenUsage(ctx); err != nil {
+				log.Printf("❌ [TOKEN-AGG] Hourly aggregation failed: %v", err)
+			} else {
+				log.Printf("✅ [TOKEN-AGG] Hourly aggregation completed")
 			}
 		}
 	}()

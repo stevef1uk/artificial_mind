@@ -197,7 +197,8 @@ func (gs *GenericScraper) generatePatterns(instructions string) map[string]strin
 
 	// Common extraction patterns
 	if strings.Contains(strings.ToLower(instructions), "price") {
-		patterns["prices"] = `\$?\d+\.?\d*|\€\d+\.?\d*|£\d+\.?\d*`
+		// Robust price regex: handles EU/US formats with thousands separators and currency symbols
+		patterns["prices"] = `(?i)(?:€|\$|£|GBP|EUR|USD)\s*\d{1,3}(?:[.,\s]\d{3})*[.,]\d{2}|\d{1,3}(?:[.,\s]\d{3})*[.,]\d{2}\s*(?:€|\$|£|EUR|GBP|USD)`
 	}
 
 	if strings.Contains(strings.ToLower(instructions), "email") {
@@ -235,6 +236,48 @@ func (gs *GenericScraper) extractFromCommonSelectors(ctx context.Context, page p
 		"products":   "[class*='product'], [id*='product']",
 		"items":      "[class*='item'], .list-item",
 		"cards":      "[class*='card']",
+	}
+
+	// If instructions mention "price", try semantic/structured price selectors first
+	if strings.Contains(strings.ToLower(instructions), "price") {
+		if _, exists := data["prices"]; !exists {
+			semanticPriceSelectors := []string{
+				`[itemprop="price"]`,
+				`[itemprop="lowPrice"]`,
+				`[data-price]`,
+				`[data-product-price]`,
+				`meta[property="product:price:amount"]`,
+				`meta[property="og:price:amount"]`,
+				`.price .current`,
+				`.price-current`,
+				`.product-price`,
+				`.sale-price`,
+				`.offer-price`,
+				`.final-price`,
+			}
+			for _, sel := range semanticPriceSelectors {
+				loc := page.Locator(sel).First()
+				if cnt, err := loc.Count(); err == nil && cnt > 0 {
+					// Try content/data attributes first (meta tags, microdata)
+					if val, err := loc.GetAttribute("content"); err == nil && val != "" {
+						data["prices"] = val
+						break
+					}
+					if val, err := loc.GetAttribute("data-price"); err == nil && val != "" {
+						data["prices"] = val
+						break
+					}
+					if val, err := loc.GetAttribute("data-product-price"); err == nil && val != "" {
+						data["prices"] = val
+						break
+					}
+					if text, err := loc.TextContent(); err == nil && strings.TrimSpace(text) != "" {
+						data["prices"] = strings.TrimSpace(text)
+						break
+					}
+				}
+			}
+		}
 	}
 
 	for key, selector := range commonSelectors {
