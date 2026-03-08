@@ -3971,9 +3971,77 @@ func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string,
 		}
 	}
 
-	// 2. Plan the scrape using LLM (if not explicitly provided by user)
+	// Create a long-running context for LLM planning calls (used by both early fast-path and navigation planning)
 	planCtx, planCancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer planCancel()
+
+	// 1.8 EARLY FAST-PATH: If the page already has substantial content and the goal
+	// is to READ/LIST/EXTRACT data (not to calculate, search, or fill a form), try
+	// LLM content extraction directly from the initial HTML before any planning/navigation.
+	// This avoids a wasted 60s+ second scrape on content-rich pages like HN, BBC, etc.
+	if !bypassedLLM && s.llmClient != nil && len(cleanedHTML) > 500 {
+		goalLower := strings.ToLower(goal)
+		isInteractive := strings.Contains(goalLower, "calculate") ||
+			strings.Contains(goalLower, "search for") ||
+			strings.Contains(goalLower, "fill") ||
+			strings.Contains(goalLower, "submit") ||
+			strings.Contains(goalLower, "log in") ||
+			strings.Contains(goalLower, "sign in")
+
+		if !isInteractive {
+			log.Printf("⚡ [MCP-SMART-SCRAPE] Trying early LLM extraction from initial HTML (%d chars) before planning navigation...", len(cleanedHTML))
+
+			earlyHTML := cleanHTMLForPlanning(cleanedHTML)
+			if len(earlyHTML) > 30000 {
+				earlyHTML = earlyHTML[:30000] + "...(truncated)"
+			}
+
+			earlyPrompt := fmt.Sprintf(`You are a web scraping data extraction expert.
+
+TASK: Extract the requested information from the HTML content below.
+
+GOAL: %s
+
+HTML CONTENT:
+%s
+
+INSTRUCTIONS:
+- Extract ONLY the specific data requested in the goal.
+- Return the data as a clean, structured list or text.
+- Include actual titles, names, URLs, or values — not HTML tags.
+- If the page has multiple items (e.g. news articles), list them numbered.
+- Be concise but complete. Include all relevant items found.
+- Do NOT wrap in JSON or code blocks. Just return the extracted content as plain text.
+- If the requested data is NOT present in the HTML, respond with exactly: NO_DATA_FOUND`, goal, earlyHTML)
+
+			earlyResult, earlyErr := s.llmClient.callLLMWithContextAndPriority(planCtx, earlyPrompt, PriorityHigh)
+			if earlyErr == nil && strings.TrimSpace(earlyResult) != "" && !strings.Contains(earlyResult, "NO_DATA_FOUND") {
+				log.Printf("✅ [MCP-SMART-SCRAPE] Early fast-path LLM extraction produced %d chars — skipping navigation!", len(earlyResult))
+
+				results := make(map[string]interface{})
+				if title, ok := innerResult["page_title"].(string); ok {
+					results["page_title"] = title
+				}
+				results["page_url"] = url
+				results["extracted_content"] = strings.TrimSpace(earlyResult)
+				results["extraction_method"] = "early_llm_fast_path"
+
+				resultJSON, _ := json.MarshalIndent(results, "", "  ")
+				return map[string]interface{}{
+					"content": []map[string]interface{}{
+						{
+							"type": "text",
+							"text": fmt.Sprintf("Scrape Results (Fast Extraction):\n%s", string(resultJSON)),
+						},
+					},
+					"result": results,
+				}, nil
+			}
+			log.Printf("⚠️ [MCP-SMART-SCRAPE] Early fast-path extraction failed or found no data, proceeding to navigation planning...")
+		}
+	}
+
+	// 2. Plan the scrape using LLM (if not explicitly provided by user)
 
 	if !bypassedLLM {
 		log.Printf("📋 [MCP-SMART-SCRAPE] Planning scrape config with LLM (%d chars of HTML)...", len(cleanedHTML))
