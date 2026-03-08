@@ -24,8 +24,8 @@ func NewMCPToolProvider(mcpEndpoint string) *MCPToolProvider {
 	return &MCPToolProvider{
 		mcpEndpoint: mcpEndpoint,
 		httpClient: &http.Client{
-			// Increased to 60s to allow for slow tool execution (e.g., n8n webhooks taking 10-30s)
-			Timeout: 60 * time.Second,
+			// 120s to allow for slow scrape jobs on ARM/RPi (navigation + extraction + polling)
+			Timeout: 120 * time.Second,
 		},
 	}
 }
