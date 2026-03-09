@@ -2592,7 +2592,7 @@ func (s *MCPKnowledgeServer) searchWeaviate(ctx context.Context, args map[string
 
 	// Convert text query to vector using toy embedder (same as used elsewhere in the system)
 	// This is a simple hash-based embedding - in production you'd use a real embedding model
-	vec := s.toyEmbed(query, 8)
+	vec := s.toyEmbed(query, 768)
 
 	// Handle different collection types
 	if collection == "AgiEpisodes" || collection == "AgiWiki" {

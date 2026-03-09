@@ -675,7 +675,7 @@ func (pi *PlannerIntegration) recordExecutionFeedback(option planner.Option, epi
 			},
 		}
 		if pi.apiServer.vectorDB != nil {
-			vec := toyEmbed(ep.Text, 8)
+			vec := toyEmbed(ep.Text, 768)
 			_ = pi.apiServer.vectorDB.IndexEpisode(ep, vec)
 		}
 	}

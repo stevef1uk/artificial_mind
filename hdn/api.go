@@ -445,7 +445,7 @@ func NewAPIServer(domainPath string, redisAddr string) *APIServer {
 		}
 		// Use Weaviate as the vector database
 		server.vectorDB = mempkg.NewVectorDBAdapter(qbase, "AgiEpisodes")
-		_ = server.vectorDB.EnsureCollection(8) // toy dim for now
+		_ = server.vectorDB.EnsureCollection(768) // use standard embedding dimension
 
 		log.Printf("🧠 [API] Episodic memory via Weaviate: %s", qbase)
 	}
@@ -586,7 +586,7 @@ func (s *APIServer) processEvent(evt eventbus.CanonicalEvent) {
 			Text:      text,
 			Metadata:  map[string]any{"event_id": evt.EventID, "source": evt.Source},
 		}
-		vec := toyEmbed(ep.Text, 8)
+		vec := toyEmbed(ep.Text, 768)
 		_ = s.vectorDB.IndexEpisode(ep, vec)
 	}
 
@@ -2754,7 +2754,7 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 			Text:      fmt.Sprintf("%s: %s", req.TaskName, req.Description),
 			Metadata:  map[string]any{"workflow_id": result.WorkflowID},
 		}
-		vec := toyEmbed(ep.Text, 8)
+		vec := toyEmbed(ep.Text, 768)
 		if err := s.vectorDB.IndexEpisode(ep, vec); err != nil {
 			log.Printf("❌ [API] Weaviate indexing failed: %v", err)
 		} else {
@@ -3844,7 +3844,7 @@ func (s *APIServer) handleHierarchicalExecute(w http.ResponseWriter, r *http.Req
 						"artifacts":   hasArtifacts,
 					},
 				}
-				vec := toyEmbed(ep.Text, 8)
+				vec := toyEmbed(ep.Text, 768)
 				_ = s.vectorDB.IndexEpisode(ep, vec)
 			}
 
@@ -4670,7 +4670,7 @@ func (s *APIServer) handleSearchEpisodes(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Use Weaviate for episodic search
-	vec := toyEmbed(q, 8)
+	vec := toyEmbed(q, 768)
 	results, err := s.vectorDB.SearchEpisodes(vec, limit, filters)
 
 	if err != nil {
@@ -4707,7 +4707,7 @@ func (s *APIServer) handleMemorySummary(w http.ResponseWriter, r *http.Request) 
 	// Optional: recent episodes
 	if s.vectorDB != nil {
 		// simple query vector from keyword; reuse toyEmbed for now
-		qvec := toyEmbed("recent", 8)
+		qvec := toyEmbed("recent", 768)
 		if eps, err := s.vectorDB.SearchEpisodes(qvec, 10, map[string]any{}); err == nil {
 			summary["recent_episodes"] = eps
 		}
