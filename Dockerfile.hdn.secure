@@ -61,6 +61,8 @@ RUN apk add --no-cache \
   ca-certificates \
   openssh-client \
   bash \
+  python3 \
+  py3-requests \
   tzdata && \
   update-ca-certificates
 WORKDIR /app
@@ -69,10 +71,11 @@ COPY --from=secure-build /usr/local/bin/unpack /usr/local/bin/unpack
 COPY --from=secure-build /out/encrypted_files.zip ./hdn-server.enc
 # app config
 COPY hdn/config.json ./config.json
-COPY hdn/domain.json ./domain.json
 # n8n/MCP skills configuration
-RUN mkdir -p ./config
+RUN mkdir -p ./config ./scripts
 COPY config/n8n_mcp_skills.yaml ./config/n8n_mcp_skills.yaml
+COPY config/agents.yaml ./config/agents.yaml
+COPY scripts/morning_news_update.py ./scripts/morning_news_update.py
 # include host-exec tools used by HDN tool handlers
 RUN mkdir -p /app/bin /app/bin/tools
 COPY --from=builder /app/bin/tools/ /app/bin/tools/
