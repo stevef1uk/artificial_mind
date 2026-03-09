@@ -25,6 +25,12 @@ func isConsentPage(html string) bool {
 		"consent.yahoo",
 		"gdpr",
 		"cookie policy",
+		"agree to cookies",
+		"let us know you agree",
+		"yes, i agree",
+		"accept and continue",
+		"cookie banner",
+		"consent banner",
 	}
 
 	matchCount := 0

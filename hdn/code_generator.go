@@ -404,6 +404,11 @@ func (cg *CodeGenerator) filterRelevantToolsForTask(tools []Tool, taskName, desc
 		"mcp_get_concept":           {"concept", "get concept", "retrieve concept", "knowledge", "biology"},
 		"mcp_find_related_concepts": {"related", "related concepts", "find related", "connections"},
 		"mcp_search_weaviate":       {"weaviate", "search", "vector", "semantic", "similar", "episodes", "memories"},
+		"mcp_smart_scrape":          {"smart", "scrape", "scraping", "extract", "identify", "find", "headline", "news", "summarize", "web", "fetch"},
+		"mcp_scrape_url":            {"scrape", "url", "fetch", "get", "web"},
+		"mcp_deep_research":         {"research", "search", "gather", "investigate", "topic", "deep"},
+		"mcp_browse_web":            {"browse", "web", "search", "navigate", "find"},
+		"tool_telegram_send":        {"telegram", "send", "message", "chat", "notify", "broadcast", "channel"},
 		"tool_http_get":             {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
 		"tool_html_scraper":         {"scrape", "html", "web", "website", "article", "news", "page", "parse html"},
 		"tool_file_read":            {"read", "file", "load", "open", "readfile", "read file", "content", "text"},
@@ -734,8 +739,9 @@ Code:`
 					toolInstructions += "- Call tool via POST request: `requests.post(f'{hdn_url}/api/v1/tools/{tool_id}/invoke', json={params})`\n"
 					toolInstructions += "- Example for tool_http_get: `requests.post(f'{hdn_url}/api/v1/tools/tool_http_get/invoke', json={'url': 'https://example.com'})`\n"
 					toolInstructions += "- 🚨 MUST DO: You MUST explicitly include `import requests`, `import json`, and `import os` at the top of your code!\n"
-					toolInstructions += "🚨 CRITICAL: Python uses `None`, NOT `null`. If you see `null` in context, use `None` in your code!\n"
 					toolInstructions += "- PREFER using available tools over writing custom code when a tool can accomplish the task!\n"
+					toolInstructions += "🚨 CRITICAL: For ANY task involving extracting news, headlines, or content from a webpage, YOU MUST USE `mcp_smart_scrape` with a clear goal. It is the ONLY tool that handles cookie consent walls and dynamic content properly!\n"
+					toolInstructions += "- Example for mcp_smart_scrape: `requests.post(f'{hdn_url}/api/v1/tools/mcp_smart_scrape/invoke', json={'url': 'https://bbc.com/news', 'goal': 'Extract top 10 headlines'})`\n"
 				} else {
 					// Generic instructions (fallback)
 					if req.ToolAPIURL != "" {

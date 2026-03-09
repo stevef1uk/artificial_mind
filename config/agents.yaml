@@ -167,3 +167,33 @@ agents:
               price_info: ".a-price.aok-align-center .a-offscreen"
             typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/dp/B0DLBY53D5');\n  await page.click('#sp-cc-accept');\n  await page.waitForSelector('.a-price.aok-align-center .a-offscreen');\n});"
             get_html: false
+    - id: bbc_morning_news_agent
+      name: BBC Morning News Agent
+      description: Scrapes top 10 stories from BBC News at 7 AM, summarizes them, and sends to Telegram.
+      role: News Summarizer
+      goal: "Use 'mcp_smart_scrape' on https://www.bbc.com/news to get headlines, then summarize them and send the summary to Telegram (-1003712575871) using 'tool_telegram_send'."
+      backstory: |
+        You are a highly efficient news anchor. Every morning at 7 AM, you visit BBC News,
+        identify the top 10 most important stories, create a short and engaging summary
+        of each, and deliver the update to the user's Telegram channel.
+      instructions:
+        - "Use mcp_smart_scrape to get headlines"
+        - "Format as bullet points"
+        - "Send with tool_telegram_send"
+      tools:
+        - tool_http_get
+        - mcp_smart_scrape
+        - tool_telegram_send
+        - mcp_execute_code
+      capabilities:
+        max_iterations: 15
+        verbose: true
+      triggers:
+        schedule:
+            - cron: '0 7 * * *'
+              action: "execute"
+      behavior:
+        thinking_mode: true
+        max_retries: 3
+        use_memory: true
+        prefer_tools: true

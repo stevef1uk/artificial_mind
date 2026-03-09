@@ -1151,6 +1151,18 @@ func (ie *IntelligentExecutor) shouldUseWebGathering(req *ExecutionRequest, desc
 
 	combined := descLower + " " + taskLower
 
+	// Skip if it looks like a multi-step task (summarize, send, etc.)
+	// because web gathering is a terminal terminal path.
+	if strings.Contains(combined, "summarize") ||
+		strings.Contains(combined, "send") ||
+		strings.Contains(combined, "telegram") ||
+		strings.Contains(combined, "email") ||
+		strings.Contains(combined, "calculate") ||
+		strings.Contains(combined, "write") ||
+		strings.Contains(combined, "create") {
+		return false
+	}
+
 	// Web-related keywords
 	webKeywords := []string{
 		"scrape", "scraping", "fetch", "gather information", "gather", "extract",
@@ -1423,9 +1435,13 @@ func (ie *IntelligentExecutor) executeWebGathering(ctx context.Context, req *Exe
 
 	// Determine tool to use (prefer smart scrape for complex queries)
 	toolID := "mcp_scrape_url"
-	if strings.Contains(strings.ToLower(req.Description), "smart") ||
-		strings.Contains(strings.ToLower(req.Description), "find") ||
-		strings.Contains(strings.ToLower(req.Description), "extract") {
+	descLower := strings.ToLower(req.Description)
+	if strings.Contains(descLower, "smart") ||
+		strings.Contains(descLower, "find") ||
+		strings.Contains(descLower, "extract") ||
+		strings.Contains(descLower, "identify") ||
+		strings.Contains(descLower, "scrape") ||
+		strings.Contains(descLower, "headline") {
 		toolID = "mcp_smart_scrape"
 	}
 
@@ -1435,9 +1451,12 @@ func (ie *IntelligentExecutor) executeWebGathering(ctx context.Context, req *Exe
 	if u, ok := req.Context["url"]; ok && strings.TrimSpace(u) != "" {
 		url = u
 	} else {
+		// Extract URL from description, ensuring we allow internal dots/hyphens but strip trailing punctuation
 		urlPattern := regexp.MustCompile(`https?://[^\s]+`)
 		if matches := urlPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
 			url = matches[0]
+			// Trim trailing punctuation that isn't part of the URL (common in sentences)
+			url = strings.TrimRight(url, ".,!?;:]})")
 		}
 	}
 
@@ -1765,6 +1784,17 @@ func (ie *IntelligentExecutor) isComplexTask(req *ExecutionRequest) bool {
 			log.Printf("✅ [INTELLIGENT] Task matches simple pattern '%s' - skipping hierarchical planning", pattern)
 			return false
 		}
+	}
+
+	// Check for multi-step or complex keywords
+	if strings.Contains(combined, "summarize") ||
+		strings.Contains(combined, "newsletter") ||
+		strings.Contains(combined, "send") ||
+		strings.Contains(combined, "telegram") ||
+		strings.Contains(combined, "email") ||
+		strings.Contains(combined, "report") {
+		log.Printf("🧠 [INTELLIGENT] Task identified as complex by keyword matching")
+		return true
 	}
 
 	// If explicitly marked as simple or traditional, skip hierarchical planning
