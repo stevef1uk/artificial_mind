@@ -275,41 +275,41 @@ func (nlg *NLGGenerator) getExtractedScrapeContent(req *NLGRequest) string {
 // stripMarkdownFormatting removes markdown formatting characters (**, *, #, etc.)
 // and also formats list-style outputs for TTS/chatbot use.
 func stripMarkdownFormatting(text string) string {
-       // Remove bold markers: **text** or __text__
-       text = regexp.MustCompile(`\*\*(.+?)\*\*`).ReplaceAllString(text, "$1")
-       text = regexp.MustCompile(`__(.+?)__`).ReplaceAllString(text, "$1")
-       // Remove italic markers: *text* or _text_ (but not underscores in words like my_var)
-       text = regexp.MustCompile(`(?:^|[ (])\*([^*\n]+?)\*(?:$|[ ),.])`).ReplaceAllString(text, "$1")
-       // Remove heading markers: ### heading
-       text = regexp.MustCompile(`(?m)^#{1,6}\s+`).ReplaceAllString(text, "")
-       // Remove inline code backticks
-       text = regexp.MustCompile("`([^`]+)`").ReplaceAllString(text, "$1")
-       // Remove leftover stray * at start of lines (bullet points → plain text)
-       text = regexp.MustCompile(`(?m)^\s*\*\s+`).ReplaceAllString(text, "- ")
+	// Remove bold markers: **text** or __text__
+	text = regexp.MustCompile(`\*\*(.+?)\*\*`).ReplaceAllString(text, "$1")
+	text = regexp.MustCompile(`__(.+?)__`).ReplaceAllString(text, "$1")
+	// Remove italic markers: *text* or _text_ (but not underscores in words like my_var)
+	text = regexp.MustCompile(`(?:^|[ (])\*([^*\n]+?)\*(?:$|[ ),.])`).ReplaceAllString(text, "$1")
+	// Remove heading markers: ### heading
+	text = regexp.MustCompile(`(?m)^#{1,6}\s+`).ReplaceAllString(text, "")
+	// Remove inline code backticks
+	text = regexp.MustCompile("`([^`]+)`").ReplaceAllString(text, "$1")
+	// Remove leftover stray * at start of lines (bullet points → plain text)
+	text = regexp.MustCompile(`(?m)^\s*\*\s+`).ReplaceAllString(text, "- ")
 
-       // Format numbered/bulleted lists: put each item on its own line
-       // Handles: 1. Item ... 2. Item ... or - Item ...
-       // Numbered lists
-       text = regexp.MustCompile(`(\d+)\.\s+`).ReplaceAllStringFunc(text, func(s string) string {
-	       // Always start a new line before a numbered item (unless at start)
-	       if strings.HasPrefix(s, "1.") {
-		       return "\n" + s
-	       }
-	       return "\n" + s
-       })
-       // Bulleted lists
-       text = regexp.MustCompile(`\s-\s+`).ReplaceAllString(text, "\n- ")
+	// Format numbered/bulleted lists: put each item on its own line.
+	// Only match a digit sequence followed by ". " when preceded by whitespace or
+	// start-of-string, to avoid splitting mid-sentence numbers (e.g. "in 2022. As").
+	// Numbered lists
+	text = regexp.MustCompile(`(?m)(^|\s)(\d+)\.\s+`).ReplaceAllStringFunc(text, func(s string) string {
+		// Keep the captured leading whitespace/newline stripped; insert our own newline.
+		trimmed := strings.TrimLeft(s, " \t\r\n")
+		return "\n" + trimmed
+	})
+	// Bulleted lists
+	text = regexp.MustCompile(`\s-\s+`).ReplaceAllString(text, "\n- ")
 
-       // Format URLs as <URL:...> blocks for TTS/chatbot skipping
-       urlPattern := regexp.MustCompile(`(https?://[\w\-\./?%&=#:~]+|/news/articles/[\w\d]+)`) // also matches /news/articles/...
-       text = urlPattern.ReplaceAllStringFunc(text, func(url string) string {
-	       return "<URL:" + url + ">"
-       })
+	// Format URLs as <URL:...> blocks for TTS/chatbot skipping.
+	// Matches full http(s):// URLs and any relative path like /news/..., /sport/..., etc.
+	urlPattern := regexp.MustCompile(`(https?://[\w\-\./?%&=#:~@+]+|/[\w][\w\-/]*(?:\?[\w=&%+\-\.]*)?)`)
+	text = urlPattern.ReplaceAllStringFunc(text, func(url string) string {
+		return "<URL:" + url + ">"
+	})
 
-       // Remove accidental double newlines
-       text = regexp.MustCompile(`\n{3,}`).ReplaceAllString(text, "\n\n")
-       // Trim leading/trailing whitespace
-       return strings.TrimSpace(text)
+	// Remove accidental double newlines
+	text = regexp.MustCompile(`\n{3,}`).ReplaceAllString(text, "\n\n")
+	// Trim leading/trailing whitespace
+	return strings.TrimSpace(text)
 }
 
 // generatePlanningResponse generates a response for planning requests
