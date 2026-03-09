@@ -256,7 +256,8 @@ func (ie *IntelligentExecutor) filterRelevantTools(tools []Tool, req *ExecutionR
 
 	// Expanded keywords that suggest tool usage - more comprehensive matching
 	toolKeywords := map[string][]string{
-		"tool_html_scraper": {"scrape", "html", "web", "fetch", "url", "website", "article", "news", "page", "content", "parse html"},
+		"mcp_scrape_url":    {"scrape", "html", "web", "fetch", "url", "website", "article", "news", "page", "content", "parse html"},
+		"mcp_smart_scrape":  {"scrape", "html", "web", "fetch", "url", "website", "article", "news", "page", "content", "parse html", "intelligent"},
 		"tool_http_get":     {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
 		"tool_file_read":    {"read", "file", "load", "open", "readfile", "read file", "readfile", "content", "text"},
 		"tool_file_write":   {"write", "file", "save", "store", "output", "write file", "save file", "create file", "writefile"},
@@ -837,7 +838,7 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 		return ie.executeExplicitTool(req, toolID, start, workflowID)
 	}
 
-	/* PATH 6: Web information gathering
+	// PATH 6: Web information gathering
 	if ie.shouldUseWebGathering(req, descLower, taskLower) {
 		// Ensure result is captured as the correct pointer type
 		webResult, err := ie.executeWebGathering(ctx, req, start, workflowID)
@@ -846,7 +847,7 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 		}
 		// If it fails or is unsuccessful, we log and fall through to traditional
 		log.Printf("⚠️ [INTELLIGENT] Web gathering failed or returned no results, falling back")
-	} */
+	}
 
 	// Track goal in self-model (skip internal tasks)
 	if ie.selfModelManager != nil && !ie.isInternalTask(taskLower) {
@@ -937,7 +938,7 @@ func (ie *IntelligentExecutor) shouldUseSimpleInformational(req *ExecutionReques
 		"create", "write", "generate", "build", "implement",
 		"calculate", "process", "analyze", "fetch", "get",
 		"code", "program", "function", "script", "matrix",
-		"addition", "operation", "perform",
+		"addition", "operation", "perform", "scrape", "scraping",
 	}
 
 	for _, keyword := range actionKeywords {
@@ -1154,6 +1155,7 @@ func (ie *IntelligentExecutor) shouldUseWebGathering(req *ExecutionRequest, desc
 	webKeywords := []string{
 		"scrape", "scraping", "fetch", "gather information", "gather",
 		"web page", "http", "url", "tool_http_get", "tool_html_scraper",
+		"mcp_scrape_url", "mcp_smart_scrape",
 		"crawler", "screen scraper", "screen-scraper", "scraper", "use tool",
 	}
 
@@ -1415,27 +1417,61 @@ func (ie *IntelligentExecutor) executeDirectTool(req *ExecutionRequest, start ti
 	return result, nil
 }
 
+// executeWebGathering is a dedicated path for scraping tasks that tries to automatically find URLs
 func (ie *IntelligentExecutor) executeWebGathering(ctx context.Context, req *ExecutionRequest, start time.Time, workflowID string) (*IntelligentExecutionResult, error) {
-	log.Printf("🌐 [INTELLIGENT] Web information gathering")
+	log.Printf("🌐 [INTELLIGENT] Executing web gathering strategy for %s", req.TaskName)
 
-	aggRes, aggErr := ie.executeInfoGatheringWithTools(ctx, req)
+	// Determine tool to use (prefer smart scrape for complex queries)
+	toolID := "mcp_scrape_url"
+	if strings.Contains(strings.ToLower(req.Description), "smart") ||
+		strings.Contains(strings.ToLower(req.Description), "find") ||
+		strings.Contains(strings.ToLower(req.Description), "extract") {
+		toolID = "mcp_smart_scrape"
+	}
 
+	// Try to extract URL from context or description
+	params := make(map[string]interface{})
+	url := ""
+	if u, ok := req.Context["url"]; ok && strings.TrimSpace(u) != "" {
+		url = u
+	} else {
+		urlPattern := regexp.MustCompile(`https?://[^\s]+`)
+		if matches := urlPattern.FindStringSubmatch(req.Description); len(matches) > 0 {
+			url = matches[0]
+		}
+	}
+
+	// If no URL found, assume it might be a Wikipedia or well-known site request
+	if url == "" {
+		if strings.Contains(strings.ToLower(req.Description), "hacker news") || strings.Contains(strings.ToLower(req.Description), "hn") {
+			url = "https://news.ycombinator.com"
+		} else if strings.Contains(strings.ToLower(req.Description), "wikipedia") {
+			// (simplified Wikipedia extraction logic)
+			url = "https://en.wikipedia.org/wiki/Main_Page"
+		} else {
+			// Can't gather without a URL
+			return nil, fmt.Errorf("no URL provided for web gathering")
+		}
+	}
+
+	params["url"] = url
+	if toolID == "mcp_smart_scrape" {
+		params["goal"] = req.Description
+	}
+
+	// Call the tool
+	toolResp, err := ie.callTool(toolID, params)
 	result := &IntelligentExecutionResult{
-		Success:       aggErr == nil,
-		Result:        aggRes,
+		Success:       err == nil,
 		ExecutionTime: time.Since(start),
 		WorkflowID:    workflowID,
 	}
 
-	if aggErr != nil {
-		result.Error = aggErr.Error()
-		return result, aggErr
-	}
-
-	// Record metrics
-	ie.recordMonitorMetrics(result.Success, result.ExecutionTime)
-	if ie.selfModelManager != nil {
-		ie.recordExecutionEpisode(req, result, "tool_info_gathering")
+	if err != nil {
+		result.Error = err.Error()
+	} else {
+		b, _ := json.Marshal(toolResp)
+		result.Result = string(b)
 	}
 
 	return result, nil
@@ -1447,7 +1483,7 @@ func (ie *IntelligentExecutor) executeExplicitTool(req *ExecutionRequest, toolID
 	params := make(map[string]interface{})
 
 	// Extract parameters based on tool type
-	if toolID == "tool_http_get" || toolID == "tool_html_scraper" {
+	if toolID == "tool_http_get" || toolID == "tool_html_scraper" || toolID == "mcp_scrape_url" || toolID == "mcp_smart_scrape" {
 		if u, ok := req.Context["url"]; ok && strings.TrimSpace(u) != "" {
 			params["url"] = u
 		} else {
@@ -1639,7 +1675,7 @@ func (ie *IntelligentExecutor) executeInfoGatheringWithTools(ctx context.Context
 	// Prefer html scraper when available; otherwise fallback to http_get
 	for _, u := range urls {
 		// Try html scraper first
-		scraperResp, err := ie.callTool("tool_html_scraper", map[string]interface{}{"url": u})
+		scraperResp, err := ie.callTool("mcp_scrape_url", map[string]interface{}{"url": u})
 		if err == nil && scraperResp != nil {
 			// Expect items array; build a brief summary line
 			b, _ := json.Marshal(scraperResp)
