@@ -70,16 +70,25 @@ fi
 
 # ─── 4. Restart HDN and FSM deployments to pick up new secret ─────────────────
 echo ""
-echo "▶ [4/5] Restarting HDN and FSM deployments ..."
+echo "▶ [4/5] Patching deployments and restarting services ..."
+echo "🛠 Patching deployments to map LLM_API_KEY from secret..."
+kubectl patch deployment hdn-server-rpi58 -n "$NAMESPACE" --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/env/-", "value": {"name": "LLM_API_KEY", "valueFrom": {"secretKeyRef": {"name": "llm-config", "key": "LLM_API_KEY"}}}}]' 2>/dev/null || \
+kubectl patch deployment hdn-server-rpi58 -n "$NAMESPACE" --patch '{"spec":{"template":{"spec":{"containers":[{"name":"hdn-server","env":[{"name":"LLM_API_KEY","valueFrom":{"secretKeyRef":{"name":"llm-config","key":"LLM_API_KEY"}}}]}]}}}}'
 
-for DEPLOY in hdn-server-rpi58 fsm-server-rpi58; do
-  if kubectl get deployment "$DEPLOY" -n "$NAMESPACE" &>/dev/null; then
-    kubectl rollout restart deployment "$DEPLOY" -n "$NAMESPACE"
-    echo "   ✅ Restarted: $DEPLOY"
-  else
-    echo "   ⚠️  Not found (skipping): $DEPLOY"
-  fi
-done
+kubectl patch deployment hdn-server-rpi58 -n "$NAMESPACE" --patch '{"spec":{"template":{"spec":{"containers":[{"name":"hdn-server","env":[{"name":"DISABLE_BACKGROUND_LLM","value":"1"}]}]}}}}'
+
+kubectl patch deployment fsm-server-rpi58 -n "$NAMESPACE" --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/env/-", "value": {"name": "LLM_API_KEY", "valueFrom": {"secretKeyRef": {"name": "llm-config", "key": "LLM_API_KEY"}}}}]' 2>/dev/null || \
+kubectl patch deployment fsm-server-rpi58 -n "$NAMESPACE" --patch '{"spec":{"template":{"spec":{"containers":[{"name":"fsm-server","env":[{"name":"LLM_API_KEY","valueFrom":{"secretKeyRef":{"name":"llm-config","key":"LLM_API_KEY"}}}]}]}}}}'
+
+kubectl patch deployment fsm-server-rpi58 -n "$NAMESPACE" --patch '{"spec":{"template":{"spec":{"containers":[{"name":"fsm-server","env":[{"name":"DISABLE_BACKGROUND_LLM","value":"1"}]}]}}}}'
+
+
+# Restart services
+echo "♻️ Restarting services..."
+kubectl rollout restart deployment hdn-server-rpi58 -n "$NAMESPACE"
+kubectl rollout restart deployment fsm-server-rpi58 -n "$NAMESPACE"
+
+echo "   ✅ Deployments patched and restarted."
 
 # ─── 5. Wait for rollout ──────────────────────────────────────────────────────
 echo ""

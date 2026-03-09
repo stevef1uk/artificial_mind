@@ -383,29 +383,23 @@ Goal: %s
 
 🚨 CRITICAL RULES:
 1. You MUST use the information provided in the "Retrieved Information" and "Retrieved Personal Context" sections below.
-2. DO NOT invent, make up, or hallucinate any data that is not explicitly shown in those sections.
-3. If the "Retrieved Information" contains email data formatted as a list (starting with "[1]" or similar), you MUST copy and paste that entire formatted list EXACTLY as it appears. Do NOT re-describe it, do NOT add commentary. Just present the formatted list verbatim.
-4. When you see formatted email data like:
-   [1] [UNREAD]
-       From: Name <email@domain.com>
-       Subject: Subject line
-   You MUST output it EXACTLY like that - no additional text before or after.
-5. If no information is retrieved in either section, say so clearly - do NOT invent fake data.
-6. NEVER provide code, scripts, or commands that could be harmful or destructive (e.g., rm -rf, format disk, delete all files).
-7. NEVER generate bash scripts, shell commands, or executable code that could damage systems or data.
-8. If the 'Retrieved Personal Context' contains information about Steven Fisher, assume this is the user you are talking to and answer accordingly.
+2. DO NOT repeat, echo, or include any of the labels or data from the "Reasoning Process" or "Retrieved Information" sections in your final response. 
+3. Provide ONLY the final natural language answer to the user. DO NOT include metadata like confidence scores, goals, or action summaries.
+4. DO NOT invent, make up, or hallucinate any data that is not explicitly shown in those sections.
+5. If the "Retrieved Information" contains email data or list data, present it cleanly and formatted for the user.
+6. If no information is retrieved in either section, say so clearly - do NOT invent fake data.
+7. NEVER provide code, scripts, or commands that could be harmful or destructive.
+8. If the 'Retrieved Personal Context' contains information about Steven Fisher, assume this is the user you are talking to.
 
 Please provide a clear, informative answer. 
 
-IMPORTANT: If the 'Retrieved Personal Context' section below contains information about the user (Steven Fisher), use it to answer as if you already know this information. Do not say 'I don't have access to personal information' if the answer is present in that section.
-	
-	If both the 'Retrieved Information' and 'Retrieved Personal Context' are empty, use your internal knowledge but add a brief note that no specific real-time updates were found.`
+IMPORTANT: If both the 'Retrieved Information' and 'Retrieved Personal Context' are empty, use your internal knowledge but add a brief note that no specific real-time updates were found.`
 
 	// Add reasoning trace if available and requested
 	if req.ShowThinking && req.ReasoningTrace != nil {
 		basePrompt += fmt.Sprintf(`
 
-Reasoning Process:
+Reasoning Context (FOR INTERNAL USE ONLY - DO NOT REPEAT IN RESPONSE):
 - Goal: %s
 - FSM State: %s
 - Actions Taken: %s
@@ -413,7 +407,7 @@ Reasoning Process:
 - Tools Used: %s
 - Key Decisions: %s
 
-Please incorporate this reasoning context into your response.`,
+Use the above context to inform your tone and state of mind, but provide ONLY a clean response to the user's original request.`,
 			req.ReasoningTrace.CurrentGoal,
 			req.ReasoningTrace.FSMState,
 			strings.Join(req.ReasoningTrace.Actions, ", "),
@@ -445,11 +439,18 @@ If no information is provided, say so clearly - do NOT invent fake emails or dat
 // buildTaskPrompt builds a prompt for task execution responses
 func (nlg *NLGGenerator) buildTaskPrompt(req *NLGRequest) string {
 	basePrompt := `You are an AI assistant that has executed a task for the user. 
-Provide a clear summary of what was accomplished and any relevant results.
+Provide a clear, natural summary of what was accomplished and any relevant results.
 
 User Request: "%s"
 Task Goal: %s
 Task Type: %s
+
+🚨 CRITICAL RULES:
+1. Provide ONLY the final natural language response to the user.
+2. DO NOT include any labels like "Goal:", "Task:", "Result:", or "Reasoning:".
+3. DO NOT include confidence scores or metadata.
+4. DO NOT repeat the user's request verbatim.
+5. Just tell the user what you did and show them the results.
 
 Please provide a helpful summary of the task execution.`
 
@@ -478,6 +479,11 @@ Present the plan in a clear, structured way that the user can easily follow.
 
 User Request: "%s"
 Planning Goal: %s
+
+🚨 CRITICAL RULES:
+1. Provide ONLY the plan itself.
+2. DO NOT include labels like "Goal:", "Planning:", or "Result:".
+3. DO NOT echo the background reasoning.
 
 Please present the plan in a helpful and actionable format.`
 

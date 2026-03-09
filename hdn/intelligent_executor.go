@@ -1153,7 +1153,7 @@ func (ie *IntelligentExecutor) shouldUseWebGathering(req *ExecutionRequest, desc
 
 	// Web-related keywords
 	webKeywords := []string{
-		"scrape", "scraping", "fetch", "gather information", "gather",
+		"scrape", "scraping", "fetch", "gather information", "gather", "extract",
 		"web page", "http", "url", "tool_http_get", "tool_html_scraper",
 		"mcp_scrape_url", "mcp_smart_scrape",
 		"crawler", "screen scraper", "screen-scraper", "scraper", "use tool",

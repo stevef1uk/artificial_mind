@@ -41,7 +41,24 @@ func NewIntentParser(llmClient LLMClientInterface) *IntentParser {
 func (ip *IntentParser) ParseIntent(ctx context.Context, message string, context map[string]string) (*Intent, error) {
 	log.Printf("🧠 [INTENT-PARSER] Analyzing message: %s", message)
 
-	// Step 0: Check for hardcoded Query Overrides (highest priority for questions)
+	// Step 0: Check for hardcoded Task Overrides (higher priority for actions)
+	taskOverridePatterns := []string{
+		`^scrape\b`, `^extract\b`, `^fetch\b`, `^get news\b`, `^get updates\b`,
+		`^search the web\b`, `^gather information\b`, `^crawl\b`,
+	}
+	for _, pattern := range taskOverridePatterns {
+		if matched, _ := regexp.MatchString("(?i)"+pattern, strings.TrimSpace(message)); matched {
+			return &Intent{
+				Type:            "task",
+				Confidence:      0.99,
+				Goal:            "Perform the requested action on the web: " + message,
+				OriginalMessage: message,
+				Entities:        map[string]string{"task": message},
+			}, nil
+		}
+	}
+
+	// Step 0b: Check for hardcoded Query Overrides (high priority for questions)
 	queryOverridePatterns := []string{
 		`^what is `, `^what are `, `^what's `, `^what was `, `^what were `,
 		`^tell me about `, `^explain `, `^describe `, `^define `,
@@ -52,6 +69,8 @@ func (ip *IntentParser) ParseIntent(ctx context.Context, message string, context
 	}
 	for _, pattern := range queryOverridePatterns {
 		if matched, _ := regexp.MatchString(pattern, strings.ToLower(strings.TrimSpace(message))); matched {
+			// Additional check: if it's a question about "latest news" or "recent"
+			// keep it as query but the conversational layer will handle the tool routing
 			return &Intent{
 				Type:            "query",
 				Confidence:      0.99,
@@ -217,11 +236,13 @@ func (ip *IntentParser) ruleBasedClassification(message string) string {
 		`calculate`,
 		`compute`,
 		`scrape`,
+		`extract`,
 		`fetch`,
 		`get data from`,
 		`download`,
 		`retrieve`,
 		`can you scrape`,
+		`can you extract`,
 		`can you fetch`,
 		`can you get`,
 	}

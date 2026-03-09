@@ -675,7 +675,7 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 					}
 				}
 
-				return content, nil
+				return stripReasoning(content), nil
 			}
 		}
 		log.Printf("❌ [ASYNC-LLM] Could not extract content from Ollama response")
@@ -709,7 +709,7 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 			trackTokenUsage(ctx, llmResp.Usage.PromptTokens, llmResp.Usage.CompletionTokens, llmResp.Usage.TotalTokens, component)
 		}
 
-		return llmResp.Choices[0].Message.Content, nil
+		return stripReasoning(llmResp.Choices[0].Message.Content), nil
 	}
 }
 
@@ -1619,7 +1619,7 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 					}
 				}
 
-				return content, nil
+				return stripReasoning(content), nil
 			}
 		}
 		log.Printf("❌ [LLM] Could not extract content from Ollama response")
@@ -1681,7 +1681,7 @@ func (c *LLMClient) callLLMRealWithContextAndPriority(ctx context.Context, promp
 			}
 		}
 
-		return llmResp.Choices[0].Message.Content, nil
+		return stripReasoning(llmResp.Choices[0].Message.Content), nil
 	}
 }
 
@@ -1838,6 +1838,40 @@ func (c *LLMClient) callLLMRealWithContext(ctx context.Context, prompt string) (
 }
 
 func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && s[:len(substr)] == substr ||
-		len(s) > len(substr) && containsString(s[1:], substr)
+	return strings.Contains(s, substr)
+}
+
+// stripReasoning removes <think>...</think> and <thought>...</thought> blocks from LLM responses
+func stripReasoning(s string) string {
+	// Strip <think>...</think> blocks (DeepSeek-R1 style)
+	for {
+		start := strings.Index(strings.ToLower(s), "<think>")
+		if start == -1 {
+			break
+		}
+
+		end := strings.Index(strings.ToLower(s[start:]), "</think>")
+		if end == -1 {
+			// Unclosed block, strip from start
+			return s[:start]
+		}
+
+		// Remove the whole block including tags (tag length is 8 for </think>)
+		s = s[:start] + s[start+end+8:]
+	}
+
+	// Also handle <thought>...</thought>
+	for {
+		start := strings.Index(strings.ToLower(s), "<thought>")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(strings.ToLower(s[start:]), "</thought>")
+		if end == -1 {
+			return s[:start]
+		}
+		s = s[:start] + s[start+end+10:]
+	}
+
+	return strings.TrimSpace(s)
 }

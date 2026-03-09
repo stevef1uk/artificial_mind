@@ -68,14 +68,17 @@ fi
 echo ""
 echo "▶ [4/5] Restarting HDN and FSM deployments ..."
 
-for DEPLOY in hdn-server-rpi58 fsm-server-rpi58; do
-  if kubectl get deployment "$DEPLOY" -n "$NAMESPACE" &>/dev/null; then
-    kubectl rollout restart deployment "$DEPLOY" -n "$NAMESPACE"
-    echo "   ✅ Restarted: $DEPLOY"
-  else
-    echo "   ⚠️  Not found (skipping): $DEPLOY"
-  fi
-done
+# Patch deployments to set DISABLE_BACKGROUND_LLM=0
+echo "▶ Patching deployments to re-enable background LLM processing..."
+kubectl patch deployment hdn-server-rpi58 -n "$NAMESPACE" --patch '{"spec":{"template":{"spec":{"containers":[{"name":"hdn-server","env":[{"name":"DISABLE_BACKGROUND_LLM","value":"0"}]}]}}}}'
+kubectl patch deployment fsm-server-rpi58 -n "$NAMESPACE" --patch '{"spec":{"template":{"spec":{"containers":[{"name":"fsm-server","env":[{"name":"DISABLE_BACKGROUND_LLM","value":"0"}]}]}}}}'
+echo "   ✅ Deployments patched."
+
+# Restart services
+echo "♻️ Restarting services..."
+kubectl rollout restart deployment hdn-server-rpi58 -n "$NAMESPACE"
+kubectl rollout restart deployment fsm-server-rpi58 -n "$NAMESPACE"
+echo "   ✅ Restart commands issued."
 
 # ─── 5. Wait for rollout ──────────────────────────────────────────────────────
 echo ""

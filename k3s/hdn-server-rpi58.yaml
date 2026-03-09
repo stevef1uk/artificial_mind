@@ -75,6 +75,12 @@ spec:
                 secretKeyRef:
                   name: llm-config
                   key: LLM_TIMEOUT
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_API_KEY
+                  optional: true
             # Use OPENAI_BASE_URL for OpenAI-compatible servers (llama.cpp)
             - name: OPENAI_BASE_URL
               valueFrom:
