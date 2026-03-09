@@ -171,23 +171,24 @@ agents:
       name: BBC Morning News Agent
       description: Scrapes top 10 stories from BBC News at 7 AM, summarizes them, and sends to Telegram.
       role: News Summarizer
-      goal: "Use 'mcp_smart_scrape' on https://www.bbc.com/news to get headlines, then summarize them and send the summary to Telegram (-1003712575871) using 'tool_telegram_send'."
-      backstory: |
-        You are a highly efficient news anchor. Every morning at 7 AM, you visit BBC News,
-        identify the top 10 most important stories, create a short and engaging summary
-        of each, and deliver the update to the user's Telegram channel.
-      instructions:
-        - "Use mcp_smart_scrape to get headlines"
-        - "Format as bullet points"
-        - "Send with tool_telegram_send"
+      goal: "Execute the python script to run the intelligent news update."
+      backstory: "You simply trigger the morning news script."
       tools:
-        - tool_http_get
-        - mcp_smart_scrape
-        - tool_telegram_send
         - mcp_execute_code
-      capabilities:
-        max_iterations: 15
-        verbose: true
+      tasks:
+        - id: run_morning_update
+          description: "Execute the python script for BBC news."
+          tools:
+            - mcp_execute_code
+          parameters:
+            language: "python"
+            code: |
+              import subprocess
+              print("Triggering python runner for bbc...")
+              res = subprocess.run(["python3", "/home/stevef/dev/artificial_mind/scripts/morning_news_update.py"], capture_output=True, text=True)
+              print(res.stdout)
+              if res.stderr:
+                  print("ERRORS:", res.stderr)
       triggers:
         schedule:
             - cron: '0 7 * * *'
