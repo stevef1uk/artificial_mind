@@ -233,6 +233,8 @@ spec:
                 path: domain.json
               - key: agents.yaml
                 path: agents.yaml
+              - key: n8n_mcp_skills.yaml
+                path: n8n_mcp_skills.yaml
         - name: ssh-keys
           secret:
             secretName: ssh-keys
