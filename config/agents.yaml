@@ -235,8 +235,9 @@ agents:
               try:
                   s_url = f"{hdn_url}/api/v1/tools/mcp_smart_scrape/invoke"
                   print(f"📥 Calling scraper at {s_url}")
+                  # Goal updated to include URLs as requested
                   s_resp = requests.post(s_url, 
-                                         json={"url": "https://www.bbc.com/news", "goal": "Return a JSON list of the top 10 headline titles."},
+                                         json={"url": "https://www.bbc.com/news", "goal": "Extract the top 10 news headlines including their page links if available."},
                                          timeout=200)
                   s_resp.raise_for_status()
                   res = s_resp.json()
@@ -248,54 +249,61 @@ agents:
                       raw = []
                   
                   def extract_list(data):
+                      if data is None: return []
                       if isinstance(data, list):
-                          result = []
-                          for item in data:
-                              if isinstance(item, dict):
-                                  for k in ["title", "headline", "text", "content", "extracted_content"]:
-                                      if k in item and item[k]:
-                                          result.append(str(item[k]))
-                                          break
-                                  else: result.append(str(item))
-                              else: result.append(str(item))
-                          return result
+                          res = []
+                          for i in data: 
+                              inner = extract_list(i)
+                              if isinstance(inner, list): res.extend(inner)
+                              else: res.append(str(inner))
+                          return res
                       if isinstance(data, dict):
-                          for k in ["headlines", "extracted_content", "content", "results", "items"]:
+                          # Check for common content keys
+                          for k in ["result", "results", "extracted_content", "headlines", "items", "content", "summary"]:
                               if k in data and data[k]:
                                   return extract_list(data[k])
+                          # Handle single-entry dictionaries as content containers
                           if len(data) == 1:
                               return extract_list(list(data.values())[0])
+                          # If it's a specific record (e.g. from a list of objects)
+                          title = data.get("title") or data.get("headline") or data.get("text")
+                          url = data.get("url") or data.get("link") or data.get("page_url")
+                          if title:
+                              if url and str(url).startswith("http"): 
+                                  return [f"{title}\n<{url}>"]
+                              return [str(title)]
                           return [str(data)]
                       if isinstance(data, str):
-                          # 1. First cleanup any escaped newlines if they exist
-                          data = data.replace("\\n", "\n")
-                          # 2. Split by explicit newlines
-                          lines = [l.strip() for l in data.split("\n") if l.strip()]
-                          if len(lines) > 1: return lines
-                          
-                          # 3. Check for numbered list like "1. Headline 2. Headline"
+                          # Normalize and cleanup
+                          s = data.replace("\\n", "\n").strip()
+                          if "\n" in s:
+                              lines = [l.strip() for l in s.split("\n") if l.strip()]
+                              # Strip leading bullets/numbers from lines
+                              import re
+                              return [re.sub(r'^(\d+\.|\*|-|•)\s*', '', l) for l in lines]
+                          # Handle "1. Title 2. Title" lumps
                           import re
-                          # Match digits followed by period and space
-                          parts = re.split(r'\s*\d+\.\s+', data)
-                          # First part might be empty or preamble if it starts with "1. "
+                          parts = re.split(r'\s*\d+\.\s+', s)
                           cleaned = [p.strip() for p in parts if p.strip()]
                           if len(cleaned) > 1: return cleaned
-                          
-                          # 4. Fallback to commas if no newlines/numbers found
-                          if "," in data: return [l.strip() for l in data.split(",") if l.strip()]
-                          return [data]
+                          return [s]
                       return [str(data)]
 
                   headlines = extract_list(raw)
               except Exception as e:
                   headlines = [f"Scrape Error: {e}"]
 
-              # 2. Format with EXPLICIT newlines
+              # 2. Format with clean spacing and Markdown
               msg = "🗞️ *BBC Morning News Update*\n\n"
-              for i, h in enumerate(headlines[:10], 1):
-                  # Remove any existing numbered prefixes to avoid "1. 1. Headline"
-                  clean_h = h.split(". ", 1)[-1] if ". " in h[:5] else h
-                  msg += f"• {clean_h}\n\n"
+              unique_headlines = []
+              seen = set()
+              for h in headlines:
+                  if h.lower() not in seen and len(h) > 5:
+                      unique_headlines.append(h)
+                      seen.add(h.lower())
+              
+              for h in unique_headlines[:12]:
+                  msg += f"• {h}\n\n"
               
               msg += "_Generated via HDN Agent_"
 
