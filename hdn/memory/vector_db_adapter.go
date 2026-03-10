@@ -167,20 +167,24 @@ func (w *WeaviateAdapter) SearchEpisodes(queryVec []float32, limit int, filters 
 	// Build GraphQL query for Weaviate using vector similarity
 	whereClause := w.buildWhereClause(filters)
 
-	// Convert query vector to string format for GraphQL nearVector
-	vectorStr := "["
-	for i, v := range queryVec {
-		if i > 0 {
-			vectorStr += ","
+	// Convert query vector to string format for GraphQL nearVector if provided
+	nearVectorClause := ""
+	if len(queryVec) > 0 {
+		vectorStr := "["
+		for i, v := range queryVec {
+			if i > 0 {
+				vectorStr += ","
+			}
+			vectorStr += fmt.Sprintf("%.6f", v)
 		}
-		vectorStr += fmt.Sprintf("%.6f", v)
+		vectorStr += "]"
+		nearVectorClause = fmt.Sprintf("nearVector: {vector: %s}, ", vectorStr)
 	}
-	vectorStr += "]"
 
 	query := fmt.Sprintf(`
 	{
 		Get {
-            %s(nearVector: {vector: %s}, limit: %d%s) {
+            %s(%slimit: %d%s) {
 				_additional {
 					id
 					distance
@@ -190,7 +194,7 @@ func (w *WeaviateAdapter) SearchEpisodes(queryVec []float32, limit int, filters 
 				metadata
 			}
 		}
-    }`, className, vectorStr, limit, whereClause)
+    }`, className, nearVectorClause, limit, whereClause)
 
 	queryData := map[string]interface{}{
 		"query": query,

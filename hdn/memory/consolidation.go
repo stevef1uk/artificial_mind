@@ -27,14 +27,14 @@ type ConsolidationConfig struct {
 	// Interval between consolidation runs
 	Interval time.Duration
 	// Episode compression thresholds
-	MinSimilarEpisodes int     // Minimum episodes to consider for compression
+	MinSimilarEpisodes  int     // Minimum episodes to consider for compression
 	SimilarityThreshold float64 // Similarity threshold for grouping (0-1)
 	// Semantic promotion thresholds
 	MinStabilityScore float64 // Minimum stability to promote to semantic memory
 	MinOccurrences    int     // Minimum occurrences to consider stable
 	// Archive thresholds
-	TraceMaxAge        time.Duration // Maximum age for traces before archiving
-	TraceMinUtility    float64       // Minimum utility score to keep trace
+	TraceMaxAge     time.Duration // Maximum age for traces before archiving
+	TraceMinUtility float64       // Minimum utility score to keep trace
 	// Skill extraction
 	MinWorkflowRepetitions int // Minimum repetitions to extract as skill
 }
@@ -42,13 +42,13 @@ type ConsolidationConfig struct {
 // DefaultConsolidationConfig returns sensible defaults
 func DefaultConsolidationConfig() *ConsolidationConfig {
 	return &ConsolidationConfig{
-		Interval:              1 * time.Hour,
-		MinSimilarEpisodes:    5,
-		SimilarityThreshold:   0.75,
-		MinStabilityScore:     0.7,
-		MinOccurrences:        3,
-		TraceMaxAge:           7 * 24 * time.Hour, // 7 days
-		TraceMinUtility:       0.3,
+		Interval:               1 * time.Hour,
+		MinSimilarEpisodes:     5,
+		SimilarityThreshold:    0.75,
+		MinStabilityScore:      0.7,
+		MinOccurrences:         3,
+		TraceMaxAge:            7 * 24 * time.Hour, // 7 days
+		TraceMinUtility:        0.3,
 		MinWorkflowRepetitions: 3,
 	}
 }
@@ -65,17 +65,17 @@ func NewMemoryConsolidator(
 	}
 	return &MemoryConsolidator{
 		redis:            redis,
-		vectorDB:        vectorDB,
-		domainKB:        domainKB,
+		vectorDB:         vectorDB,
+		domainKB:         domainKB,
 		consolidateEvery: config.Interval,
-		ctx:             context.Background(),
+		ctx:              context.Background(),
 	}
 }
 
 // Start begins the periodic consolidation scheduler
 func (mc *MemoryConsolidator) Start() {
 	log.Printf("🧠 [CONSOLIDATION] Starting memory consolidation scheduler (interval: %v)", mc.consolidateEvery)
-	
+
 	// Run immediately on start
 	go func() {
 		time.Sleep(30 * time.Second) // Wait 30s after startup
@@ -109,7 +109,7 @@ func (mc *MemoryConsolidator) RunConsolidation() {
 
 	// Use a channel to detect if consolidation completes or times out
 	done := make(chan bool, 1)
-	
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -167,33 +167,33 @@ func (mc *MemoryConsolidator) RunConsolidation() {
 
 // EpisodeGroup represents a group of similar episodes
 type EpisodeGroup struct {
-	Episodes    []EpisodicRecord
-	Schema      *GeneralizedSchema
-	Similarity  float64
-	FirstSeen   time.Time
-	LastSeen    time.Time
-	Count       int
+	Episodes   []EpisodicRecord
+	Schema     *GeneralizedSchema
+	Similarity float64
+	FirstSeen  time.Time
+	LastSeen   time.Time
+	Count      int
 }
 
 // GeneralizedSchema represents a compressed schema from multiple episodes
 type GeneralizedSchema struct {
-	Pattern      string                 `json:"pattern"`
-	CommonTags   []string               `json:"common_tags"`
-	CommonOutcome string                `json:"common_outcome"`
-	AvgReward    float64                `json:"avg_reward"`
-	Metadata     map[string]interface{} `json:"metadata"`
-	EpisodeIDs   []string               `json:"episode_ids"`
-	CreatedAt    time.Time              `json:"created_at"`
+	Pattern       string                 `json:"pattern"`
+	CommonTags    []string               `json:"common_tags"`
+	CommonOutcome string                 `json:"common_outcome"`
+	AvgReward     float64                `json:"avg_reward"`
+	Metadata      map[string]interface{} `json:"metadata"`
+	EpisodeIDs    []string               `json:"episode_ids"`
+	CreatedAt     time.Time              `json:"created_at"`
 }
 
 // CompressEpisodes identifies and compresses redundant episodes
 func (mc *MemoryConsolidator) CompressEpisodes() (int, error) {
 	config := DefaultConsolidationConfig()
-	
+
 	// Search for recent episodes (last 30 days)
 	// Note: Weaviate filtering is complex, so we'll get all episodes and filter in memory
-	queryVec := make([]float32, 8) // Placeholder vector - in production, use actual embedding
-	
+	var queryVec []float32 // nil vector triggers collection scan (no vector similarity needed for consolidation)
+
 	// Get a sample of episodes (we'll filter by timestamp in memory)
 	// Limit to 500 episodes to avoid O(n²) performance issues
 	episodes, err := mc.vectorDB.SearchEpisodes(queryVec, 500, nil)
@@ -218,17 +218,17 @@ func (mc *MemoryConsolidator) CompressEpisodes() (int, error) {
 
 	// Group similar episodes by text similarity and tags
 	groups := mc.groupSimilarEpisodes(episodes, config.SimilarityThreshold)
-	
+
 	compressedCount := 0
 	for _, group := range groups {
 		if len(group.Episodes) >= config.MinSimilarEpisodes {
 			schema := mc.createGeneralizedSchema(group)
-			
+
 			// Store schema in Redis for quick lookup
 			schemaKey := fmt.Sprintf("consolidation:schema:%s", schema.Pattern[:min(50, len(schema.Pattern))])
 			schemaData, _ := json.Marshal(schema)
 			mc.redis.Set(mc.ctx, schemaKey, schemaData, 90*24*time.Hour) // 90 days
-			
+
 			// Mark original episodes as compressed (store IDs)
 			compressedKey := fmt.Sprintf("consolidation:compressed:%s", schemaKey)
 			episodeIDs := make([]string, len(group.Episodes))
@@ -237,7 +237,7 @@ func (mc *MemoryConsolidator) CompressEpisodes() (int, error) {
 			}
 			idsData, _ := json.Marshal(episodeIDs)
 			mc.redis.Set(mc.ctx, compressedKey, idsData, 90*24*time.Hour)
-			
+
 			compressedCount++
 			log.Printf("📦 [CONSOLIDATION] Compressed %d episodes into schema: %s", len(group.Episodes), schema.Pattern[:min(60, len(schema.Pattern))])
 		}
@@ -251,7 +251,7 @@ func (mc *MemoryConsolidator) CompressEpisodes() (int, error) {
 func (mc *MemoryConsolidator) groupSimilarEpisodes(episodes []EpisodicRecord, threshold float64) []EpisodeGroup {
 	groups := []EpisodeGroup{}
 	used := make(map[int]bool)
-	maxGroups := 50 // Limit number of groups to process
+	maxGroups := 50    // Limit number of groups to process
 	maxEpisodes := 200 // Limit episodes to compare (O(n²) becomes expensive)
 
 	// Limit episodes if too many
@@ -272,10 +272,10 @@ func (mc *MemoryConsolidator) groupSimilarEpisodes(episodes []EpisodicRecord, th
 		}
 
 		group := EpisodeGroup{
-			Episodes:   []EpisodicRecord{ep1},
-			FirstSeen:  ep1.Timestamp,
-			LastSeen:   ep1.Timestamp,
-			Count:      1,
+			Episodes:  []EpisodicRecord{ep1},
+			FirstSeen: ep1.Timestamp,
+			LastSeen:  ep1.Timestamp,
+			Count:     1,
 		}
 		used[i] = true
 
@@ -313,7 +313,7 @@ func (mc *MemoryConsolidator) calculateSimilarity(ep1, ep2 EpisodicRecord) float
 	// Simple text similarity (Jaccard-like on words)
 	words1 := strings.Fields(strings.ToLower(ep1.Text))
 	words2 := strings.Fields(strings.ToLower(ep2.Text))
-	
+
 	// Create word sets
 	set1 := make(map[string]bool)
 	for _, w := range words1 {
@@ -435,10 +435,10 @@ func (mc *MemoryConsolidator) createGeneralizedSchema(group EpisodeGroup) *Gener
 	}
 
 	return &GeneralizedSchema{
-		Pattern:      pattern,
-		CommonTags:   commonTags,
+		Pattern:       pattern,
+		CommonTags:    commonTags,
 		CommonOutcome: commonOutcome,
-		AvgReward:    avgReward,
+		AvgReward:     avgReward,
 		Metadata: map[string]interface{}{
 			"episode_count": len(group.Episodes),
 			"similarity":    group.Similarity,
@@ -643,7 +643,7 @@ func (mc *MemoryConsolidator) ArchiveTraces() (int, error) {
 func (mc *MemoryConsolidator) calculateTraceUtility(key string) float64 {
 	// Simple utility: based on recency and size
 	// In production, could track access frequency, success rates, etc.
-	
+
 	ttl, err := mc.redis.TTL(mc.ctx, key).Result()
 	if err != nil {
 		return 0.0
@@ -687,7 +687,7 @@ func (mc *MemoryConsolidator) ExtractSkills() (int, error) {
 
 	// Search for episodes with workflow_id in metadata
 	// Limit to 500 episodes to avoid performance issues
-	queryVec := make([]float32, 8)
+	var queryVec []float32 // nil vector triggers collection scan
 	episodes, err := mc.vectorDB.SearchEpisodes(queryVec, 500, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to search episodes: %w", err)
@@ -729,7 +729,7 @@ func (mc *MemoryConsolidator) ExtractSkills() (int, error) {
 			}
 
 			extractedCount++
-			log.Printf("🎯 [CONSOLIDATION] Extracted skill: %s (success: %.2f%%, repetitions: %d)", 
+			log.Printf("🎯 [CONSOLIDATION] Extracted skill: %s (success: %.2f%%, repetitions: %d)",
 				skill.Name, skill.SuccessRate*100, len(episodes))
 		}
 	}
@@ -813,4 +813,3 @@ func minStringLen(a, b int) int {
 	}
 	return b
 }
-
