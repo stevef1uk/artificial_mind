@@ -94,6 +94,65 @@ func sanitizeCode(text string) string {
 	return t
 }
 
+// formatToolResult recursively flattens and formats complex tool results into a human-readable string
+func formatToolResult(result interface{}) string {
+	if result == nil {
+		return ""
+	}
+
+	// Handle maps (dictionaries)
+	if m, ok := result.(map[string]interface{}); ok {
+		// 1. Try to find "main" content keys
+		contentKeys := []string{"extracted_content", "headlines", "results", "items", "content", "summary", "text", "message"}
+		for _, k := range contentKeys {
+			if val, exists := m[k]; exists && val != nil {
+				return formatToolResult(val)
+			}
+		}
+
+		// 2. If it's a simple map with one key, use its value
+		if len(m) == 1 {
+			for _, v := range m {
+				return formatToolResult(v)
+			}
+		}
+
+		// 3. Fallback: format as key-value pairs
+		var lines []string
+		for k, v := range m {
+			// Skip technical/large fields
+			if k == "raw_html" || k == "cleaned_html" || k == "screenshot" || k == "cookies" || k == "extraction_method" {
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("%s: %v", k, v))
+		}
+		if len(lines) == 0 {
+			return ""
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	// Handle slices (lists)
+	if s, ok := result.([]interface{}); ok {
+		var lines []string
+		for _, item := range s {
+			line := formatToolResult(item)
+			if line != "" {
+				lines = append(lines, "• "+line)
+			}
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	// Handle strings (split by newline if multi-line)
+	if s, ok := result.(string); ok {
+		return strings.TrimSpace(s)
+	}
+
+	// Fallback for other types
+	return fmt.Sprintf("%v", result)
+}
+
 // sanitizeConsoleOutput removes noisy environment/provisioning logs and keeps meaningful program output
 func sanitizeConsoleOutput(text string) string {
 	if text == "" {
@@ -957,28 +1016,10 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 	// Build interpreted text from result
 	interpretedText := result.Message
 	if result.ToolExecutionResult != nil && result.ToolExecutionResult.Success {
-		// For scrape results, strip large binary/HTML fields to avoid blowing up the NLG prompt
-		toolResult := result.ToolExecutionResult.Result
-		if resultMap, ok := toolResult.(map[string]interface{}); ok {
-			// Check for nested "result" map (scrape results have this structure)
-			if innerResult, ok := resultMap["result"].(map[string]interface{}); ok {
-				// Create a clean copy without huge fields
-				cleanResult := make(map[string]interface{})
-				for k, v := range innerResult {
-					switch k {
-					case "cleaned_html", "raw_html", "screenshot", "cookies":
-						// Skip large fields - they're not useful for NLG
-						continue
-					default:
-						cleanResult[k] = v
-					}
-				}
-				interpretedText = fmt.Sprintf("%s\n\nTool result: %v", interpretedText, cleanResult)
-			} else {
-				interpretedText = fmt.Sprintf("%s\n\nTool result: %v", interpretedText, toolResult)
-			}
-		} else {
-			interpretedText = fmt.Sprintf("%s\n\nTool result: %v", interpretedText, toolResult)
+		// Use the new robust formatter to prevent Technical JSON leaking to users
+		formattedResult := formatToolResult(result.ToolExecutionResult.Result)
+		if formattedResult != "" {
+			interpretedText = fmt.Sprintf("%s\n\n%s", interpretedText, formattedResult)
 		}
 	}
 

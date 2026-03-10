@@ -602,6 +602,137 @@ func (nlg *NLGGenerator) generateFallbackResponse(req *NLGRequest, responseType 
 	}
 }
 
+// formatToolResult recursively flattens and formats complex tool results into a human-readable string
+func (nlg *NLGGenerator) formatToolResult(result interface{}) string {
+	if result == nil {
+		return ""
+	}
+
+	// Handle maps (dictionaries)
+	if m, ok := result.(map[string]interface{}); ok {
+		// 1. Try to find "main" content keys - check nested "result" first
+		if inner, ok := m["result"].(map[string]interface{}); ok {
+			return nlg.formatToolResult(inner)
+		}
+
+		contentKeys := []string{"extracted_content", "headlines", "results", "items", "content", "summary", "text", "message"}
+		for _, k := range contentKeys {
+			if val, exists := m[k]; exists && val != nil {
+				return nlg.formatToolResult(val)
+			}
+		}
+
+		// 2. If it's a simple map with one key, use its value
+		if len(m) == 1 {
+			for _, v := range m {
+				return nlg.formatToolResult(v)
+			}
+		}
+
+		// 3. Special handling for email-like records
+		from := getStringFromMapCaseInsensitive(m, "from")
+		subject := getStringFromMapCaseInsensitive(m, "subject")
+		if from != "" || subject != "" {
+			var sb strings.Builder
+			if from != "" {
+				sb.WriteString(fmt.Sprintf("From: %s", from))
+			}
+			if subject != "" {
+				if sb.Len() > 0 {
+					sb.WriteString(" | ")
+				}
+				sb.WriteString(fmt.Sprintf("Subject: %s", subject))
+			}
+			return sb.String()
+		}
+
+		// 4. Fallback: format as key-value pairs
+		var lines []string
+		for k, v := range m {
+			// Skip technical/large fields
+			if k == "raw_html" || k == "cleaned_html" || k == "screenshot" || k == "cookies" || k == "extraction_method" {
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("%s: %v", k, v))
+		}
+		if len(lines) == 0 {
+			return ""
+		}
+		return strings.Join(lines, ", ")
+	}
+
+	// Handle slices (lists)
+	if s, ok := result.([]interface{}); ok {
+		var lines []string
+		for i, item := range s {
+			line := nlg.formatToolResult(item)
+			if line != "" {
+				lines = append(lines, fmt.Sprintf("[%d] %s", i+1, line))
+			}
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	// Handle strings
+	if s, ok := result.(string); ok {
+		return strings.TrimSpace(s)
+	}
+
+	// Fallback for other types
+	return fmt.Sprintf("%v", result)
+}
+
+// formatResultData formats result data for display
+func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
+	if data == nil {
+		return "No data available"
+	}
+
+	// Start with a Clean Extraction attempt for "result" key
+	if val, ok := data["result"]; ok {
+		var interpreted interface{}
+		if ir, ok := val.(*InterpretResult); ok {
+			interpreted = ir.Interpreted
+			if ir.Metadata != nil {
+				if tr, ok := ir.Metadata["tool_result"]; ok {
+					return nlg.formatToolResult(tr)
+				}
+			}
+		} else if ir, ok := val.(InterpretResult); ok {
+			interpreted = ir.Interpreted
+			if ir.Metadata != nil {
+				if tr, ok := ir.Metadata["tool_result"]; ok {
+					return nlg.formatToolResult(tr)
+				}
+			}
+		} else {
+			interpreted = val
+		}
+
+		formatted := nlg.formatToolResult(interpreted)
+		if formatted != "" && formatted != "No data available" {
+			return formatted
+		}
+	}
+
+	// Generic fallback for all keys in data
+	var sb strings.Builder
+	for k, v := range data {
+		formatted := nlg.formatToolResult(v)
+		if formatted != "" {
+			if sb.Len() > 0 {
+				sb.WriteString("\n\n")
+			}
+			sb.WriteString(fmt.Sprintf("%s:\n%s", strings.ToUpper(k), formatted))
+		}
+	}
+
+	if sb.Len() == 0 {
+		return "No relevant data found."
+	}
+	return sb.String()
+}
+
 // formatDecisions formats decision points for display
 func (nlg *NLGGenerator) formatDecisions(decisions []DecisionPoint) string {
 	if len(decisions) == 0 {
@@ -615,349 +746,6 @@ func (nlg *NLGGenerator) formatDecisions(decisions []DecisionPoint) string {
 	}
 
 	return strings.Join(formatted, "; ")
-}
-
-// formatResultData formats result data for display
-func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
-	if data == nil {
-		log.Printf("⚠️ [NLG] formatResultData called with nil data")
-		return "No data available"
-	}
-
-	log.Printf("🗣️ [NLG] formatResultData called with data keys: %v", getMapKeys(data))
-
-	var sb strings.Builder
-
-	// Helper to extract content from an InterpretResult or similar
-	extractContent := func(val interface{}) string {
-		if val == nil {
-			return ""
-		}
-
-		var interpretedStr string
-		var metadata map[string]interface{}
-
-		// Try to handle both pointer and value types
-		if ir, ok := val.(*InterpretResult); ok {
-			interpretedStr = fmt.Sprintf("%v", ir.Interpreted)
-			metadata = ir.Metadata
-		} else if ir, ok := val.(InterpretResult); ok {
-			interpretedStr = fmt.Sprintf("%v", ir.Interpreted)
-			metadata = ir.Metadata
-		} else {
-			return fmt.Sprintf("%v", val)
-		}
-
-		// If we have metadata with a tool result, format the actual data
-		if metadata != nil {
-			log.Printf("🗣️ [NLG] Checking metadata for tool_result. Metadata keys: %v", getMapKeys(metadata))
-			if toolResult, ok := metadata["tool_result"].(map[string]interface{}); ok {
-				log.Printf("🗣️ [NLG] Found tool_result in metadata. Tool result keys: %v", getMapKeys(toolResult))
-				var resultSb strings.Builder
-
-				// Handle Weaviate or Neo4j results (list of objects)
-				// We check for both []interface{} and []map[string]interface{} to avoid cast errors
-				var resultsList []interface{}
-				if list, ok := toolResult["results"].([]interface{}); ok {
-					resultsList = list
-				} else if list, ok := toolResult["results"].([]map[string]interface{}); ok {
-					for _, item := range list {
-						resultsList = append(resultsList, item)
-					}
-				}
-
-				// Handle empty results
-				if len(resultsList) == 0 {
-					log.Printf("📧 [NLG] No results found in tool_result")
-					return "No items found."
-				}
-
-				if len(resultsList) > 0 {
-					// Check if this is email data (has Subject, From, To fields)
-					firstItem, isEmailData := resultsList[0].(map[string]interface{})
-					if isEmailData {
-						// Log the keys of the first item for debugging
-						var keys []string
-						for k := range firstItem {
-							keys = append(keys, k)
-						}
-						log.Printf("📧 [NLG] First item keys: %v", keys)
-						// Also log nested result keys if present (for scrape results)
-						if innerResult, ok := firstItem["result"].(map[string]interface{}); ok {
-							var innerKeys []string
-							for k := range innerResult {
-								innerKeys = append(innerKeys, k)
-							}
-							log.Printf("📧 [NLG] Inner result keys: %v", innerKeys)
-						}
-
-						// Case-insensitive email detection
-						hasSubject := false
-						hasFrom := false
-						for k := range firstItem {
-							kLower := strings.ToLower(k)
-							if kLower == "subject" {
-								hasSubject = true
-							}
-							if kLower == "from" {
-								hasFrom = true
-							}
-						}
-						log.Printf("📧 [NLG] Email detection: hasSubject=%v, hasFrom=%v", hasSubject, hasFrom)
-						if hasSubject || hasFrom {
-							// Log how many emails we're formatting
-							log.Printf("📧 [NLG] Formatting %d email(s) for display", len(resultsList))
-							// Format as email list (only sender and subject)
-							resultSb.WriteString(fmt.Sprintf("Found %d email(s):\n\n", len(resultsList)))
-							for i, res := range resultsList {
-								if item, ok := res.(map[string]interface{}); ok {
-									// Case-insensitive field extraction
-									subject := getStringFromMapCaseInsensitive(item, "subject")
-
-									// Extract "from" field (might be string or complex object)
-									var fromField interface{}
-									keyLower := strings.ToLower("from")
-									for k, v := range item {
-										if strings.ToLower(k) == keyLower {
-											fromField = v
-											break
-										}
-									}
-									from := extractEmailAddress(fromField)
-
-									// Check for UNREAD label
-									isUnread := false
-									if labels, ok := item["labels"].([]interface{}); ok {
-										for _, label := range labels {
-											if labelMap, ok := label.(map[string]interface{}); ok {
-												if name, ok := labelMap["name"].(string); ok && name == "UNREAD" {
-													isUnread = true
-													break
-												}
-											}
-										}
-									}
-
-									unreadMark := ""
-									if isUnread {
-										unreadMark = " [UNREAD]"
-									}
-
-									resultSb.WriteString(fmt.Sprintf("[%d]%s\n", i+1, unreadMark))
-									if from != "" {
-										resultSb.WriteString(fmt.Sprintf("    From: %s\n", from))
-									}
-									if subject != "" {
-										resultSb.WriteString(fmt.Sprintf("    Subject: %s\n", subject))
-									}
-									resultSb.WriteString("\n")
-								}
-							}
-							return resultSb.String()
-						}
-					}
-
-					// Default formatting for other data types
-					resultSb.WriteString(fmt.Sprintf("Found %d relevant items:\n\n", len(resultsList)))
-					for i, res := range resultsList {
-						if item, ok := res.(map[string]interface{}); ok {
-							// Check for scrape results with extracted_content — prioritize that
-							// It may be at the top level OR nested inside a "result" sub-map
-							extractedContent := getStringFromMap(item, "extracted_content")
-							pageTitle := getStringFromMap(item, "page_title")
-							if extractedContent == "" {
-								// Check nested "result" sub-map (scrape results have this structure)
-								if innerResult, ok := item["result"].(map[string]interface{}); ok {
-									extractedContent = getStringFromMap(innerResult, "extracted_content")
-									if pageTitle == "" {
-										pageTitle = getStringFromMap(innerResult, "page_title")
-									}
-								}
-							}
-							if extractedContent != "" {
-								extractedContent = stripMarkdownFormatting(extractedContent)
-								if pageTitle != "" {
-									resultSb.WriteString(fmt.Sprintf("Scraped page: %s\n\n", pageTitle))
-								}
-								resultSb.WriteString(fmt.Sprintf("Extracted content:\n%s\n", extractedContent))
-								log.Printf("\U0001f4e4 [NLG] Using extracted_content for scrape result (%d chars)", len(extractedContent))
-								continue
-							}
-
-							title := getStringFromMap(item, "title")
-							text := getStringFromMap(item, "text")
-							name := getStringFromMap(item, "name")
-							defn := getStringFromMap(item, "definition")
-							content := getStringFromMap(item, "content")
-							source := getStringFromMap(item, "source")
-
-							if title != "" {
-								resultSb.WriteString(fmt.Sprintf("[%d] TITLE: %s\n", i+1, title))
-							} else if name != "" {
-								resultSb.WriteString(fmt.Sprintf("[%d] NAME: %s\n", i+1, name))
-							} else if source != "" {
-								resultSb.WriteString(fmt.Sprintf("[%d] SOURCE: %s\n", i+1, source))
-							} else if title == "" && name == "" && source == "" {
-								resultSb.WriteString(fmt.Sprintf("[%d] ITEM:\n", i+1))
-							}
-
-							if text != "" {
-								// Limit text length to avoid blowing up prompt
-								if len(text) > 800 {
-									text = text[:800] + "..."
-								}
-								resultSb.WriteString(fmt.Sprintf("    CONTENT: %s\n", text))
-							} else if defn != "" {
-								resultSb.WriteString(fmt.Sprintf("    DEFINITION: %s\n", defn))
-							} else if content != "" {
-								if len(content) > 800 {
-									content = content[:800] + "..."
-								}
-								resultSb.WriteString(fmt.Sprintf("    CONTENT: %s\n", content))
-							}
-							resultSb.WriteString("\n")
-						}
-					}
-					return resultSb.String()
-				}
-
-				// Handle simple count + results results if not already handled
-				if count, ok := toolResult["count"].(float64); ok && count > 0 {
-					// This is a fallback in case the result structure is different
-					return fmt.Sprintf("Retrieved %d matching records from knowledge base.", int(count))
-				}
-			}
-		}
-
-		return interpretedStr
-	}
-
-	// Check for combined results first
-	if source, ok := data["source"].(string); ok && source == "neo4j_and_rag" {
-		if neo4j, ok := data["neo4j_result"]; ok {
-			content := extractContent(neo4j)
-			if content != "" {
-				sb.WriteString("### Knowledge Graph (Neo4j):\n")
-				sb.WriteString(content)
-				sb.WriteString("\n\n")
-			}
-		}
-		if episodic, ok := data["episodic_memory"]; ok {
-			content := extractContent(episodic)
-			if content != "" {
-				sb.WriteString("### Episodic Memory (Weaviate):\n")
-				sb.WriteString(content)
-				sb.WriteString("\n\n")
-			}
-		}
-		if news, ok := data["news_articles"]; ok {
-			content := extractContent(news)
-			if content != "" {
-				sb.WriteString("### News Articles (Weaviate):\n")
-				sb.WriteString(content)
-				sb.WriteString("\n\n")
-			}
-		}
-		if avatar, ok := data["avatar_context"]; ok {
-			content := extractContent(avatar)
-			if content != "" {
-				sb.WriteString("### Personal Background (AvatarContext):\n")
-				sb.WriteString(content)
-				sb.WriteString("\n\n")
-			}
-		}
-		if sb.Len() > 0 {
-			return sb.String()
-		}
-	}
-
-	// Handle standard "result" key
-	if result, ok := data["result"]; ok {
-		content := extractContent(result)
-		if content != "" && content != "No data available" {
-			return content
-		}
-		// If extractContent returned empty, the tool result might not be in metadata
-		// Try to extract it directly from the InterpretResult
-		if ir, ok := result.(*InterpretResult); ok && ir.Metadata != nil {
-			if toolResult, ok := ir.Metadata["tool_result"].(map[string]interface{}); ok {
-				log.Printf("🗣️ [NLG] Found tool_result directly in InterpretResult metadata")
-				// Format the tool result
-				if results, ok := toolResult["results"].([]interface{}); ok && len(results) > 0 {
-					// Check if this is email data (case-insensitive)
-					if firstItem, ok := results[0].(map[string]interface{}); ok {
-						hasSubject := false
-						hasFrom := false
-						for k := range firstItem {
-							kLower := strings.ToLower(k)
-							if kLower == "subject" {
-								hasSubject = true
-							}
-							if kLower == "from" {
-								hasFrom = true
-							}
-						}
-						if hasSubject || hasFrom {
-							// Log how many emails we're formatting
-							log.Printf("📧 [NLG] Formatting %d email(s) from tool_result metadata", len(results))
-							var emailSb strings.Builder
-							emailSb.WriteString(fmt.Sprintf("Found %d email(s):\n\n", len(results)))
-							for i, res := range results {
-								if item, ok := res.(map[string]interface{}); ok {
-									// Case-insensitive field extraction
-									subject := getStringFromMapCaseInsensitive(item, "subject")
-
-									// Extract "from" field (might be string or complex object)
-									var fromField interface{}
-									keyLower := strings.ToLower("from")
-									for k, v := range item {
-										if strings.ToLower(k) == keyLower {
-											fromField = v
-											break
-										}
-									}
-									from := extractEmailAddress(fromField)
-
-									isUnread := false
-									if labels, ok := item["labels"].([]interface{}); ok {
-										for _, label := range labels {
-											if labelMap, ok := label.(map[string]interface{}); ok {
-												if name, ok := labelMap["name"].(string); ok && name == "UNREAD" {
-													isUnread = true
-													break
-												}
-											}
-										}
-									}
-
-									unreadMark := ""
-									if isUnread {
-										unreadMark = " [UNREAD]"
-									}
-
-									emailSb.WriteString(fmt.Sprintf("[%d]%s\n", i+1, unreadMark))
-									if from != "" {
-										emailSb.WriteString(fmt.Sprintf("    From: %s\n", from))
-									}
-									if subject != "" {
-										emailSb.WriteString(fmt.Sprintf("    Subject: %s\n", subject))
-									}
-									emailSb.WriteString("\n")
-								}
-							}
-							return emailSb.String()
-						}
-					}
-				}
-			}
-		}
-		return content
-	}
-
-	// Fallback to formatting the entire data structure
-	fallback := fmt.Sprintf("%v", data)
-	log.Printf("🗣️ [NLG] Result data formatted (length: %d)", len(fallback))
-	return fallback
 }
 
 // getStringFromMap safely extracts a string value from a map
