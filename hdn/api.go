@@ -26,6 +26,13 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+var (
+	listCleanupRegex  = regexp.MustCompile(`^(\d+\.|\*|-|•)\s*`)
+	numberedListRegex = regexp.MustCompile(`\s*\d+\.\s+`)
+	commentRegex      = regexp.MustCompile(`(?m)(^|\s)//.*$`)
+	fenceRegex        = regexp.MustCompile("(?s)^```[a-zA-Z0-9_-]*\n(.*?)\n```\\s*$")
+)
+
 // toyEmbed creates a simple deterministic vector for text (for testing)
 func toyEmbed(text string, dim int) []float32 {
 	vec := make([]float32, dim)
@@ -53,15 +60,11 @@ func sanitizeCode(text string) string {
 		return text
 	}
 	t := strings.TrimSpace(text)
-	// Remove C-style single-line comments (// ...) which LLMs often hallucinate into JSON
-	// Only match if it's NOT part of a URL (e.g., preceded by http: or https:)
-	// More precisely: match // only if it's at start of line or preceded by space
-	commentRegex := regexp.MustCompile(`(?m)(^|\s)//.*$`)
+	// Remove C-style single-line comments
 	t = commentRegex.ReplaceAllString(t, "")
 
-	// Remove fenced block ```lang\n...\n```
-	fence := regexp.MustCompile("(?s)^```[a-zA-Z0-9_-]*\n(.*?)\n```\\s*$")
-	if m := fence.FindStringSubmatch(t); len(m) > 1 {
+	// Remove fenced block
+	if m := fenceRegex.FindStringSubmatch(t); len(m) > 1 {
 		t = m[1]
 	}
 
@@ -96,24 +99,33 @@ func sanitizeCode(text string) string {
 
 // formatToolResult recursively flattens and formats complex tool results into a human-readable string
 func formatToolResult(result interface{}) string {
-	if result == nil {
+	return formatToolResultInternal(result, 0)
+}
+
+func formatToolResultInternal(result interface{}, depth int) string {
+	if result == nil || depth > 5 { // Hard depth limit to prevent circular recursion
 		return ""
 	}
 
 	// Handle maps (dictionaries)
 	if m, ok := result.(map[string]interface{}); ok {
-		// 1. Try to find "main" content keys
+		// 1. Try to find "main" content keys - check nested "result" first
+		if inner, ok := m["result"].(map[string]interface{}); ok {
+			return formatToolResultInternal(inner, depth+1)
+		}
+
 		contentKeys := []string{"extracted_content", "headlines", "results", "items", "content", "summary", "text", "message"}
 		for _, k := range contentKeys {
 			if val, exists := m[k]; exists && val != nil {
-				return formatToolResult(val)
+				// Don't recurse if the value is the same type and has same keys (prevent trivial cycles)
+				return formatToolResultInternal(val, depth+1)
 			}
 		}
 
 		// 2. If it's a simple map with one key, use its value
 		if len(m) == 1 {
 			for _, v := range m {
-				return formatToolResult(v)
+				return formatToolResultInternal(v, depth+1)
 			}
 		}
 
@@ -135,10 +147,10 @@ func formatToolResult(result interface{}) string {
 	// Handle slices (lists)
 	if s, ok := result.([]interface{}); ok {
 		var lines []string
-		for _, item := range s {
-			line := formatToolResult(item)
+		for i, item := range s {
+			line := formatToolResultInternal(item, depth+1)
 			if line != "" {
-				lines = append(lines, "• "+line)
+				lines = append(lines, fmt.Sprintf("[%d] %s", i+1, line))
 			}
 		}
 		return strings.Join(lines, "\n")
@@ -155,18 +167,16 @@ func formatToolResult(result interface{}) string {
 			for _, line := range lines {
 				line = strings.TrimSpace(line)
 				if line != "" {
-					// Remove leading bullets/numbers if we're adding our own
-					line = regexp.MustCompile(`^(\d+\.|\*|-|•)\s*`).ReplaceAllString(line, "")
+					line = listCleanupRegex.ReplaceAllString(line, "")
 					cleaned = append(cleaned, "• "+line)
 				}
 			}
 			return strings.Join(cleaned, "\n")
 		}
 
-		// Check for numbered list without newlines: "1. Headline 2. Headline"
-		re := regexp.MustCompile(`\s*\d+\.\s+`)
-		if re.MatchString(s) {
-			parts := re.Split(s, -1)
+		// Check for numbered list without newlines
+		if numberedListRegex.MatchString(s) {
+			parts := numberedListRegex.Split(s, -1)
 			var cleaned []string
 			for _, p := range parts {
 				p = strings.TrimSpace(p)

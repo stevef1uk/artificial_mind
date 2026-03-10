@@ -209,7 +209,14 @@ agents:
               import os, requests, json
 
               def get_hdn_url():
-                  candidates = ["http://hdn-server-rpi58:8080", "http://127.0.0.1:30257", "http://localhost:30257"]
+                  # Try internal k3s service names first, then external/local IPs
+                  candidates = [
+                      "http://hdn-server:8080", 
+                      "http://hdn-server.default.svc.cluster.local:8080",
+                      "http://hdn-server-rpi58:8080", 
+                      "http://127.0.0.1:30257", 
+                      "http://localhost:30257"
+                  ]
                   for c in candidates:
                       try:
                           r = requests.get(f"{c}/api/v1/tools", timeout=2)
@@ -226,11 +233,19 @@ agents:
               # 1. Scrape
               headlines = []
               try:
-                  s_resp = requests.post(f"{hdn_url}/api/v1/tools/mcp_smart_scrape/invoke", 
+                  s_url = f"{hdn_url}/api/v1/tools/mcp_smart_scrape/invoke"
+                  print(f"📥 Calling scraper at {s_url}")
+                  s_resp = requests.post(s_url, 
                                          json={"url": "https://www.bbc.com/news", "goal": "Return a JSON list of the top 10 headline titles."},
-                                         timeout=180)
+                                         timeout=200)
+                  s_resp.raise_for_status()
                   res = s_resp.json()
                   raw = res.get("result", res)
+                  
+                  # Check if we got an error in the JSON response even if HTTP 200
+                  if isinstance(raw, dict) and raw.get("error"):
+                      headlines = [f"Scraper reported error: {raw['error']}"]
+                      raw = []
                   
                   def extract_list(data):
                       if isinstance(data, list):

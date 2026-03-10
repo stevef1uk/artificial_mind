@@ -9,6 +9,11 @@ import (
 	"strings"
 )
 
+var (
+	listCleanupRegex  = regexp.MustCompile(`^(\d+\.|\*|-|•)\s*`)
+	numberedListRegex = regexp.MustCompile(`\s*\d+\.\s+`)
+)
+
 // NLGGenerator generates natural language responses from reasoning traces and results
 type NLGGenerator struct {
 	llmClient LLMClientInterface
@@ -604,7 +609,11 @@ func (nlg *NLGGenerator) generateFallbackResponse(req *NLGRequest, responseType 
 
 // formatToolResult recursively flattens and formats complex tool results into a human-readable string
 func (nlg *NLGGenerator) formatToolResult(result interface{}) string {
-	if result == nil {
+	return nlg.formatToolResultInternal(result, 0)
+}
+
+func (nlg *NLGGenerator) formatToolResultInternal(result interface{}, depth int) string {
+	if result == nil || depth > 5 { // Hard depth limit to prevent circular recursion
 		return ""
 	}
 
@@ -612,20 +621,20 @@ func (nlg *NLGGenerator) formatToolResult(result interface{}) string {
 	if m, ok := result.(map[string]interface{}); ok {
 		// 1. Try to find "main" content keys - check nested "result" first
 		if inner, ok := m["result"].(map[string]interface{}); ok {
-			return nlg.formatToolResult(inner)
+			return nlg.formatToolResultInternal(inner, depth+1)
 		}
 
 		contentKeys := []string{"extracted_content", "headlines", "results", "items", "content", "summary", "text", "message"}
 		for _, k := range contentKeys {
 			if val, exists := m[k]; exists && val != nil {
-				return nlg.formatToolResult(val)
+				return nlg.formatToolResultInternal(val, depth+1)
 			}
 		}
 
 		// 2. If it's a simple map with one key, use its value
 		if len(m) == 1 {
 			for _, v := range m {
-				return nlg.formatToolResult(v)
+				return nlg.formatToolResultInternal(v, depth+1)
 			}
 		}
 
@@ -665,7 +674,7 @@ func (nlg *NLGGenerator) formatToolResult(result interface{}) string {
 	if s, ok := result.([]interface{}); ok {
 		var lines []string
 		for i, item := range s {
-			line := nlg.formatToolResult(item)
+			line := nlg.formatToolResultInternal(item, depth+1)
 			if line != "" {
 				lines = append(lines, fmt.Sprintf("[%d] %s", i+1, line))
 			}
@@ -684,8 +693,7 @@ func (nlg *NLGGenerator) formatToolResult(result interface{}) string {
 			for _, line := range lines {
 				line = strings.TrimSpace(line)
 				if line != "" {
-					// Remove leading bullets/numbers
-					line = regexp.MustCompile(`^(\d+\.|\*|-|•)\s*`).ReplaceAllString(line, "")
+					line = listCleanupRegex.ReplaceAllString(line, "")
 					cleaned = append(cleaned, "• "+line)
 				}
 			}
@@ -693,9 +701,8 @@ func (nlg *NLGGenerator) formatToolResult(result interface{}) string {
 		}
 
 		// Check for numbered list without newlines
-		re := regexp.MustCompile(`\s*\d+\.\s+`)
-		if re.MatchString(s) {
-			parts := re.Split(s, -1)
+		if numberedListRegex.MatchString(s) {
+			parts := numberedListRegex.Split(s, -1)
 			var cleaned []string
 			for _, p := range parts {
 				p = strings.TrimSpace(p)
@@ -728,21 +735,21 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 			interpreted = ir.Interpreted
 			if ir.Metadata != nil {
 				if tr, ok := ir.Metadata["tool_result"]; ok {
-					return nlg.formatToolResult(tr)
+					return nlg.formatToolResultInternal(tr, 0)
 				}
 			}
 		} else if ir, ok := val.(InterpretResult); ok {
 			interpreted = ir.Interpreted
 			if ir.Metadata != nil {
 				if tr, ok := ir.Metadata["tool_result"]; ok {
-					return nlg.formatToolResult(tr)
+					return nlg.formatToolResultInternal(tr, 0)
 				}
 			}
 		} else {
 			interpreted = val
 		}
 
-		formatted := nlg.formatToolResult(interpreted)
+		formatted := nlg.formatToolResultInternal(interpreted, 0)
 		if formatted != "" && formatted != "No data available" {
 			return formatted
 		}
@@ -751,7 +758,7 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 	// Generic fallback for all keys in data
 	var sb strings.Builder
 	for k, v := range data {
-		formatted := nlg.formatToolResult(v)
+		formatted := nlg.formatToolResultInternal(v, 0)
 		if formatted != "" {
 			if sb.Len() > 0 {
 				sb.WriteString("\n\n")
