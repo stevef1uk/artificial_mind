@@ -81,13 +81,27 @@ func resolveWellKnownURL(input string) string {
 }
 
 func init() {
-	// Register built-in prompt hints for core MCP tools
+	Set_mcp_smart_scrape_hints()
+	Set_mcp_research_agent_hints()
+}
+
+func Set_mcp_smart_scrape_hints() {
 	SetPromptHints("mcp_smart_scrape", &PromptHintsConfig{
 		Keywords:      []string{"scrape", "browse", "crawl", "fetch", "visit"},
 		PromptText:    "⚠️ FOR WEB SCRAPING: You MUST use mcp_smart_scrape with the 'url' and 'goal' parameters. Do NOT return a text description of how to scrape.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"scrape", "browse", "crawl"},
 		RejectText:    true,
+	})
+}
+
+func Set_mcp_research_agent_hints() {
+	SetPromptHints("mcp_research_agent", &PromptHintsConfig{
+		Keywords:      []string{"research", "deep research", "comprehensive", "analysis", "latest developments", "multi-step research"},
+		PromptText:    "⚠️ FOR COMPLEX RESEARCH: Use mcp_research_agent for multi-step research or deep analysis tasks. Set 'query' to a detailed research goal and 'depth' (1-3).",
+		ForceToolCall: true,
+		AlwaysInclude: []string{"research", "deep research"},
+		RejectText:    false, // Allow text responses if research isn't needed
 	})
 }
 
@@ -637,7 +651,7 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 	inputLower := strings.ToLower(input)
 	var relevant []Tool
 	seen := make(map[string]bool)
-	commonKeywords := []string{"query", "neo4j", "http", "file", "read", "write", "exec", "docker", "code", "generate", "search", "scrape", "email", "emails"}
+	commonKeywords := []string{"query", "neo4j", "http", "file", "read", "write", "exec", "docker", "code", "generate", "search", "scrape", "email", "emails", "research", "deep", "comprehensive"}
 
 	// Keywords that suggest specific tool usage
 	toolKeywords := map[string][]string{
@@ -857,8 +871,13 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 			}
 
 			// Prefer MCP tools for knowledge-related tasks
-			if strings.HasPrefix(tool.ID, "mcp_") && (strings.Contains(inputLower, "query") || strings.Contains(inputLower, "knowledge") || strings.Contains(inputLower, "neo4j")) {
+			if strings.HasPrefix(tool.ID, "mcp_") && (strings.Contains(inputLower, "query") || strings.Contains(inputLower, "knowledge") || strings.Contains(inputLower, "neo4j") || strings.Contains(inputLower, "research")) {
 				score += 3
+			}
+
+			// Extra boost for research_agent when 'research' is explicitly mentioned
+			if (tool.ID == "mcp_research_agent" || tool.ID == "research_agent") && strings.Contains(inputLower, "research") {
+				score += 15 // Ensure it stays in top 20
 			}
 
 			scored[i] = scoredTool{tool: tool, score: score}
