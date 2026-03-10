@@ -49,6 +49,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - **Hierarchical Planning** - Multi-level task decomposition and execution
 - **Natural Language Interface** - Conversational AI with full transparency and thought storage
 - **Tool Integration** - Extensible framework for AI capabilities with composite tool provider
+- **Chat-Only Tools** - Certain tools (e.g., research_agent) are restricted to chat access only for safety and oversight. See [MCP Tool Lockdown](docs/mcp_tool_lockdown.md).
 - **Knowledge Growth** - Continuous learning and adaptation
 - **Focused Learning** - System focuses on promising areas and learns from outcomes
 - **Intelligent Goal Routing** (Jan 2026) - Goals automatically routed to optimal execution paths (knowledge queries, tool calls, reasoning engine, or code generation)
@@ -101,6 +102,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - [**Principles Integration**](docs/PRINCIPLES_INTEGRATION.md) - Ethical decision-making system
 - [**Content Safety**](docs/CONTENT_SAFETY_README.md) - Safety mechanisms and content filtering
 - [**MCP Tool Lockdown**](docs/mcp_tool_lockdown.md) - Prevents autonomous use of sensitive tools
+- **New:** [**research_agent**] - [chat-only] tool for external research tasks, proxies requests to a secure MCP server. Only available in chat, not to the planner.
 - [**Dynamic Integration Guide**](docs/DYNAMIC_INTEGRATION_GUIDE.md) - Dynamic system integration
 
 ### 🔧 Implementation & Development

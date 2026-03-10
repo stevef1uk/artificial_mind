@@ -36,6 +36,24 @@ To lock down a tool, include the string `[chat-only]` (case-insensitive) anywher
 }
 ```
 
+### Example: research_agent (external MCP proxy)
+
+```json
+{
+  "id": "mcp_research_agent",
+  "name": "research_agent",
+  "description": "[chat-only] Perform research using the external MCP research server. This tool is restricted to chat access only and will be skipped by the planner.",
+  "input_schema": {"query": "string", "depth": "int"},
+  "output_schema": {"result": "string"},
+  "permissions": ["net:read"],
+  "safety_level": "medium",
+  "exec": {
+    "type": "mcp_proxy",
+    "cmd": "https://k3s.sjfisher.com/webhook/40a534f4-2041-4eed-b317-738ad99b5cb0"
+  }
+}
+```
+
 ### Configured via n8n/YAML skills:
 
 ```yaml

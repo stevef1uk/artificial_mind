@@ -26,6 +26,24 @@ The MCP (Model Context Protocol) Knowledge Server exposes your knowledge bases (
 ## Available MCP Tools
 
 ### 1. `mcp_query_neo4j`
+
+### 0. `mcp_research_agent` [chat-only]
+Perform research using an external MCP research server. This tool is restricted to chat access only and will be skipped by the planner.
+
+**Parameters:**
+- `query` (string, required): Research query or topic
+- `depth` (integer, optional): Depth or thoroughness of research
+
+**Example:**
+```json
+{
+   "tool_id": "mcp_research_agent",
+   "parameters": {
+      "query": "Recent advances in quantum computing",
+      "depth": 2
+   }
+}
+```
 Query the Neo4j knowledge graph using Cypher.
 
 **Parameters:**

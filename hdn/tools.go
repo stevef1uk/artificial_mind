@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -596,6 +597,25 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 		{ID: "tool_register", Name: "Register Tool", Description: "Register tool metadata", InputSchema: map[string]string{"tool": "json"}, OutputSchema: map[string]string{"ok": "bool"}, Permissions: []string{"registry:write"}, SafetyLevel: "low", CreatedBy: "system"},
 		{ID: "tool_json_parse", Name: "JSON Parse", Description: "Parse JSON", InputSchema: map[string]string{"text": "string"}, OutputSchema: map[string]string{"object": "json"}, Permissions: []string{}, SafetyLevel: "low", CreatedBy: "system"},
 		{ID: "tool_text_search", Name: "Text Search", Description: "Search text", InputSchema: map[string]string{"pattern": "string", "text": "string"}, OutputSchema: map[string]string{"matches": "string[]"}, Permissions: []string{}, SafetyLevel: "low", CreatedBy: "system"},
+		// MCP research_agent tool (chat-only)
+		{
+			ID:          "mcp_research_agent",
+			Name:        "research_agent",
+			Description: "[chat-only] Perform research using the external MCP research server. This tool is restricted to chat access only and will be skipped by the planner.",
+			InputSchema: map[string]string{
+				"query": "string",
+				"depth": "int",
+			},
+			OutputSchema: map[string]string{"result": "string"},
+			Permissions:  []string{"net:read"},
+			SafetyLevel:  "medium",
+			CreatedBy:    "system",
+			Exec: &ToolExecSpec{
+				Type: "mcp_proxy",
+				Cmd:  "https://k3s.sjfisher.com/webhook/40a534f4-2041-4eed-b317-738ad99b5cb0",
+				Args: []string{},
+			},
+		},
 	}
 
 	// Add SSH executor only when explicitly enabled or on ARM64
@@ -708,6 +728,81 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[HDN-DEBUG] Switching on id: '%s' (len=%d)", id, len(id))
+
+	// --- MCP PROXY EXECUTION LOGIC ---
+	execType := ""
+	if meta.Exec != nil {
+		execType = meta.Exec.Type
+	}
+	if strings.EqualFold(execType, "mcp_proxy") {
+		// Get the target URL from Exec.Cmd
+		target := ""
+		if meta.Exec != nil && meta.Exec.Cmd != "" {
+			target = meta.Exec.Cmd
+		}
+		if target == "" {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "MCP proxy target URL not set"})
+			return
+		}
+
+		// Marshal params as JSON
+		payload, err := json.Marshal(params)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "failed to marshal params: " + err.Error()})
+			return
+		}
+
+		// Prepare HTTP request
+		req, err := http.NewRequestWithContext(ctx, "POST", target, bytes.NewReader(payload))
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "failed to create HTTP request: " + err.Error()})
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		// Set Authorization header from env var MCP_AUTH_TOKEN
+		authToken := strings.TrimSpace(os.Getenv("MCP_AUTH_TOKEN"))
+		if authToken != "" {
+			req.Header.Set("Authorization", "Bearer "+authToken)
+		}
+
+		// Also set X-Webhook-Secret if N8N_WEBHOOK_SECRET is set
+		webhookSecret := strings.TrimSpace(os.Getenv("N8N_WEBHOOK_SECRET"))
+		if webhookSecret != "" {
+			// Match N8NWebhookHandler logic: if not base64-like, encode it
+			secretToSend := webhookSecret
+			if !isBase64Like(webhookSecret) {
+				secretToSend = base64.StdEncoding.EncodeToString([]byte(webhookSecret))
+			}
+			req.Header.Set("X-Webhook-Secret", secretToSend)
+		}
+
+		// Send the request
+		client := &http.Client{Timeout: 60 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "MCP proxy request failed: " + err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+
+		// Copy status code and response body
+		w.WriteHeader(resp.StatusCode)
+		var respBody interface{}
+		dec := json.NewDecoder(resp.Body)
+		if err := dec.Decode(&respBody); err != nil {
+			// If not JSON, return as raw text
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"output": string(bodyBytes)})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(respBody)
+		return
+	}
 
 	if strings.HasPrefix(id, "mcp_") {
 		if s.mcpKnowledgeServer == nil {
@@ -1097,15 +1192,12 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Generic exec-spec runner: if the tool metadata has an exec spec, run it
-		// Case 0: Execute code directly (code type) - for dynamically created tools
-		// Check if exec type is "code" - this is for auto-created tools
 		execType := ""
 		if meta.Exec != nil {
 			execType = meta.Exec.Type
 		}
 		// Also check if tool was stored with exec as map (from JSON registration)
 		if execType == "" {
-			// Re-load tool from Redis to get raw JSON structure
 			if val, err := s.redis.Get(ctx, s.toolKey(id)).Result(); err == nil {
 				var rawTool map[string]interface{}
 				if json.Unmarshal([]byte(val), &rawTool) == nil {
@@ -1117,6 +1209,8 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+
+		// --- END MCP PROXY LOGIC ---
 
 		if strings.EqualFold(execType, "code") {
 			// Extract code and language from exec spec

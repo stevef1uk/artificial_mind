@@ -214,3 +214,47 @@ func TestInvokeCmdExecWithoutDockerRequiresCodeOrAllowlisted(t *testing.T) {
 		t.Fatalf("invoke status(expected 400 or 500)=%d body=%s", invRec.Code, invRec.Body.String())
 	}
 }
+
+// TestInvokeResearchAgentTool tests registration and invocation of the research_agent MCP proxy tool.
+func TestInvokeResearchAgentTool(t *testing.T) {
+	s, cleanup := newTestServer(t)
+	defer cleanup()
+
+	// Register the research_agent tool (mcp_proxy type)
+	tool := Tool{
+		ID:          "tool_research_agent",
+		Name:        "ResearchAgent",
+		Description: "Proxies research tasks to external MCP server [chat-only]",
+		CreatedBy:   "agent",
+		Exec: &ToolExecSpec{
+			Type:   "mcp_proxy",
+			Target: "https://k3s.sjfisher.com/mcp/589807cd-b78c-4134-a088-b53c293fa5a4",
+		},
+	}
+	body, _ := json.Marshal(tool)
+	req := httptest.NewRequest("POST", "/api/v1/tools", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	s.handleRegisterTool(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("register status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Invoke with missing required param (should error)
+	invReq := httptest.NewRequest("POST", "/api/v1/tools/tool_research_agent/invoke", bytes.NewReader([]byte(`{}`)))
+	invRec := httptest.NewRecorder()
+	s.handleInvokeTool(invRec, invReq)
+	if invRec.Code == http.StatusOK {
+		t.Fatalf("expected error for missing query param, got 200: %s", invRec.Body.String())
+	}
+
+	// Invoke with required param (simulate query)
+	payload := map[string]interface{}{"query": "What is the capital of France?"}
+	b, _ := json.Marshal(payload)
+	invReq2 := httptest.NewRequest("POST", "/api/v1/tools/tool_research_agent/invoke", bytes.NewReader(b))
+	invRec2 := httptest.NewRecorder()
+	s.handleInvokeTool(invRec2, invReq2)
+	// Accept 200 (success) or 500 (external error), but must not be 400 for missing param
+	if invRec2.Code == http.StatusBadRequest {
+		t.Fatalf("expected non-400 for valid query param, got 400: %s", invRec2.Body.String())
+	}
+}
