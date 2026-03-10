@@ -394,6 +394,10 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 							params["goal"] = input
 							log.Printf("🔗 [FLEXIBLE-LLM] Resolved well-known site URL=%s for forced mcp_smart_scrape call", resolved)
 						}
+					} else if actualToolID == "mcp_research_agent" || strings.TrimPrefix(actualToolID, "mcp_") == "research_agent" {
+						params["query"] = input
+						params["depth"] = 2
+						log.Printf("🧪 [FLEXIBLE-LLM] Extracted query for forced mcp_research_agent call")
 					}
 					// Don't force mcp_smart_scrape without a URL — it will fail and waste scraper resources
 					if (actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape") && params["url"] == nil {
@@ -440,6 +444,9 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 									log.Printf("⚠️ [FLEXIBLE-LLM] Skipping forced %s (wrong tool '%s') — no URL could be extracted", actualToolID, responseToolID)
 									break
 								}
+							} else if actualToolID == "mcp_research_agent" || strings.TrimPrefix(actualToolID, "mcp_") == "research_agent" {
+								forceParams["query"] = input
+								forceParams["depth"] = 2
 							}
 							log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s'. Forcing %s.", responseToolID, actualToolID)
 							return &FlexibleLLMResponse{
@@ -560,6 +567,10 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 						params["goal"] = input
 						log.Printf("🔗 [FLEXIBLE-LLM] Resolved well-known site URL=%s for forced mcp_smart_scrape call (block 2)", resolved)
 					}
+				} else if actualToolID == "mcp_research_agent" || strings.TrimPrefix(actualToolID, "mcp_") == "research_agent" {
+					params["query"] = input
+					params["depth"] = 2
+					log.Printf("🧪 [FLEXIBLE-LLM] Extracted query for forced mcp_research_agent call (block 2)")
 				}
 				// Don't force mcp_smart_scrape without a URL — it will fail and waste scraper resources
 				if (actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape") && params["url"] == nil {
@@ -606,6 +617,9 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 								log.Printf("⚠️ [FLEXIBLE-LLM] Skipping forced %s (wrong tool '%s') — no URL could be extracted (block 2)", actualToolID, responseToolID)
 								break
 							}
+						} else if actualToolID == "mcp_research_agent" || strings.TrimPrefix(actualToolID, "mcp_") == "research_agent" {
+							forceParams2["query"] = input
+							forceParams2["depth"] = 2
 						}
 						log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s'. Forcing %s. (block 2)", responseToolID, actualToolID)
 						return &FlexibleLLMResponse{
