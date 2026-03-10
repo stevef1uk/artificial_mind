@@ -1,149 +1,21 @@
 apiVersion: v1
 data:
-  agents.yaml: "agents:\n- id: email_monitor_agent\n  name: Email Monitor Agent\n\
-    \  description: Monitors emails and takes actions based on content\n  role: Email\
-    \ Monitoring Specialist\n  goal: Monitor inbox for important emails and notify\
-    \ or take actions\n  backstory: 'You are an email monitoring specialist that watches\
-    \ for important messages,\n\n    categorizes them, and takes appropriate actions\
-    \ like flagging urgent items\n\n    or summarizing daily digests.\n\n    '\n \
-    \ tools:\n  - mcp_read_google_data\n  - mcp_save_episode\n  - tool_http_get\n\
-    \  capabilities:\n    max_iterations: 10\n    verbose: true\n  triggers:\n   \
-    \ schedule:\n    - cron: '*/30 * * * *'\n      action: check_emails\n    events:\n\
-    \    - type: user_request\n      keywords:\n      - check emails\n      - monitor\
-    \ inbox\n      - email summary\n    - type: goal\n      goal_type: monitor_emails\n\
-    \  behavior:\n    thinking_mode: true\n    max_retries: 3\n    response_format:\
-    \ structured\n    use_memory: true\n    memory_window: 24h\n    prefer_tools:\
-    \ true\n    tool_timeout: 60s\n  tasks:\n  - id: check_unread_emails\n    description:\
-    \ Check for unread emails and categorize them\n    expected_output: List of unread\
-    \ emails with categories\n    tools:\n    - mcp_read_google_data\n    parameters:\n\
-    \      limit: 50\n      query: unread\n      type: email\n- id: website_status_monitor\n\
-    \  name: Website Status Monitor\n  description: Checks if important websites are\
-    \ up and running, reports their HTTP\n    status codes, and alerts if any are\
-    \ down. Perfect for monitoring critical services\n    or your own infrastructure.\n\
-    \  role: Website Health Monitor\n  goal: Monitor a list of websites and report\
-    \ their status (up/down, response times,\n    HTTP status codes) via Telegram\n\
-    \  backstory: 'You are a website monitoring specialist that checks the health\
-    \ of websites\n    by making HTTP requests\n\n    and analyzing their responses.\
-    \ You provide clear status reports and identify any\n    issues, then notify\n\
-    \n    via Telegram for immediate visibility.\n\n    '\n  tools:\n  - tool_http_get\n\
-    \  - tool_telegram_send\n  capabilities:\n    max_iterations: 10\n    verbose:\
-    \ true\n  triggers:\n    schedule:\n    - cron: '*/15 * * * *'\n      action:\
-    \ execute\n  behavior:\n    thinking_mode: true\n    max_retries: 3\n    response_format:\
-    \ structured\n    use_memory: true\n    memory_window: 24h\n    prefer_tools:\
-    \ true\n    tool_timeout: 60s\n  tasks:\n  - id: monitor_task\n    description:\
-    \ Monitor and check status of websites\n    expected_output: Status report for\
-    \ each website (up/down, HTTP status, response\n      time)\n    tools:\n    -\
-    \ tool_http_get\n    parameters:\n      websites:\n      - https://me.sjfisher.com\n\
-    \      - https://k3s.sjfisher.com\n- id: scraper_agent\n  name: Scraper Agent\n\
-    \  description: Intelligent scraper that can plan and execute complex web extractions\n\
-    \  role: Web Scraping Specialist\n  goal: Plan and execute web scraping operations\
-    \ to extract specific data from any\n    given URL\n  backstory: 'You are an expert\
-    \ web scraper that uses Playwright and intelligent planning\n\n    to navigate\
-    \ complex websites, handle autocompletes, and extract data accurately.\n\n   \
-    \ '\n  tools:\n  - smart_scrape\n  - tool_http_get\n  capabilities:\n    max_iterations:\
-    \ 15\n    verbose: true\n  triggers:\n    events:\n    - type: user_request\n\
-    \      keywords:\n      - scrape\n      - extract data\n      - find price\n \
-    \     - flight emissions\n    - type: goal\n      goal_type: scrape_web\n  behavior:\n\
-    \    thinking_mode: true\n    max_retries: 5\n    use_memory: true\n    prefer_tools:\
-    \ true\n    tool_timeout: 120s\n- id: price_monitor_agent\n  name: Price Monitor\
-    \ Agent\n  description: Monitors product prices twice daily and alerts on Telegram\
-    \ if prices\n    drop by more than 10%.\n  role: Price Watcher & Analyst\n  goal:\
-    \ Track a list of product URLs, extract prices, compare with history, and notify\n\
-    \    on significant price drops.\n  backstory: 'You are a dedicated shopping assistant.\
-    \ You check prices for a specific\n    list of items twice a day.\n\n    You maintain\
-    \ a historical record of prices in ''data/price_history.json''.\n\n    Whenever\
-    \ you run, you compare the current price with the previous one.\n\n    If a price\
-    \ falls by 10% or more, you send an urgent alert via Telegram.\n\n    '\n  tools:\n\
-    \  - mcp_smart_scrape\n  - tool_telegram_send\n  - tool_file_read\n  - tool_file_write\n\
-    \  capabilities:\n    max_iterations: 15\n    verbose: true\n  triggers:\n   \
-    \ schedule:\n    - cron: 0 9,17 * * *\n      action: Check all watched products\
-    \ for price drops.\n  behavior:\n    thinking_mode: true\n    max_retries: 3\n\
-    \    use_memory: true\n    prefer_tools: true\n  tasks:\n  - id: price_monitor_flow\n\
-    \    description: Scrape the current price of the ASUS Ascent laptop from Amazon,\
-    \ compare\n      with history, and alert if changed.\n    expected_output: The\
-    \ current price of the laptop and alert status.\n    tools:\n    - mcp_smart_scrape\n\
-    \    - tool_telegram_send\n    - tool_file_read\n    - tool_file_write\n    parameters:\n\
-    \      url: https://www.amazon.fr/-/en/gp/product/B0G1CC2949\n      goal: extract\
-    \ the price\n      extractions:\n        field_1771953582615: div#tp-tool-tip-price-block\
-    \ > div > div\n      typescript_config: \"import { test, expect } from '@playwright/test';\\\
-    ntest('test',\\\n        \\ async ({ page }) => {\\n  await page.goto('https://www.amazon.fr/-/en/gp/product/B0G1CC2949');\\\
-    n\\\n        \\  await page.click('#sp-cc-accept');\\n  await page.waitForSelector('div#tp-tool-tip-price-block\\\
-    \n        \\ > div > div');\\n});\"\n      get_html: false\n  - id: price_monitor_mac_mini_m4_pro\n\
-    \    description: Check the price of the Apple Mac Mini M4 Pro on Amazon.fr\n\
-    \    tools:\n    - mcp_smart_scrape\n    parameters:\n      url: https://www.amazon.fr/-/en/dp/B0DLBY53D5\n\
-    \      goal: extract the price\n      extractions:\n        price_info: .a-price.aok-align-center\
-    \ .a-offscreen\n      typescript_config: \"import { test, expect } from '@playwright/test';\\\
-    ntest('test',\\\n        \\ async ({ page }) => {\\n  await page.goto('https://www.amazon.fr/-/en/dp/B0DLBY53D5');\\\
-    n\\\n        \\  await page.click('#sp-cc-accept');\\n  await page.waitForSelector('.a-price.aok-align-center\\\
-    \n        \\ .a-offscreen');\\n});\"\n      get_html: false\n- id: bbc_morning_news_agent\n\
-    \  name: BBC Morning News Agent\n  description: Scrapes top 10 stories from BBC\
-    \ News at 7 AM, summarizes them, and\n    sends to Telegram.\n  role: News Summarizer\n\
-    \  goal: Use 'mcp_smart_scrape' on https://www.bbc.com/news to get headlines,\
-    \ then\n    summarize them and send the summary to Telegram (8271300679) using\
-    \ 'tool_telegram_send'.\n  backstory: 'You are a highly efficient news anchor.\
-    \ Every morning at 7 AM, you visit\n    BBC News,\n\n    identify the top 10 most\
-    \ important stories, create a short and engaging summary\n\n    of each, and deliver\
-    \ the update to the user''s Telegram channel.\n\n    '\n  instructions:\n  - Use\
-    \ mcp_smart_scrape to get headlines\n  - Format as bullet points\n  - Send with\
-    \ tool_telegram_send\n  tools:\n  - tool_http_get\n  - mcp_smart_scrape\n  - tool_telegram_send\n\
-    \  - mcp_execute_code\n  capabilities:\n    max_iterations: 15\n    verbose: true\n\
-    \  triggers:\n    schedule:\n    - cron: 0 7 * * *\n      action: execute\n  behavior:\n\
-    \    thinking_mode: true\n    max_retries: 3\n    use_memory: true\n    prefer_tools:\
-    \ true\n  tasks:\n  - id: bbc_morning_trigger\n    description: Trigger the intelligent\
-    \ code generator to scrape and summarize BBC\n      news.\n    tools:\n    - mcp_execute_code\n\
-    \    parameters:\n      language: python\n      code: \"import os, requests, json\\\
-    n\\ndef get_hdn_url():\\n    candidates = [\\\"\\\n        http://hdn-server-rpi58:8080\\\
-    \", \\\"http://127.0.0.1:30257\\\", \\\"http://localhost:30257\\\"\\\n       \
-    \ ]\\n    for c in candidates:\\n        try:\\n            r = requests.get(f\\\
-    \"\\\n        {c}/api/v1/tools\\\", timeout=2)\\n            if r.status_code\
-    \ == 200 and \\\"\\\n        tools\\\" in r.text:\\n                return c\\\
-    n        except: continue\\n \\\n        \\   return \\\"http://localhost:8081\\\
-    \"\\n\\nhdn_url = get_hdn_url()\\nchat_id =\\\n        \\ \\\"8271300679\\\"\\\
-    n\\nprint(f\\\"\\U0001F4E1 Scraper starting via {hdn_url}\\\")\\n\\\n        \\\
-    n# 1. Scrape\\nheadlines = []\\ntry:\\n    s_resp = requests.post(f\\\"{hdn_url}/api/v1/tools/mcp_smart_scrape/invoke\\\
-    \"\\\n        , \\n                           json={\\\"url\\\": \\\"https://www.bbc.com/news\\\
-    \"\\\n        , \\\"goal\\\": \\\"Return a JSON list of the top 10 headline titles.\\\
-    \"},\\n    \\\n        \\                       timeout=180)\\n    res = s_resp.json()\\\
-    n    raw = res.get(\\\"\\\n        result\\\", res.get(\\\"headlines\\\", res))\\\
-    n    \\n    if isinstance(raw, list):\\n\\\n        \\        headlines = raw\\\
-    n    elif isinstance(raw, str):\\n        # Try to\\\n        \\ split if it's\
-    \ a long string\\n        if \\\"\\\\n\\\" in raw: headlines = [l.strip()\\\n\
-    \        \\ for l in raw.split(\\\"\\\\n\\\") if l.strip()]\\n        elif \\\"\
-    ,\\\" in raw: headlines\\\n        \\ = [l.strip() for l in raw.split(\\\",\\\"\
-    ) if l.strip()]\\n        else: headlines\\\n        \\ = [raw]\\n    else:\\\
-    n        headlines = [str(raw)]\\nexcept Exception as\\\n        \\ e:\\n    headlines\
-    \ = [f\\\"Scrape Error: {e}\\\"]\\n\\n# 2. Format with EXPLICIT\\\n        \\\
-    \ newlines\\nmsg = \\\"\\U0001F5DE\\uFE0F *BBC Morning News Update*\\\\n\\\\n\\\
-    \"\\nfor\\\n        \\ i, h in enumerate(headlines[:10], 1):\\n    # Remove any\
-    \ existing numbered\\\n        \\ prefixes to avoid \\\"1. 1. Headline\\\"\\n\
-    \    clean_h = h.split(\\\". \\\", 1)[-1]\\\n        \\ if \\\". \\\" in h[:5]\
-    \ else h\\n    msg += f\\\"\\u2022 {clean_h}\\\\n\\\\n\\\"\\n\\nmsg\\\n      \
-    \  \\ += \\\"_Generated via HDN Agent_\\\"\\n\\n# 3. Send\\ntry:\\n    requests.post(f\\\
-    \"\\\n        {hdn_url}/api/v1/tools/tool_telegram_send/invoke\\\", \\n      \
-    \            json={\\\"\\\n        chat_id\\\": chat_id, \\\"message\\\": msg,\
-    \ \\\"parse_mode\\\": \\\"Markdown\\\"},\\n   \\\n        \\               timeout=30)\\\
-    n    print(f\\\"\\u2705 Sent to {chat_id}\\\")\\nexcept\\\n        \\ Exception\
-    \ as e:\\n    print(f\\\"\\u274C Send Failed: {e}\\\")\\n\"\n"
-  config.json: "{\n  \"llm_provider\": \"openai\",\n  \"llm_api_key\": \"\",\n  \"\
-    mcp_endpoint\": \"http://hdn-server-rpi58.agi.svc.cluster.local:8080/mcp\",\n\
-    \  \"settings\": {\n    \"model\": \"gemma-3-1b-it-q4_k_m.gguf\",\n    \"temperature\"\
-    : \"0.7\",\n    \"max_tokens\": \"1000\",\n    \"llm_timeout_seconds\": \"120\"\
-    ,\n    \"openai_url\": \"http://llama-server.agi.svc.cluster.local:8085\"\n  },\n\
-    \  \"server\": {\n    \"port\": 8080,\n    \"host\": \"0.0.0.0\"\n  }\n}\n"
-  domain.json: "{\n  \"methods\": [\n    {\n      \"task\": \"RespondToQuery\",\n\
-    \      \"preconditions\": [],\n      \"subtasks\": [\"GenerateResponse\"]\n  \
-    \  },\n    {\n      \"task\": \"HelpUser\",\n      \"preconditions\": [],\n  \
-    \    \"subtasks\": [\"GenerateResponse\"]\n    },\n    {\n      \"task\": \"ExplainSystem\"\
-    ,\n      \"preconditions\": [],\n      \"subtasks\": [\"GenerateResponse\"]\n\
-    \    },\n    {\n      \"task\": \"ScrapeWebsite\",\n      \"preconditions\": [],\n\
-    \      \"subtasks\": [\"ExecuteScraping\", \"ProcessScrapedData\"]\n    },\n \
-    \   {\n      \"task\": \"FetchData\",\n      \"preconditions\": [],\n      \"\
-    subtasks\": [\"ExecuteScraping\", \"ProcessScrapedData\"]\n    }\n  ],\n  \"actions\"\
-    : [\n    {\n      \"task\": \"GenerateResponse\",\n      \"preconditions\": [],\n\
-    \      \"effects\": [\"response_generated\"]\n    },\n    {\n      \"task\": \"\
-    ExecuteScraping\",\n      \"preconditions\": [],\n      \"effects\": [\"data_scraped\"\
-    ]\n    },\n    {\n      \"task\": \"ProcessScrapedData\",\n      \"preconditions\"\
-    : [\"data_scraped\"],\n      \"effects\": [\"data_processed\"]\n    }\n  ]\n}\n"
+  agents.yaml: "agents:\n    - id: email_monitor_agent\n      name: Email Monitor Agent\n      description: Monitors emails and takes actions based on content\n      role: Email Monitoring Specialist\n      goal: Monitor inbox for important emails and notify or take actions\n      backstory: |\n        You are an email monitoring specialist that watches for important messages,\n        categorizes them, and takes appropriate actions like flagging urgent items\n        or summarizing daily digests.\n      tools:\n        - mcp_read_google_data\n        - mcp_save_episode\n        - tool_http_get\n      capabilities:\n        max_iterations: 10\n        verbose: true\n      triggers:\n        schedule:\n            - cron: '*/30 * * * *'\n              action: check_emails\n        events:\n            - type: user_request\n              keywords:\n                - check emails\n                - monitor inbox\n                - email summary\n            - type: goal\n              goal_type:\
+    \ monitor_emails\n      behavior:\n        thinking_mode: true\n        max_retries: 3\n        response_format: structured\n        use_memory: true\n        memory_window: 24h\n        prefer_tools: true\n        tool_timeout: 60s\n      tasks:\n        - id: check_unread_emails\n          description: Check for unread emails and categorize them\n          expected_output: List of unread emails with categories\n          tools:\n            - mcp_read_google_data\n          parameters:\n            limit: 50\n            query: unread\n            type: email\n    - id: website_status_monitor\n      name: Website Status Monitor\n      description: Checks if important websites are up and running, reports their HTTP status codes, and alerts if any are down. Perfect for monitoring critical services or your own infrastructure.\n      role: Website Health Monitor\n      goal: Monitor a list of websites and report their status (up/down, response times, HTTP status codes) via Telegram\n \
+    \     backstory: |\n        You are a website monitoring specialist that checks the health of websites by making HTTP requests\n        and analyzing their responses. You provide clear status reports and identify any issues, then notify\n        via Telegram for immediate visibility.\n      tools:\n        - tool_http_get\n        - tool_telegram_send\n      capabilities:\n        max_iterations: 10\n        verbose: true\n      triggers:\n        schedule:\n            - cron: '*/15 * * * *'\n              action: execute\n      behavior:\n        thinking_mode: true\n        max_retries: 3\n        response_format: structured\n        use_memory: true\n        memory_window: 24h\n        prefer_tools: true\n        tool_timeout: 60s\n      tasks:\n        - id: monitor_task\n          description: Monitor and check status of websites\n          expected_output: Status report for each website (up/down, HTTP status, response time)\n          tools:\n            - tool_http_get\n    \
+    \      parameters:\n            websites:\n                - https://me.sjfisher.com\n                - https://k3s.sjfisher.com\n    - id: scraper_agent\n      name: Scraper Agent\n      description: Intelligent scraper that can plan and execute complex web extractions\n      role: Web Scraping Specialist\n      goal: Plan and execute web scraping operations to extract specific data from any given URL\n      backstory: |\n        You are an expert web scraper that uses Playwright and intelligent planning\n        to navigate complex websites, handle autocompletes, and extract data accurately.\n      tools:\n        - smart_scrape\n        - tool_http_get\n      capabilities:\n        max_iterations: 15\n        verbose: true\n      triggers:\n        events:\n          - type: user_request\n            keywords:\n              - scrape\n              - extract data\n              - find price\n              - flight emissions\n          - type: goal\n            goal_type: scrape_web\n\
+    \      behavior:\n        thinking_mode: true\n        max_retries: 5\n        use_memory: true\n        prefer_tools: true\n        tool_timeout: 120s\n\n    - id: price_monitor_agent\n      name: Price Monitor Agent\n      description: Monitors product prices twice daily and alerts on Telegram if prices drop by more than 10%.\n      role: Price Watcher & Analyst\n      goal: Track a list of product URLs, extract prices, compare with history, and notify on significant price drops.\n      backstory: |\n        You are a dedicated shopping assistant. You check prices for a specific list of items twice a day.\n        You maintain a historical record of prices in 'data/price_history.json'.\n        Whenever you run, you compare the current price with the previous one.\n        If a price falls by 10% or more, you send an urgent alert via Telegram.\n      tools:\n        - mcp_smart_scrape\n        - tool_telegram_send\n        - tool_file_read\n        - tool_file_write\n      capabilities:\n\
+    \        max_iterations: 15\n        verbose: true\n      triggers:\n        schedule:\n            - cron: '0 9,17 * * *'\n              action: \"Check all watched products for price drops.\"\n      behavior:\n        thinking_mode: true\n        max_retries: 3\n        use_memory: true\n        prefer_tools: true\n      tasks:\n        - id: price_monitor_flow\n          description: \"Scrape the current price of the ASUS Ascent laptop from Amazon, compare with history, and alert if changed.\"\n          expected_output: \"The current price of the laptop and alert status.\"\n          tools:\n            - mcp_smart_scrape\n            - tool_telegram_send\n            - tool_file_read\n            - tool_file_write\n          parameters:\n            url: \"https://www.amazon.fr/-/en/gp/product/B0G1CC2949\"\n            goal: \"extract the price\"\n            extractions:\n              field_1771953582615: \"div#tp-tool-tip-price-block > div > div\"\n            typescript_config:\
+    \ \"import { test, expect } from '@playwright/test';\\ntest('test', async ({ page }) => {\\n  await page.goto('https://www.amazon.fr/-/en/gp/product/B0G1CC2949');\\n  await page.click('#sp-cc-accept');\\n  await page.waitForSelector('div#tp-tool-tip-price-block > div > div');\\n});\"\n            get_html: false\n        - id: price_monitor_mac_mini_m4_pro\n          description: \"Check the price of the Apple Mac Mini M4 Pro on Amazon.fr\"\n          tools:\n            - mcp_smart_scrape\n          parameters:\n            url: \"https://www.amazon.fr/-/en/dp/B0DLBY53D5\"\n            goal: \"extract the price\"\n            extractions:\n              price_info: \".a-price.aok-align-center .a-offscreen\"\n            typescript_config: \"import { test, expect } from '@playwright/test';\\ntest('test', async ({ page }) => {\\n  await page.goto('https://www.amazon.fr/-/en/dp/B0DLBY53D5');\\n  await page.click('#sp-cc-accept');\\n  await page.waitForSelector('.a-price.aok-align-center\
+    \ .a-offscreen');\\n});\"\n            get_html: false\n    - id: bbc_morning_news_agent\n      name: BBC Morning News Agent\n      description: Scrapes top 10 stories from BBC News at 7 AM, summarizes them, and sends to Telegram.\n      role: News Summarizer\n      goal: \"Use 'mcp_smart_scrape' on https://www.bbc.com/news to get headlines, then summarize them and send the summary to Telegram (8271300679) using 'tool_telegram_send'.\"\n      backstory: |\n        You are a highly efficient news anchor. Every morning at 7 AM, you visit BBC News,\n        identify the top 10 most important stories, create a short and engaging summary\n        of each, and deliver the update to the user's Telegram channel.\n      instructions:\n        - \"Use mcp_smart_scrape to get headlines\"\n        - \"Format as bullet points\"\n        - \"Send with tool_telegram_send\"\n      tools:\n        - tool_http_get\n        - mcp_smart_scrape\n        - tool_telegram_send\n        - mcp_execute_code\n\
+    \      capabilities:\n        max_iterations: 15\n        verbose: true\n      triggers:\n        schedule:\n            - cron: '0 7 * * *'\n              action: \"execute\"\n      behavior:\n        thinking_mode: true\n        max_retries: 3\n        use_memory: true\n        prefer_tools: true\n      tasks:\n        - id: bbc_morning_trigger\n          description: Trigger the intelligent code generator to scrape and summarize BBC\n            news.\n          tools:\n          - mcp_execute_code\n          parameters:\n            language: python\n            code: |\n              import os, requests, json\n\n              def get_hdn_url():\n                  candidates = [\"http://hdn-server-rpi58:8080\", \"http://127.0.0.1:30257\", \"http://localhost:30257\"]\n                  for c in candidates:\n                      try:\n                          r = requests.get(f\"{c}/api/v1/tools\", timeout=2)\n                          if r.status_code == 200 and \"tools\" in r.text:\n\
+    \                              return c\n                      except: continue\n                  return \"http://localhost:8081\"\n\n              hdn_url = get_hdn_url()\n              chat_id = \"8271300679\"\n              \n              print(f\"\U0001F4E1 Scraper starting via {hdn_url}\")\n\n              # 1. Scrape\n              headlines = []\n              try:\n                  s_resp = requests.post(f\"{hdn_url}/api/v1/tools/mcp_smart_scrape/invoke\", \n                                         json={\"url\": \"https://www.bbc.com/news\", \"goal\": \"Return a JSON list of the top 10 headline titles.\"},\n                                         timeout=180)\n                  res = s_resp.json()\n                  raw = res.get(\"result\", res)\n                  \n                  def extract_list(data):\n                      if isinstance(data, list):\n                          result = []\n                          for item in data:\n                             \
+    \ if isinstance(item, dict):\n                                  for k in [\"title\", \"headline\", \"text\", \"content\", \"extracted_content\"]:\n                                      if k in item and item[k]:\n                                          result.append(str(item[k]))\n                                          break\n                                  else: result.append(str(item))\n                              else: result.append(str(item))\n                          return result\n                      if isinstance(data, dict):\n                          for k in [\"headlines\", \"extracted_content\", \"content\", \"results\", \"items\"]:\n                              if k in data and data[k]:\n                                  return extract_list(data[k])\n                          if len(data) == 1:\n                              return extract_list(list(data.values())[0])\n                          return [str(data)]\n                      if isinstance(data, str):\n\
+    \                          if \"\\n\" in data: return [l.strip() for l in data.split(\"\\n\") if l.strip()]\n                          if \",\" in data: return [l.strip() for l in data.split(\",\") if l.strip()]\n                          return [data]\n                      return [str(data)]\n\n                  headlines = extract_list(raw)\n              except Exception as e:\n                  headlines = [f\"Scrape Error: {e}\"]\n\n              # 2. Format with EXPLICIT newlines\n              msg = \"\U0001F5DE\uFE0F *BBC Morning News Update*\\n\\n\"\n              for i, h in enumerate(headlines[:10], 1):\n                  # Remove any existing numbered prefixes to avoid \"1. 1. Headline\"\n                  clean_h = h.split(\". \", 1)[-1] if \". \" in h[:5] else h\n                  msg += f\"\u2022 {clean_h}\\n\\n\"\n              \n              msg += \"_Generated via HDN Agent_\"\n\n              # 3. Send\n              try:\n                  requests.post(f\"{hdn_url}/api/v1/tools/tool_telegram_send/invoke\"\
+    , \n                                json={\"chat_id\": chat_id, \"message\": msg, \"parse_mode\": \"Markdown\"},\n                                timeout=30)\n                  print(f\"\u2705 Sent to {chat_id}\")\n              except Exception as e:\n                  print(f\"\u274C Send Failed: {e}\")\n"
+  config.json: "{\n  \"llm_provider\": \"openai\",\n  \"llm_api_key\": \"\",\n  \"mcp_endpoint\": \"http://hdn-server-rpi58.agi.svc.cluster.local:8080/mcp\",\n  \"settings\": {\n    \"model\": \"gemma-3-1b-it-q4_k_m.gguf\",\n    \"temperature\": \"0.7\",\n    \"max_tokens\": \"1000\",\n    \"llm_timeout_seconds\": \"120\",\n    \"openai_url\": \"http://llama-server.agi.svc.cluster.local:8085\"\n  },\n  \"server\": {\n    \"port\": 8080,\n    \"host\": \"0.0.0.0\"\n  }\n}\n"
+  domain.json: "{\n  \"methods\": [\n    {\n      \"task\": \"RespondToQuery\",\n      \"preconditions\": [],\n      \"subtasks\": [\"GenerateResponse\"]\n    },\n    {\n      \"task\": \"HelpUser\",\n      \"preconditions\": [],\n      \"subtasks\": [\"GenerateResponse\"]\n    },\n    {\n      \"task\": \"ExplainSystem\",\n      \"preconditions\": [],\n      \"subtasks\": [\"GenerateResponse\"]\n    },\n    {\n      \"task\": \"ScrapeWebsite\",\n      \"preconditions\": [],\n      \"subtasks\": [\"ExecuteScraping\", \"ProcessScrapedData\"]\n    },\n    {\n      \"task\": \"FetchData\",\n      \"preconditions\": [],\n      \"subtasks\": [\"ExecuteScraping\", \"ProcessScrapedData\"]\n    }\n  ],\n  \"actions\": [\n    {\n      \"task\": \"GenerateResponse\",\n      \"preconditions\": [],\n      \"effects\": [\"response_generated\"]\n    },\n    {\n      \"task\": \"ExecuteScraping\",\n      \"preconditions\": [],\n      \"effects\": [\"data_scraped\"]\n    },\n    {\n      \"task\": \"ProcessScrapedData\"\
+    ,\n      \"preconditions\": [\"data_scraped\"],\n      \"effects\": [\"data_processed\"]\n    }\n  ]\n}\n"
 kind: ConfigMap
 metadata:
   name: hdn-config
