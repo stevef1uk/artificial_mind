@@ -243,13 +243,15 @@
   {
     "id": "mcp_research_agent",
     "name": "research_agent",
-    "description": "[chat-only] Perform research using the external MCP research server. This tool is restricted to chat access only and will be skipped by the planner.",
+    "description": "[chat-only] USE THIS for complex, multi-step research or deep analysis tasks that require browsing multiple sources. NOT for simple facts. Input 'query' should be a detailed research goal. 'depth' ranges from 1 (fast/broad) to 3 (comprehensive/deep). Pass 'max_tokens' if you only need a concise overview (e.g., for speech).",
     "input_schema": {
       "query": "string",
-      "depth": "int"
+      "depth": "int",
+      "max_tokens": "int"
     },
     "output_schema": {
-      "result": "string"
+      "result": "string",
+      "summary": "string"
     },
     "permissions": [
       "net:read"

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -601,12 +602,13 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 		{
 			ID:          "mcp_research_agent",
 			Name:        "research_agent",
-			Description: "[chat-only] Perform research using the external MCP research server. This tool is restricted to chat access only and will be skipped by the planner.",
+			Description: "[chat-only] USE THIS for complex, multi-step research or deep analysis tasks that require browsing multiple sources. NOT for simple facts. Input 'query' should be a detailed research goal. 'depth' ranges from 1 (fast/broad) to 3 (comprehensive/deep). Pass 'max_tokens' if you only need a concise overview (e.g., for speech).",
 			InputSchema: map[string]string{
-				"query": "string",
-				"depth": "int",
+				"query":      "string",
+				"depth":      "int",
+				"max_tokens": "int",
 			},
-			OutputSchema: map[string]string{"result": "string"},
+			OutputSchema: map[string]string{"result": "string", "summary": "string"},
 			Permissions:  []string{"net:read"},
 			SafetyLevel:  "medium",
 			CreatedBy:    "system",
@@ -746,6 +748,36 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// --- CACHING LOGIC (Research Agent Specific) ---
+		cacheKey := ""
+		if id == "mcp_research_agent" {
+			query, _ := params["query"].(string)
+			if query != "" {
+				cacheKey = "research_cache:" + fmt.Sprintf("%x", sha256.Sum256([]byte(query)))
+				if val, err := s.redis.Get(ctx, cacheKey).Result(); err == nil {
+					log.Printf("[HDN-DEBUG] Found cached result for: %s", query)
+					var cachedRes interface{}
+					if json.Unmarshal([]byte(val), &cachedRes) == nil {
+						// Handle token limit even for cached results
+						maxTokens := float64(0)
+						if m, ok := params["max_tokens"].(float64); ok {
+							maxTokens = m
+						}
+						if maxTokens > 0 {
+							if resMap, ok := cachedRes.(map[string]interface{}); ok {
+								if summary, exists := resMap["summary"]; exists && summary != "" {
+									cachedRes = map[string]interface{}{"result": summary, "full_report_available": true}
+								}
+							}
+						}
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(cachedRes)
+						return
+					}
+				}
+			}
+		}
+
 		// Marshal params as JSON
 		payload, err := json.Marshal(params)
 		if err != nil {
@@ -780,8 +812,12 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			req.Header.Set("X-Webhook-Secret", secretToSend)
 		}
 
-		// Send the request
-		client := &http.Client{Timeout: 60 * time.Second}
+		// Send the request with appropriate timeout
+		timeout := 60 * time.Second
+		if id == "mcp_research_agent" {
+			timeout = 300 * time.Second // 5 minutes for research
+		}
+		client := &http.Client{Timeout: timeout}
 		resp, err := client.Do(req)
 		if err != nil {
 			w.WriteHeader(http.StatusBadGateway)
@@ -790,17 +826,45 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 		}
 		defer resp.Body.Close()
 
-		// Copy status code and response body
-		w.WriteHeader(resp.StatusCode)
-		var respBody interface{}
-		dec := json.NewDecoder(resp.Body)
-		if err := dec.Decode(&respBody); err != nil {
-			// If not JSON, return as raw text
-			bodyBytes, _ := io.ReadAll(resp.Body)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"output": string(bodyBytes)})
+		var finalResult interface{}
+		respBodyBytes, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusOK {
+			if err := json.Unmarshal(respBodyBytes, &finalResult); err != nil {
+				// Not JSON, wrap it
+				finalResult = map[string]interface{}{"result": string(respBodyBytes)}
+			}
+		} else {
+			// Proxy error code
+			w.WriteHeader(resp.StatusCode)
+			_, _ = w.Write(respBodyBytes)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(respBody)
+
+		// --- RESULT PROCESSING (Research Agent Specific) ---
+		if id == "mcp_research_agent" {
+			// 1. Cache the raw result (1 day TTL)
+			if cacheKey != "" {
+				if resJSON, err := json.Marshal(finalResult); err == nil {
+					s.redis.Set(ctx, cacheKey, string(resJSON), 24*time.Hour)
+				}
+			}
+
+			// 2. Summary handling if max_tokens is present
+			maxTokens := float64(0)
+			if m, ok := params["max_tokens"].(float64); ok {
+				maxTokens = m
+			}
+			if maxTokens > 0 {
+				if resMap, ok := finalResult.(map[string]interface{}); ok {
+					if summary, exists := resMap["summary"]; exists && summary != "" {
+						finalResult = map[string]interface{}{"result": summary, "full_report_available": true}
+					}
+				}
+			}
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(finalResult)
 		return
 	}
 
