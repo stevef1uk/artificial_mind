@@ -45,6 +45,7 @@ func (ip *IntentParser) ParseIntent(ctx context.Context, message string, context
 	taskOverridePatterns := []string{
 		`^scrape\b`, `^extract\b`, `^fetch\b`, `^get news\b`, `^get updates\b`,
 		`^search the web\b`, `^gather information\b`, `^crawl\b`,
+		`^research\b`, `^deep research\b`,
 	}
 	for _, pattern := range taskOverridePatterns {
 		if matched, _ := regexp.MatchString("(?i)"+pattern, strings.TrimSpace(message)); matched {
