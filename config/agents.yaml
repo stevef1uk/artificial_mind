@@ -252,7 +252,21 @@ agents:
                               return extract_list(list(data.values())[0])
                           return [str(data)]
                       if isinstance(data, str):
-                          if "\n" in data: return [l.strip() for l in data.split("\n") if l.strip()]
+                          # 1. First cleanup any escaped newlines if they exist
+                          data = data.replace("\\n", "\n")
+                          # 2. Split by explicit newlines
+                          lines = [l.strip() for l in data.split("\n") if l.strip()]
+                          if len(lines) > 1: return lines
+                          
+                          # 3. Check for numbered list like "1. Headline 2. Headline"
+                          import re
+                          # Match digits followed by period and space
+                          parts = re.split(r'\s*\d+\.\s+', data)
+                          # First part might be empty or preamble if it starts with "1. "
+                          cleaned = [p.strip() for p in parts if p.strip()]
+                          if len(cleaned) > 1: return cleaned
+                          
+                          # 4. Fallback to commas if no newlines/numbers found
                           if "," in data: return [l.strip() for l in data.split(",") if l.strip()]
                           return [data]
                       return [str(data)]

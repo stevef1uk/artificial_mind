@@ -144,9 +144,42 @@ func formatToolResult(result interface{}) string {
 		return strings.Join(lines, "\n")
 	}
 
-	// Handle strings (split by newline if multi-line)
+	// Handle strings (split by newline or numbers if it looks like a list)
 	if s, ok := result.(string); ok {
-		return strings.TrimSpace(s)
+		s = strings.TrimSpace(s)
+
+		// If it has multiple lines, format as bullets
+		if strings.Contains(s, "\n") {
+			lines := strings.Split(s, "\n")
+			var cleaned []string
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					// Remove leading bullets/numbers if we're adding our own
+					line = regexp.MustCompile(`^(\d+\.|\*|-|•)\s*`).ReplaceAllString(line, "")
+					cleaned = append(cleaned, "• "+line)
+				}
+			}
+			return strings.Join(cleaned, "\n")
+		}
+
+		// Check for numbered list without newlines: "1. Headline 2. Headline"
+		re := regexp.MustCompile(`\s*\d+\.\s+`)
+		if re.MatchString(s) {
+			parts := re.Split(s, -1)
+			var cleaned []string
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if p != "" {
+					cleaned = append(cleaned, "• "+p)
+				}
+			}
+			if len(cleaned) > 1 {
+				return strings.Join(cleaned, "\n")
+			}
+		}
+
+		return s
 	}
 
 	// Fallback for other types
