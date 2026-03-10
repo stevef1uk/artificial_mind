@@ -607,7 +607,7 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 		{
 			ID:          "mcp_research_agent",
 			Name:        "research_agent",
-			Description: "[chat-only] USE THIS for complex, multi-step research or deep analysis tasks that require browsing multiple sources. NOT for simple facts. Input 'query' should be a detailed research goal. 'depth' ranges from 1 (fast/broad) to 3 (comprehensive/deep). Pass 'max_tokens' if you only need a concise overview (e.g., for speech).",
+			Description: "USE THIS for complex, multi-step research or deep analysis tasks that require browsing multiple sources. NOT for simple facts. Input 'query' should be a detailed research goal. 'depth' ranges from 1 (fast/broad) to 3 (comprehensive/deep). Pass 'max_tokens' if you only need a concise overview (e.g., for speech).",
 			InputSchema: map[string]string{
 				"query":      "string",
 				"depth":      "int",
