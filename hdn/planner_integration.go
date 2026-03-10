@@ -831,6 +831,12 @@ func (pi *PlannerIntegration) LoadMCPToolsAsCapabilities() error {
 
 	count := 0
 	for _, tool := range tools {
+		// Skip tools marked as chat-only so the planner doesn't use them automatically
+		if strings.Contains(strings.ToLower(tool.Description), "[chat-only]") {
+			log.Printf("⏭️ [PLANNER-INTEGRATION] Skipping chat-only tool: %s (%s)", tool.Name, tool.ID)
+			continue
+		}
+
 		// Create a capability definition from the tool
 		cap := planner.Capability{
 			ID:           tool.ID,

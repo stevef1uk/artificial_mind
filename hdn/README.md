@@ -404,6 +404,7 @@ The system consists of several key components:
 4. **MCP Client**: Integrates with Model Context Protocol
 5. **HTN Planner**: Core planning algorithm
 6. **Learning Engine**: Learns new methods from failures
+7. **Safety Engine**: Includes MCP Tool Lockdown to restrict sensitive tools to chat only
 
 ## Contributing
 

@@ -100,6 +100,7 @@ The Artificial Mind system consists of several interconnected components that wo
 ### ⚖️ Ethics & Safety
 - [**Principles Integration**](docs/PRINCIPLES_INTEGRATION.md) - Ethical decision-making system
 - [**Content Safety**](docs/CONTENT_SAFETY_README.md) - Safety mechanisms and content filtering
+- [**MCP Tool Lockdown**](docs/mcp_tool_lockdown.md) - Prevents autonomous use of sensitive tools
 - [**Dynamic Integration Guide**](docs/DYNAMIC_INTEGRATION_GUIDE.md) - Dynamic system integration
 
 ### 🔧 Implementation & Development
