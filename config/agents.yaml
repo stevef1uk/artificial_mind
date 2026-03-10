@@ -250,6 +250,17 @@ agents:
                   
                   def extract_list(data):
                       if data is None: return []
+                      # 0. Handle strings that might be JSON
+                      if isinstance(data, str):
+                          s = data.strip()
+                          if (s.startswith("{") and s.endswith("}")) or (s.startswith("[") and s.endswith("]")):
+                              try:
+                                  import json
+                                  # Try loading as JSON (handling both ' and " styles)
+                                  parsed = json.loads(s.replace("'", '"'))
+                                  return extract_list(parsed)
+                              except: pass
+
                       if isinstance(data, list):
                           res = []
                           for i in data: 
@@ -257,22 +268,27 @@ agents:
                               if isinstance(inner, list): res.extend(inner)
                               else: res.append(str(inner))
                           return res
+
                       if isinstance(data, dict):
-                          # Check for common content keys
-                          for k in ["result", "results", "extracted_content", "headlines", "items", "content", "summary"]:
+                          # 1. Prioritize specific content keys
+                          for k in ["result", "results", "extracted_content", "headlines", "items", "content", "summary", "text", "message"]:
                               if k in data and data[k]:
                                   return extract_list(data[k])
-                          # Handle single-entry dictionaries as content containers
-                          if len(data) == 1:
-                              return extract_list(list(data.values())[0])
-                          # If it's a specific record (e.g. from a list of objects)
+                          
+                          # 2. Handle specific record format (title + url)
                           title = data.get("title") or data.get("headline") or data.get("text")
                           url = data.get("url") or data.get("link") or data.get("page_url")
                           if title:
                               if url and str(url).startswith("http"): 
                                   return [f"{title}\n<{url}>"]
                               return [str(title)]
+                              
+                          # 3. Handle single-entry dictionaries as content containers
+                          if len(data) == 1:
+                              return extract_list(list(data.values())[0])
+                          
                           return [str(data)]
+
                       if isinstance(data, str):
                           # Normalize and cleanup
                           s = data.replace("\\n", "\n").strip()
