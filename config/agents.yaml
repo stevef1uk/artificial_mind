@@ -199,62 +199,65 @@ agents:
         prefer_tools: true
       tasks:
         - id: bbc_morning_trigger
-          description: "Trigger the intelligent code generator to scrape and summarize BBC news."
+          description: Trigger the intelligent code generator to scrape and summarize BBC
+            news.
           tools:
-            - mcp_execute_code
+          - mcp_execute_code
           parameters:
-            language: "python"
+            language: python
             code: |
-                import os, requests, json, socket
+              import os, requests, json
 
-                def get_hdn_url():
-                    candidates = [
-                        "http://hdn-server-rpi58:8080",
-                        "http://hdn-server-rpi58.agi.svc.cluster.local:8080",
-                        "http://127.0.0.1:30257",
-                        "http://localhost:30257",
-                        "http://127.0.0.1:8080"
-                    ]
-                    for c in candidates:
-                        try:
-                            # Check for HDN health or specific route
-                            r = requests.get(f"{c}/api/v1/tools", timeout=1)
-                            if r.status_code == 200:
-                                data = r.json()
-                                # Verify it's really HDN
-                                if isinstance(data, dict) and "tools" in data:
-                                    print(f"📡 Found HDN @ {c}")
-                                    return c
-                        except: continue
-                    return "http://localhost:8081" # Emergency fallback
+              def get_hdn_url():
+                  candidates = ["http://hdn-server-rpi58:8080", "http://127.0.0.1:30257", "http://localhost:30257"]
+                  for c in candidates:
+                      try:
+                          r = requests.get(f"{c}/api/v1/tools", timeout=2)
+                          if r.status_code == 200 and "tools" in r.text:
+                              return c
+                      except: continue
+                  return "http://localhost:8081"
 
-                hdn_url = get_hdn_url()
-                chat_id = "8271300679"
-                
-                print(f"🚀 Scraping BBC and sending to {chat_id} via {hdn_url}")
+              hdn_url = get_hdn_url()
+              chat_id = "8271300679"
+              
+              print(f"📡 Scraper starting via {hdn_url}")
 
-                # 1. Scrape
-                try:
-                    s_resp = requests.post(f"{hdn_url}/api/v1/tools/mcp_smart_scrape/invoke", 
-                                           json={"url": "https://www.bbc.com/news", "goal": "Extract the top 10 headline titles."},
-                                           timeout=180)
-                    res = s_resp.json()
-                    headlines = res.get("result", res.get("headlines", res))
-                    if not isinstance(headlines, list): headlines = [str(headlines)]
-                except Exception as e:
-                    headlines = [f"Scrape Failed: {e}"]
+              # 1. Scrape
+              headlines = []
+              try:
+                  s_resp = requests.post(f"{hdn_url}/api/v1/tools/mcp_smart_scrape/invoke", 
+                                         json={"url": "https://www.bbc.com/news", "goal": "Return a JSON list of the top 10 headline titles."},
+                                         timeout=180)
+                  res = s_resp.json()
+                  raw = res.get("result", res.get("headlines", res))
+                  
+                  if isinstance(raw, list):
+                      headlines = raw
+                  elif isinstance(raw, str):
+                      # Try to split if it's a long string
+                      if "\n" in raw: headlines = [l.strip() for l in raw.split("\n") if l.strip()]
+                      elif "," in raw: headlines = [l.strip() for l in raw.split(",") if l.strip()]
+                      else: headlines = [raw]
+                  else:
+                      headlines = [str(raw)]
+              except Exception as e:
+                  headlines = [f"Scrape Error: {e}"]
 
-                # 2. Format
-                msg = "🗞️ *BBC Morning News Update*\n\n"
-                for i, h in enumerate(headlines[:10], 1):
-                    msg += f"{i}. {h}\n"
-                msg += "\n_Sent via HDN Agent_"
+              # 2. Format with EXPLICIT newlines
+              msg = "🗞️ *BBC Morning News Update*\n\n"
+              for i, h in enumerate(headlines[:10], 1):
+                  # Remove any existing numbered prefixes to avoid "1. 1. Headline"
+                  clean_h = h.split(". ", 1)[-1] if ". " in h[:5] else h
+                  msg += f"• {clean_h}\n\n"
+              
+              msg += "_Generated via HDN Agent_"
 
-                # 3. Send
-                try:
-                    t_resp = requests.post(f"{hdn_url}/api/v1/tools/tool_telegram_send/invoke", 
-                                           json={"chat_id": chat_id, "message": msg, "parse_mode": "Markdown"},
-                                           timeout=30)
-                    print(f"✅ Telegram Result: {t_resp.status_code} - {t_resp.text}")
-                except Exception as e:
-                    print(f"❌ Telegram Error: {e}")
+              # 3. Send
+              try:
+                  requests.post(f"{hdn_url}/api/v1/tools/tool_telegram_send/invoke", 
+                                json={"chat_id": chat_id, "message": msg, "parse_mode": "Markdown"},
+                                timeout=30)
+                  print(f"✅ Sent to {chat_id}")
+              except Exception as e:
+                  print(f"❌ Send Failed: {e}")

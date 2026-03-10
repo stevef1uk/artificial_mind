@@ -91,39 +91,39 @@ data:
     \    thinking_mode: true\n    max_retries: 3\n    use_memory: true\n    prefer_tools:\
     \ true\n  tasks:\n  - id: bbc_morning_trigger\n    description: Trigger the intelligent\
     \ code generator to scrape and summarize BBC\n      news.\n    tools:\n    - mcp_execute_code\n\
-    \    parameters:\n      language: python\n      code: \"import os, requests, json,\
-    \ socket\\n\\ndef get_hdn_url():\\n    candidates\\\n        \\ = [\\n       \
-    \ \\\"http://hdn-server-rpi58:8080\\\",\\n        \\\"http://hdn-server-rpi58.agi.svc.cluster.local:8080\\\
-    \"\\\n        ,\\n        \\\"http://127.0.0.1:30257\\\",\\n        \\\"http://localhost:30257\\\
-    \"\\\n        ,\\n        \\\"http://127.0.0.1:8080\\\"\\n    ]\\n    for c in\
-    \ candidates:\\n  \\\n        \\      try:\\n            # Check for HDN health\
-    \ or specific route\\n      \\\n        \\      r = requests.get(f\\\"{c}/api/v1/tools\\\
-    \", timeout=1)\\n            if\\\n        \\ r.status_code == 200:\\n       \
-    \         data = r.json()\\n               \\\n        \\ # Verify it's really\
-    \ HDN\\n                if isinstance(data, dict) and\\\n        \\ \\\"tools\\\
-    \" in data:\\n                    print(f\\\"\\U0001F4E1 Found HDN @\\\n     \
-    \   \\ {c}\\\")\\n                    return c\\n        except: continue\\n \
-    \   return\\\n        \\ \\\"http://localhost:8081\\\" # Emergency fallback\\\
-    n\\nhdn_url = get_hdn_url()\\n\\\n        chat_id = \\\"-1003712575871\\\"\\n\\\
-    nprint(f\\\"\\U0001F680 Scraping BBC and sending\\\n        \\ to {chat_id} via\
-    \ {hdn_url}\\\")\\n\\n# 1. Scrape\\ntry:\\n    s_resp = requests.post(f\\\"\\\n\
-    \        {hdn_url}/api/v1/tools/mcp_smart_scrape/invoke\\\", \\n             \
-    \        \\\n        \\      json={\\\"url\\\": \\\"https://www.bbc.com/news\\\
-    \", \\\"goal\\\": \\\"Extract the\\\n        \\ top 10 headline titles.\\\"},\\\
-    n                           timeout=180)\\n \\\n        \\   res = s_resp.json()\\\
-    n    headlines = res.get(\\\"result\\\", res.get(\\\"headlines\\\"\\\n       \
-    \ , res))\\n    if not isinstance(headlines, list): headlines = [str(headlines)]\\\
-    n\\\n        except Exception as e:\\n    headlines = [f\\\"Scrape Failed: {e}\\\
-    \"]\\n\\n# 2.\\\n        \\ Format\\nmsg = \\\"\\U0001F5DE\\uFE0F *BBC Morning\
-    \ News Update*\\\\n\\\\n\\\"\\nfor\\\n        \\ i, h in enumerate(headlines[:10],\
-    \ 1):\\n    msg += f\\\"{i}. {h}\\\\n\\\"\\nmsg\\\n        \\ += \\\"\\\\n_Sent\
-    \ via HDN Agent_\\\"\\n\\n# 3. Send\\ntry:\\n    t_resp = requests.post(f\\\"\\\
-    \n        {hdn_url}/api/v1/tools/tool_telegram_send/invoke\\\", \\n          \
-    \         \\\n        \\        json={\\\"chat_id\\\": chat_id, \\\"message\\\"\
-    : msg, \\\"parse_mode\\\": \\\"\\\n        Markdown\\\"},\\n                 \
-    \          timeout=30)\\n    print(f\\\"\\u2705\\\n        \\ Telegram Result:\
-    \ {t_resp.status_code} - {t_resp.text}\\\")\\nexcept Exception\\\n        \\ as\
-    \ e:\\n    print(f\\\"\\u274C Telegram Error: {e}\\\")\\n\"\n"
+    \    parameters:\n      language: python\n      code: \"import os, requests, json\\\
+    n\\ndef get_hdn_url():\\n    candidates = [\\\"\\\n        http://hdn-server-rpi58:8080\\\
+    \", \\\"http://127.0.0.1:30257\\\", \\\"http://localhost:30257\\\"\\\n       \
+    \ ]\\n    for c in candidates:\\n        try:\\n            r = requests.get(f\\\
+    \"\\\n        {c}/api/v1/tools\\\", timeout=2)\\n            if r.status_code\
+    \ == 200 and \\\"\\\n        tools\\\" in r.text:\\n                return c\\\
+    n        except: continue\\n \\\n        \\   return \\\"http://localhost:8081\\\
+    \"\\n\\nhdn_url = get_hdn_url()\\nchat_id =\\\n        \\ \\\"8271300679\\\"\\\
+    n\\nprint(f\\\"\\U0001F4E1 Scraper starting via {hdn_url}\\\")\\n\\\n        \\\
+    n# 1. Scrape\\nheadlines = []\\ntry:\\n    s_resp = requests.post(f\\\"{hdn_url}/api/v1/tools/mcp_smart_scrape/invoke\\\
+    \"\\\n        , \\n                           json={\\\"url\\\": \\\"https://www.bbc.com/news\\\
+    \"\\\n        , \\\"goal\\\": \\\"Return a JSON list of the top 10 headline titles.\\\
+    \"},\\n    \\\n        \\                       timeout=180)\\n    res = s_resp.json()\\\
+    n    raw = res.get(\\\"\\\n        result\\\", res.get(\\\"headlines\\\", res))\\\
+    n    \\n    if isinstance(raw, list):\\n\\\n        \\        headlines = raw\\\
+    n    elif isinstance(raw, str):\\n        # Try to\\\n        \\ split if it's\
+    \ a long string\\n        if \\\"\\\\n\\\" in raw: headlines = [l.strip()\\\n\
+    \        \\ for l in raw.split(\\\"\\\\n\\\") if l.strip()]\\n        elif \\\"\
+    ,\\\" in raw: headlines\\\n        \\ = [l.strip() for l in raw.split(\\\",\\\"\
+    ) if l.strip()]\\n        else: headlines\\\n        \\ = [raw]\\n    else:\\\
+    n        headlines = [str(raw)]\\nexcept Exception as\\\n        \\ e:\\n    headlines\
+    \ = [f\\\"Scrape Error: {e}\\\"]\\n\\n# 2. Format with EXPLICIT\\\n        \\\
+    \ newlines\\nmsg = \\\"\\U0001F5DE\\uFE0F *BBC Morning News Update*\\\\n\\\\n\\\
+    \"\\nfor\\\n        \\ i, h in enumerate(headlines[:10], 1):\\n    # Remove any\
+    \ existing numbered\\\n        \\ prefixes to avoid \\\"1. 1. Headline\\\"\\n\
+    \    clean_h = h.split(\\\". \\\", 1)[-1]\\\n        \\ if \\\". \\\" in h[:5]\
+    \ else h\\n    msg += f\\\"\\u2022 {clean_h}\\\\n\\\\n\\\"\\n\\nmsg\\\n      \
+    \  \\ += \\\"_Generated via HDN Agent_\\\"\\n\\n# 3. Send\\ntry:\\n    requests.post(f\\\
+    \"\\\n        {hdn_url}/api/v1/tools/tool_telegram_send/invoke\\\", \\n      \
+    \            json={\\\"\\\n        chat_id\\\": chat_id, \\\"message\\\": msg,\
+    \ \\\"parse_mode\\\": \\\"Markdown\\\"},\\n   \\\n        \\               timeout=30)\\\
+    n    print(f\\\"\\u2705 Sent to {chat_id}\\\")\\nexcept\\\n        \\ Exception\
+    \ as e:\\n    print(f\\\"\\u274C Send Failed: {e}\\\")\\n\"\n"
   config.json: "{\n  \"llm_provider\": \"openai\",\n  \"llm_api_key\": \"\",\n  \"\
     mcp_endpoint\": \"http://hdn-server-rpi58.agi.svc.cluster.local:8080/mcp\",\n\
     \  \"settings\": {\n    \"model\": \"gemma-3-1b-it-q4_k_m.gguf\",\n    \"temperature\"\

@@ -111,6 +111,11 @@ func (f *FlexibleInterpreter) InterpretWithPriority(ctx context.Context, req *Na
 		}
 	case ResponseTypeCodeArtifact:
 		result.CodeArtifact = response.CodeArtifact
+		if response.CodeArtifact == nil {
+			log.Printf("❌ [FLEXIBLE-INTERPRETER] Response type is code_artifact but CodeArtifact is nil!")
+			result.Message = "Code artifact requested but details missing"
+			return result, nil
+		}
 		result.Message = fmt.Sprintf("Code artifact generated: %s", response.CodeArtifact.Language)
 		// Heuristic: flag only non-trivial, generally-useful code as tool candidates
 		if result.Metadata == nil {
@@ -169,6 +174,11 @@ func (f *FlexibleInterpreter) InterpretWithPriority(ctx context.Context, req *Na
 		}
 	case ResponseTypeStructuredTask:
 		result.StructuredTask = response.StructuredTask
+		if response.StructuredTask == nil {
+			log.Printf("❌ [FLEXIBLE-INTERPRETER] Response type is structured_task but StructuredTask is nil!")
+			result.Message = "Structured task created but details missing"
+			return result, nil
+		}
 		result.Message = fmt.Sprintf("Structured task: %s", response.StructuredTask.TaskName)
 	case ResponseTypeText:
 		result.TextResponse = response.Content
