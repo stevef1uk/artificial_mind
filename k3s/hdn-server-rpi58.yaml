@@ -117,6 +117,18 @@ spec:
                   name: llm-config
                   key: N8N_WEBHOOK_URL
                   optional: true
+            - name: RESEARCH_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: RESEARCH_WEBHOOK_URL
+                  optional: true
+            - name: RESEARCH_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: secure-vendor
+                  key: RESEARCH_WEBHOOK_SECRET
+                  optional: true
             # Telegram configuration for agent notifications
             - name: TELEGRAM_BOT_TOKEN
               valueFrom:

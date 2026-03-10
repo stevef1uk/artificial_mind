@@ -260,7 +260,7 @@
     "created_by": "system",
     "exec": {
       "type": "mcp_proxy",
-      "cmd": "https://k3s.sjfisher.com/webhook/40a534f4-2041-4eed-b317-738ad99b5cb0"
+      "cmd": "${RESEARCH_WEBHOOK_URL}"
     }
   }
 ]

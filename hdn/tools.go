@@ -566,18 +566,23 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 		if err != nil {
 			continue
 		}
-		var seeds []Tool
-		if err := json.NewDecoder(f).Decode(&seeds); err == nil {
-			for _, t := range seeds {
-				// Principles gate: check tool by name with minimal context
-				ctxMap := map[string]interface{}{"category": "tool_bootstrap", "safety_level": t.SafetyLevel}
-				allowed, _, _ := CheckActionWithPrinciples("register_tool:"+t.ID, ctxMap)
-				if !allowed {
-					continue
+		data, err := io.ReadAll(f)
+		if err == nil {
+			expanded := os.ExpandEnv(string(data))
+			var seeds []Tool
+			if err := json.Unmarshal([]byte(expanded), &seeds); err == nil {
+				for _, t := range seeds {
+					// Principles gate: check tool by name with minimal context
+					ctxMap := map[string]interface{}{"category": "tool_bootstrap", "safety_level": t.SafetyLevel}
+					allowed, _, _ := CheckActionWithPrinciples("register_tool:"+t.ID, ctxMap)
+					if !allowed {
+						continue
+					}
+					_ = s.registerTool(ctx, t)
 				}
-				_ = s.registerTool(ctx, t)
+				_ = f.Close()
+				return
 			}
-			return
 		}
 		_ = f.Close()
 	}
@@ -614,7 +619,12 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 			CreatedBy:    "system",
 			Exec: &ToolExecSpec{
 				Type: "mcp_proxy",
-				Cmd:  "https://k3s.sjfisher.com/webhook/40a534f4-2041-4eed-b317-738ad99b5cb0",
+				Cmd: func() string {
+					if url := os.Getenv("RESEARCH_WEBHOOK_URL"); url != "" {
+						return url
+					}
+					return "https://k3s.sjfisher.com/webhook/40a534f4-2041-4eed-b317-738ad99b5cb0"
+				}(),
 				Args: []string{},
 			},
 		},
@@ -803,6 +813,13 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 
 		// Also set X-Webhook-Secret if N8N_WEBHOOK_SECRET is set
 		webhookSecret := strings.TrimSpace(os.Getenv("N8N_WEBHOOK_SECRET"))
+		// Use specialized RESEARCH_WEBHOOK_SECRET if this is the research agent
+		if id == "mcp_research_agent" {
+			if s := strings.TrimSpace(os.Getenv("RESEARCH_WEBHOOK_SECRET")); s != "" {
+				webhookSecret = s
+			}
+		}
+
 		if webhookSecret != "" {
 			// Match N8NWebhookHandler logic: if not base64-like, encode it
 			secretToSend := webhookSecret
