@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -103,7 +104,13 @@ func (s *APIServer) executeToolDirect(ctx context.Context, toolID string, params
 		if strings.TrimSpace(cmd) == "" {
 			return nil, fmt.Errorf("cmd required")
 		}
-		execCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		timeoutSec := 60 // Original default
+		if val := os.Getenv("HDN_TOOL_TIMEOUT"); val != "" {
+			if s, err := strconv.Atoi(val); err == nil && s > 0 {
+				timeoutSec = s
+			}
+		}
+		execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
 		defer cancel()
 		execCmd := exec.CommandContext(execCtx, "/bin/sh", "-c", cmd)
 		output, err := execCmd.CombinedOutput()

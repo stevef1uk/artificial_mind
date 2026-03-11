@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1205,7 +1206,13 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Send the request
-			client := &http.Client{Timeout: 300 * time.Second} // Increased to 5 minutes for long-running research
+			timeoutSec := 60 // Original default
+			if val := os.Getenv("HDN_TOOL_TIMEOUT"); val != "" {
+				if s, err := strconv.Atoi(val); err == nil && s > 0 {
+					timeoutSec = s
+				}
+			}
+			client := &http.Client{Timeout: time.Duration(timeoutSec) * time.Second}
 			resp, err := client.Do(req)
 			if err != nil {
 				w.WriteHeader(http.StatusBadGateway)

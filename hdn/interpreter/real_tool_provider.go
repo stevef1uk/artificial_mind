@@ -8,6 +8,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 )
 
@@ -19,11 +21,18 @@ type RealToolProvider struct {
 
 // NewRealToolProvider creates a new real tool provider
 func NewRealToolProvider(hdnBaseURL string) *RealToolProvider {
+	timeoutSec := 60 // Original default
+	if val := os.Getenv("HDN_TOOL_TIMEOUT"); val != "" {
+		if s, err := strconv.Atoi(val); err == nil && s > 0 {
+			timeoutSec = s
+		}
+	}
+
 	return &RealToolProvider{
 		hdnBaseURL: hdnBaseURL,
 		httpClient: &http.Client{
-			// Increased to 60s to allow for slow tool execution (e.g., n8n webhooks taking 10-30s)
-			Timeout: 60 * time.Second,
+			// Configurable via HDN_TOOL_TIMEOUT env var
+			Timeout: time.Duration(timeoutSec) * time.Second,
 		},
 	}
 }

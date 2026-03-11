@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -99,8 +101,13 @@ func (api *InterpreterAPI) HandleInterpretRequest(w http.ResponseWriter, r *http
 	}
 
 	// Process simple requests synchronously with timeout
-	// Increased to 90s to allow for tool execution (n8n webhooks can take 10-30s)
-	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	timeoutSec := 90 // Original default
+	if val := os.Getenv("HDN_INTERPRET_TIMEOUT"); val != "" {
+		if s, err := strconv.Atoi(val); err == nil && s > 0 {
+			timeoutSec = s
+		}
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
 	result, err := api.interpreter.InterpretWithPriority(ctx, &req, !isBackgroundTask)

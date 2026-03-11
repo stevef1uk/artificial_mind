@@ -186,6 +186,10 @@ spec:
               value: "0"
             - name: RPI_HOST
               value: "192.168.1.63"
+            - name: HDN_TOOL_TIMEOUT
+              value: "300"
+            - name: HDN_INTERPRET_TIMEOUT
+              value: "180"
           livenessProbe:
             httpGet:
               path: /health

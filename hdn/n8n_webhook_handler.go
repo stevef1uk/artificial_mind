@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -30,12 +31,12 @@ func NewN8NWebhookHandler(config *SkillConfig) *N8NWebhookHandler {
 // Execute executes the n8n webhook skill with the given arguments
 func (h *N8NWebhookHandler) Execute(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	log.Printf("🔧 [N8N-WEBHOOK] Execute called for skill: %s, endpoint: %s, args: %+v", h.config.ID, h.config.Endpoint, args)
-	
+
 	// Check if endpoint is set
 	if h.config.Endpoint == "" {
 		return nil, fmt.Errorf("endpoint is empty for skill %s - check N8N_WEBHOOK_URL environment variable", h.config.ID)
 	}
-	
+
 	// Build request payload from template
 	payload, err := h.buildPayload(args)
 	if err != nil {
@@ -96,7 +97,7 @@ func (h *N8NWebhookHandler) Execute(ctx context.Context, args map[string]interfa
 		log.Printf("❌ [N8N-WEBHOOK] Failed to parse response: %v", err)
 		return nil, err
 	}
-	
+
 	log.Printf("✅ [N8N-WEBHOOK] Successfully parsed response, returning result")
 	return result, nil
 }
@@ -147,7 +148,7 @@ func (h *N8NWebhookHandler) buildPayload(args map[string]interface{}) ([]byte, e
 // applyDefaults applies default values from input_schema to arguments
 func (h *N8NWebhookHandler) applyDefaults(args map[string]interface{}) map[string]interface{} {
 	result := make(map[string]interface{})
-	
+
 	// Copy existing args
 	for k, v := range args {
 		result[k] = v
@@ -190,7 +191,7 @@ func (h *N8NWebhookHandler) addAuth(req *http.Request) error {
 		}
 		// Trim whitespace/newlines that might have been introduced when reading from .env
 		secret = strings.TrimSpace(secret)
-		
+
 		// Check if we need to base64 encode the secret
 		// In k8s, the secret is stored base64-encoded, and Kubernetes decodes it when injecting
 		// But n8n might expect the base64-encoded version
@@ -203,7 +204,7 @@ func (h *N8NWebhookHandler) addAuth(req *http.Request) error {
 		} else {
 			log.Printf("🔐 [N8N-WEBHOOK] Secret appears to be base64 already, using as-is (length: %d)", len(secret))
 		}
-		
+
 		secretPreview := secretToSend
 		if len(secretToSend) > 20 {
 			secretPreview = secretToSend[:20] + "..."
@@ -244,7 +245,14 @@ func isBase64Like(s string) bool {
 
 // createHTTPClient creates an HTTP client with appropriate TLS configuration
 func (h *N8NWebhookHandler) createHTTPClient() *http.Client {
-	timeout := 60 * time.Second
+	timeoutSec := 60 // Original default
+	if val := os.Getenv("HDN_TOOL_TIMEOUT"); val != "" {
+		if s, err := strconv.Atoi(val); err == nil && s > 0 {
+			timeoutSec = s
+		}
+	}
+	timeout := time.Duration(timeoutSec) * time.Second
+
 	if h.config.Timeout != "" {
 		if parsed, err := time.ParseDuration(h.config.Timeout); err == nil {
 			timeout = parsed
@@ -314,7 +322,7 @@ func (h *N8NWebhookHandler) parseResponse(bodyBytes []byte) (interface{}, error)
 // This function normalizes various response formats to the standard format
 func (h *N8NWebhookHandler) extractResponseData(data interface{}) interface{} {
 	// Standard format: always return {"results": [...]}
-	
+
 	// If response is already an array, wrap it in standard format
 	if resultArray, ok := data.([]interface{}); ok {
 		log.Printf("📦 [N8N-WEBHOOK] Response is array with %d items, normalizing to standard format", len(resultArray))
@@ -332,7 +340,7 @@ func (h *N8NWebhookHandler) extractResponseData(data interface{}) interface{} {
 				return resultMap // Already in standard format
 			}
 		}
-		
+
 		// Check for configured results_key (for backward compatibility)
 		if h.config.Response != nil && h.config.Response.ResultsKey != "" && h.config.Response.ResultsKey != "results" {
 			if resultsData, hasResults := resultMap[h.config.Response.ResultsKey]; hasResults {
@@ -344,7 +352,7 @@ func (h *N8NWebhookHandler) extractResponseData(data interface{}) interface{} {
 				}
 			}
 		}
-		
+
 		// Legacy support: check for emails_key (deprecated, use results_key instead)
 		if h.config.Response != nil && h.config.Response.EmailsKey != "" {
 			if emailsData, hasEmails := resultMap[h.config.Response.EmailsKey]; hasEmails {
@@ -356,7 +364,7 @@ func (h *N8NWebhookHandler) extractResponseData(data interface{}) interface{} {
 				}
 			}
 		}
-		
+
 		// If no results found, return as-is (might be error response or other format)
 		log.Printf("⚠️ [N8N-WEBHOOK] Response map doesn't contain 'results' key, returning as-is")
 		return resultMap
@@ -368,4 +376,3 @@ func (h *N8NWebhookHandler) extractResponseData(data interface{}) interface{} {
 		"results": []interface{}{data},
 	}
 }
-

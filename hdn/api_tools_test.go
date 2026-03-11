@@ -248,7 +248,7 @@ func TestInvokeResearchAgentTool(t *testing.T) {
 	}
 
 	// Invoke with required param (simulate query)
-	payload := map[string]interface{}{\"query\": \"What is the capital of France?\"}
+	payload := map[string]interface{}{"query": "What is the capital of France?"}
 	b, _ := json.Marshal(payload)
 	invReq2 := httptest.NewRequest("POST", "/api/v1/tools/mcp_research_agent/invoke", bytes.NewReader(b))
 	invRec2 := httptest.NewRecorder()
