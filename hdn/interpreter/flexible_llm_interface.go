@@ -182,6 +182,14 @@ func MatchesConfiguredToolKeywords(message string) string {
 		// Check keywords
 		for _, keyword := range hints.Keywords {
 			if strings.Contains(messageLower, strings.ToLower(keyword)) {
+				// PRIORITIZATION: If this is a "research" request, favor mcp_research_agent over search_weaviate
+				if toolID == "mcp_search_weaviate" || toolID == "search_weaviate" {
+					if strings.Contains(messageLower, "research") {
+						log.Printf("🧪 [KEYWORD-MATCH] Research intent detected - looking for research_agent instead of search_weaviate")
+						// Keep searching to see if research_agent matches
+						continue
+					}
+				}
 				return toolID
 			}
 		}
@@ -398,6 +406,10 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 						params["query"] = input
 						params["depth"] = 2
 						log.Printf("🧪 [FLEXIBLE-LLM] Extracted query for forced mcp_research_agent call")
+					} else if strings.Contains(actualToolID, "weaviate") || strings.Contains(actualToolID, "neo4j") || strings.Contains(actualToolID, "knowledge") || strings.Contains(actualToolID, "search") {
+						// General fallback for search/knowledge tools: default to passing the whole input as "query"
+						params["query"] = input
+						log.Printf("🔍 [FLEXIBLE-LLM] Extracted query for forced %s call (fallback)", actualToolID)
 					}
 					// Don't force mcp_smart_scrape without a URL — it will fail and waste scraper resources
 					if (actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape") && params["url"] == nil {
