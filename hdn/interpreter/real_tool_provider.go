@@ -131,8 +131,8 @@ func (r *RealToolProvider) ExecuteTool(ctx context.Context, toolID string, param
 	}
 	defer resp.Body.Close()
 
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
+	// Read response body with limit to prevent memory exhaustion
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %v", err)
 	}

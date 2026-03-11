@@ -1221,8 +1221,9 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			}
 			defer resp.Body.Close()
 
-			// Read full response body once
-			respBytes, err := io.ReadAll(resp.Body)
+			// Read limited response body to prevent OOM from massive tool results
+			// 10MB limit is generous for text results while safe for the container
+			respBytes, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 			if err != nil {
 				w.WriteHeader(http.StatusBadGateway)
 				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "failed to read MCP proxy response: " + err.Error()})

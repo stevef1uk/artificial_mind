@@ -485,6 +485,11 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 	forceKnowledgeQuery := false
 	knowledgeSources := "neo4j"
 	for k, v := range context {
+		// Skip definitely-too-large keys that HDN interpreter doesn't need for tool selection
+		if k == "conversation_history" || k == "last_result" || k == "reasoning_trace" {
+			continue
+		}
+
 		// Capture force_knowledge_query / knowledge_sources hints (may be non-string)
 		if k == "force_knowledge_query" {
 			if b, ok := v.(bool); ok && b {
@@ -498,11 +503,19 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				knowledgeSources = strings.ToLower(s)
 			}
 		}
+
+		val := ""
 		if str, ok := v.(string); ok {
-			hdnContext[k] = str
+			val = str
 		} else {
-			hdnContext[k] = fmt.Sprintf("%v", v)
+			val = fmt.Sprintf("%v", v)
 		}
+
+		// Truncate individual context values to prevent bloat at the boundary
+		if len(val) > 5000 {
+			val = val[:5000] + "... [TRUNCATED]"
+		}
+		hdnContext[k] = val
 	}
 
 	// Add action parameters to context

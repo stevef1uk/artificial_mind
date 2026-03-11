@@ -973,8 +973,8 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 			clean := make(map[string]interface{})
 			for k, v := range m {
 				switch k {
-				case "cleaned_html", "raw_html", "screenshot", "cookies":
-					// Skip large fields — not useful for NLG
+				case "cleaned_html", "raw_html", "screenshot", "cookies", "body", "response":
+					// Skip large technical fields — not useful for NLG and cause prompt bloat
 					continue
 				default:
 					clean[k] = v

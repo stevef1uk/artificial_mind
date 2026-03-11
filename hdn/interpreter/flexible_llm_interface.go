@@ -720,64 +720,64 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		relevant = newRelevant
 	}
 
-	       // If we still have too many tools, limit to top 20 most relevant
-	       if len(relevant) > 20 {
-		       // Score tools by relevance
-		       type scoredTool struct {
-			       tool  Tool
-			       score int
-			       isUser bool // true if agent/user-provided, false if system
-		       }
-		       scored := make([]scoredTool, len(relevant))
-		       for i, tool := range relevant {
-			       score := 0
-			       toolDesc := strings.ToLower(tool.Description + " " + tool.Name + " " + tool.ID)
+	// If we still have too many tools, limit to top 20 most relevant
+	if len(relevant) > 20 {
+		// Score tools by relevance
+		type scoredTool struct {
+			tool   Tool
+			score  int
+			isUser bool // true if agent/user-provided, false if system
+		}
+		scored := make([]scoredTool, len(relevant))
+		for i, tool := range relevant {
+			score := 0
+			toolDesc := strings.ToLower(tool.Description + " " + tool.Name + " " + tool.ID)
 
-			       // Higher score for exact matches
-			       if strings.Contains(inputLower, strings.ToLower(tool.ID)) {
-				       score += 10
-			       }
+			// Higher score for exact matches
+			if strings.Contains(inputLower, strings.ToLower(tool.ID)) {
+				score += 10
+			}
 
-			       // Score based on keyword matches in description
-			       for _, keyword := range commonKeywords {
-				       if strings.Contains(inputLower, keyword) && strings.Contains(toolDesc, keyword) {
-					       score += 5
-				       }
-			       }
+			// Score based on keyword matches in description
+			for _, keyword := range commonKeywords {
+				if strings.Contains(inputLower, keyword) && strings.Contains(toolDesc, keyword) {
+					score += 5
+				}
+			}
 
-			       // Prefer MCP tools for knowledge-related tasks
-			       if strings.HasPrefix(tool.ID, "mcp_") && (strings.Contains(inputLower, "query") || strings.Contains(inputLower, "knowledge") || strings.Contains(inputLower, "neo4j") || strings.Contains(inputLower, "research")) {
-				       score += 3
-			       }
+			// Prefer MCP tools for knowledge-related tasks
+			if strings.HasPrefix(tool.ID, "mcp_") && (strings.Contains(inputLower, "query") || strings.Contains(inputLower, "knowledge") || strings.Contains(inputLower, "neo4j") || strings.Contains(inputLower, "research")) {
+				score += 3
+			}
 
-			       // Extra boost for research_agent when 'research' is explicitly mentioned
-			       if (tool.ID == "mcp_research_agent" || tool.ID == "research_agent") && strings.Contains(inputLower, "research") {
-				       score += 15 // Ensure it stays in top 20
-			       }
+			// Extra boost for research_agent when 'research' is explicitly mentioned
+			if (tool.ID == "mcp_research_agent" || tool.ID == "research_agent") && strings.Contains(inputLower, "research") {
+				score += 15 // Ensure it stays in top 20
+			}
 
-			       // User/agent-provided tools take priority
-			       isUser := true
-			       if tool.CreatedBy == "system" {
-				       isUser = false
-			       }
+			// User/agent-provided tools take priority
+			isUser := true
+			if tool.CreatedBy == "system" {
+				isUser = false
+			}
 
-			       scored[i] = scoredTool{tool: tool, score: score, isUser: isUser}
-		       }
+			scored[i] = scoredTool{tool: tool, score: score, isUser: isUser}
+		}
 
-		       // Sort by user/agent-provided first, then score (descending)
-		       for i := 0; i < len(scored)-1; i++ {
-			       for j := i + 1; j < len(scored); j++ {
-				       if (!scored[i].isUser && scored[j].isUser) || (scored[i].isUser == scored[j].isUser && scored[i].score < scored[j].score) {
-					       scored[i], scored[j] = scored[j], scored[i]
-				       }
-			       }
-		       }
+		// Sort by user/agent-provided first, then score (descending)
+		for i := 0; i < len(scored)-1; i++ {
+			for j := i + 1; j < len(scored); j++ {
+				if (!scored[i].isUser && scored[j].isUser) || (scored[i].isUser == scored[j].isUser && scored[i].score < scored[j].score) {
+					scored[i], scored[j] = scored[j], scored[i]
+				}
+			}
+		}
 
-		       relevant = make([]Tool, 20)
-		       for i := 0; i < 20 && i < len(scored); i++ {
-			       relevant[i] = scored[i].tool
-		       }
-	       }
+		relevant = make([]Tool, 20)
+		for i := 0; i < 20 && i < len(scored); i++ {
+			relevant[i] = scored[i].tool
+		}
+	}
 
 	return relevant
 }
@@ -790,10 +790,16 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 	if len(context) > 0 {
 		prompt.WriteString("Additional Context:\n")
 		for k, v := range context {
-			// Skip internal/large keys that might bloat the prompt if needed,
-			// but for now include everything as it might be relevant (news_context, etc.)
+			// Skip internal/large keys that might bloat the prompt
 			if v != "" {
-				prompt.WriteString(fmt.Sprintf("- %s: %s\n", k, v))
+				val := v
+				// Truncate extremely large context values to prevent OOM/crashes
+				// 10k chars is usually enough for relevant context while preventing explosions
+				if len(val) > 10000 {
+					log.Printf("⚠️ [FLEXIBLE-LLM] Truncating context key '%s' from %d to 10000 chars", k, len(val))
+					val = val[:10000] + "... [TRUNCATED due to size]"
+				}
+				prompt.WriteString(fmt.Sprintf("- %s: %s\n", k, val))
 			}
 		}
 		prompt.WriteString("\n")
