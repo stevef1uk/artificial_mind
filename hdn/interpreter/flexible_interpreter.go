@@ -301,7 +301,7 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 					Confidence: 1.0,
 					ToolUsed:   result.ToolCall.ToolID,
 					Action:     "tool_execution",
-					Result:     truncateResultString(fmt.Sprintf("%v", executionResult), 5000),
+					Result:     safeResultSummary(executionResult, 5000),
 					Timestamp:  time.Now().Format(time.RFC3339Nano),
 					Metadata: map[string]interface{}{
 						"parameters": result.ToolCall.Parameters,
@@ -498,6 +498,36 @@ func truncateResultString(s string, limit int) string {
 		return s[:limit] + "... [TRUNCATED]"
 	}
 	return s
+}
+
+// safeResultSummary creates a limited string representation of any object without OOM-ing
+func safeResultSummary(v interface{}, limit int) string {
+	if v == nil {
+		return "nil"
+	}
+	switch val := v.(type) {
+	case string:
+		return truncateResultString(val, limit)
+	case []byte:
+		return truncateResultString(string(val), limit)
+	case map[string]interface{}:
+		keys := make([]string, 0, len(val))
+		for k := range val {
+			keys = append(keys, k)
+			if len(keys) >= 20 {
+				break
+			}
+		}
+		summary := fmt.Sprintf("Map with %d keys: [%s]", len(val), strings.Join(keys, ", "))
+		if len(val) > 20 {
+			summary += " ..."
+		}
+		return summary
+	case []interface{}:
+		return fmt.Sprintf("List with %d items", len(val))
+	default:
+		return truncateResultString(fmt.Sprintf("%v", v), limit)
+	}
 }
 
 // proposeToolID creates a stable-ish tool id from language + code shape

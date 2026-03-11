@@ -662,7 +662,16 @@ func (nlg *NLGGenerator) formatToolResultInternal(result interface{}, depth int)
 			if k == "raw_html" || k == "cleaned_html" || k == "screenshot" || k == "cookies" || k == "extraction_method" {
 				continue
 			}
-			lines = append(lines, fmt.Sprintf("%s: %v", k, v))
+			// Safely format value using recursive call instead of %v
+			valStr := nlg.formatToolResultInternal(v, depth+1)
+			if len(valStr) > 500 {
+				valStr = valStr[:500] + "..."
+			}
+			lines = append(lines, fmt.Sprintf("%s: %s", k, valStr))
+			if len(lines) >= 20 { // Cap fallback keys
+				lines = append(lines, "... [TRUNCATED]")
+				break
+			}
 		}
 		if len(lines) == 0 {
 			return ""
@@ -727,7 +736,24 @@ func (nlg *NLGGenerator) formatToolResultInternal(result interface{}, depth int)
 	}
 
 	// Fallback for other types
-	s := fmt.Sprintf("%v", result)
+	s := ""
+	switch v := result.(type) {
+	case string:
+		s = v
+	case []byte:
+		s = string(v)
+	case map[string]interface{}:
+		// Format map keys only or summarize to prevent OOM
+		keys := getMapKeys(v)
+		if len(keys) > 10 {
+			s = fmt.Sprintf("Map with %d keys: [%s, ...]", len(keys), strings.Join(keys[:10], ", "))
+		} else {
+			s = fmt.Sprintf("Map with keys: [%s]", strings.Join(keys, ", "))
+		}
+	default:
+		s = fmt.Sprintf("%v", result)
+	}
+
 	if len(s) > 10000 {
 		return s[:10000] + "... [TRUNCATED]"
 	}
