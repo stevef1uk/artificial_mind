@@ -273,12 +273,16 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 	})
 
 	// Step 6: Save conversation context
+	// CRITICAL: Strip the result before saving to history to prevent massive context bloat.
+	// We want to keep the metadata and success status, but not 10MB of raw research data.
+	strippedResult := cl.stripActionResultForHistory(result)
+
 	err = cl.conversationMemory.SaveContext(ctx, req.SessionID, map[string]interface{}{
 		"last_user_message": req.Message,
 		"last_ai_response":  response.Text,
 		"last_intent":       intent,
 		"last_action":       action,
-		"last_result":       result,
+		"last_result":       strippedResult,
 		"timestamp":         time.Now(),
 	})
 	if err != nil {
@@ -485,8 +489,15 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 	forceKnowledgeQuery := false
 	knowledgeSources := "neo4j"
 	for k, v := range context {
-		// Skip definitely-too-large keys that HDN interpreter doesn't need for tool selection
-		if k == "conversation_history" || k == "last_result" || k == "reasoning_trace" {
+		// Skip definitely-too-large keys that HDN interpreter doesn't need for tool selection.
+		// Avoid passing structured objects like InterpretResult which serialize to massive strings.
+		if k == "conversation_history" || k == "last_result" || k == "reasoning_trace" ||
+			k == "avatar_context" || k == "wiki_context" || k == "conversation_summaries" {
+			continue
+		}
+
+		// Skip any key that looks like it might be an internal memory structure to avoid hallucinations
+		if strings.HasSuffix(k, "_context") && k != "news_context" && k != "wiki_context" {
 			continue
 		}
 
@@ -1173,4 +1184,69 @@ func hasResultsInToolResult(toolResult map[string]interface{}) bool {
 	}
 
 	return false
+}
+
+// stripActionResultForHistory creates a lean copy of an ActionResult suitable for saving in history
+func (cl *ConversationalLayer) stripActionResultForHistory(res *ActionResult) *ActionResult {
+	if res == nil {
+		return nil
+	}
+
+	stripped := &ActionResult{
+		Type:    res.Type,
+		Success: res.Success,
+		Error:   res.Error,
+		Data:    make(map[string]interface{}),
+	}
+
+	// Only preserve key information, discard redundant or massive blobs
+	for k, v := range res.Data {
+		switch k {
+		case "source":
+			stripped.Data[k] = v
+		case "result":
+			// If result is an InterpretResult, it might contain the full tool output
+			if ir, ok := v.(*InterpretResult); ok && ir != nil {
+				strippedIR := &InterpretResult{
+					Success:     ir.Success,
+					Interpreted: ir.Interpreted,
+					Error:       ir.Error,
+					Metadata:    make(map[string]interface{}),
+				}
+
+				// Only preserve minimal metadata needed for context
+				if ir.Metadata != nil {
+					for mk, mv := range ir.Metadata {
+						switch mk {
+						case "tool_used", "response_type", "interpreted_at":
+							strippedIR.Metadata[mk] = mv
+						case "tool_result":
+							// Deep strip tool results - keep only a preview/summary
+							if tr, ok := mv.(map[string]interface{}); ok {
+								strippedTR := map[string]interface{}{
+									"success": tr["success"],
+								}
+								if results, ok := tr["results"].([]interface{}); ok {
+									// Just record how many results we got, don't store 10MB of them
+									strippedTR["count"] = len(results)
+									if len(results) > 0 {
+										strippedTR["preview"] = "Data preserved in NLG response but stripped from historical memory to save space."
+									}
+								}
+								strippedIR.Metadata[mk] = strippedTR
+							}
+						}
+					}
+				}
+				stripped.Data[k] = strippedIR
+			} else {
+				// For other result types, just use a placeholder or string representation
+				stripped.Data[k] = "Result summary: action executed successfully. Data stripped for history."
+			}
+		default:
+			// Discard other potentially large keys
+		}
+	}
+
+	return stripped
 }

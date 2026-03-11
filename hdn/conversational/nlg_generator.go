@@ -937,11 +937,11 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 
 	// 1. Add conversation summaries if available for continuity
 	if summaries, ok := req.Context["conversation_summaries"].([]string); ok && len(summaries) > 0 {
-		basePrompt += "\n\nRelevant Past Conversation Context (Summarized):\n"
+		basePrompt += "\n\nBACKGROUND: Relevant Past Conversation Context (Summarized):\n"
 		for _, summary := range summaries {
 			basePrompt += fmt.Sprintf("--- SUMMARY ---\n%s\n", summary)
 		}
-		basePrompt += "\nUse these summaries to maintain continuity with what you've discussed with the user previously."
+		basePrompt += "\nUse these summaries ONLY for continuity. Do NOT repeat them unless relevant to the current request."
 	}
 
 	// 2. Add avatar context (personal info) if available
@@ -957,7 +957,7 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 			}
 
 			if len(items) > 0 {
-				basePrompt += "\n\nRetrieved Personal Context (About Steven Fisher / User):\n"
+				basePrompt += "\n\nBACKGROUND: User Profile Context (About Steven Fisher / User):\n"
 				for _, res := range items {
 					if item, ok := res.(map[string]interface{}); ok {
 						if content, ok := item["content"].(string); ok {
@@ -967,7 +967,7 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 						}
 					}
 				}
-				basePrompt += "\nUse this personal context to correctly answer questions about the user's background or preferences."
+				basePrompt += "\nUse this professional/personal background ONLY to inform your tone or if specifically asked about the user. Do NOT summarize this profile unless requested."
 			}
 		}
 	}
