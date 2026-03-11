@@ -101,7 +101,7 @@ func (api *InterpreterAPI) HandleInterpretRequest(w http.ResponseWriter, r *http
 	}
 
 	// Process simple requests synchronously with timeout
-	timeoutSec := 90 // Original default
+	timeoutSec := 360 // Increased default for research-heavy interpretation (6m)
 	if val := os.Getenv("HDN_INTERPRET_TIMEOUT"); val != "" {
 		if s, err := strconv.Atoi(val); err == nil && s > 0 {
 			timeoutSec = s

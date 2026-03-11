@@ -1206,7 +1206,7 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Send the request
-			timeoutSec := 60 // Original default
+			timeoutSec := 300 // Increased default for research agents (5m)
 			if val := os.Getenv("HDN_TOOL_TIMEOUT"); val != "" {
 				if s, err := strconv.Atoi(val); err == nil && s > 0 {
 					timeoutSec = s

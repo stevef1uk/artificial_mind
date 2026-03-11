@@ -106,9 +106,9 @@ func (api *ConversationalAPI) handleChat(w http.ResponseWriter, r *http.Request)
 
 	// Process the message with timeout context (3 minutes for chat - allows multiple LLM calls)
 	ctx := r.Context()
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 6*time.Minute)
 	defer cancel()
-	
+
 	response, err := api.conversationalLayer.ProcessMessage(ctxWithTimeout, &req)
 	if err != nil {
 		if ctxWithTimeout.Err() == context.DeadlineExceeded {

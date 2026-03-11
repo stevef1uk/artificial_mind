@@ -222,7 +222,7 @@ func (bot *TelegramBot) callChatAPI(chatID int, message string) (string, error) 
 
 	// Use a client with timeout to prevent hanging (3.5 minutes to allow for chat processing + tool execution)
 	client := &http.Client{
-		Timeout: 210 * time.Second, // 3.5 minutes
+		Timeout: 400 * time.Second, // 6.6 minutes
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
