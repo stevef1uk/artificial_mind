@@ -753,9 +753,15 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			target = meta.Exec.Cmd
 		}
 		if target == "" {
-			w.WriteHeader(http.StatusInternalServerError)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "MCP proxy target URL not set"})
-			return
+			// Fallback for research agent if URL not set (using sjfisher.com n8n endpoint)
+			if id == "mcp_research_agent" {
+				target = "https://k3s.sjfisher.com/webhook/40a534f4-2041-4eed-b317-738ad99b5cb0"
+				log.Printf("⚠️ [HDN] RESEARCH_WEBHOOK_URL not set, using fallback: %s", target)
+			} else {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "MCP proxy target URL not set"})
+				return
+			}
 		}
 
 		// --- CACHING LOGIC (Research Agent Specific) ---

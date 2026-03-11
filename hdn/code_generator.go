@@ -406,6 +406,7 @@ func (cg *CodeGenerator) filterRelevantToolsForTask(tools []Tool, taskName, desc
 		"mcp_search_weaviate":       {"weaviate", "search", "vector", "semantic", "similar", "episodes", "memories"},
 		"mcp_smart_scrape":          {"smart", "scrape", "scraping", "extract", "identify", "find", "headline", "news", "summarize", "web", "fetch"},
 		"mcp_scrape_url":            {"scrape", "url", "fetch", "get", "web"},
+		"mcp_research_agent":        {"research", "deep research", "comprehensive", "analysis", "latest developments", "multi-step research"},
 		"mcp_deep_research":         {"research", "search", "gather", "investigate", "topic", "deep"},
 		"mcp_browse_web":            {"browse", "web", "search", "navigate", "find"},
 		"tool_telegram_send":        {"telegram", "send", "message", "chat", "notify", "broadcast", "channel"},

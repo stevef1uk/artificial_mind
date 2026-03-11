@@ -227,8 +227,8 @@ func TestInvokeResearchAgentTool(t *testing.T) {
 		Description: "Proxies research tasks to external MCP server [chat-only]",
 		CreatedBy:   "agent",
 		Exec: &ToolExecSpec{
-			Type:   "mcp_proxy",
-			Target: "https://k3s.sjfisher.com/mcp/589807cd-b78c-4134-a088-b53c293fa5a4",
+			Type: "mcp_proxy",
+			Cmd:  "https://k3s.sjfisher.com/mcp/589807cd-b78c-4134-a088-b53c293fa5a4",
 		},
 	}
 	body, _ := json.Marshal(tool)
