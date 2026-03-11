@@ -301,7 +301,7 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 					Confidence: 1.0,
 					ToolUsed:   result.ToolCall.ToolID,
 					Action:     "tool_execution",
-					Result:     fmt.Sprintf("%v", executionResult),
+					Result:     truncateResultString(fmt.Sprintf("%v", executionResult), 5000),
 					Timestamp:  time.Now().Format(time.RFC3339Nano),
 					Metadata: map[string]interface{}{
 						"parameters": result.ToolCall.Parameters,
@@ -490,6 +490,14 @@ func generateToolDescriptionFromCode(language, code string) string {
 	}
 
 	return fmt.Sprintf("Auto-proposed utility from code artifact (%s)", language)
+}
+
+// truncateResultString limits the size of a string to prevent OOM
+func truncateResultString(s string, limit int) string {
+	if len(s) > limit {
+		return s[:limit] + "... [TRUNCATED]"
+	}
+	return s
 }
 
 // proposeToolID creates a stable-ish tool id from language + code shape

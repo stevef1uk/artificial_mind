@@ -674,12 +674,20 @@ func (nlg *NLGGenerator) formatToolResultInternal(result interface{}, depth int)
 	if s, ok := result.([]interface{}); ok {
 		var lines []string
 		for i, item := range s {
+			if i >= 100 { // Limit to 100 items to prevent OOM
+				lines = append(lines, fmt.Sprintf("... [AND %d MORE ITEMS TRUNCATED]", len(s)-100))
+				break
+			}
 			line := nlg.formatToolResultInternal(item, depth+1)
 			if line != "" {
 				lines = append(lines, fmt.Sprintf("[%d] %s", i+1, line))
 			}
 		}
-		return strings.Join(lines, "\n")
+		res := strings.Join(lines, "\n")
+		if len(res) > 50000 { // 50KB limit per sub-list result
+			return res[:50000] + "... [TRUNCATED]"
+		}
+		return res
 	}
 
 	// Handle strings
@@ -719,7 +727,11 @@ func (nlg *NLGGenerator) formatToolResultInternal(result interface{}, depth int)
 	}
 
 	// Fallback for other types
-	return fmt.Sprintf("%v", result)
+	s := fmt.Sprintf("%v", result)
+	if len(s) > 10000 {
+		return s[:10000] + "... [TRUNCATED]"
+	}
+	return s
 }
 
 // formatResultData formats result data for display
@@ -770,7 +782,11 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 	if sb.Len() == 0 {
 		return "No relevant data found."
 	}
-	return sb.String()
+	res := sb.String()
+	if len(res) > 256*1024 { // 256KB limit
+		return res[:256*1024] + "... [TRUNCATED due to size]"
+	}
+	return res
 }
 
 // formatDecisions formats decision points for display

@@ -5108,7 +5108,7 @@ func (s *APIServer) handleInterpretAndExecute(w http.ResponseWriter, r *http.Req
 				Description: flexibleResult.ToolCall.Description,
 			},
 			Success: flexibleResult.ToolExecutionResult.Success,
-			Result:  fmt.Sprintf("%v", flexibleResult.ToolExecutionResult.Result),
+			Result:  truncateResultString(fmt.Sprintf("%v", flexibleResult.ToolExecutionResult.Result), 5000),
 			Error:   flexibleResult.ToolExecutionResult.Error,
 		}
 		executionResults = append(executionResults, taskResult)
@@ -6254,4 +6254,12 @@ func (s *APIServer) acquireExecutionSlot(r *http.Request) (func(), bool) {
 			return nil, false
 		}
 	}
+}
+
+// truncateResultString limits the size of a string to prevent OOM
+func truncateResultString(s string, limit int) string {
+	if len(s) > limit {
+		return s[:limit] + "... [TRUNCATED]"
+	}
+	return s
 }
