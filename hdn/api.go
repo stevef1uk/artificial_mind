@@ -5675,7 +5675,7 @@ func (s *APIServer) handleKnowledgeQuery(w http.ResponseWriter, r *http.Request)
 	log.Printf("[HDN] /knowledge/query returned %d rows", len(rows))
 
 	// Safety: Cap results to prevent OOM on small devices
-	const maxRows = 1000
+	const maxRows = 200
 	if len(rows) > maxRows {
 		log.Printf("⚠️ [HDN] Truncating query results from %d to %d to prevent OOM", len(rows), maxRows)
 		rows = rows[:maxRows]

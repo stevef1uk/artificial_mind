@@ -961,7 +961,7 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.Printf("✅ [SSH-TOOL] SSH execution successful: %+v", localRun)
+		log.Printf("✅ [SSH-TOOL] SSH execution successful (tool_id: %s)", id)
 
 		// Combine results: prefer local run output while returning drone submission metadata
 		combined := map[string]interface{}{}
@@ -969,7 +969,7 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			combined[k] = v
 		}
 		combined["drone_submission"] = droneResp
-		log.Printf("🔧 [SSH-TOOL] Returning combined results: %+v", combined)
+		log.Printf("🔧 [SSH-TOOL] Returning result summarized (success: %v)", combined["success"])
 		_ = json.NewEncoder(w).Encode(combined)
 		return
 	default:
@@ -1750,7 +1750,7 @@ func (s *APIServer) submitToDroneCI(code, language, image string) (map[string]in
 			"build_id":     buildResponse["id"],
 			"build_number": buildResponse["number"],
 		}
-		log.Printf("✅ [DRONE-CI] Returning success result: %+v", result)
+		log.Printf("✅ [DRONE-CI] Returning success result (repo: %s, build: %v)", existingRepo, buildResponse["number"])
 		return result, nil
 	}
 
@@ -2274,7 +2274,7 @@ java "$MAIN"
 		"method":      "ssh_docker_execution",
 		"host":        rpiHost,
 	}
-	log.Printf("✅ [SSH-FALLBACK] Returning result: %+v", result)
+	log.Printf("✅ [SSH-FALLBACK] Returning result summarized (success: %v)", result["success"])
 	return result, nil
 }
 
