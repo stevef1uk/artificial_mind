@@ -720,57 +720,64 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		relevant = newRelevant
 	}
 
-	// If we still have too many tools, limit to top 20 most relevant
-	if len(relevant) > 20 {
-		// Score tools by relevance
-		type scoredTool struct {
-			tool  Tool
-			score int
-		}
-		scored := make([]scoredTool, len(relevant))
-		for i, tool := range relevant {
-			score := 0
-			toolDesc := strings.ToLower(tool.Description + " " + tool.Name + " " + tool.ID)
+	       // If we still have too many tools, limit to top 20 most relevant
+	       if len(relevant) > 20 {
+		       // Score tools by relevance
+		       type scoredTool struct {
+			       tool  Tool
+			       score int
+			       isUser bool // true if agent/user-provided, false if system
+		       }
+		       scored := make([]scoredTool, len(relevant))
+		       for i, tool := range relevant {
+			       score := 0
+			       toolDesc := strings.ToLower(tool.Description + " " + tool.Name + " " + tool.ID)
 
-			// Higher score for exact matches
-			if strings.Contains(inputLower, strings.ToLower(tool.ID)) {
-				score += 10
-			}
+			       // Higher score for exact matches
+			       if strings.Contains(inputLower, strings.ToLower(tool.ID)) {
+				       score += 10
+			       }
 
-			// Score based on keyword matches in description
-			for _, keyword := range commonKeywords {
-				if strings.Contains(inputLower, keyword) && strings.Contains(toolDesc, keyword) {
-					score += 5
-				}
-			}
+			       // Score based on keyword matches in description
+			       for _, keyword := range commonKeywords {
+				       if strings.Contains(inputLower, keyword) && strings.Contains(toolDesc, keyword) {
+					       score += 5
+				       }
+			       }
 
-			// Prefer MCP tools for knowledge-related tasks
-			if strings.HasPrefix(tool.ID, "mcp_") && (strings.Contains(inputLower, "query") || strings.Contains(inputLower, "knowledge") || strings.Contains(inputLower, "neo4j") || strings.Contains(inputLower, "research")) {
-				score += 3
-			}
+			       // Prefer MCP tools for knowledge-related tasks
+			       if strings.HasPrefix(tool.ID, "mcp_") && (strings.Contains(inputLower, "query") || strings.Contains(inputLower, "knowledge") || strings.Contains(inputLower, "neo4j") || strings.Contains(inputLower, "research")) {
+				       score += 3
+			       }
 
-			// Extra boost for research_agent when 'research' is explicitly mentioned
-			if (tool.ID == "mcp_research_agent" || tool.ID == "research_agent") && strings.Contains(inputLower, "research") {
-				score += 15 // Ensure it stays in top 20
-			}
+			       // Extra boost for research_agent when 'research' is explicitly mentioned
+			       if (tool.ID == "mcp_research_agent" || tool.ID == "research_agent") && strings.Contains(inputLower, "research") {
+				       score += 15 // Ensure it stays in top 20
+			       }
 
-			scored[i] = scoredTool{tool: tool, score: score}
-		}
+			       // User/agent-provided tools take priority
+			       isUser := true
+			       if tool.CreatedBy == "system" {
+				       isUser = false
+			       }
 
-		// Sort by score (descending) and take top 20
-		for i := 0; i < len(scored)-1; i++ {
-			for j := i + 1; j < len(scored); j++ {
-				if scored[i].score < scored[j].score {
-					scored[i], scored[j] = scored[j], scored[i]
-				}
-			}
-		}
+			       scored[i] = scoredTool{tool: tool, score: score, isUser: isUser}
+		       }
 
-		relevant = make([]Tool, 20)
-		for i := 0; i < 20 && i < len(scored); i++ {
-			relevant[i] = scored[i].tool
-		}
-	}
+		       // Sort by user/agent-provided first, then score (descending)
+		       for i := 0; i < len(scored)-1; i++ {
+			       for j := i + 1; j < len(scored); j++ {
+				       if (!scored[i].isUser && scored[j].isUser) || (scored[i].isUser == scored[j].isUser && scored[i].score < scored[j].score) {
+					       scored[i], scored[j] = scored[j], scored[i]
+				       }
+			       }
+		       }
+
+		       relevant = make([]Tool, 20)
+		       for i := 0; i < 20 && i < len(scored); i++ {
+			       relevant[i] = scored[i].tool
+		       }
+	       }
 
 	return relevant
 }
@@ -1012,6 +1019,14 @@ func (f *FlexibleLLMAdapter) normalizeResponse(resp *FlexibleLLMResponse, rawJSO
 			isStandard = true
 			break
 		}
+	}
+
+	// Treat completely empty type as a plain text response by default. This makes
+	// downstream enforcement logic (e.g. ForceToolCall + RejectText) work even
+	// when the model omits the "type" field or sets it to an empty string.
+	if resp.Type == "" {
+		resp.Type = ResponseTypeText
+		isStandard = true
 	}
 
 	if !isStandard && resp.Type != "" {

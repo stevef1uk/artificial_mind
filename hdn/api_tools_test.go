@@ -220,10 +220,10 @@ func TestInvokeResearchAgentTool(t *testing.T) {
 	s, cleanup := newTestServer(t)
 	defer cleanup()
 
-	// Register the research_agent tool (mcp_proxy type)
+	// Register the mcp_research_agent tool (mcp_proxy type)
 	tool := Tool{
-		ID:          "tool_research_agent",
-		Name:        "ResearchAgent",
+		ID:          "mcp_research_agent",
+		Name:        "research_agent",
 		Description: "Proxies research tasks to external MCP server [chat-only]",
 		CreatedBy:   "agent",
 		Exec: &ToolExecSpec{
@@ -240,7 +240,7 @@ func TestInvokeResearchAgentTool(t *testing.T) {
 	}
 
 	// Invoke with missing required param (should error)
-	invReq := httptest.NewRequest("POST", "/api/v1/tools/tool_research_agent/invoke", bytes.NewReader([]byte(`{}`)))
+	invReq := httptest.NewRequest("POST", "/api/v1/tools/mcp_research_agent/invoke", bytes.NewReader([]byte(`{}`)))
 	invRec := httptest.NewRecorder()
 	s.handleInvokeTool(invRec, invReq)
 	if invRec.Code == http.StatusOK {
@@ -248,9 +248,9 @@ func TestInvokeResearchAgentTool(t *testing.T) {
 	}
 
 	// Invoke with required param (simulate query)
-	payload := map[string]interface{}{"query": "What is the capital of France?"}
+	payload := map[string]interface{}{\"query\": \"What is the capital of France?\"}
 	b, _ := json.Marshal(payload)
-	invReq2 := httptest.NewRequest("POST", "/api/v1/tools/tool_research_agent/invoke", bytes.NewReader(b))
+	invReq2 := httptest.NewRequest("POST", "/api/v1/tools/mcp_research_agent/invoke", bytes.NewReader(b))
 	invRec2 := httptest.NewRecorder()
 	s.handleInvokeTool(invRec2, invReq2)
 	// Accept 200 (success) or 500 (external error), but must not be 400 for missing param

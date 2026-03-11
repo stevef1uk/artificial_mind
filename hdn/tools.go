@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -566,23 +565,18 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 		if err != nil {
 			continue
 		}
-		data, err := io.ReadAll(f)
-		if err == nil {
-			expanded := os.ExpandEnv(string(data))
-			var seeds []Tool
-			if err := json.Unmarshal([]byte(expanded), &seeds); err == nil {
-				for _, t := range seeds {
-					// Principles gate: check tool by name with minimal context
-					ctxMap := map[string]interface{}{"category": "tool_bootstrap", "safety_level": t.SafetyLevel}
-					allowed, _, _ := CheckActionWithPrinciples("register_tool:"+t.ID, ctxMap)
-					if !allowed {
-						continue
-					}
-					_ = s.registerTool(ctx, t)
+		var seeds []Tool
+		if err := json.NewDecoder(f).Decode(&seeds); err == nil {
+			for _, t := range seeds {
+				// Principles gate: check tool by name with minimal context
+				ctxMap := map[string]interface{}{"category": "tool_bootstrap", "safety_level": t.SafetyLevel}
+				allowed, _, _ := CheckActionWithPrinciples("register_tool:"+t.ID, ctxMap)
+				if !allowed {
+					continue
 				}
-				_ = f.Close()
-				return
+				_ = s.registerTool(ctx, t)
 			}
+			return
 		}
 		_ = f.Close()
 	}
@@ -607,24 +601,18 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 		{
 			ID:          "mcp_research_agent",
 			Name:        "research_agent",
-			Description: "USE THIS for complex, multi-step research or deep analysis tasks that require browsing multiple sources. NOT for simple facts. Input 'query' should be a detailed research goal. 'depth' ranges from 1 (fast/broad) to 3 (comprehensive/deep). Pass 'max_tokens' if you only need a concise overview (e.g., for speech).",
+			Description: "[chat-only] Perform research using the external MCP research server. This tool is restricted to chat access only and will be skipped by the planner.",
 			InputSchema: map[string]string{
-				"query":      "string",
-				"depth":      "int",
-				"max_tokens": "int",
+				"query": "string",
+				"depth": "int",
 			},
-			OutputSchema: map[string]string{"result": "string", "summary": "string"},
+			OutputSchema: map[string]string{"result": "string"},
 			Permissions:  []string{"net:read"},
 			SafetyLevel:  "medium",
-			CreatedBy:    "system",
+			CreatedBy:    "agent",
 			Exec: &ToolExecSpec{
 				Type: "mcp_proxy",
-				Cmd: func() string {
-					if url := os.Getenv("RESEARCH_WEBHOOK_URL"); url != "" {
-						return url
-					}
-					return "https://k3s.sjfisher.com/webhook/40a534f4-2041-4eed-b317-738ad99b5cb0"
-				}(),
+				Cmd:  "https://k3s.sjfisher.com/webhook/40a534f4-2041-4eed-b317-738ad99b5cb0",
 				Args: []string{},
 			},
 		},
@@ -741,157 +729,15 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[HDN-DEBUG] Switching on id: '%s' (len=%d)", id, len(id))
 
-	// --- MCP PROXY EXECUTION LOGIC ---
-	execType := ""
-	if meta.Exec != nil {
-		execType = meta.Exec.Type
-	}
-	if strings.EqualFold(execType, "mcp_proxy") {
-		// Get the target URL from Exec.Cmd
-		target := ""
-		if meta.Exec != nil && meta.Exec.Cmd != "" {
-			target = meta.Exec.Cmd
-		}
-		if target == "" {
-			// Fallback for research agent if URL not set (using sjfisher.com n8n endpoint)
-			if id == "mcp_research_agent" {
-				target = "https://k3s.sjfisher.com/webhook/40a534f4-2041-4eed-b317-738ad99b5cb0"
-				log.Printf("⚠️ [HDN] RESEARCH_WEBHOOK_URL not set, using fallback: %s", target)
-			} else {
-				w.WriteHeader(http.StatusInternalServerError)
-				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "MCP proxy target URL not set"})
-				return
-			}
-		}
-
-		// --- CACHING LOGIC (Research Agent Specific) ---
-		cacheKey := ""
-		if id == "mcp_research_agent" {
-			query, _ := params["query"].(string)
-			if query != "" {
-				cacheKey = "research_cache:" + fmt.Sprintf("%x", sha256.Sum256([]byte(query)))
-				if val, err := s.redis.Get(ctx, cacheKey).Result(); err == nil {
-					log.Printf("[HDN-DEBUG] Found cached result for: %s", query)
-					var cachedRes interface{}
-					if json.Unmarshal([]byte(val), &cachedRes) == nil {
-						// Handle token limit even for cached results
-						maxTokens := float64(0)
-						if m, ok := params["max_tokens"].(float64); ok {
-							maxTokens = m
-						}
-						if maxTokens > 0 {
-							if resMap, ok := cachedRes.(map[string]interface{}); ok {
-								if summary, exists := resMap["summary"]; exists && summary != "" {
-									cachedRes = map[string]interface{}{"result": summary, "full_report_available": true}
-								}
-							}
-						}
-						w.WriteHeader(http.StatusOK)
-						_ = json.NewEncoder(w).Encode(cachedRes)
-						return
-					}
-				}
-			}
-		}
-
-		// Marshal params as JSON
-		payload, err := json.Marshal(params)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "failed to marshal params: " + err.Error()})
-			return
-		}
-
-		// Prepare HTTP request
-		req, err := http.NewRequestWithContext(ctx, "POST", target, bytes.NewReader(payload))
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "failed to create HTTP request: " + err.Error()})
-			return
-		}
-		req.Header.Set("Content-Type", "application/json")
-
-		// Set Authorization header from env var MCP_AUTH_TOKEN
-		authToken := strings.TrimSpace(os.Getenv("MCP_AUTH_TOKEN"))
-		if authToken != "" {
-			req.Header.Set("Authorization", "Bearer "+authToken)
-		}
-
-		// Also set X-Webhook-Secret if N8N_WEBHOOK_SECRET is set
-		webhookSecret := strings.TrimSpace(os.Getenv("N8N_WEBHOOK_SECRET"))
-		// Use specialized RESEARCH_WEBHOOK_SECRET if this is the research agent
-		if id == "mcp_research_agent" {
-			if s := strings.TrimSpace(os.Getenv("RESEARCH_WEBHOOK_SECRET")); s != "" {
-				webhookSecret = s
-			}
-		}
-
-		if webhookSecret != "" {
-			// Match N8NWebhookHandler logic: if not base64-like, encode it
-			secretToSend := webhookSecret
-			if !isBase64Like(webhookSecret) {
-				secretToSend = base64.StdEncoding.EncodeToString([]byte(webhookSecret))
-			}
-			req.Header.Set("X-Webhook-Secret", secretToSend)
-		}
-
-		// Send the request with appropriate timeout
-		timeout := 60 * time.Second
-		if id == "mcp_research_agent" {
-			timeout = 300 * time.Second // 5 minutes for research
-		}
-		client := &http.Client{Timeout: timeout}
-		resp, err := client.Do(req)
-		if err != nil {
-			w.WriteHeader(http.StatusBadGateway)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "MCP proxy request failed: " + err.Error()})
-			return
-		}
-		defer resp.Body.Close()
-
-		var finalResult interface{}
-		respBodyBytes, _ := io.ReadAll(resp.Body)
-		if resp.StatusCode == http.StatusOK {
-			if err := json.Unmarshal(respBodyBytes, &finalResult); err != nil {
-				// Not JSON, wrap it
-				finalResult = map[string]interface{}{"result": string(respBodyBytes)}
-			}
-		} else {
-			// Proxy error code
-			w.WriteHeader(resp.StatusCode)
-			_, _ = w.Write(respBodyBytes)
-			return
-		}
-
-		// --- RESULT PROCESSING (Research Agent Specific) ---
-		if id == "mcp_research_agent" {
-			// 1. Cache the raw result (1 day TTL)
-			if cacheKey != "" {
-				if resJSON, err := json.Marshal(finalResult); err == nil {
-					s.redis.Set(ctx, cacheKey, string(resJSON), 24*time.Hour)
-				}
-			}
-
-			// 2. Summary handling if max_tokens is present
-			maxTokens := float64(0)
-			if m, ok := params["max_tokens"].(float64); ok {
-				maxTokens = m
-			}
-			if maxTokens > 0 {
-				if resMap, ok := finalResult.(map[string]interface{}); ok {
-					if summary, exists := resMap["summary"]; exists && summary != "" {
-						finalResult = map[string]interface{}{"result": summary, "full_report_available": true}
-					}
-				}
-			}
-		}
-
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(finalResult)
-		return
+	// Log chat-only research tool invocations explicitly for easier debugging
+	if id == "mcp_research_agent" {
+		log.Printf("🔎 [MCP-RESEARCH] Invoking chat-only research tool with params: %+v", params)
 	}
 
-	if strings.HasPrefix(id, "mcp_") {
+	// Route most MCP tools through the MCP knowledge server, but allow chat-only
+	// proxy tools like mcp_research_agent to be handled by the generic execution
+	// pipeline below (Exec.Type == "mcp_proxy").
+	if strings.HasPrefix(id, "mcp_") && id != "mcp_research_agent" {
 		if s.mcpKnowledgeServer == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "MCP knowledge server not available"})
@@ -1295,6 +1141,105 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+		}
+
+		// --- MCP PROXY EXECUTION LOGIC ---
+		if strings.EqualFold(execType, "mcp_proxy") {
+			// Get the target URL from Exec.Cmd
+			target := ""
+			if meta.Exec != nil && meta.Exec.Cmd != "" {
+				target = meta.Exec.Cmd
+			}
+			if target == "" {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "MCP proxy target URL not set"})
+				return
+			}
+
+			// Marshal params as JSON
+			payload, err := json.Marshal(params)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "failed to marshal params: " + err.Error()})
+				return
+			}
+
+			// Build a cache key based on tool id and full parameter payload
+			cacheKey := "mcp_result:" + id + ":" + base64.StdEncoding.EncodeToString(payload)
+			// Try to get cached result
+			if cached, err := s.redis.Get(ctx, cacheKey).Result(); err == nil && cached != "" {
+				w.Header().Set("X-Cache", "HIT")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(cached))
+				return
+			}
+
+			// Prepare HTTP request
+			req, err := http.NewRequestWithContext(ctx, "POST", target, bytes.NewReader(payload))
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "failed to create HTTP request: " + err.Error()})
+				return
+			}
+			req.Header.Set("Content-Type", "application/json")
+
+			// Set Authorization header from env var MCP_AUTH_TOKEN
+			authToken := strings.TrimSpace(os.Getenv("MCP_AUTH_TOKEN"))
+			if authToken != "" {
+				req.Header.Set("Authorization", "Bearer "+authToken)
+			}
+
+			// Also set X-Webhook-Secret for n8n-style webhooks.
+			// Prefer a tool-specific secret if present, otherwise fall back to the shared secret.
+			// Match N8NWebhookHandler behavior: if secret doesn't look base64, base64-encode it.
+			webhookSecret := strings.TrimSpace(os.Getenv("RESEARCH_WEBHOOK_SECRET"))
+			if webhookSecret == "" {
+				webhookSecret = strings.TrimSpace(os.Getenv("N8N_WEBHOOK_SECRET"))
+			}
+			if webhookSecret != "" {
+				secretToSend := webhookSecret
+				if !isBase64Like(webhookSecret) {
+					secretToSend = base64.StdEncoding.EncodeToString([]byte(webhookSecret))
+				}
+				req.Header.Set("X-Webhook-Secret", secretToSend)
+			}
+
+			// Send the request
+			client := &http.Client{Timeout: 300 * time.Second} // Increased to 5 minutes for long-running research
+			resp, err := client.Do(req)
+			if err != nil {
+				w.WriteHeader(http.StatusBadGateway)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "MCP proxy request failed: " + err.Error()})
+				return
+			}
+			defer resp.Body.Close()
+
+			// Read full response body once
+			respBytes, err := io.ReadAll(resp.Body)
+			if err != nil {
+				w.WriteHeader(http.StatusBadGateway)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "failed to read MCP proxy response: " + err.Error()})
+				return
+			}
+
+			// Try to parse as JSON to validate; if it isn't JSON, wrap as {"output": "..."}
+			var parsed interface{}
+			if err := json.Unmarshal(respBytes, &parsed); err != nil {
+				w.WriteHeader(resp.StatusCode)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"output": string(respBytes)})
+				return
+			}
+
+			// Only cache successful (200) responses
+			if resp.StatusCode == http.StatusOK {
+				// Store the raw JSON response in Redis for 24 hours
+				_ = s.redis.Set(ctx, cacheKey, string(respBytes), 24*time.Hour).Err()
+			}
+
+			// Pass the MCP server's JSON straight through
+			w.WriteHeader(resp.StatusCode)
+			_, _ = w.Write(respBytes)
+			return
 		}
 
 		// --- END MCP PROXY LOGIC ---
