@@ -100,8 +100,8 @@ func Set_mcp_research_agent_hints() {
 		Keywords:      []string{"research", "deep research", "comprehensive", "analysis", "latest developments", "multi-step research"},
 		PromptText:    "⚠️ FOR COMPLEX RESEARCH: Use mcp_research_agent for multi-step research or deep analysis tasks. Set 'query' to a detailed research goal and 'depth' (1-3).",
 		ForceToolCall: true,
-		AlwaysInclude: []string{"research", "deep research"},
-		RejectText:    false, // Allow text responses if research isn't needed
+		AlwaysInclude: []string{"research", "deep research", "analysis"},
+		RejectText:    true, // Force research tool usage
 	})
 }
 
@@ -174,6 +174,7 @@ func MatchesConfiguredToolKeywords(message string) string {
 		return "mcp_smart_scrape"
 	}
 
+	var fallbackMatch string
 	for toolID, hints := range allHints {
 		if hints == nil {
 			continue
@@ -183,12 +184,10 @@ func MatchesConfiguredToolKeywords(message string) string {
 		for _, keyword := range hints.Keywords {
 			if strings.Contains(messageLower, strings.ToLower(keyword)) {
 				// PRIORITIZATION: If this is a "research" request, favor mcp_research_agent over search_weaviate
-				if toolID == "mcp_search_weaviate" || toolID == "search_weaviate" {
-					if strings.Contains(messageLower, "research") {
-						log.Printf("🧪 [KEYWORD-MATCH] Research intent detected - looking for research_agent instead of search_weaviate")
-						// Keep searching to see if research_agent matches
-						continue
-					}
+				if (toolID == "mcp_search_weaviate" || toolID == "search_weaviate") && strings.Contains(messageLower, "research") {
+					log.Printf("🧪 [KEYWORD-MATCH] Research intent detected - holding '%s' as fallback", toolID)
+					fallbackMatch = toolID
+					continue
 				}
 				return toolID
 			}
@@ -197,12 +196,16 @@ func MatchesConfiguredToolKeywords(message string) string {
 		// Check always_include keywords
 		for _, keyword := range hints.AlwaysInclude {
 			if strings.Contains(messageLower, strings.ToLower(keyword)) {
+				if (toolID == "mcp_search_weaviate" || toolID == "search_weaviate") && strings.Contains(messageLower, "research") {
+					fallbackMatch = toolID
+					continue
+				}
 				return toolID
 			}
 		}
 	}
 
-	return ""
+	return fallbackMatch
 }
 
 // ShouldRouteToNaturalLanguage checks if a message should be routed to InterpretNaturalLanguage
@@ -299,194 +302,26 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 	prompt := f.buildToolAwarePrompt(input, filteredTools, context)
 
 	// Call the LLM - check if the client supports priority
+	var response string
+	var err error
 	if priorityClient, ok := f.llmClient.(interface {
 		GenerateResponseWithPriority(prompt string, context map[string]string, highPriority bool) (string, error)
 	}); ok {
-		// Use priority-aware method
-		response, err := priorityClient.GenerateResponseWithPriority(prompt, context, highPriority)
-		if err != nil {
-			return nil, fmt.Errorf("failed to call LLM: %v", err)
-		}
-		log.Printf("✅ [FLEXIBLE-LLM] Generated response length: %d", len(response))
-		parsedResponse, err := f.parseFlexibleResponse(response, len(filteredTools))
-		if err != nil {
-			return nil, err
-		}
-
-		// Validation: Check configured prompt hints and enforce tool usage
-		inputLower := strings.ToLower(input)
-		allHints := GetAllPromptHints()
-
-		// Skip ALL tool-forcing when input explicitly says "don't use tools/plugins"
-		// This prevents the experiment-ideas generator (which mentions "scrape" in examples)
-		// from accidentally triggering forced mcp_smart_scrape calls.
-		isAntiToolPrompt := strings.Contains(inputLower, "do not attempt to use any plugins") ||
-			strings.Contains(inputLower, "do not use any tools") ||
-			strings.Contains(inputLower, "do not use any plugins") ||
-			strings.Contains(inputLower, "just return a json array")
-		if isAntiToolPrompt {
-			log.Printf("ℹ️ [FLEXIBLE-LLM] Skipping all ForceToolCall enforcement — input explicitly requests no tool usage")
-			return parsedResponse, nil
-		}
-
-		// Detect URL + scrape intent to skip search_weaviate hint enforcement
-		wellKnownResolved := resolveWellKnownURL(input)
-		hasURLInInput := strings.Contains(inputLower, "http://") || strings.Contains(inputLower, "https://") || strings.Contains(inputLower, "www.") || wellKnownResolved != ""
-		hasScrapeIntentInInput := strings.Contains(inputLower, "scrape") || strings.Contains(inputLower, "browse") || strings.Contains(inputLower, "crawl") || strings.Contains(inputLower, "fetch") || strings.Contains(inputLower, "crape") || wellKnownResolved != ""
-
-		// Check each tool with prompt hints
-		for toolID, hints := range allHints {
-			if hints == nil {
-				continue
-			}
-
-			// Skip search_weaviate hints when user wants to scrape a URL
-			if hasURLInInput && hasScrapeIntentInInput && (toolID == "search_weaviate" || toolID == "mcp_search_weaviate") {
-				log.Printf("ℹ️ [FLEXIBLE-LLM] Skipping %s hint enforcement — URL + scrape intent detected", toolID)
-				continue
-			}
-
-			// Check if input matches keywords
-			matchesKeywords := false
-			for _, keyword := range hints.Keywords {
-				if strings.Contains(inputLower, strings.ToLower(keyword)) {
-					matchesKeywords = true
-					break
-				}
-			}
-
-			// Check always_include keywords
-			matchesAlwaysInclude := false
-			for _, keyword := range hints.AlwaysInclude {
-				if strings.Contains(inputLower, strings.ToLower(keyword)) {
-					matchesAlwaysInclude = true
-					break
-				}
-			}
-
-			// For mcp_smart_scrape: also match if input mentions a well-known site (handles typos like "scape", natural phrasing like "get me hacker news")
-			if !matchesKeywords && !matchesAlwaysInclude {
-				if (toolID == "mcp_smart_scrape" || toolID == "smart_scrape") && wellKnownResolved != "" {
-					matchesKeywords = true
-					log.Printf("🔗 [FLEXIBLE-LLM] Well-known site detected (%s) — treating as scrape intent for %s", wellKnownResolved, toolID)
-				}
-			}
-
-			if !matchesKeywords && !matchesAlwaysInclude {
-				continue
-			}
-
-			// Check if tool is available
-			hasTool := false
-			actualToolID := toolID
-			for _, tool := range filteredTools {
-				if tool.ID == toolID || tool.ID == "mcp_"+toolID || strings.TrimPrefix(tool.ID, "mcp_") == toolID {
-					hasTool = true
-					actualToolID = tool.ID // Use the actual tool ID from the tool list
-					break
-				}
-			}
-
-			if hasTool && hints.ForceToolCall {
-				// Reject text responses if configured
-				if hints.RejectText && parsedResponse.Type == ResponseTypeText {
-					// Force tool call — extract parameters from input where possible
-					params := map[string]interface{}{}
-					if actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape" {
-						if match := urlRe.FindString(input); match != "" {
-							params["url"] = match
-							params["goal"] = input
-							log.Printf("🔗 [FLEXIBLE-LLM] Extracted URL=%s for forced mcp_smart_scrape call", match)
-						} else if resolved := resolveWellKnownURL(input); resolved != "" {
-							params["url"] = resolved
-							params["goal"] = input
-							log.Printf("🔗 [FLEXIBLE-LLM] Resolved well-known site URL=%s for forced mcp_smart_scrape call", resolved)
-						}
-					} else if actualToolID == "mcp_research_agent" || strings.TrimPrefix(actualToolID, "mcp_") == "research_agent" {
-						params["query"] = input
-						params["depth"] = 2
-						log.Printf("🧪 [FLEXIBLE-LLM] Extracted query for forced mcp_research_agent call")
-					} else if strings.Contains(actualToolID, "weaviate") || strings.Contains(actualToolID, "neo4j") || strings.Contains(actualToolID, "knowledge") || strings.Contains(actualToolID, "search") {
-						// General fallback for search/knowledge tools: default to passing the whole input as "query"
-						params["query"] = input
-						log.Printf("🔍 [FLEXIBLE-LLM] Extracted query for forced %s call (fallback)", actualToolID)
-					}
-					// Don't force mcp_smart_scrape without a URL — it will fail and waste scraper resources
-					if (actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape") && params["url"] == nil {
-						log.Printf("⚠️ [FLEXIBLE-LLM] Skipping forced %s — no URL could be extracted from input", actualToolID)
-						return parsedResponse, nil
-					}
-					log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response when %s tool is available. Forcing tool call.", actualToolID)
-					return &FlexibleLLMResponse{
-						Type: ResponseTypeToolCall,
-						ToolCall: &ToolCall{
-							ToolID:      actualToolID,
-							Parameters:  params,
-							Description: fmt.Sprintf("Using %s as requested", actualToolID),
-						},
-					}, nil
-				}
-
-				// Reject wrong tool calls if configured
-				// BUT: Don't reject if the LLM chose a scraping/browsing tool - those are more
-				// appropriate for URL-based requests than search_weaviate
-				if parsedResponse.Type == ResponseTypeToolCall && parsedResponse.ToolCall != nil {
-					responseToolID := parsedResponse.ToolCall.ToolID
-					if responseToolID != actualToolID && strings.TrimPrefix(responseToolID, "mcp_") != strings.TrimPrefix(actualToolID, "mcp_") {
-						// Allow scraping/browsing tools to take priority - the LLM chose them for a reason
-						responseLower := strings.ToLower(responseToolID)
-						isScrapeOrBrowseTool := strings.Contains(responseLower, "scrape") ||
-							strings.Contains(responseLower, "browse") ||
-							strings.Contains(responseLower, "html_scraper") ||
-							strings.Contains(responseLower, "http_get")
-						if isScrapeOrBrowseTool {
-							log.Printf("✅ [FLEXIBLE-LLM] Allowing LLM's tool choice '%s' (scrape/browse tool takes priority over %s)", responseToolID, actualToolID)
-						} else {
-							// For mcp_smart_scrape, try to extract URL before forcing
-							forceParams := map[string]interface{}{}
-							if actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape" {
-								if match := urlRe.FindString(input); match != "" {
-									forceParams["url"] = match
-									forceParams["goal"] = input
-								} else if resolved := resolveWellKnownURL(input); resolved != "" {
-									forceParams["url"] = resolved
-									forceParams["goal"] = input
-								} else {
-									// No URL available — don't force a useless scrape
-									log.Printf("⚠️ [FLEXIBLE-LLM] Skipping forced %s (wrong tool '%s') — no URL could be extracted", actualToolID, responseToolID)
-									break
-								}
-							} else if actualToolID == "mcp_research_agent" || strings.TrimPrefix(actualToolID, "mcp_") == "research_agent" {
-								forceParams["query"] = input
-								forceParams["depth"] = 2
-							}
-							log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s'. Forcing %s.", responseToolID, actualToolID)
-							return &FlexibleLLMResponse{
-								Type: ResponseTypeToolCall,
-								ToolCall: &ToolCall{
-									ToolID:      actualToolID,
-									Parameters:  forceParams,
-									Description: fmt.Sprintf("Using %s as requested", actualToolID),
-								},
-							}, nil
-						}
-					}
-				}
-			}
-		}
-
-		return parsedResponse, nil
+		response, err = priorityClient.GenerateResponseWithPriority(prompt, context, highPriority)
+	} else {
+		response, err = f.llmClient.GenerateResponse(prompt, context)
 	}
 
-	// Fallback to standard method (low priority)
-	response, err := f.llmClient.GenerateResponse(prompt, context)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call LLM: %v", err)
 	}
 
-	log.Printf("✅ [FLEXIBLE-LLM] Generated response length: %d", len(response))
+	return f.validateAndEnforceHints(input, response, filteredTools)
+}
 
-	// Parse the flexible response
+// validateAndEnforceHints parses the LLM response and applies configured prompt hints/forcing
+func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response string, filteredTools []Tool) (*FlexibleLLMResponse, error) {
+	log.Printf("✅ [FLEXIBLE-LLM] Generated response length: %d", len(response))
 	parsedResponse, err := f.parseFlexibleResponse(response, len(filteredTools))
 	if err != nil {
 		return nil, err
@@ -497,19 +332,19 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 	allHints := GetAllPromptHints()
 
 	// Skip ALL tool-forcing when input explicitly says "don't use tools/plugins"
-	isAntiToolPrompt2 := strings.Contains(inputLower, "do not attempt to use any plugins") ||
+	isAntiToolPrompt := strings.Contains(inputLower, "do not attempt to use any plugins") ||
 		strings.Contains(inputLower, "do not use any tools") ||
 		strings.Contains(inputLower, "do not use any plugins") ||
 		strings.Contains(inputLower, "just return a json array")
-	if isAntiToolPrompt2 {
-		log.Printf("ℹ️ [FLEXIBLE-LLM] Skipping all ForceToolCall enforcement — input explicitly requests no tool usage (block 2)")
+	if isAntiToolPrompt {
+		log.Printf("ℹ️ [FLEXIBLE-LLM] Skipping all ForceToolCall enforcement — input explicitly requests no tool usage")
 		return parsedResponse, nil
 	}
 
 	// Detect URL + scrape intent to skip search_weaviate hint enforcement
-	wellKnownResolved2 := resolveWellKnownURL(input)
-	hasURLInInput2 := strings.Contains(inputLower, "http://") || strings.Contains(inputLower, "https://") || strings.Contains(inputLower, "www.") || wellKnownResolved2 != ""
-	hasScrapeIntentInInput2 := strings.Contains(inputLower, "scrape") || strings.Contains(inputLower, "browse") || strings.Contains(inputLower, "crawl") || strings.Contains(inputLower, "fetch") || strings.Contains(inputLower, "crape") || wellKnownResolved2 != ""
+	wellKnownResolved := resolveWellKnownURL(input)
+	hasURLInInput := strings.Contains(inputLower, "http://") || strings.Contains(inputLower, "https://") || strings.Contains(inputLower, "www.") || wellKnownResolved != ""
+	hasScrapeIntentInInput := strings.Contains(inputLower, "scrape") || strings.Contains(inputLower, "browse") || strings.Contains(inputLower, "crawl") || strings.Contains(inputLower, "fetch") || strings.Contains(inputLower, "crape") || wellKnownResolved != ""
 
 	// Check each tool with prompt hints
 	for toolID, hints := range allHints {
@@ -518,8 +353,8 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 		}
 
 		// Skip search_weaviate hints when user wants to scrape a URL
-		if hasURLInInput2 && hasScrapeIntentInInput2 && (toolID == "search_weaviate" || toolID == "mcp_search_weaviate") {
-			log.Printf("ℹ️ [FLEXIBLE-LLM] Skipping %s hint enforcement — URL + scrape intent detected (block 2)", toolID)
+		if hasURLInInput && hasScrapeIntentInInput && (toolID == "search_weaviate" || toolID == "mcp_search_weaviate") {
+			log.Printf("ℹ️ [FLEXIBLE-LLM] Skipping %s hint enforcement — URL + scrape intent detected", toolID)
 			continue
 		}
 
@@ -527,6 +362,13 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 		matchesKeywords := false
 		for _, keyword := range hints.Keywords {
 			if strings.Contains(inputLower, strings.ToLower(keyword)) {
+				// PRIORITIZATION: If this is a "research" request, favor mcp_research_agent over search_weaviate
+				if toolID == "mcp_search_weaviate" || toolID == "search_weaviate" {
+					if strings.Contains(inputLower, "research") {
+						log.Printf("🧪 [FLEXIBLE-LLM] Research intent detected - favoring research_agent over search_weaviate in loop")
+						continue
+					}
+				}
 				matchesKeywords = true
 				break
 			}
@@ -543,9 +385,9 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 
 		// For mcp_smart_scrape: also match if input mentions a well-known site (handles typos like "scape", natural phrasing like "get me hacker news")
 		if !matchesKeywords && !matchesAlwaysInclude {
-			if (toolID == "mcp_smart_scrape" || toolID == "smart_scrape") && wellKnownResolved2 != "" {
+			if (toolID == "mcp_smart_scrape" || toolID == "smart_scrape") && wellKnownResolved != "" {
 				matchesKeywords = true
-				log.Printf("🔗 [FLEXIBLE-LLM] Well-known site detected (%s) — treating as scrape intent for %s (block 2)", wellKnownResolved2, toolID)
+				log.Printf("🔗 [FLEXIBLE-LLM] Well-known site detected (%s) — treating as scrape intent for %s", wellKnownResolved, toolID)
 			}
 		}
 
@@ -573,23 +415,27 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 					if match := urlRe.FindString(input); match != "" {
 						params["url"] = match
 						params["goal"] = input
-						log.Printf("🔗 [FLEXIBLE-LLM] Extracted URL=%s for forced mcp_smart_scrape call (block 2)", match)
+						log.Printf("🔗 [FLEXIBLE-LLM] Extracted URL=%s for forced mcp_smart_scrape call", match)
 					} else if resolved := resolveWellKnownURL(input); resolved != "" {
 						params["url"] = resolved
 						params["goal"] = input
-						log.Printf("🔗 [FLEXIBLE-LLM] Resolved well-known site URL=%s for forced mcp_smart_scrape call (block 2)", resolved)
+						log.Printf("🔗 [FLEXIBLE-LLM] Resolved well-known site URL=%s for forced mcp_smart_scrape call", resolved)
 					}
 				} else if actualToolID == "mcp_research_agent" || strings.TrimPrefix(actualToolID, "mcp_") == "research_agent" {
 					params["query"] = input
 					params["depth"] = 2
-					log.Printf("🧪 [FLEXIBLE-LLM] Extracted query for forced mcp_research_agent call (block 2)")
+					log.Printf("🧪 [FLEXIBLE-LLM] Extracted query for forced mcp_research_agent call")
+				} else if strings.Contains(actualToolID, "weaviate") || strings.Contains(actualToolID, "neo4j") || strings.Contains(actualToolID, "knowledge") || strings.Contains(actualToolID, "search") {
+					// General fallback for search/knowledge tools: default to passing the whole input as "query"
+					params["query"] = input
+					log.Printf("🔍 [FLEXIBLE-LLM] Extracted query for forced %s call (fallback)", actualToolID)
 				}
 				// Don't force mcp_smart_scrape without a URL — it will fail and waste scraper resources
 				if (actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape") && params["url"] == nil {
-					log.Printf("⚠️ [FLEXIBLE-LLM] Skipping forced %s — no URL could be extracted from input (block 2)", actualToolID)
+					log.Printf("⚠️ [FLEXIBLE-LLM] Skipping forced %s — no URL could be extracted from input", actualToolID)
 					return parsedResponse, nil
 				}
-				log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response when %s tool is available. Forcing tool call. (block 2)", actualToolID)
+				log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response when %s tool is available. Forcing tool call.", actualToolID)
 				return &FlexibleLLMResponse{
 					Type: ResponseTypeToolCall,
 					ToolCall: &ToolCall{
@@ -616,29 +462,31 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 						log.Printf("✅ [FLEXIBLE-LLM] Allowing LLM's tool choice '%s' (scrape/browse tool takes priority over %s)", responseToolID, actualToolID)
 					} else {
 						// For mcp_smart_scrape, try to extract URL before forcing
-						forceParams2 := map[string]interface{}{}
+						forceParams := map[string]interface{}{}
 						if actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape" {
 							if match := urlRe.FindString(input); match != "" {
-								forceParams2["url"] = match
-								forceParams2["goal"] = input
+								forceParams["url"] = match
+								forceParams["goal"] = input
 							} else if resolved := resolveWellKnownURL(input); resolved != "" {
-								forceParams2["url"] = resolved
-								forceParams2["goal"] = input
+								forceParams["url"] = resolved
+								forceParams["goal"] = input
 							} else {
 								// No URL available — don't force a useless scrape
-								log.Printf("⚠️ [FLEXIBLE-LLM] Skipping forced %s (wrong tool '%s') — no URL could be extracted (block 2)", actualToolID, responseToolID)
+								log.Printf("⚠️ [FLEXIBLE-LLM] Skipping forced %s (wrong tool '%s') — no URL could be extracted", actualToolID, responseToolID)
 								break
 							}
 						} else if actualToolID == "mcp_research_agent" || strings.TrimPrefix(actualToolID, "mcp_") == "research_agent" {
-							forceParams2["query"] = input
-							forceParams2["depth"] = 2
+							forceParams["query"] = input
+							forceParams["depth"] = 2
+						} else if strings.Contains(actualToolID, "weaviate") || strings.Contains(actualToolID, "neo4j") || strings.Contains(actualToolID, "knowledge") || strings.Contains(actualToolID, "search") {
+							forceParams["query"] = input
 						}
-						log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s'. Forcing %s. (block 2)", responseToolID, actualToolID)
+						log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Wrong tool '%s'. Forcing %s.", responseToolID, actualToolID)
 						return &FlexibleLLMResponse{
 							Type: ResponseTypeToolCall,
 							ToolCall: &ToolCall{
 								ToolID:      actualToolID,
-								Parameters:  forceParams2,
+								Parameters:  forceParams,
 								Description: fmt.Sprintf("Using %s as requested", actualToolID),
 							},
 						}, nil
