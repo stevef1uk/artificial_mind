@@ -183,7 +183,7 @@ func (nlg *NLGGenerator) generateTaskResponse(ctx context.Context, req *NLGReque
 
 	prompt := nlg.buildTaskPrompt(req)
 
-	response, err := nlg.llmClient.GenerateResponse(ctx, prompt, 400)
+	response, err := nlg.llmClient.GenerateResponse(ctx, prompt, 600)
 	if err != nil {
 		return nlg.generateFallbackResponse(req, "task execution"), nil
 	}
@@ -460,21 +460,23 @@ Task Type: %s
 Please provide a helpful summary of the task execution.`
 
 	if req.Result != nil && req.Result.Success {
-		basePrompt += fmt.Sprintf(`
-
-Task Results:
-%s
-
-Summarize what was accomplished and any important outcomes.`, nlg.formatResultData(req.Result.Data))
+		resultSummary := nlg.formatResultData(req.Result.Data)
+		if len(resultSummary) > 10000 {
+			resultSummary = resultSummary[:10000] + "... [TRUNCATED]"
+		}
+		basePrompt += "\n\nTask Results:\n" + resultSummary + "\n\nSummarize what was accomplished and any important outcomes."
 	} else if req.Result != nil && !req.Result.Success {
-		basePrompt += fmt.Sprintf(`
-
-Task encountered an error: %s
-
-Please explain what went wrong and suggest next steps.`, req.Result.Error)
+		basePrompt += "\n\nTask encountered an error: " + req.Result.Error + "\n\nPlease explain what went wrong and suggest next steps."
 	}
 
-	return fmt.Sprintf(basePrompt, req.UserMessage, req.Action.Goal, req.Action.Type)
+	// Use strings.Replace to safely interpolate the first %s for User Message
+	// This avoids issues if the result summary contains % characters
+	finalPrompt := strings.Replace(basePrompt, "%s", req.UserMessage, 1)
+	// Replace %s for Goal and Type if they are in the template
+	finalPrompt = strings.Replace(finalPrompt, "%s", req.Action.Goal, 1)
+	finalPrompt = strings.Replace(finalPrompt, "%s", req.Action.Type, 1)
+
+	return finalPrompt
 }
 
 // buildPlanningPrompt builds a prompt for planning responses
@@ -750,8 +752,18 @@ func (nlg *NLGGenerator) formatToolResultInternal(result interface{}, depth int)
 		} else {
 			s = fmt.Sprintf("Map with keys: [%s]", strings.Join(keys, ", "))
 		}
+	case []interface{}:
+		s = fmt.Sprintf("Array of length %d", len(v))
+		if len(v) > 0 {
+			// Try to summarize the first item briefly
+			s += fmt.Sprintf(" (First item: %v)", nlg.formatToolResultInternal(v[0], 0))
+			if len(s) > 200 {
+				s = s[:200] + "..."
+			}
+		}
 	default:
-		s = fmt.Sprintf("%v", result)
+		// Safe summary for unknown types
+		s = fmt.Sprintf("Object of type %T", result)
 	}
 
 	if len(s) > 10000 {
@@ -981,6 +993,9 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 	if summaries, ok := req.Context["conversation_summaries"].([]string); ok && len(summaries) > 0 {
 		basePrompt += "\n\nBACKGROUND: Relevant Past Conversation Context (Summarized):\n"
 		for _, summary := range summaries {
+			if len(summary) > 2000 {
+				summary = summary[:2000] + "... [TRUNCATED]"
+			}
 			basePrompt += fmt.Sprintf("--- SUMMARY ---\n%s\n", summary)
 		}
 		basePrompt += "\nUse these summaries ONLY for continuity. Do NOT repeat them unless relevant to the current request."
@@ -1003,8 +1018,14 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 				for _, res := range items {
 					if item, ok := res.(map[string]interface{}); ok {
 						if content, ok := item["content"].(string); ok {
+							if len(content) > 2000 {
+								content = content[:2000] + "... [TRUNCATED]"
+							}
 							basePrompt += fmt.Sprintf("- %s\n", content)
 						} else if text, ok := item["text"].(string); ok {
+							if len(text) > 2000 {
+								text = text[:2000] + "... [TRUNCATED]"
+							}
 							basePrompt += fmt.Sprintf("- %s\n", text)
 						}
 					}
@@ -1031,13 +1052,48 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 				for _, res := range items {
 					if item, ok := res.(map[string]interface{}); ok {
 						if content, ok := item["content"].(string); ok {
+							if len(content) > 3000 {
+								content = content[:3000] + "... [TRUNCATED]"
+							}
 							basePrompt += fmt.Sprintf("--- ARTICLE ---\n%s\n", content)
 						} else if text, ok := item["text"].(string); ok {
+							if len(text) > 3000 {
+								text = text[:3000] + "... [TRUNCATED]"
+							}
 							basePrompt += fmt.Sprintf("--- ARTICLE ---\n%s\n", text)
 						}
 					}
 				}
 				basePrompt += "\nUse this information to provide the latest news or factual details requested by the user."
+			}
+		}
+	}
+
+	// 4. Add news context if available separately
+	if newsData, ok := req.Context["news_context"].(*InterpretResult); ok && newsData != nil {
+		if toolResult, ok := newsData.Metadata["tool_result"].(map[string]interface{}); ok {
+			var items []interface{}
+			if i, ok := toolResult["results"].([]interface{}); ok {
+				items = i
+			}
+
+			if len(items) > 0 {
+				basePrompt += "\n\nRecent News & Wikipedia Context:\n"
+				for _, res := range items {
+					if item, ok := res.(map[string]interface{}); ok {
+						if snippet, ok := item["snippet"].(string); ok {
+							if len(snippet) > 1000 {
+								snippet = snippet[:1000] + "... [TRUNCATED]"
+							}
+							basePrompt += fmt.Sprintf("- %s\n", snippet)
+						} else if content, ok := item["content"].(string); ok {
+							if len(content) > 1000 {
+								content = content[:1000] + "... [TRUNCATED]"
+							}
+							basePrompt += fmt.Sprintf("- %s\n", content)
+						}
+					}
+				}
 			}
 		}
 	}

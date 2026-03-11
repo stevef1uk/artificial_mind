@@ -220,13 +220,15 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 
 	if result.ToolCall != nil {
 		// Loop protection: Check for rapid repeated identical tool calls
-		toolCallKey := fmt.Sprintf("%s:%v", result.ToolCall.ToolID, result.ToolCall.Parameters)
+		// Use a safe summary for the key to prevent OOM on large parameters
+		paramSummary := safeSummary(result.ToolCall.Parameters, 500)
+		toolCallKey := fmt.Sprintf("%s:%s", result.ToolCall.ToolID, paramSummary)
 		now := time.Now()
 
 		// Check if we've seen this exact tool call recently (within 2 seconds)
 		if lastSeen, exists := f.recentToolCalls[toolCallKey]; exists {
 			if now.Sub(lastSeen) < 2*time.Second {
-				log.Printf("⚠️ [FLEXIBLE-INTERPRETER] Loop protection: Tool call '%s' with same parameters executed recently (%.2fs ago), skipping to prevent loop", result.ToolCall.ToolID, now.Sub(lastSeen).Seconds())
+				log.Printf("⚠️ [FLEXIBLE-INTERPRETER] Loop protection: Tool call '%s' executed recently (%.2fs ago), skipping to prevent loop", result.ToolCall.ToolID, now.Sub(lastSeen).Seconds())
 				result.ToolExecutionResult = &ToolExecutionResult{
 					Success: false,
 					Error:   fmt.Sprintf("Tool call '%s' executed too recently, possible loop detected", result.ToolCall.ToolID),
@@ -247,7 +249,7 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 			}
 		}
 
-		log.Printf("🔧 [FLEXIBLE-INTERPRETER] Executing tool: %s with parameters: %+v", result.ToolCall.ToolID, result.ToolCall.Parameters)
+		log.Printf("🔧 [FLEXIBLE-INTERPRETER] Executing tool: %s with parameters: %s", result.ToolCall.ToolID, paramSummary)
 		// Validate the tool ID against available tools to avoid invoking non-existent endpoints
 		tools, terr := f.toolProvider.GetAvailableTools(ctx)
 		if terr == nil && len(tools) > 0 {
@@ -551,4 +553,39 @@ func proposeToolID(language, code string) string {
 type ToolProviderInterface interface {
 	GetAvailableTools(ctx context.Context) ([]Tool, error)
 	ExecuteTool(ctx context.Context, toolID string, parameters map[string]interface{}) (interface{}, error)
+}
+
+// safeSummary creates a short string summary of any value to prevent OOM
+func safeSummary(v interface{}, limit int) string {
+	if v == nil {
+		return "nil"
+	}
+	switch val := v.(type) {
+	case string:
+		if len(val) > limit {
+			return val[:limit] + "... [TRUNCATED]"
+		}
+		return val
+	case map[string]interface{}:
+		keys := make([]string, 0, len(val))
+		for k := range val {
+			keys = append(keys, k)
+			if len(keys) >= 10 {
+				break
+			}
+		}
+		summary := fmt.Sprintf("Map(len=%d): %v", len(val), keys)
+		if len(val) > 10 {
+			summary += "..."
+		}
+		return summary
+	case []interface{}:
+		return fmt.Sprintf("Array(len=%d)", len(val))
+	default:
+		s := fmt.Sprintf("%v", val)
+		if len(s) > limit {
+			return s[:limit] + "... [TRUNCATED]"
+		}
+		return s
+	}
 }

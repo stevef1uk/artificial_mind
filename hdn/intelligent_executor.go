@@ -165,6 +165,33 @@ func NewIntelligentExecutor(
 	}
 }
 
+// safeContextSummary creates a short string summary of a context map for safe logging
+func safeContextSummary(ctx map[string]string, limit int) string {
+	if len(ctx) == 0 {
+		return "{}"
+	}
+	var sb strings.Builder
+	sb.WriteString("{")
+	count := 0
+	for k, v := range ctx {
+		if count > 0 {
+			sb.WriteString(", ")
+		}
+		val := v
+		if len(val) > limit {
+			val = val[:limit] + "..."
+		}
+		sb.WriteString(fmt.Sprintf("%s: %s", k, val))
+		count++
+		if count >= 10 {
+			sb.WriteString(", ...")
+			break
+		}
+	}
+	sb.WriteString("}")
+	return sb.String()
+}
+
 // callTool calls a tool via the HDN server API
 func (ie *IntelligentExecutor) callTool(toolID string, params map[string]interface{}) (map[string]interface{}, error) {
 	if ie.hdnBaseURL == "" {
@@ -693,12 +720,15 @@ func (ie *IntelligentExecutor) ensureRegisteredToolForTask(taskName, language st
 
 // categorizeRequestForSafety uses LLM to intelligently categorize a request for safety evaluation
 func (ie *IntelligentExecutor) categorizeRequestForSafety(req *ExecutionRequest) (map[string]interface{}, error) {
+	ctxSummary := safeContextSummary(req.Context, 100)
 	prompt := fmt.Sprintf(`You are a safety analyzer. Analyze this task request and return ONLY a valid JSON object.
 
 Task: %s
 Description: %s
-Context: %v
+Context: %s
+`, req.TaskName, req.Description, ctxSummary)
 
+	prompt += `
 Return this exact JSON format (no other text):
 {
   "human_harm": false,
@@ -716,8 +746,7 @@ Rules:
 - Set endanger_others=true ONLY if the task could cause physical damage or danger
 - Set order_unethical=true ONLY if the task is clearly illegal or unethical
 - Mathematical calculations, data analysis, and programming tasks are generally safe
-- Be precise, not overly cautious`,
-		req.TaskName, req.Description, req.Context)
+- Be precise, not overly cautious`
 
 	// Add timeout wrapper around LLM call to prevent hanging
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -781,7 +810,7 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 
 	log.Printf("🧠 [INTELLIGENT] Starting execution for task: %s", req.TaskName)
 	log.Printf("🧠 [INTELLIGENT] Description: %s", req.Description)
-	log.Printf("🧠 [INTELLIGENT] Context: %+v", req.Context)
+	log.Printf("🧠 [INTELLIGENT] Context: %s", safeContextSummary(req.Context, 100))
 	log.Printf("🎯 [INTELLIGENT] HighPriority: %v", req.HighPriority)
 
 	// Early cancellation check
