@@ -7,6 +7,7 @@ import (
 	"log"
 	"sync"
 	"time"
+	"runtime/debug"
 
 	"github.com/nats-io/nats.go"
 	"github.com/redis/go-redis/v9"
@@ -122,6 +123,11 @@ func (ts *ThoughtStreamService) handleThoughtMessage(ctx context.Context, m *nat
 	// Call handlers asynchronously
 	for _, handler := range handlers {
 		go func(h ThoughtEventHandler) {
+			defer func() {
+				if rec := recover(); rec != nil {
+					log.Printf("🔥 [THOUGHT-STREAM] Panic in handler: %v\n%s", rec, string(debug.Stack()))
+				}
+			}()
 			if err := h.HandleThoughtEvent(ctx, event); err != nil {
 				log.Printf("❌ [THOUGHT-STREAM] Handler error: %v", err)
 			}

@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 	"time"
+	"runtime/debug"
 
 	"hdn/interpreter"
 
@@ -25,6 +26,45 @@ type ConversationalLayer struct {
 	conversationMemory *ConversationMemory
 	thoughtExpression  *ThoughtExpressionService
 	summarizer         *ConversationSummarizer
+}
+
+// stripInterpretResultForContext reduces large tool results embedded in InterpretResult.Metadata.
+// This is critical for keeping prompt/context sizes bounded (e.g., Telegram sessions that run long).
+func (cl *ConversationalLayer) stripInterpretResultForContext(ir *InterpretResult) *InterpretResult {
+	if ir == nil {
+		return nil
+	}
+
+	stripped := &InterpretResult{
+		Success:     ir.Success,
+		Interpreted: ir.Interpreted,
+		Error:       ir.Error,
+		Metadata:    make(map[string]interface{}),
+	}
+
+	if ir.Metadata == nil {
+		return stripped
+	}
+
+	for mk, mv := range ir.Metadata {
+		switch mk {
+		case "tool_used", "response_type", "interpreted_at", "tool_success":
+			stripped.Metadata[mk] = mv
+		case "tool_result":
+			// Keep only a small summary of tool_result to avoid storing/feeding large arrays into the LLM.
+			if tr, ok := mv.(map[string]interface{}); ok {
+				out := map[string]interface{}{
+					"success": tr["success"],
+				}
+				if results, ok := tr["results"].([]interface{}); ok {
+					out["count"] = len(results)
+				}
+				stripped.Metadata[mk] = out
+			}
+		}
+	}
+
+	return stripped
 }
 
 // FSMInterface defines the interface for FSM operations
@@ -157,7 +197,7 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 				}
 
 				if len(items) > 0 {
-					conversationContext["avatar_context"] = avatarResult
+					conversationContext["avatar_context"] = cl.stripInterpretResultForContext(avatarResult)
 					log.Printf("✅ [CONVERSATIONAL] Found %d relevant personal facts", len(items))
 					cl.reasoningTrace.AddKnowledgeUsed(req.SessionID, "avatar_context")
 				}
@@ -185,7 +225,7 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 					}
 
 					if len(items) > 0 {
-						conversationContext["wiki_context"] = wikiResult
+						conversationContext["wiki_context"] = cl.stripInterpretResultForContext(wikiResult)
 						log.Printf("✅ [CONVERSATIONAL] Found %d relevant articles in AgiWiki", len(items))
 						cl.reasoningTrace.AddKnowledgeUsed(req.SessionID, "agi_wiki")
 					}
@@ -210,7 +250,7 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 					}
 
 					if len(items) > 0 {
-						conversationContext["news_context"] = newsResult
+						conversationContext["news_context"] = cl.stripInterpretResultForContext(newsResult)
 						log.Printf("✅ [CONVERSATIONAL] Found %d relevant recent news/Wikipedia articles", len(items))
 						cl.reasoningTrace.AddKnowledgeUsed(req.SessionID, "wikipedia_news")
 					}
@@ -324,6 +364,11 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 
 		if len(turns) > 0 {
 			go func() {
+				defer func() {
+					if rec := recover(); rec != nil {
+						log.Printf("🔥 [CONVERSATIONAL] Panic in async summarization: %v\n%s", rec, string(debug.Stack()))
+					}
+				}()
 				summarizeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
 				err := cl.summarizer.SummarizeConversation(summarizeCtx, req.SessionID, turns)
