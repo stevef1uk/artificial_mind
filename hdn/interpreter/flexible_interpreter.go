@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"hdn/types"
+	"sync"
 )
 
 // FlexibleInterpretationResult represents the result of flexible interpretation
@@ -42,6 +43,7 @@ type FlexibleInterpreter struct {
 	toolProvider      ToolProviderInterface
 	thoughtExpression types.ThoughtExpressionServiceInterface // NEW: for storing ThoughtEvents
 	recentToolCalls   map[string]time.Time                    // Loop protection: track recent tool calls
+	mu                sync.RWMutex                            // Mutex to protect recentToolCalls
 }
 
 // NewFlexibleInterpreter creates a new flexible interpreter
@@ -196,9 +198,21 @@ func (f *FlexibleInterpreter) InterpretAndExecute(ctx context.Context, req *Natu
 }
 
 // InterpretAndExecuteWithPriority processes and executes with specified priority
-func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Context, req *NaturalLanguageRequest, highPriority bool) (*FlexibleInterpretationResult, error) {
+func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Context, req *NaturalLanguageRequest, highPriority bool) (result *FlexibleInterpretationResult, err error) {
+	// PANIC RECOVERY: Ensure we don't kill the server on unexpected errors
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("🚨 [FLEXIBLE-INTERPRETER] PANIC recovered in InterpretAndExecute: %v", r)
+			result = &FlexibleInterpretationResult{
+				Success: false,
+				Message: fmt.Sprintf("Internal interpreter error: %v", r),
+			}
+			err = fmt.Errorf("interpreter panic: %v", r)
+		}
+	}()
+
 	// First interpret with priority
-	result, err := f.InterpretWithPriority(ctx, req, highPriority)
+	result, err = f.InterpretWithPriority(ctx, req, highPriority)
 	if err != nil {
 		return result, err
 	}
@@ -225,10 +239,13 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 		toolCallKey := fmt.Sprintf("%s:%s", result.ToolCall.ToolID, paramSummary)
 		now := time.Now()
 
+		f.mu.Lock()
 		// Check if we've seen this exact tool call recently (within 2 seconds)
 		if lastSeen, exists := f.recentToolCalls[toolCallKey]; exists {
 			if now.Sub(lastSeen) < 2*time.Second {
-				log.Printf("⚠️ [FLEXIBLE-INTERPRETER] Loop protection: Tool call '%s' executed recently (%.2fs ago), skipping to prevent loop", result.ToolCall.ToolID, now.Sub(lastSeen).Seconds())
+				duration := now.Sub(lastSeen).Seconds()
+				f.mu.Unlock()
+				log.Printf("⚠️ [FLEXIBLE-INTERPRETER] Loop protection: Tool call '%s' executed recently (%.2fs ago), skipping to prevent loop", result.ToolCall.ToolID, duration)
 				result.ToolExecutionResult = &ToolExecutionResult{
 					Success: false,
 					Error:   fmt.Sprintf("Tool call '%s' executed too recently, possible loop detected", result.ToolCall.ToolID),
@@ -248,6 +265,7 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 				delete(f.recentToolCalls, key)
 			}
 		}
+		f.mu.Unlock()
 
 		log.Printf("🔧 [FLEXIBLE-INTERPRETER] Executing tool: %s with parameters: %s", result.ToolCall.ToolID, paramSummary)
 		// Validate the tool ID against available tools to avoid invoking non-existent endpoints
@@ -306,7 +324,7 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 					Result:     safeResultSummary(executionResult, 5000),
 					Timestamp:  time.Now().Format(time.RFC3339Nano),
 					Metadata: map[string]interface{}{
-						"parameters": result.ToolCall.Parameters,
+						"parameters": safeSummary(result.ToolCall.Parameters, 2000),
 						"success":    true,
 					},
 				}
