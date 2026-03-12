@@ -474,6 +474,9 @@ Please provide a helpful summary of the task execution.`
 		basePrompt += "\n\nTask encountered an error: " + req.Result.Error + "\n\nPlease explain what went wrong and suggest next steps."
 	}
 
+	// Add memory context (summaries and personal facts)
+	basePrompt = nlg.addMemoryContext(basePrompt, req)
+
 	// Use strings.Replace to safely interpolate the first %s for User Message
 	// This avoids issues if the result summary contains % characters
 	finalPrompt := strings.Replace(basePrompt, "%s", req.UserMessage, 1)
@@ -750,22 +753,55 @@ func (nlg *NLGGenerator) formatToolResultInternal(result interface{}, depth int)
 	case []byte:
 		s = string(v)
 	case map[string]interface{}:
-		// Format map keys only or summarize to prevent OOM
-		keys := getMapKeys(v)
-		if len(keys) > 10 {
-			s = fmt.Sprintf("Map with %d keys: [%s, ...]", len(keys), strings.Join(keys[:10], ", "))
-		} else {
-			s = fmt.Sprintf("Map with keys: [%s]", strings.Join(keys, ", "))
+		if depth > 3 {
+			keys := getMapKeys(v)
+			return fmt.Sprintf("Map with %d keys: [%s]", len(keys), strings.Join(keys, ", "))
 		}
-	case []interface{}:
-		s = fmt.Sprintf("Array of length %d", len(v))
-		if len(v) > 0 {
-			// Try to summarize the first item briefly
-			s += fmt.Sprintf(" (First item: %v)", nlg.formatToolResultInternal(v[0], 0))
-			if len(s) > 200 {
-				s = s[:200] + "..."
+		var pairs []string
+		for mk, mv := range v {
+			if len(pairs) >= 15 {
+				pairs = append(pairs, "... [OTHER KEYS TRUNCATED]")
+				break
+			}
+			// Special handling for common content keys to ensure they are visible
+			if mk == "text" || mk == "content" || mk == "snippet" || mk == "result" || mk == "summary" {
+				formattedVal := nlg.formatToolResultInternal(mv, depth+1)
+				pairs = append(pairs, fmt.Sprintf("%s: %s", mk, formattedVal))
+			} else {
+				formattedVal := nlg.formatToolResultInternal(mv, depth+1)
+				if len(formattedVal) > 500 {
+					formattedVal = formattedVal[:500] + "..."
+				}
+				pairs = append(pairs, fmt.Sprintf("%s: %s", mk, formattedVal))
 			}
 		}
+		s = "{" + strings.Join(pairs, ", ") + "}"
+	case []interface{}:
+		if depth > 3 {
+			return fmt.Sprintf("Array of length %d", len(v))
+		}
+		var items []string
+		for i, item := range v {
+			if i >= 10 {
+				items = append(items, fmt.Sprintf("... [AND %d MORE ITEMS]", len(v)-10))
+				break
+			}
+			items = append(items, nlg.formatToolResultInternal(item, depth+1))
+		}
+		s = "[" + strings.Join(items, ", ") + "]"
+	case []map[string]interface{}:
+		if depth > 3 {
+			return fmt.Sprintf("Array of %d maps", len(v))
+		}
+		var items []string
+		for i, item := range v {
+			if i >= 10 {
+				items = append(items, fmt.Sprintf("... [AND %d MORE MAPS]", len(v)-10))
+				break
+			}
+			items = append(items, nlg.formatToolResultInternal(item, depth+1))
+		}
+		s = "[" + strings.Join(items, ", ") + "]"
 	default:
 		// Safe summary for unknown types
 		s = fmt.Sprintf("Object of type %T", result)

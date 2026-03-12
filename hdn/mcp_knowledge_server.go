@@ -141,6 +141,24 @@ func (s *MCPKnowledgeServer) GetAllPromptHints() map[string]*PromptHintsConfig {
 		hints[k] = v
 	}
 
+	// Add hints for deep_research (Hardcoded)
+	hints["deep_research"] = &PromptHintsConfig{
+		Keywords:      []string{"research", "deep research", "comprehensive", "analysis", "latest developments", "multi-step research"},
+		PromptText:    "⚠️ FOR COMPLEX RESEARCH: Use deep_research for multi-step research or deep analysis tasks. Set 'topic' to a detailed research goal and 'depth' (1-3).",
+		ForceToolCall: true,
+		AlwaysInclude: []string{"research", "deep research", "analysis"},
+		RejectText:    true,
+	}
+
+	// Add hints for smart_scrape (Hardcoded)
+	hints["smart_scrape"] = &PromptHintsConfig{
+		Keywords:      []string{"scrape", "browse", "crawl", "fetch", "visit"},
+		PromptText:    "⚠️ FOR WEB SCRAPING: You MUST use smart_scrape with the 'url' and 'goal' parameters. Do NOT return a text description of how to scrape.",
+		ForceToolCall: true,
+		AlwaysInclude: []string{"scrape", "browse", "crawl"},
+		RejectText:    true,
+	}
+
 	return hints
 }
 
