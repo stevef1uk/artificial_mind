@@ -145,10 +145,20 @@ func (cm *ConversationMemory) SaveContext(ctx context.Context, sessionID string,
 
 	// Add new conversation entry if we have both user message and AI response
 	if context.LastUserMessage != "" && context.LastAIResponse != "" {
+		// Truncate messages to prevent memory bloat in history
+		userMsg := context.LastUserMessage
+		if len(userMsg) > 10000 {
+			userMsg = userMsg[:10000] + "... [TRUNCATED]"
+		}
+		aiResp := context.LastAIResponse
+		if len(aiResp) > 10000 {
+			aiResp = aiResp[:10000] + "... [TRUNCATED]"
+		}
+
 		entry := ConversationEntry{
 			Timestamp:   time.Now(),
-			UserMessage: context.LastUserMessage,
-			AIResponse:  context.LastAIResponse,
+			UserMessage: userMsg,
+			AIResponse:  aiResp,
 			Intent:      context.LastIntent,
 			Action:      context.LastAction,
 			Result:      context.LastResult,

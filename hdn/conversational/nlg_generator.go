@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hdn/utils"
 	"log"
 	"regexp"
 	"strings"
@@ -867,7 +868,7 @@ func getStringFromMap(m map[string]interface{}, key string) string {
 		if f, ok := val.(float64); ok {
 			return fmt.Sprintf("%.2f", f)
 		}
-		return fmt.Sprintf("%v", val)
+		return utils.SafeResultSummary(val, 2000)
 	}
 
 	// Special case for Weaviate: properties might be in a nested "metadata" JSON string
@@ -877,11 +878,11 @@ func getStringFromMap(m map[string]interface{}, key string) string {
 			// Try looking in original_metadata if present
 			if orig, ok := metadata["original_metadata"].(map[string]interface{}); ok {
 				if val, exists := orig[key]; exists && val != nil {
-					return fmt.Sprintf("%v", val)
+					return utils.SafeResultSummary(val, 2000)
 				}
 			}
 			if val, exists := metadata[key]; exists && val != nil {
-				return fmt.Sprintf("%v", val)
+				return utils.SafeResultSummary(val, 2000)
 			}
 		}
 	}
@@ -933,7 +934,7 @@ func extractEmailAddress(fromField interface{}) string {
 	}
 
 	// Fallback: convert to string
-	return fmt.Sprintf("%v", fromField)
+	return utils.SafeResultSummary(fromField, 2000)
 }
 
 // getStringFromMapCaseInsensitive extracts a string value from a map using case-insensitive key matching
@@ -948,7 +949,7 @@ func getStringFromMapCaseInsensitive(m map[string]interface{}, key string) strin
 		if f, ok := val.(float64); ok {
 			return fmt.Sprintf("%.2f", f)
 		}
-		return fmt.Sprintf("%v", val)
+		return utils.SafeResultSummary(val, 2000)
 	}
 
 	// Then try case-insensitive match
@@ -960,7 +961,7 @@ func getStringFromMapCaseInsensitive(m map[string]interface{}, key string) strin
 			if f, ok := v.(float64); ok {
 				return fmt.Sprintf("%.2f", f)
 			}
-			return fmt.Sprintf("%v", v)
+			return utils.SafeResultSummary(v, 2000)
 		}
 	}
 
@@ -972,13 +973,13 @@ func getStringFromMapCaseInsensitive(m map[string]interface{}, key string) strin
 			if orig, ok := metadata["original_metadata"].(map[string]interface{}); ok {
 				for k, v := range orig {
 					if strings.ToLower(k) == keyLower && v != nil {
-						return fmt.Sprintf("%v", v)
+						return utils.SafeResultSummary(v, 2000)
 					}
 				}
 			}
 			for k, v := range metadata {
 				if strings.ToLower(k) == keyLower && v != nil {
-					return fmt.Sprintf("%v", v)
+					return utils.SafeResultSummary(v, 2000)
 				}
 			}
 		}
@@ -1032,6 +1033,8 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 							}
 							basePrompt += fmt.Sprintf("- %s\n", text)
 						}
+					} else if str, ok := res.(string); ok {
+						basePrompt += fmt.Sprintf("- %s\n", str)
 					}
 				}
 				basePrompt += "\nUse this professional/personal background ONLY to inform your tone or if specifically asked about the user. Do NOT summarize this profile unless requested."
@@ -1066,6 +1069,8 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 							}
 							basePrompt += fmt.Sprintf("--- ARTICLE ---\n%s\n", text)
 						}
+					} else if str, ok := res.(string); ok {
+						basePrompt += fmt.Sprintf("--- ARTICLE ---\n%s\n", str)
 					}
 				}
 				basePrompt += "\nUse this information to provide the latest news or factual details requested by the user."
@@ -1096,6 +1101,8 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 							}
 							basePrompt += fmt.Sprintf("- %s\n", content)
 						}
+					} else if str, ok := res.(string); ok {
+						basePrompt += fmt.Sprintf("- %s\n", str)
 					}
 				}
 			}

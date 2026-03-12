@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"hdn/interpreter"
+	"hdn/utils"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -51,13 +52,24 @@ func (cl *ConversationalLayer) stripInterpretResultForContext(ir *InterpretResul
 		case "tool_used", "response_type", "interpreted_at", "tool_success":
 			stripped.Metadata[mk] = mv
 		case "tool_result":
-			// Keep only a small summary of tool_result to avoid storing/feeding large arrays into the LLM.
+			// Partially strip tool results - keep some items so RAG still works, but bound their size.
 			if tr, ok := mv.(map[string]interface{}); ok {
 				out := map[string]interface{}{
 					"success": tr["success"],
 				}
 				if results, ok := tr["results"].([]interface{}); ok {
 					out["count"] = len(results)
+					// Keep up to 5 items to allow current request to function
+					limit := len(results)
+					if limit > 5 {
+						limit = 5
+					}
+					summaryResults := make([]interface{}, 0, limit)
+					for i := 0; i < limit; i++ {
+						// For each item, use SafeResultSummary to ensure it's not massive
+						summaryResults = append(summaryResults, utils.SafeResultSummary(results[i], 2000))
+					}
+					out["results"] = summaryResults
 				}
 				stripped.Metadata[mk] = out
 			}
@@ -160,8 +172,9 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 	leanContext := make(map[string]interface{})
 	for k, v := range conversationContext {
 		if k != "conversation_history" && k != "conversation_summaries" &&
-			k != "wiki_context" && k != "avatar_context" && k != "news_context" {
-			leanContext[k] = v
+			k != "wiki_context" && k != "avatar_context" && k != "news_context" &&
+			k != "last_result" && k != "reasoning_trace" {
+			leanContext[k] = utils.SafeResultSummary(v, 1000)
 		}
 	}
 	leanContext["session_id"] = req.SessionID
@@ -496,8 +509,7 @@ func (cl *ConversationalLayer) determineAction(ctx context.Context, intent *Inte
 			Type: "task_execution",
 			Goal: intent.Goal,
 			Parameters: map[string]interface{}{
-				"task":    intent.Entities["task"],
-				"context": context,
+				"task": intent.Entities["task"],
 			},
 		}, nil
 
@@ -564,12 +576,12 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		// Skip definitely-too-large keys that HDN interpreter doesn't need for tool selection.
 		// Avoid passing structured objects like InterpretResult which serialize to massive strings.
 		if k == "conversation_history" || k == "last_result" || k == "reasoning_trace" ||
-			k == "avatar_context" || k == "wiki_context" || k == "conversation_summaries" {
+			k == "avatar_context" || k == "wiki_context" || k == "news_context" || k == "conversation_summaries" {
 			continue
 		}
 
 		// Skip any key that looks like it might be an internal memory structure to avoid hallucinations
-		if strings.HasSuffix(k, "_context") && k != "news_context" && k != "wiki_context" {
+		if strings.HasSuffix(k, "_context") {
 			continue
 		}
 
@@ -587,23 +599,13 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			}
 		}
 
-		val := ""
-		if str, ok := v.(string); ok {
-			val = str
-		} else {
-			val = fmt.Sprintf("%v", v)
-		}
-
-		// Truncate individual context values to prevent bloat at the boundary
-		if len(val) > 5000 {
-			val = val[:5000] + "... [TRUNCATED]"
-		}
-		hdnContext[k] = val
+		// Use SafeResultSummary to prevent OOM during string conversion
+		hdnContext[k] = utils.SafeResultSummary(v, 5000)
 	}
 
 	// Add action parameters to context
 	for k, v := range action.Parameters {
-		hdnContext[k] = fmt.Sprintf("%v", v)
+		hdnContext[k] = utils.SafeResultSummary(v, 5000)
 	}
 
 	// Add original message if available in context for knowledge query extraction
@@ -1311,9 +1313,16 @@ func (cl *ConversationalLayer) stripActionResultForHistory(res *ActionResult) *A
 					}
 				}
 				stripped.Data[k] = strippedIR
+			} else if tr, ok := v.(*TaskResult); ok && tr != nil {
+				stripped.Data[k] = &TaskResult{
+					Success: tr.Success,
+					Error:   tr.Error,
+					// Do not store the full Result in history
+					Result: "Result data stripped for history. Summary available in NLG response.",
+				}
 			} else {
-				// For other result types, just use a placeholder or string representation
-				stripped.Data[k] = "Result summary: action executed successfully. Data stripped for history."
+				// For other result types, just use a safe summary
+				stripped.Data[k] = utils.SafeResultSummary(v, 1000)
 			}
 		default:
 			// Discard other potentially large keys

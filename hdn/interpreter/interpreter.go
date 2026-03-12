@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"hdn/types"
+	"hdn/utils"
 )
 
 // Interpreter handles natural language input processing
@@ -451,7 +452,7 @@ func (i *Interpreter) parseLLMResponse(response string) (InterpretedTask, error)
 	// Coerce context values to strings
 	ctx := make(map[string]string)
 	for k, v := range t.Context {
-		ctx[k] = fmt.Sprintf("%v", v)
+		ctx[k] = utils.SafeResultSummary(v, 2000)
 	}
 
 	return InterpretedTask{
@@ -497,7 +498,7 @@ func (i *Interpreter) parseMultiStepLLMResponse(response string) ([]InterpretedT
 	for _, t := range tmp {
 		ctx := make(map[string]string)
 		for k, v := range t.Context {
-			ctx[k] = fmt.Sprintf("%v", v)
+			ctx[k] = utils.SafeResultSummary(v, 2000)
 		}
 		tasks = append(tasks, InterpretedTask{
 			TaskName:        t.TaskName,
