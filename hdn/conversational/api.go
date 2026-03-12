@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"runtime/debug"
 )
 
 // SlotAcquisitionFunc is a function type for acquiring execution slots
@@ -65,6 +66,12 @@ func (api *ConversationalAPI) RegisterRoutes(router *mux.Router) {
 
 // handleChat handles conversational chat requests
 func (api *ConversationalAPI) handleChat(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("🔥 [CONVERSATIONAL-API] Panic in /api/v1/chat: %v\n%s", rec, string(debug.Stack()))
+			api.writeErrorResponse(w, "Internal server error", http.StatusInternalServerError)
+		}
+	}()
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -129,6 +136,16 @@ func (api *ConversationalAPI) handleChat(w http.ResponseWriter, r *http.Request)
 
 // handleChatStream handles streaming chat requests
 func (api *ConversationalAPI) handleChatStream(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("🔥 [CONVERSATIONAL-API] Panic in /api/v1/chat/stream: %v\n%s", rec, string(debug.Stack()))
+			// Best-effort SSE error message
+			fmt.Fprintf(w, "data: {\"type\":\"error\",\"message\":\"Internal server error\"}\n\n")
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		}
+	}()
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -359,6 +376,12 @@ func (api *ConversationalAPI) handleCleanupSessions(w http.ResponseWriter, r *ht
 
 // handleChatText handles simple text-only chat requests
 func (api *ConversationalAPI) handleChatText(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("🔥 [CONVERSATIONAL-API] Panic in /api/v1/chat/text: %v\n%s", rec, string(debug.Stack()))
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
+	}()
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return

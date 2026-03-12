@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -961,7 +960,7 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		log.Printf("✅ [SSH-TOOL] SSH execution successful (tool_id: %s)", id)
+		log.Printf("✅ [SSH-TOOL] SSH execution successful: %+v", localRun)
 
 		// Combine results: prefer local run output while returning drone submission metadata
 		combined := map[string]interface{}{}
@@ -969,7 +968,7 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			combined[k] = v
 		}
 		combined["drone_submission"] = droneResp
-		log.Printf("🔧 [SSH-TOOL] Returning result summarized (success: %v)", combined["success"])
+		log.Printf("🔧 [SSH-TOOL] Returning combined results: %+v", combined)
 		_ = json.NewEncoder(w).Encode(combined)
 		return
 	default:
@@ -1175,7 +1174,7 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			log.Printf("🔎 [MCP-PROXY] [%s] Sending request to: %s (%d bytes)", id, target, len(payload))
+			// Prepare HTTP request
 			req, err := http.NewRequestWithContext(ctx, "POST", target, bytes.NewReader(payload))
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
@@ -1206,13 +1205,7 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Send the request
-			timeoutSec := 300 // Increased default for research agents (5m)
-			if val := os.Getenv("HDN_TOOL_TIMEOUT"); val != "" {
-				if s, err := strconv.Atoi(val); err == nil && s > 0 {
-					timeoutSec = s
-				}
-			}
-			client := &http.Client{Timeout: time.Duration(timeoutSec) * time.Second}
+			client := &http.Client{Timeout: 300 * time.Second} // Increased to 5 minutes for long-running research
 			resp, err := client.Do(req)
 			if err != nil {
 				w.WriteHeader(http.StatusBadGateway)
@@ -1221,15 +1214,13 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			}
 			defer resp.Body.Close()
 
-			// Read limited response body to prevent OOM from massive tool results
-			// 10MB limit is generous for text results while safe for the container
-			respBytes, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+			// Read full response body once
+			respBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				w.WriteHeader(http.StatusBadGateway)
 				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "failed to read MCP proxy response: " + err.Error()})
 				return
 			}
-			log.Printf("🔎 [MCP-PROXY] [%s] Received response: status=%d, size=%d bytes", id, resp.StatusCode, len(respBytes))
 
 			// Try to parse as JSON to validate; if it isn't JSON, wrap as {"output": "..."}
 			var parsed interface{}
@@ -1751,7 +1742,7 @@ func (s *APIServer) submitToDroneCI(code, language, image string) (map[string]in
 			"build_id":     buildResponse["id"],
 			"build_number": buildResponse["number"],
 		}
-		log.Printf("✅ [DRONE-CI] Returning success result (repo: %s, build: %v)", existingRepo, buildResponse["number"])
+		log.Printf("✅ [DRONE-CI] Returning success result: %+v", result)
 		return result, nil
 	}
 
@@ -2275,7 +2266,7 @@ java "$MAIN"
 		"method":      "ssh_docker_execution",
 		"host":        rpiHost,
 	}
-	log.Printf("✅ [SSH-FALLBACK] Returning result summarized (success: %v)", result["success"])
+	log.Printf("✅ [SSH-FALLBACK] Returning result: %+v", result)
 	return result, nil
 }
 
