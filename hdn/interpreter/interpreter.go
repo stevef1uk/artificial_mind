@@ -161,30 +161,34 @@ func (i *Interpreter) convertFlexibleToLegacy(flexibleResult *FlexibleInterpreta
 		}
 	case ResponseTypeCodeArtifact:
 		// Convert code artifact to a task
-		task := InterpretedTask{
-			TaskName:        "Code Generation",
-			Description:     fmt.Sprintf("Generate %s code: %s", flexibleResult.CodeArtifact.Language, flexibleResult.CodeArtifact.Code),
-			Language:        flexibleResult.CodeArtifact.Language,
-			ForceRegenerate: false,
-			MaxRetries:      3,
-			Timeout:         300,
-			IsMultiStep:     false,
-			OriginalInput:   flexibleResult.Message,
+		if flexibleResult.CodeArtifact != nil {
+			task := InterpretedTask{
+				TaskName:        "Code Generation",
+				Description:     fmt.Sprintf("Generate %s code: %s", flexibleResult.CodeArtifact.Language, flexibleResult.CodeArtifact.Code),
+				Language:        flexibleResult.CodeArtifact.Language,
+				ForceRegenerate: false,
+				MaxRetries:      3,
+				Timeout:         300,
+				IsMultiStep:     false,
+				OriginalInput:   flexibleResult.Message,
+			}
+			tasks = []InterpretedTask{task}
 		}
-		tasks = []InterpretedTask{task}
 	case ResponseTypeToolCall:
 		// Convert tool call to a task
-		task := InterpretedTask{
-			TaskName:        "Tool Execution",
-			Description:     fmt.Sprintf("Execute tool %s: %s", flexibleResult.ToolCall.ToolID, flexibleResult.ToolCall.Description),
-			Language:        "go",
-			ForceRegenerate: false,
-			MaxRetries:      3,
-			Timeout:         300,
-			IsMultiStep:     false,
-			OriginalInput:   flexibleResult.Message,
+		if flexibleResult.ToolCall != nil {
+			task := InterpretedTask{
+				TaskName:        "Tool Execution",
+				Description:     fmt.Sprintf("Execute tool %s: %s", flexibleResult.ToolCall.ToolID, flexibleResult.ToolCall.Description),
+				Language:        "go",
+				ForceRegenerate: false,
+				MaxRetries:      3,
+				Timeout:         300,
+				IsMultiStep:     false,
+				OriginalInput:   flexibleResult.Message,
+			}
+			tasks = []InterpretedTask{task}
 		}
-		tasks = []InterpretedTask{task}
 	default:
 		// For plain text responses, do not emit a synthetic task.
 		// Return an empty task list and surface the text in the message field only.

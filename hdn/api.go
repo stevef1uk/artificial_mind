@@ -136,7 +136,15 @@ func formatToolResultInternal(result interface{}, depth int) string {
 			if k == "raw_html" || k == "cleaned_html" || k == "screenshot" || k == "cookies" || k == "extraction_method" {
 				continue
 			}
-			lines = append(lines, fmt.Sprintf("%s: %v", k, v))
+			// Limit string representation of values to prevent OOM
+			valSummary := safeResultSummary(v, 2000)
+			lines = append(lines, fmt.Sprintf("%s: %s", k, valSummary))
+
+			// Prevent excessive lines in summary
+			if len(lines) > 50 {
+				lines = append(lines, "... [TRUNCATED DUE TO LENGTH]")
+				break
+			}
 		}
 		if len(lines) == 0 {
 			return ""

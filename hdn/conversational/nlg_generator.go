@@ -1104,3 +1104,25 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 
 	return basePrompt
 }
+
+// safeValueSummary creates a truncated string representation of a value
+func safeValueSummary(v interface{}, limit int) string {
+	if v == nil {
+		return ""
+	}
+	var s string
+	if str, ok := v.(string); ok {
+		s = str
+	} else {
+		b, err := json.Marshal(v)
+		if err == nil {
+			s = string(b)
+		} else {
+			s = fmt.Sprintf("%v", v)
+		}
+	}
+	if len(s) > limit {
+		return s[:limit] + "... [TRUNCATED]"
+	}
+	return s
+}
