@@ -51,6 +51,13 @@ func NewConversationMemory(redis *redis.Client) *ConversationMemory {
 func (cm *ConversationMemory) GetContext(ctx context.Context, sessionID string) (map[string]interface{}, error) {
 	key := fmt.Sprintf("conversation_context:%s", sessionID)
 
+	// Safety: check size before fetching massive blob
+	size, err := cm.redis.StrLen(ctx, key).Result()
+	if err == nil && size > 10*1024*1024 { // 10MB limit for unmarshaling
+		log.Printf("⚠️  [CONVERSATION-MEMORY] Skipping unmarshal of massive context key %s (%d bytes). Possible poison pill.", key, size)
+		return make(map[string]interface{}), nil
+	}
+
 	data, err := cm.redis.Get(ctx, key).Result()
 	if err != nil {
 		if err == redis.Nil {

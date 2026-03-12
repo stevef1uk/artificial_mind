@@ -1177,11 +1177,23 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// Build a cache key based on tool id and full parameter payload
-			cacheKey := "mcp_result:" + id + ":" + base64.StdEncoding.EncodeToString(payload)
+			// Build a cache key based on tool id and normalized parameter payload.
+			// We strip transient fields to ensure cache hits for the same query across sessions.
+			cacheParams := make(map[string]interface{})
+			for k, v := range params {
+				lk := strings.ToLower(k)
+				if lk != "session_id" && lk != "request_id" && lk != "timestamp" && lk != "context" &&
+					lk != "agent_id" && lk != "project_id" && lk != "user_id" {
+					cacheParams[k] = v
+				}
+			}
+			cachePayload, _ := json.Marshal(cacheParams)
+			cacheKey := "mcp_result:" + id + ":" + base64.StdEncoding.EncodeToString(cachePayload)
+
 			// Try to get cached result
 			if cached, err := s.redis.Get(ctx, cacheKey).Result(); err == nil && cached != "" {
 				w.Header().Set("X-Cache", "HIT")
+				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
 				_, _ = w.Write([]byte(cached))
 				return
@@ -1240,23 +1252,28 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 				log.Printf("⚠️ [MCP-PROXY] Response for %s exceeded size limit (20MB) and was truncated", id)
 			}
 
-			// Try to parse as JSON to validate; if it isn't JSON, wrap as {"output": "..."}
+			// Determine final response bytes: if not JSON, wrap it.
+			var finalRespBytes []byte
 			var parsed interface{}
 			if err := json.Unmarshal(respBytes, &parsed); err != nil {
-				w.WriteHeader(resp.StatusCode)
-				_ = json.NewEncoder(w).Encode(map[string]interface{}{"output": string(respBytes)})
-				return
+				// Not JSON, wrap as {"output": "..."}
+				wrapped := map[string]interface{}{"output": string(respBytes)}
+				finalRespBytes, _ = json.Marshal(wrapped)
+			} else {
+				// Already JSON
+				finalRespBytes = respBytes
 			}
 
 			// Only cache successful (200) responses
 			if resp.StatusCode == http.StatusOK {
-				// Store the raw JSON response in Redis for 24 hours
-				_ = s.redis.Set(ctx, cacheKey, string(respBytes), 24*time.Hour).Err()
+				// Store the result in Redis for 24 hours
+				_ = s.redis.Set(ctx, cacheKey, string(finalRespBytes), 24*time.Hour).Err()
 			}
 
-			// Pass the MCP server's JSON straight through
+			// Return the result
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(resp.StatusCode)
-			_, _ = w.Write(respBytes)
+			_, _ = w.Write(finalRespBytes)
 			return
 		}
 
