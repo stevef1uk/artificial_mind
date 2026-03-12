@@ -69,8 +69,19 @@ func (cs *ConversationSummarizer) SummarizeConversation(ctx context.Context, ses
 	var conversationText strings.Builder
 	for i, turn := range conversationHistory {
 		conversationText.WriteString(fmt.Sprintf("Turn %d:\n", i+1))
-		conversationText.WriteString(fmt.Sprintf("User: %s\n", turn.UserMessage))
-		conversationText.WriteString(fmt.Sprintf("Assistant: %s\n\n", turn.AssistantResponse))
+
+		// Truncate messages to prevent memory explosion if history contains raw tool outputs
+		userMsg := turn.UserMessage
+		if len(userMsg) > 5000 {
+			userMsg = userMsg[:5000] + "... [TRUNCATED]"
+		}
+		assistantResp := turn.AssistantResponse
+		if len(assistantResp) > 5000 {
+			assistantResp = assistantResp[:5000] + "... [TRUNCATED]"
+		}
+
+		conversationText.WriteString(fmt.Sprintf("User: %s\n", userMsg))
+		conversationText.WriteString(fmt.Sprintf("Assistant: %s\n\n", assistantResp))
 	}
 
 	// Generate summary using LLM

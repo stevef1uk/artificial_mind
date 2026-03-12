@@ -93,10 +93,33 @@ func (rt *ReasoningTrace) AddStep(sessionID string, step string, description str
 		return
 	}
 
+	// Safety: Prune/Truncate large items in input to prevent memory explosion during serialization
+	prunedInput := make(map[string]interface{})
+	for k, v := range input {
+		// Only keep small primatives or meta keys
+		if k == "session_id" || k == "user_id" || k == "intent_type" || k == "action_type" || k == "tool_used" {
+			prunedInput[k] = v
+			continue
+		}
+
+		// Check value size
+		valStr := fmt.Sprintf("%v", v)
+		if len(valStr) > 2000 {
+			prunedInput[k] = valStr[:2000] + "... [TRUNCATED FOR MEMORY SAFETY]"
+		} else {
+			prunedInput[k] = v
+		}
+
+		// Skip definitely-large keys to be doubly safe
+		if k == "conversation_history" || k == "conversation_summaries" || k == "wiki_context" || k == "avatar_context" || k == "news_context" {
+			prunedInput[k] = fmt.Sprintf("[TRUNCATED: %d items/chars]", len(valStr))
+		}
+	}
+
 	reasoningStep := ReasoningStep{
 		Step:        step,
 		Description: description,
-		Input:       input,
+		Input:       prunedInput,
 		Timestamp:   time.Now(),
 		Metadata:    make(map[string]interface{}),
 	}

@@ -21,6 +21,7 @@ import (
 	"hdn/conversational"
 	"hdn/interpreter"
 	mempkg "hdn/memory"
+	"hdn/utils"
 
 	"github.com/gorilla/mux"
 	"github.com/redis/go-redis/v9"
@@ -137,7 +138,7 @@ func formatToolResultInternal(result interface{}, depth int) string {
 				continue
 			}
 			// Limit string representation of values to prevent OOM
-			valSummary := safeResultSummary(v, 2000)
+			valSummary := utils.SafeResultSummary(v, 2000)
 			lines = append(lines, fmt.Sprintf("%s: %s", k, valSummary))
 
 			// Prevent excessive lines in summary
@@ -5116,7 +5117,7 @@ func (s *APIServer) handleInterpretAndExecute(w http.ResponseWriter, r *http.Req
 				Description: flexibleResult.ToolCall.Description,
 			},
 			Success: flexibleResult.ToolExecutionResult.Success,
-			Result:  safeResultSummary(flexibleResult.ToolExecutionResult.Result, 5000),
+			Result:  utils.SafeResultSummary(flexibleResult.ToolExecutionResult.Result, 5000),
 			Error:   flexibleResult.ToolExecutionResult.Error,
 		}
 		executionResults = append(executionResults, taskResult)
@@ -5174,7 +5175,7 @@ func (s *APIServer) handleInterpretAndExecute(w http.ResponseWriter, r *http.Req
 				Description: intelligentReq.Description,
 			},
 			Success: err == nil && result.Success,
-			Result:  safeResultSummary(result.Result, 5000),
+			Result:  utils.SafeResultSummary(result.Result, 5000),
 			Error: func() string {
 				if err != nil {
 					return err.Error()
@@ -6256,40 +6257,4 @@ func (s *APIServer) acquireExecutionSlot(r *http.Request) (func(), bool) {
 	}
 }
 
-// truncateResultString limits the size of a string to prevent OOM
-func truncateResultString(s string, limit int) string {
-	if len(s) > limit {
-		return s[:limit] + "... [TRUNCATED]"
-	}
-	return s
-}
-
-// safeResultSummary creates a limited string representation of any object without OOM-ing
-func safeResultSummary(v interface{}, limit int) string {
-	if v == nil {
-		return "nil"
-	}
-	switch val := v.(type) {
-	case string:
-		return truncateResultString(val, limit)
-	case []byte:
-		return truncateResultString(string(val), limit)
-	case map[string]interface{}:
-		keys := make([]string, 0, len(val))
-		for k := range val {
-			keys = append(keys, k)
-			if len(keys) >= 20 {
-				break
-			}
-		}
-		summary := fmt.Sprintf("Map with %d keys: [%s]", len(val), strings.Join(keys, ", "))
-		if len(val) > 20 {
-			summary += " ..."
-		}
-		return summary
-	case []interface{}:
-		return fmt.Sprintf("List with %d items", len(val))
-	default:
-		return truncateResultString(fmt.Sprintf("%v", v), limit)
-	}
-}
+// Truncating functions moved to hdn/utils

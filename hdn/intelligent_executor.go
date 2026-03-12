@@ -20,6 +20,8 @@ import (
 	planner "agi/planner_evaluator"
 	selfmodel "agi/self"
 
+	"hdn/utils"
+
 	"github.com/redis/go-redis/v9"
 )
 
@@ -165,32 +167,7 @@ func NewIntelligentExecutor(
 	}
 }
 
-// safeContextSummary creates a short string summary of a context map for safe logging
-func safeContextSummary(ctx map[string]string, limit int) string {
-	if len(ctx) == 0 {
-		return "{}"
-	}
-	var sb strings.Builder
-	sb.WriteString("{")
-	count := 0
-	for k, v := range ctx {
-		if count > 0 {
-			sb.WriteString(", ")
-		}
-		val := v
-		if len(val) > limit {
-			val = val[:limit] + "..."
-		}
-		sb.WriteString(fmt.Sprintf("%s: %s", k, val))
-		count++
-		if count >= 10 {
-			sb.WriteString(", ...")
-			break
-		}
-	}
-	sb.WriteString("}")
-	return sb.String()
-}
+// Context summarization moved to hdn/utils
 
 // callTool calls a tool via the HDN server API
 func (ie *IntelligentExecutor) callTool(toolID string, params map[string]interface{}) (map[string]interface{}, error) {
@@ -720,7 +697,7 @@ func (ie *IntelligentExecutor) ensureRegisteredToolForTask(taskName, language st
 
 // categorizeRequestForSafety uses LLM to intelligently categorize a request for safety evaluation
 func (ie *IntelligentExecutor) categorizeRequestForSafety(req *ExecutionRequest) (map[string]interface{}, error) {
-	ctxSummary := safeContextSummary(req.Context, 100)
+	ctxSummary := utils.SafeResultSummary(req.Context, 100)
 	prompt := fmt.Sprintf(`You are a safety analyzer. Analyze this task request and return ONLY a valid JSON object.
 
 Task: %s
@@ -810,7 +787,7 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 
 	log.Printf("🧠 [INTELLIGENT] Starting execution for task: %s", req.TaskName)
 	log.Printf("🧠 [INTELLIGENT] Description: %s", req.Description)
-	log.Printf("🧠 [INTELLIGENT] Context: %s", safeContextSummary(req.Context, 100))
+	log.Printf("🧠 [INTELLIGENT] Context: %s", utils.SafeResultSummary(req.Context, 100))
 	log.Printf("🎯 [INTELLIGENT] HighPriority: %v", req.HighPriority)
 
 	// Early cancellation check

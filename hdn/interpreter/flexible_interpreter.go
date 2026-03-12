@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"hdn/types"
+	"hdn/utils"
 	"sync"
 )
 
@@ -234,8 +235,7 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 
 	if result.ToolCall != nil {
 		// Loop protection: Check for rapid repeated identical tool calls
-		// Use a safe summary for the key to prevent OOM on large parameters
-		paramSummary := safeSummary(result.ToolCall.Parameters, 500)
+		paramSummary := utils.SafeResultSummary(result.ToolCall.Parameters, 500)
 		toolCallKey := fmt.Sprintf("%s:%s", result.ToolCall.ToolID, paramSummary)
 		now := time.Now()
 
@@ -321,10 +321,10 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 					Confidence: 1.0,
 					ToolUsed:   result.ToolCall.ToolID,
 					Action:     "tool_execution",
-					Result:     safeResultSummary(executionResult, 5000),
+					Result:     utils.SafeResultSummary(executionResult, 5000),
 					Timestamp:  time.Now().Format(time.RFC3339Nano),
 					Metadata: map[string]interface{}{
-						"parameters": safeSummary(result.ToolCall.Parameters, 2000),
+						"parameters": utils.SafeResultSummary(result.ToolCall.Parameters, 2000),
 						"success":    true,
 					},
 				}
@@ -512,43 +512,7 @@ func generateToolDescriptionFromCode(language, code string) string {
 	return fmt.Sprintf("Auto-proposed utility from code artifact (%s)", language)
 }
 
-// truncateResultString limits the size of a string to prevent OOM
-func truncateResultString(s string, limit int) string {
-	if len(s) > limit {
-		return s[:limit] + "... [TRUNCATED]"
-	}
-	return s
-}
-
-// safeResultSummary creates a limited string representation of any object without OOM-ing
-func safeResultSummary(v interface{}, limit int) string {
-	if v == nil {
-		return "nil"
-	}
-	switch val := v.(type) {
-	case string:
-		return truncateResultString(val, limit)
-	case []byte:
-		return truncateResultString(string(val), limit)
-	case map[string]interface{}:
-		keys := make([]string, 0, len(val))
-		for k := range val {
-			keys = append(keys, k)
-			if len(keys) >= 20 {
-				break
-			}
-		}
-		summary := fmt.Sprintf("Map with %d keys: [%s]", len(val), strings.Join(keys, ", "))
-		if len(val) > 20 {
-			summary += " ..."
-		}
-		return summary
-	case []interface{}:
-		return fmt.Sprintf("List with %d items", len(val))
-	default:
-		return truncateResultString(fmt.Sprintf("%v", v), limit)
-	}
-}
+// Truncating functions moved to hdn/utils
 
 // proposeToolID creates a stable-ish tool id from language + code shape
 func proposeToolID(language, code string) string {
@@ -573,37 +537,4 @@ type ToolProviderInterface interface {
 	ExecuteTool(ctx context.Context, toolID string, parameters map[string]interface{}) (interface{}, error)
 }
 
-// safeSummary creates a short string summary of any value to prevent OOM
-func safeSummary(v interface{}, limit int) string {
-	if v == nil {
-		return "nil"
-	}
-	switch val := v.(type) {
-	case string:
-		if len(val) > limit {
-			return val[:limit] + "... [TRUNCATED]"
-		}
-		return val
-	case map[string]interface{}:
-		keys := make([]string, 0, len(val))
-		for k := range val {
-			keys = append(keys, k)
-			if len(keys) >= 10 {
-				break
-			}
-		}
-		summary := fmt.Sprintf("Map(len=%d): %v", len(val), keys)
-		if len(val) > 10 {
-			summary += "..."
-		}
-		return summary
-	case []interface{}:
-		return fmt.Sprintf("Array(len=%d)", len(val))
-	default:
-		s := fmt.Sprintf("%v", val)
-		if len(s) > limit {
-			return s[:limit] + "... [TRUNCATED]"
-		}
-		return s
-	}
-}
+// Summarizing functions moved to hdn/utils

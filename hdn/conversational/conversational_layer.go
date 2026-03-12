@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"strings"
 	"time"
-	"runtime/debug"
 
 	"hdn/interpreter"
 
@@ -155,6 +155,18 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		log.Printf("⚠️ [CONVERSATIONAL] Failed to load conversation context: %v", err)
 		conversationContext = make(map[string]interface{})
 	}
+
+	// Create a lean version of the context for the reasoning trace to prevent OOM
+	leanContext := make(map[string]interface{})
+	for k, v := range conversationContext {
+		if k != "conversation_history" && k != "conversation_summaries" &&
+			k != "wiki_context" && k != "avatar_context" && k != "news_context" {
+			leanContext[k] = v
+		}
+	}
+	leanContext["session_id"] = req.SessionID
+
+	cl.reasoningTrace.AddStep(req.SessionID, "context_loading", "Loaded conversation context", leanContext)
 
 	// Merge explicit request context (from UI/API) into conversation context
 	if req.Context != nil {
@@ -1308,9 +1320,6 @@ func (cl *ConversationalLayer) stripActionResultForHistory(res *ActionResult) *A
 		}
 	}
 
-	inJSON, _ := json.Marshal(res.Data)
-	outJSON, _ := json.Marshal(stripped.Data)
-	log.Printf("📊 [CONVERSATIONAL] StripActionResultForHistory: in=%d bytes, out=%d bytes", len(inJSON), len(outJSON))
-
+	// Logging size-checks is removed as it was memory intensive (json.Marshal called on potentially large blobs)
 	return stripped
 }
