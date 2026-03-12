@@ -2,6 +2,7 @@ package conversational
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -249,6 +250,17 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		"error":       result.Error,
 	})
 
+	// EXTRA DEBUG: Log result size
+	if result != nil && result.Data != nil {
+		if resVal, ok := result.Data["result"]; ok {
+			resJSON, _ := json.Marshal(resVal)
+			log.Printf("📊 [CONVERSATIONAL] [%s] Action result data size: %d bytes", req.SessionID, len(resJSON))
+			if len(resJSON) > 100000 {
+				log.Printf("⚠️ [CONVERSATIONAL] [%s] VERY LARGE RESULT detected: %d bytes", req.SessionID, len(resJSON))
+			}
+		}
+	}
+
 	// Step 5: Generate natural language response
 	response, err := cl.nlgGenerator.GenerateResponse(ctx, &NLGRequest{
 		UserMessage:    req.Message,
@@ -259,6 +271,9 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		ShowThinking:   req.ShowThinking,
 		ReasoningTrace: cl.reasoningTrace.GetTrace(req.SessionID),
 	})
+	if result != nil && result.Data != nil {
+		log.Printf("📊 [CONVERSATIONAL] [%s] GenerateResponse input context keys: %d", req.SessionID, len(conversationContext))
+	}
 	if err != nil {
 		return cl.handleError("Failed to generate response", err, req.SessionID)
 	}
@@ -1247,6 +1262,10 @@ func (cl *ConversationalLayer) stripActionResultForHistory(res *ActionResult) *A
 			// Discard other potentially large keys
 		}
 	}
+
+	inJSON, _ := json.Marshal(res.Data)
+	outJSON, _ := json.Marshal(stripped.Data)
+	log.Printf("📊 [CONVERSATIONAL] StripActionResultForHistory: in=%d bytes, out=%d bytes", len(inJSON), len(outJSON))
 
 	return stripped
 }

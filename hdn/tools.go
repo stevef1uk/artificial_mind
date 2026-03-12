@@ -1175,7 +1175,7 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// Prepare HTTP request
+			log.Printf("🔎 [MCP-PROXY] [%s] Sending request to: %s (%d bytes)", id, target, len(payload))
 			req, err := http.NewRequestWithContext(ctx, "POST", target, bytes.NewReader(payload))
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
@@ -1229,6 +1229,7 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "failed to read MCP proxy response: " + err.Error()})
 				return
 			}
+			log.Printf("🔎 [MCP-PROXY] [%s] Received response: status=%d, size=%d bytes", id, resp.StatusCode, len(respBytes))
 
 			// Try to parse as JSON to validate; if it isn't JSON, wrap as {"output": "..."}
 			var parsed interface{}

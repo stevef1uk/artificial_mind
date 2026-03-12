@@ -5166,15 +5166,7 @@ func (s *APIServer) handleInterpretAndExecute(w http.ResponseWriter, r *http.Req
 				Description: intelligentReq.Description,
 			},
 			Success: err == nil && result.Success,
-			Result: func() string {
-				if result.Result != nil {
-					if str, ok := result.Result.(string); ok {
-						return str
-					}
-					return fmt.Sprintf("%v", result.Result)
-				}
-				return ""
-			}(),
+			Result:  safeResultSummary(result.Result, 5000),
 			Error: func() string {
 				if err != nil {
 					return err.Error()

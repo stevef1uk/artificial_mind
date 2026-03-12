@@ -182,6 +182,10 @@ func (nlg *NLGGenerator) generateTaskResponse(ctx context.Context, req *NLGReque
 	}
 
 	prompt := nlg.buildTaskPrompt(req)
+	log.Printf("🗣️ [NLG] Task prompt length: %d", len(prompt))
+	if len(prompt) > 500000 {
+		log.Printf("⚠️ [NLG] VERY LARGE PROMPT detected: %d bytes", len(prompt))
+	}
 
 	response, err := nlg.llmClient.GenerateResponse(ctx, prompt, 600)
 	if err != nil {
