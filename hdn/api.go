@@ -977,19 +977,47 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 			"success": true,
 		}
 
-		// stripLargeFields removes HTML/binary/cookie fields that blow up NLG prompts
-		stripLargeFields := func(m map[string]interface{}) map[string]interface{} {
-			clean := make(map[string]interface{})
-			for k, v := range m {
-				switch k {
-				case "cleaned_html", "raw_html", "screenshot", "cookies", "body", "response":
-					// Skip large technical fields — not useful for NLG and cause prompt bloat
-					continue
-				default:
-					clean[k] = v
-				}
+		// stripLargeFields recursively removes HTML/binary/cookie fields that blow up LLM prompts
+		var stripLargeFieldRecursive func(interface{}) interface{}
+		stripLargeFieldRecursive = func(input interface{}) interface{} {
+			if input == nil {
+				return nil
 			}
-			return clean
+			switch v := input.(type) {
+			case string:
+				// Truncate strings to a reasonable limit for prompts
+				if len(v) > 10000 {
+					return v[:10000] + "... [TRUNCATED]"
+				}
+				return v
+			case map[string]interface{}:
+				clean := make(map[string]interface{})
+				for mk, mv := range v {
+					switch mk {
+					case "cleaned_html", "raw_html", "screenshot", "cookies", "body", "response", "full_content":
+						// Skip large technical fields — not useful for NLG and cause prompt bloat
+						continue
+					default:
+						clean[mk] = stripLargeFieldRecursive(mv)
+					}
+				}
+				return clean
+			case []interface{}:
+				clean := make([]interface{}, len(v))
+				for i, item := range v {
+					clean[i] = stripLargeFieldRecursive(item)
+				}
+				return clean
+			default:
+				return v
+			}
+		}
+		stripLargeFields := func(m map[string]interface{}) map[string]interface{} {
+			res := stripLargeFieldRecursive(m)
+			if resMap, ok := res.(map[string]interface{}); ok {
+				return resMap
+			}
+			return m
 		}
 
 		// Handle different result formats from tools
@@ -999,8 +1027,23 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 				// Strip large fields before they enter metadata
 				resultMap = stripLargeFields(resultMap)
 
-				// If it has a "results" key, use it directly
-				if _, hasResults := resultMap["results"]; hasResults {
+				// If it has a "results" key, use it directly, but limit to top 5 items for safety
+				if results, ok := resultMap["results"].([]interface{}); ok {
+					if len(results) > 5 {
+						log.Printf("✂️ [API] Truncating tool results from %d to 5 items", len(results))
+						toolResult["results"] = results[:5]
+					} else {
+						toolResult["results"] = results
+					}
+				} else if results, ok := resultMap["results"].([]map[string]interface{}); ok {
+					// Handle typed slice
+					if len(results) > 5 {
+						log.Printf("✂️ [API] Truncating tool results from %d to 5 items", len(results))
+						toolResult["results"] = results[:5]
+					} else {
+						toolResult["results"] = results
+					}
+				} else if _, hasResults := resultMap["results"]; hasResults {
 					toolResult["results"] = resultMap["results"]
 				} else {
 					// Check if it's a single email object (has Subject, From, To)
@@ -1013,6 +1056,12 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 					}
 				}
 			} else if resultSlice, ok := result.ToolExecutionResult.Result.([]interface{}); ok {
+				// If result is already a slice, truncate if too large
+				if len(resultSlice) > 5 {
+					log.Printf("✂️ [API] Truncating tool result slice from %d to 5 items", len(resultSlice))
+					resultSlice = resultSlice[:5]
+				}
+
 				// If result is already a slice, strip from each item
 				for i, item := range resultSlice {
 					if itemMap, ok := item.(map[string]interface{}); ok {

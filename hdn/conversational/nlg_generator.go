@@ -384,156 +384,173 @@ func (nlg *NLGGenerator) generateGenericResponse(ctx context.Context, req *NLGRe
 
 // buildKnowledgePrompt builds a prompt for knowledge responses
 func (nlg *NLGGenerator) buildKnowledgePrompt(req *NLGRequest) string {
-	basePrompt := `You are an AI assistant with access to a knowledge base and reasoning capabilities. 
-Based on the user's question and the information retrieved, provide a helpful and accurate answer.
+	var sb strings.Builder
+	sb.WriteString("You are an AI assistant with access to a knowledge base and reasoning capabilities.\n")
+	sb.WriteString("Based on the user's question and the information retrieved, provide a helpful and accurate answer.\n\n")
 
-User Question: "%s"
-Intent: %s
-Goal: %s
+	sb.WriteString("User Question: \"")
+	sb.WriteString(req.UserMessage)
+	sb.WriteString("\"\nIntent: ")
+	sb.WriteString(req.Intent.Type)
+	sb.WriteString("\nGoal: ")
+	sb.WriteString(req.Action.Goal)
+	sb.WriteString("\n\n🚨 CRITICAL RULES:\n")
+	sb.WriteString("1. You MUST use the information provided in the \"Retrieved Information\" and \"Retrieved Personal Context\" sections below.\n")
+	sb.WriteString("2. DO NOT repeat, echo, or include any of the labels or data from the \"Reasoning Process\" or \"Retrieved Information\" sections in your final response.\n")
+	sb.WriteString("3. Provide ONLY the final natural language answer to the user. DO NOT include metadata like confidence scores, goals, or action summaries.\n")
+	sb.WriteString("4. DO NOT invent, make up, or hallucinate any data that is not explicitly shown in those sections.\n")
+	sb.WriteString("5. If the \"Retrieved Information\" contains email data or list data, present it cleanly and formatted for the user.\n")
+	sb.WriteString("6. If no information is retrieved in either section, say so clearly - do NOT invent fake data.\n")
+	sb.WriteString("7. NEVER provide code, scripts, or commands that could be harmful or destructive.\n")
+	sb.WriteString("8. If the 'Retrieved Personal Context' contains information about Steven Fisher, assume this is the user you are talking to.\n\n")
 
-🚨 CRITICAL RULES:
-1. You MUST use the information provided in the "Retrieved Information" and "Retrieved Personal Context" sections below.
-2. DO NOT repeat, echo, or include any of the labels or data from the "Reasoning Process" or "Retrieved Information" sections in your final response. 
-3. Provide ONLY the final natural language answer to the user. DO NOT include metadata like confidence scores, goals, or action summaries.
-4. DO NOT invent, make up, or hallucinate any data that is not explicitly shown in those sections.
-5. If the "Retrieved Information" contains email data or list data, present it cleanly and formatted for the user.
-6. If no information is retrieved in either section, say so clearly - do NOT invent fake data.
-7. NEVER provide code, scripts, or commands that could be harmful or destructive.
-8. If the 'Retrieved Personal Context' contains information about Steven Fisher, assume this is the user you are talking to.
-
-Please provide a clear, informative answer. 
-
-IMPORTANT: If both the 'Retrieved Information' and 'Retrieved Personal Context' are empty, use your internal knowledge but add a brief note that no specific real-time updates were found.`
+	sb.WriteString("Please provide a clear, informative answer.\n\n")
+	sb.WriteString("IMPORTANT: If both the 'Retrieved Information' and 'Retrieved Personal Context' are empty, use your internal knowledge but add a brief note that no specific real-time updates were found.\n")
 
 	// Add reasoning trace if available and requested
 	if req.ShowThinking && req.ReasoningTrace != nil {
-		basePrompt += fmt.Sprintf(`
-
-Reasoning Context (FOR INTERNAL USE ONLY - DO NOT REPEAT IN RESPONSE):
-- Goal: %s
-- FSM State: %s
-- Actions Taken: %s
-- Knowledge Sources: %s
-- Tools Used: %s
-- Key Decisions: %s
-
-Use the above context to inform your tone and state of mind, but provide ONLY a clean response to the user's original request.`,
-			req.ReasoningTrace.CurrentGoal,
-			req.ReasoningTrace.FSMState,
-			strings.Join(req.ReasoningTrace.Actions, ", "),
-			strings.Join(req.ReasoningTrace.KnowledgeUsed, ", "),
-			strings.Join(req.ReasoningTrace.ToolsInvoked, ", "),
-			nlg.formatDecisions(req.ReasoningTrace.Decisions),
-		)
+		sb.WriteString("\nReasoning Context (FOR INTERNAL USE ONLY - DO NOT REPEAT IN RESPONSE):\n")
+		sb.WriteString("- Goal: " + req.ReasoningTrace.CurrentGoal + "\n")
+		sb.WriteString("- FSM State: " + req.ReasoningTrace.FSMState + "\n")
+		sb.WriteString("- Actions Taken: " + strings.Join(req.ReasoningTrace.Actions, ", ") + "\n")
+		sb.WriteString("- Knowledge Sources: " + strings.Join(req.ReasoningTrace.KnowledgeUsed, ", ") + "\n")
+		sb.WriteString("- Tools Used: " + strings.Join(req.ReasoningTrace.ToolsInvoked, ", ") + "\n")
+		sb.WriteString("- Key Decisions: " + nlg.formatDecisions(req.ReasoningTrace.Decisions) + "\n")
+		sb.WriteString("\nUse the above context to inform your tone and state of mind, but provide ONLY a clean response to the user's original request.\n")
 	}
 
 	// Add memory context (summaries and personal facts)
-	basePrompt = nlg.addMemoryContext(basePrompt, req)
+	prompt := nlg.addMemoryContext(sb.String(), req)
 
 	// Add result data if available
 	if req.Result != nil && req.Result.Success {
 		formattedData := nlg.formatResultData(req.Result.Data)
-		basePrompt += fmt.Sprintf(`
+		// Truncate massive results to protect LLM context
+		if len(formattedData) > 50000 {
+			formattedData = formattedData[:50000] + "... [RESULTS TRUNCATED]"
+		}
 
-Retrieved Information:
-%s
-
-🚨 CRITICAL: You MUST use ONLY the information provided above. DO NOT make up, invent, or hallucinate any data. 
-If the "Retrieved Information" shows email data formatted as a list (e.g., "[1] [UNREAD]\n    From: ...\n    Subject: ..."), you MUST copy and paste that entire formatted list EXACTLY as it appears. Do NOT re-describe it, do NOT add commentary like "This email is from..." or "The subject line is...". Just present the formatted email list as-is.
-If no information is provided, say so clearly - do NOT invent fake emails or data.`, formattedData)
+		prompt += "\n\nRetrieved Information:\n" + formattedData + "\n\n"
+		prompt += "🚨 CRITICAL: You MUST use ONLY the information provided above. DO NOT make up, invent, or hallucinate any data.\n"
+		prompt += "If the \"Retrieved Information\" shows email data formatted as a list, you MUST copy and paste that entire formatted list EXACTLY as it appears.\n"
+		prompt += "If no information is provided, say so clearly - do NOT invent fake emails or data."
 	}
 
-	return fmt.Sprintf(basePrompt, req.UserMessage, req.Intent.Type, req.Action.Goal)
+	// Final safety truncation
+	if len(prompt) > 400000 {
+		prompt = prompt[:400000] + "... [PROMPT TRUNCATED]"
+	}
+
+	return prompt
 }
 
 // buildTaskPrompt builds a prompt for task execution responses
 func (nlg *NLGGenerator) buildTaskPrompt(req *NLGRequest) string {
-	basePrompt := `You are an AI assistant that has executed a task for the user. 
-Provide a clear, natural summary of what was accomplished and any relevant results.
+	var sb strings.Builder
+	sb.WriteString("You are an AI assistant that has executed a task for the user.\n")
+	sb.WriteString("Provide a clear, natural summary of what was accomplished and any relevant results.\n\n")
 
-User Request: "%s"
-Task Goal: %s
-Task Type: %s
+	sb.WriteString("User Request: \"")
+	sb.WriteString(req.UserMessage)
+	sb.WriteString("\"\nTask Goal: ")
+	sb.WriteString(req.Action.Goal)
+	sb.WriteString("\nTask Type: ")
+	sb.WriteString(req.Action.Type)
+	sb.WriteString("\n\n🚨 CRITICAL RULES:\n")
+	sb.WriteString("1. Provide ONLY the final natural language response to the user.\n")
+	sb.WriteString("2. DO NOT include any labels like \"Goal:\", \"Task:\", \"Result:\", or \"Reasoning:\".\n")
+	sb.WriteString("3. DO NOT include confidence scores or metadata.\n")
+	sb.WriteString("4. DO NOT repeat the user's request verbatim.\n")
+	sb.WriteString("5. Just tell the user what you did and show them the results.\n\n")
 
-🚨 CRITICAL RULES:
-1. Provide ONLY the final natural language response to the user.
-2. DO NOT include any labels like "Goal:", "Task:", "Result:", or "Reasoning:".
-3. DO NOT include confidence scores or metadata.
-4. DO NOT repeat the user's request verbatim.
-5. Just tell the user what you did and show them the results.
-
-Please provide a helpful summary of the task execution.`
+	sb.WriteString("Please provide a helpful summary of the task execution.")
 
 	if req.Result != nil && req.Result.Success {
 		resultSummary := nlg.formatResultData(req.Result.Data)
-		if len(resultSummary) > 10000 {
-			resultSummary = resultSummary[:10000] + "... [TRUNCATED]"
+		if len(resultSummary) > 50000 {
+			resultSummary = resultSummary[:50000] + "... [TRUNCATED]"
 		}
-		basePrompt += "\n\nTask Results:\n" + resultSummary + "\n\nSummarize what was accomplished and any important outcomes."
+		sb.WriteString("\n\nTask Results:\n")
+		sb.WriteString(resultSummary)
+		sb.WriteString("\n\nSummarize what was accomplished and any important outcomes.")
 	} else if req.Result != nil && !req.Result.Success {
-		basePrompt += "\n\nTask encountered an error: " + req.Result.Error + "\n\nPlease explain what went wrong and suggest next steps."
+		sb.WriteString("\n\nTask encountered an error: ")
+		sb.WriteString(req.Result.Error)
+		sb.WriteString("\n\nPlease explain what went wrong and suggest next steps.")
 	}
 
 	// Add memory context (summaries and personal facts)
-	basePrompt = nlg.addMemoryContext(basePrompt, req)
+	prompt := nlg.addMemoryContext(sb.String(), req)
 
-	// Use strings.Replace to safely interpolate the first %s for User Message
-	// This avoids issues if the result summary contains % characters
-	finalPrompt := strings.Replace(basePrompt, "%s", req.UserMessage, 1)
-	// Replace %s for Goal and Type if they are in the template
-	finalPrompt = strings.Replace(finalPrompt, "%s", req.Action.Goal, 1)
-	finalPrompt = strings.Replace(finalPrompt, "%s", req.Action.Type, 1)
+	// Final safety truncation
+	if len(prompt) > 400000 {
+		prompt = prompt[:400000] + "... [PROMPT TRUNCATED]"
+	}
 
-	return finalPrompt
+	return prompt
 }
 
 // buildPlanningPrompt builds a prompt for planning responses
 func (nlg *NLGGenerator) buildPlanningPrompt(req *NLGRequest) string {
-	basePrompt := `You are an AI assistant that has created a plan for the user. 
-Present the plan in a clear, structured way that the user can easily follow.
+	var sb strings.Builder
+	sb.WriteString("You are an AI assistant that has created a plan for the user.\n")
+	sb.WriteString("Present the plan in a clear, structured way that the user can easily follow.\n\n")
 
-User Request: "%s"
-Planning Goal: %s
+	sb.WriteString("User Request: \"")
+	sb.WriteString(req.UserMessage)
+	sb.WriteString("\"\nPlanning Goal: ")
+	sb.WriteString(req.Action.Goal)
+	sb.WriteString("\n\n🚨 CRITICAL RULES:\n")
+	sb.WriteString("1. Provide ONLY the plan itself.\n")
+	sb.WriteString("2. DO NOT include labels like \"Goal:\", \"Planning:\", or \"Result:\".\n")
+	sb.WriteString("3. DO NOT echo the background reasoning.\n\n")
 
-🚨 CRITICAL RULES:
-1. Provide ONLY the plan itself.
-2. DO NOT include labels like "Goal:", "Planning:", or "Result:".
-3. DO NOT echo the background reasoning.
-
-Please present the plan in a helpful and actionable format.`
+	sb.WriteString("Please present the plan in a helpful and actionable format.")
 
 	if req.Result != nil && req.Result.Success {
-		basePrompt += fmt.Sprintf(`
-
-Generated Plan:
-%s
-
-Present this plan clearly with step-by-step instructions.`, nlg.formatResultData(req.Result.Data))
+		plan := nlg.formatResultData(req.Result.Data)
+		if len(plan) > 50000 {
+			plan = plan[:50000] + "... [TRUNCATED]"
+		}
+		sb.WriteString("\n\nGenerated Plan:\n")
+		sb.WriteString(plan)
+		sb.WriteString("\n\nPresent this plan clearly with step-by-step instructions.")
 	}
 
-	return fmt.Sprintf(basePrompt, req.UserMessage, req.Action.Goal)
+	prompt := sb.String()
+	if len(prompt) > 400000 {
+		prompt = prompt[:400000] + "... [PROMPT TRUNCATED]"
+	}
+	return prompt
 }
 
 // buildLearningPrompt builds a prompt for learning responses
 func (nlg *NLGGenerator) buildLearningPrompt(req *NLGRequest) string {
-	basePrompt := `You are an AI assistant that has learned new information. 
-Share what was learned in an educational and engaging way.
+	var sb strings.Builder
+	sb.WriteString("You are an AI assistant that has learned new information.\n")
+	sb.WriteString("Share what was learned in an educational and engaging way.\n\n")
 
-User Request: "%s"
-Learning Topic: %s
-
-Please share the new knowledge in a helpful and educational format.`
+	sb.WriteString("User Request: \"")
+	sb.WriteString(req.UserMessage)
+	sb.WriteString("\"\nLearning Topic: ")
+	sb.WriteString(req.Action.Goal)
+	sb.WriteString("\n\nPlease share the new knowledge in a helpful and educational format.")
 
 	if req.Result != nil && req.Result.Success {
-		basePrompt += fmt.Sprintf(`
-
-Learning Results:
-%s
-
-Present the new knowledge in an educational and engaging way.`, nlg.formatResultData(req.Result.Data))
+		learning := nlg.formatResultData(req.Result.Data)
+		if len(learning) > 50000 {
+			learning = learning[:50000] + "... [TRUNCATED]"
+		}
+		sb.WriteString("\n\nLearning Results:\n")
+		sb.WriteString(learning)
+		sb.WriteString("\n\nPresent the new knowledge in an educational and engaging way.")
 	}
 
-	return fmt.Sprintf(basePrompt, req.UserMessage, req.Action.Goal)
+	prompt := sb.String()
+	if len(prompt) > 400000 {
+		prompt = prompt[:400000] + "... [PROMPT TRUNCATED]"
+	}
+	return prompt
 }
 
 // buildExplanationPrompt builds a prompt for explanation responses
@@ -560,32 +577,40 @@ Present this explanation in a clear and educational way.`, nlg.formatResultData(
 
 // buildConversationPrompt builds a prompt for general conversation
 func (nlg *NLGGenerator) buildConversationPrompt(req *NLGRequest) string {
-	basePrompt := `You are a helpful AI assistant. Respond to the user's message in a friendly and helpful way.
-
-User Message: "%s"
-
-Please provide a helpful and engaging response.`
+	var sb strings.Builder
+	sb.WriteString("You are a helpful AI assistant. Respond to the user's message in a friendly and helpful way.\n\n")
+	sb.WriteString("User Message: \"")
+	sb.WriteString(req.UserMessage)
+	sb.WriteString("\"\n\nPlease provide a helpful and engaging response.")
 
 	// Add memory context
-	basePrompt = nlg.addMemoryContext(basePrompt, req)
+	prompt := nlg.addMemoryContext(sb.String(), req)
 
-	return fmt.Sprintf(basePrompt, req.UserMessage)
+	if len(prompt) > 400000 {
+		prompt = prompt[:400000] + "... [PROMPT TRUNCATED]"
+	}
+	return prompt
 }
 
 // buildGenericPrompt builds a generic prompt
 func (nlg *NLGGenerator) buildGenericPrompt(req *NLGRequest) string {
-	basePrompt := `You are a helpful AI assistant. Respond to the user's message appropriately.
-
-User Message: "%s"
-Intent: %s
-Goal: %s
-
-Please provide a helpful response.`
+	var sb strings.Builder
+	sb.WriteString("You are a helpful AI assistant. Respond to the user's message appropriately.\n\n")
+	sb.WriteString("User Message: \"")
+	sb.WriteString(req.UserMessage)
+	sb.WriteString("\"\nIntent: ")
+	sb.WriteString(req.Intent.Type)
+	sb.WriteString("\nGoal: ")
+	sb.WriteString(req.Action.Goal)
+	sb.WriteString("\n\nPlease provide a helpful response.")
 
 	// Add memory context
-	basePrompt = nlg.addMemoryContext(basePrompt, req)
+	prompt := nlg.addMemoryContext(sb.String(), req)
 
-	return fmt.Sprintf(basePrompt, req.UserMessage, req.Intent.Type, req.Action.Goal)
+	if len(prompt) > 400000 {
+		prompt = prompt[:400000] + "... [PROMPT TRUNCATED]"
+	}
+	return prompt
 }
 
 // generateFallbackResponse generates a fallback response when LLM fails
@@ -619,198 +644,149 @@ func (nlg *NLGGenerator) generateFallbackResponse(req *NLGRequest, responseType 
 
 // formatToolResult recursively flattens and formats complex tool results into a human-readable string
 func (nlg *NLGGenerator) formatToolResult(result interface{}) string {
-	return nlg.formatToolResultInternal(result, 0)
+	var sb strings.Builder
+	// Total budget for a single tool result formatting to prevent OOM
+	budget := 64 * 1024 // 64KB (conservative, but enough for helpful summaries)
+	nlg.formatToolResultRecursive(result, 0, &sb, &budget)
+	return sb.String()
 }
 
-func (nlg *NLGGenerator) formatToolResultInternal(result interface{}, depth int) string {
-	if result == nil || depth > 5 { // Hard depth limit to prevent circular recursion
-		return ""
+func (nlg *NLGGenerator) formatToolResultRecursive(result interface{}, depth int, sb *strings.Builder, budget *int) {
+	if result == nil || depth > 4 || *budget <= 0 {
+		if *budget <= 0 && depth <= 4 {
+			sb.WriteString("... [TRUNCATED DUE TO SIZE LIMIT]")
+		}
+		return
 	}
 
-	// Handle maps (dictionaries)
-	if m, ok := result.(map[string]interface{}); ok {
-		// 1. Try to find "main" content keys - check nested "result" first
-		if inner, ok := m["result"].(map[string]interface{}); ok {
-			return nlg.formatToolResultInternal(inner, depth+1)
+	// Helper to write string with budget check
+	writeSafe := func(s string) {
+		if *budget <= 0 {
+			return
 		}
-
-		contentKeys := []string{"extracted_content", "headlines", "results", "items", "content", "summary", "text", "message"}
-		for _, k := range contentKeys {
-			if val, exists := m[k]; exists && val != nil {
-				return nlg.formatToolResultInternal(val, depth+1)
-			}
+		if len(s) > *budget {
+			sb.WriteString(s[:*budget])
+			sb.WriteString("... [TRUNCATED]")
+			*budget = 0
+		} else {
+			sb.WriteString(s)
+			*budget -= len(s)
 		}
-
-		// 2. If it's a simple map with one key, use its value
-		if len(m) == 1 {
-			for _, v := range m {
-				return nlg.formatToolResultInternal(v, depth+1)
-			}
-		}
-
-		// 3. Special handling for email-like records
-		from := getStringFromMapCaseInsensitive(m, "from")
-		subject := getStringFromMapCaseInsensitive(m, "subject")
-		if from != "" || subject != "" {
-			var sb strings.Builder
-			if from != "" {
-				sb.WriteString(fmt.Sprintf("From: %s", from))
-			}
-			if subject != "" {
-				if sb.Len() > 0 {
-					sb.WriteString(" | ")
-				}
-				sb.WriteString(fmt.Sprintf("Subject: %s", subject))
-			}
-			return sb.String()
-		}
-
-		// 4. Fallback: format as key-value pairs
-		var lines []string
-		for k, v := range m {
-			// Skip technical/large fields
-			if k == "raw_html" || k == "cleaned_html" || k == "screenshot" || k == "cookies" || k == "extraction_method" {
-				continue
-			}
-			// Safely format value using recursive call instead of %v
-			valStr := nlg.formatToolResultInternal(v, depth+1)
-			if len(valStr) > 500 {
-				valStr = valStr[:500] + "..."
-			}
-			lines = append(lines, fmt.Sprintf("%s: %s", k, valStr))
-			if len(lines) >= 20 { // Cap fallback keys
-				lines = append(lines, "... [TRUNCATED]")
-				break
-			}
-		}
-		if len(lines) == 0 {
-			return ""
-		}
-		return strings.Join(lines, ", ")
 	}
 
-	// Handle slices (lists)
-	if s, ok := result.([]interface{}); ok {
-		var lines []string
-		for i, item := range s {
-			if i >= 100 { // Limit to 100 items to prevent OOM
-				lines = append(lines, fmt.Sprintf("... [AND %d MORE ITEMS TRUNCATED]", len(s)-100))
-				break
-			}
-			line := nlg.formatToolResultInternal(item, depth+1)
-			if line != "" {
-				lines = append(lines, fmt.Sprintf("[%d] %s", i+1, line))
-			}
-		}
-		res := strings.Join(lines, "\n")
-		if len(res) > 50000 { // 50KB limit per sub-list result
-			return res[:50000] + "... [TRUNCATED]"
-		}
-		return res
-	}
-
-	// Handle strings
-	if s, ok := result.(string); ok {
-		s = strings.TrimSpace(s)
-
-		// If it has multiple lines, format as bullets
-		if strings.Contains(s, "\n") {
-			lines := strings.Split(s, "\n")
-			var cleaned []string
+	switch v := result.(type) {
+	case string:
+		v = strings.TrimSpace(v)
+		if strings.Contains(v, "\n") {
+			lines := strings.Split(v, "\n")
 			for _, line := range lines {
 				line = strings.TrimSpace(line)
 				if line != "" {
 					line = listCleanupRegex.ReplaceAllString(line, "")
-					cleaned = append(cleaned, "• "+line)
+					writeSafe("\n• " + line)
 				}
 			}
-			return strings.Join(cleaned, "\n")
-		}
-
-		// Check for numbered list without newlines
-		if numberedListRegex.MatchString(s) {
-			parts := numberedListRegex.Split(s, -1)
-			var cleaned []string
+		} else if numberedListRegex.MatchString(v) {
+			parts := numberedListRegex.Split(v, -1)
 			for _, p := range parts {
 				p = strings.TrimSpace(p)
 				if p != "" {
-					cleaned = append(cleaned, "• "+p)
+					writeSafe("\n• " + p)
 				}
 			}
-			if len(cleaned) > 1 {
-				return strings.Join(cleaned, "\n")
-			}
+		} else {
+			writeSafe(v)
 		}
 
-		return s
-	}
-
-	// Fallback for other types
-	s := ""
-	switch v := result.(type) {
-	case string:
-		s = v
 	case []byte:
-		s = string(v)
-	case map[string]interface{}:
-		if depth > 3 {
-			keys := getMapKeys(v)
-			return fmt.Sprintf("Map with %d keys: [%s]", len(keys), strings.Join(keys, ", "))
-		}
-		var pairs []string
-		for mk, mv := range v {
-			if len(pairs) >= 15 {
-				pairs = append(pairs, "... [OTHER KEYS TRUNCATED]")
-				break
-			}
-			// Special handling for common content keys to ensure they are visible
-			if mk == "text" || mk == "content" || mk == "snippet" || mk == "result" || mk == "summary" {
-				formattedVal := nlg.formatToolResultInternal(mv, depth+1)
-				pairs = append(pairs, fmt.Sprintf("%s: %s", mk, formattedVal))
-			} else {
-				formattedVal := nlg.formatToolResultInternal(mv, depth+1)
-				if len(formattedVal) > 500 {
-					formattedVal = formattedVal[:500] + "..."
-				}
-				pairs = append(pairs, fmt.Sprintf("%s: %s", mk, formattedVal))
-			}
-		}
-		s = "{" + strings.Join(pairs, ", ") + "}"
-	case []interface{}:
-		if depth > 3 {
-			return fmt.Sprintf("Array of length %d", len(v))
-		}
-		var items []string
-		for i, item := range v {
-			if i >= 10 {
-				items = append(items, fmt.Sprintf("... [AND %d MORE ITEMS]", len(v)-10))
-				break
-			}
-			items = append(items, nlg.formatToolResultInternal(item, depth+1))
-		}
-		s = "[" + strings.Join(items, ", ") + "]"
-	case []map[string]interface{}:
-		if depth > 3 {
-			return fmt.Sprintf("Array of %d maps", len(v))
-		}
-		var items []string
-		for i, item := range v {
-			if i >= 10 {
-				items = append(items, fmt.Sprintf("... [AND %d MORE MAPS]", len(v)-10))
-				break
-			}
-			items = append(items, nlg.formatToolResultInternal(item, depth+1))
-		}
-		s = "[" + strings.Join(items, ", ") + "]"
-	default:
-		// Safe summary for unknown types
-		s = fmt.Sprintf("Object of type %T", result)
-	}
+		writeSafe(string(v))
 
-	if len(s) > 10000 {
-		return s[:10000] + "... [TRUNCATED]"
+	case map[string]interface{}:
+		// 1. Try to find "main" content keys - check nested "result" first
+		if inner, ok := v["result"].(map[string]interface{}); ok {
+			nlg.formatToolResultRecursive(inner, depth+1, sb, budget)
+			return
+		}
+
+		contentKeys := []string{"extracted_content", "headlines", "results", "items", "content", "summary", "text", "message"}
+		for _, k := range contentKeys {
+			if val, exists := v[k]; exists && val != nil {
+				nlg.formatToolResultRecursive(val, depth+1, sb, budget)
+				return
+			}
+		}
+
+		// 2. Special handling for email-like records
+		from := getStringFromMapCaseInsensitive(v, "from")
+		subject := getStringFromMapCaseInsensitive(v, "subject")
+		if from != "" || subject != "" {
+			if from != "" {
+				writeSafe("From: " + from)
+			}
+			if subject != "" {
+				if from != "" {
+					writeSafe(" | ")
+				}
+				writeSafe("Subject: " + subject)
+			}
+			return
+		}
+
+		// 3. Fallback: format as key-value pairs
+		writeSafe("{")
+		keysWritten := 0
+		for mk, mv := range v {
+			if keysWritten >= 10 {
+				writeSafe(", ... [OTHER KEYS TRUNCATED]")
+				break
+			}
+			// Skip technical/large fields
+			if mk == "raw_html" || mk == "cleaned_html" || mk == "screenshot" || mk == "cookies" || mk == "extraction_method" {
+				continue
+			}
+
+			if keysWritten > 0 {
+				writeSafe(", ")
+			}
+			writeSafe(mk + ": ")
+
+			// For nested values, use a local budget check to avoid one key eating everything
+			nlg.formatToolResultRecursive(mv, depth+1, sb, budget)
+
+			keysWritten++
+		}
+		writeSafe("}")
+
+	case []interface{}:
+		writeSafe("[")
+		for i, item := range v {
+			if i >= 30 { // Limit list items
+				writeSafe(fmt.Sprintf("\n... [AND %d MORE ITEMS TRUNCATED]", len(v)-30))
+				break
+			}
+			if i > 0 {
+				writeSafe("\n")
+			}
+			writeSafe(fmt.Sprintf("[%d] ", i+1))
+			nlg.formatToolResultRecursive(item, depth+1, sb, budget)
+		}
+		writeSafe("]")
+
+	case int, int32, int64, float32, float64, bool:
+		writeSafe(fmt.Sprintf("%v", v))
+
+	default:
+		// Try to handle typed slices that are common
+		if items, ok := v.([]map[string]interface{}); ok {
+			genericItems := make([]interface{}, len(items))
+			for i, item := range items {
+				genericItems[i] = item
+			}
+			nlg.formatToolResultRecursive(genericItems, depth, sb, budget)
+		} else {
+			writeSafe(fmt.Sprintf("Object of type %T", result))
+		}
 	}
-	return s
 }
 
 // formatResultData formats result data for display
@@ -826,21 +802,21 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 			interpreted = ir.Interpreted
 			if ir.Metadata != nil {
 				if tr, ok := ir.Metadata["tool_result"]; ok {
-					return nlg.formatToolResultInternal(tr, 0)
+					return nlg.formatToolResult(tr)
 				}
 			}
 		} else if ir, ok := val.(InterpretResult); ok {
 			interpreted = ir.Interpreted
 			if ir.Metadata != nil {
 				if tr, ok := ir.Metadata["tool_result"]; ok {
-					return nlg.formatToolResultInternal(tr, 0)
+					return nlg.formatToolResult(tr)
 				}
 			}
 		} else {
 			interpreted = val
 		}
 
-		formatted := nlg.formatToolResultInternal(interpreted, 0)
+		formatted := nlg.formatToolResult(interpreted)
 		if formatted != "" && formatted != "No data available" {
 			return formatted
 		}
@@ -849,7 +825,7 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 	// Generic fallback for all keys in data
 	var sb strings.Builder
 	for k, v := range data {
-		formatted := nlg.formatToolResultInternal(v, 0)
+		formatted := nlg.formatToolResult(v)
 		if formatted != "" {
 			if sb.Len() > 0 {
 				sb.WriteString("\n\n")
@@ -1030,16 +1006,19 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 		return basePrompt
 	}
 
+	var sb strings.Builder
+	sb.WriteString(basePrompt)
+
 	// 1. Add conversation summaries if available for continuity
 	if summaries, ok := req.Context["conversation_summaries"].([]string); ok && len(summaries) > 0 {
-		basePrompt += "\n\nBACKGROUND: Relevant Past Conversation Context (Summarized):\n"
+		sb.WriteString("\n\nBACKGROUND: Relevant Past Conversation Context (Summarized):\n")
 		for _, summary := range summaries {
 			if len(summary) > 2000 {
 				summary = summary[:2000] + "... [TRUNCATED]"
 			}
-			basePrompt += fmt.Sprintf("--- SUMMARY ---\n%s\n", summary)
+			sb.WriteString(fmt.Sprintf("--- SUMMARY ---\n%s\n", summary))
 		}
-		basePrompt += "\nUse these summaries ONLY for continuity. Do NOT repeat them unless relevant to the current request."
+		sb.WriteString("\nUse these summaries ONLY for continuity. Do NOT repeat them unless relevant to the current request.")
 	}
 
 	// 2. Add avatar context (personal info) if available
@@ -1055,25 +1034,25 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 			}
 
 			if len(items) > 0 {
-				basePrompt += "\n\nBACKGROUND: User Profile Context (About Steven Fisher / User):\n"
+				sb.WriteString("\n\nBACKGROUND: User Profile Context (About Steven Fisher / User):\n")
 				for _, res := range items {
 					if item, ok := res.(map[string]interface{}); ok {
 						if content, ok := item["content"].(string); ok {
-							if len(content) > 2000 {
-								content = content[:2000] + "... [TRUNCATED]"
+							if len(content) > 1000 {
+								content = content[:1000] + "... [TRUNCATED]"
 							}
-							basePrompt += fmt.Sprintf("- %s\n", content)
+							sb.WriteString(fmt.Sprintf("- %s\n", content))
 						} else if text, ok := item["text"].(string); ok {
-							if len(text) > 2000 {
-								text = text[:2000] + "... [TRUNCATED]"
+							if len(text) > 1000 {
+								text = text[:1000] + "... [TRUNCATED]"
 							}
-							basePrompt += fmt.Sprintf("- %s\n", text)
+							sb.WriteString(fmt.Sprintf("- %s\n", text))
 						}
 					} else if str, ok := res.(string); ok {
-						basePrompt += fmt.Sprintf("- %s\n", str)
+						sb.WriteString("- " + str + "\n")
 					}
 				}
-				basePrompt += "\nUse this professional/personal background ONLY to inform your tone or if specifically asked about the user. Do NOT summarize this profile unless requested."
+				sb.WriteString("\nUse this background ONLY to inform your tone. Do NOT summarize this profile unless requested.")
 			}
 		}
 	}
@@ -1084,32 +1063,29 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 			var items []interface{}
 			if i, ok := toolResult["results"].([]interface{}); ok {
 				items = i
-			} else if i, ok := toolResult["results"].([]map[string]interface{}); ok {
-				for _, item := range i {
-					items = append(items, item)
-				}
 			}
 
 			if len(items) > 0 {
-				basePrompt += "\n\nRetrieved News/Knowledge (AgiWiki):\n"
-				for _, res := range items {
+				sb.WriteString("\n\nRetrieved News/Knowledge (AgiWiki):\n")
+				for i, res := range items {
+					if i >= 5 {
+						break
+					} // Max 5 wiki articles in context
 					if item, ok := res.(map[string]interface{}); ok {
 						if content, ok := item["content"].(string); ok {
-							if len(content) > 3000 {
-								content = content[:3000] + "... [TRUNCATED]"
+							if len(content) > 2500 {
+								content = content[:2500] + "... [TRUNCATED]"
 							}
-							basePrompt += fmt.Sprintf("--- ARTICLE ---\n%s\n", content)
+							sb.WriteString(fmt.Sprintf("--- ARTICLE %d ---\n%s\n", i+1, content))
 						} else if text, ok := item["text"].(string); ok {
-							if len(text) > 3000 {
-								text = text[:3000] + "... [TRUNCATED]"
+							if len(text) > 2500 {
+								text = text[:2500] + "... [TRUNCATED]"
 							}
-							basePrompt += fmt.Sprintf("--- ARTICLE ---\n%s\n", text)
+							sb.WriteString(fmt.Sprintf("--- ARTICLE %d ---\n%s\n", i+1, text))
 						}
-					} else if str, ok := res.(string); ok {
-						basePrompt += fmt.Sprintf("--- ARTICLE ---\n%s\n", str)
 					}
 				}
-				basePrompt += "\nUse this information to provide the latest news or factual details requested by the user."
+				sb.WriteString("\nUse this information to provide the latest news or factual details requested by the user.")
 			}
 		}
 	}
@@ -1117,35 +1093,31 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 	// 4. Add news context if available separately
 	if newsData, ok := req.Context["news_context"].(*InterpretResult); ok && newsData != nil {
 		if toolResult, ok := newsData.Metadata["tool_result"].(map[string]interface{}); ok {
-			var items []interface{}
-			if i, ok := toolResult["results"].([]interface{}); ok {
-				items = i
-			}
-
-			if len(items) > 0 {
-				basePrompt += "\n\nRecent News & Wikipedia Context:\n"
-				for _, res := range items {
+			if items, ok := toolResult["results"].([]interface{}); ok && len(items) > 0 {
+				sb.WriteString("\n\nRecent News & Wikipedia Context:\n")
+				for i, res := range items {
+					if i >= 8 {
+						break
+					} // Max 8 news snippets
 					if item, ok := res.(map[string]interface{}); ok {
 						if snippet, ok := item["snippet"].(string); ok {
-							if len(snippet) > 1000 {
-								snippet = snippet[:1000] + "... [TRUNCATED]"
+							if len(snippet) > 800 {
+								snippet = snippet[:800] + "... [TRUNCATED]"
 							}
-							basePrompt += fmt.Sprintf("- %s\n", snippet)
+							sb.WriteString("- " + snippet + "\n")
 						} else if content, ok := item["content"].(string); ok {
-							if len(content) > 1000 {
-								content = content[:1000] + "... [TRUNCATED]"
+							if len(content) > 800 {
+								content = content[:800] + "... [TRUNCATED]"
 							}
-							basePrompt += fmt.Sprintf("- %s\n", content)
+							sb.WriteString("- " + content + "\n")
 						}
-					} else if str, ok := res.(string); ok {
-						basePrompt += fmt.Sprintf("- %s\n", str)
 					}
 				}
 			}
 		}
 	}
 
-	return basePrompt
+	return sb.String()
 }
 
 // Summarizing functions removed (consolidated in hdn/utils)

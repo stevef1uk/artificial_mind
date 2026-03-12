@@ -73,7 +73,16 @@ func (rw *ResponseWrapper) WriteHeader(code int) {
 }
 
 func (rw *ResponseWrapper) Write(data []byte) (int, error) {
-	rw.body = append(rw.body, data...)
+	// Only capture up to 10MB for logging/analysis to prevent OOM
+	maxCapture := 10 * 1024 * 1024
+	if len(rw.body) < maxCapture {
+		remaining := maxCapture - len(rw.body)
+		if len(data) > remaining {
+			rw.body = append(rw.body, data[:remaining]...)
+		} else {
+			rw.body = append(rw.body, data...)
+		}
+	}
 	return rw.ResponseWriter.Write(data)
 }
 
@@ -97,13 +106,17 @@ func (s *APIServer) logToolCallResult(ctx context.Context, toolCallLog *ToolCall
 		}
 	}
 
-	// Try to parse response as JSON for logging
+	// Try to parse response as JSON for logging, but with strict size limits
 	if len(wrapper.body) > 0 {
-		var responseData interface{}
-		if err := json.Unmarshal(wrapper.body, &responseData); err == nil {
-			toolCallLog.Response = responseData
+		if len(wrapper.body) > 50000 { // 50KB limit for logging
+			toolCallLog.Response = string(wrapper.body[:50000]) + "... [TRUNCATED FOR LOGGING]"
 		} else {
-			toolCallLog.Response = string(wrapper.body)
+			var responseData interface{}
+			if err := json.Unmarshal(wrapper.body, &responseData); err == nil {
+				toolCallLog.Response = responseData
+			} else {
+				toolCallLog.Response = string(wrapper.body)
+			}
 		}
 	}
 
@@ -1214,12 +1227,17 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			}
 			defer resp.Body.Close()
 
-			// Read full response body once
-			respBytes, err := io.ReadAll(resp.Body)
+			// Read full response body once, with a safety limit (20MB)
+			maxSize := int64(20 * 1024 * 1024)
+			respBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxSize))
 			if err != nil {
 				w.WriteHeader(http.StatusBadGateway)
 				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "failed to read MCP proxy response: " + err.Error()})
 				return
+			}
+
+			if int64(len(respBytes)) >= maxSize {
+				log.Printf("⚠️ [MCP-PROXY] Response for %s exceeded size limit (20MB) and was truncated", id)
 			}
 
 			// Try to parse as JSON to validate; if it isn't JSON, wrap as {"output": "..."}

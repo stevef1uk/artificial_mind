@@ -824,11 +824,16 @@ func (s *MCPKnowledgeServer) scrapeWithConfig(ctx context.Context, url, instruct
 			Error       string                 `json:"error,omitempty"`
 			CompletedAt *time.Time             `json:"completed_at,omitempty"`
 		}
-		if err := json.NewDecoder(jobResp.Body).Decode(&job); err != nil {
-			jobResp.Body.Close()
+		// Read with limit to prevent OOM
+		jobData, err := io.ReadAll(io.LimitReader(jobResp.Body, 10*1024*1024))
+		jobResp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read job status: %v", err)
+		}
+
+		if err := json.Unmarshal(jobData, &job); err != nil {
 			return nil, fmt.Errorf("failed to decode job status: %v", err)
 		}
-		jobResp.Body.Close()
 
 		switch job.Status {
 		case "completed":

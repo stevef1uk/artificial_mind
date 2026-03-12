@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -201,7 +202,17 @@ func (cs *ConversationSummarizer) GetRelevantSummaries(ctx context.Context, sess
 		return []string{}, nil
 	}
 
-	// Get all summaries for this session
+	// Sort keys by timestamp (last part of key) in reverse order to get latest first
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i] > keys[j]
+	})
+
+	// Limit to latest 10 summaries
+	if len(keys) > 10 {
+		keys = keys[:10]
+	}
+
+	// Get summaries
 	summaries := make([]string, 0, len(keys))
 	for _, key := range keys {
 		summary, err := cs.redis.Get(ctx, key).Result()
@@ -212,6 +223,6 @@ func (cs *ConversationSummarizer) GetRelevantSummaries(ctx context.Context, sess
 		summaries = append(summaries, summary)
 	}
 
-	log.Printf("📚 [SUMMARIZER] Retrieved %d summaries for session %s", len(summaries), sessionID)
+	log.Printf("📚 [SUMMARIZER] Retrieved %d latest summaries for session %s (from %d available)", len(summaries), sessionID, len(keys))
 	return summaries, nil
 }

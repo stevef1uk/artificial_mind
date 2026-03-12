@@ -2,7 +2,6 @@ package conversational
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"runtime/debug"
@@ -315,14 +314,11 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		"error":       result.Error,
 	})
 
-	// EXTRA DEBUG: Log result size
+	// EXTRA DEBUG: Log result summary (safe)
 	if result != nil && result.Data != nil {
 		if resVal, ok := result.Data["result"]; ok {
-			resJSON, _ := json.Marshal(resVal)
-			log.Printf("📊 [CONVERSATIONAL] [%s] Action result data size: %d bytes", req.SessionID, len(resJSON))
-			if len(resJSON) > 100000 {
-				log.Printf("⚠️ [CONVERSATIONAL] [%s] VERY LARGE RESULT detected: %d bytes", req.SessionID, len(resJSON))
-			}
+			summary := utils.SafeResultSummary(resVal, 500)
+			log.Printf("📊 [CONVERSATIONAL] [%s] Action result summary: %s", req.SessionID, summary)
 		}
 	}
 
