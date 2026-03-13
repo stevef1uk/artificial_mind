@@ -110,10 +110,10 @@ func Set_mcp_research_agent_hints() {
 
 func Set_tool_generate_image_hints() {
 	SetPromptHints("tool_generate_image", &PromptHintsConfig{
-		Keywords:      []string{"generate image", "create image", "draw", "generate an image", "create an image", "make an image"},
-		PromptText:    "🎨 FOR IMAGE GENERATION: Use tool_generate_image with the 'prompt' parameter to create images. The image will be displayed on the Whisplay screen.",
+		Keywords:      []string{"generate image", "create image", "draw", "generate an image", "create an image", "make an image", "generate me", "show me an image"},
+		PromptText:    "🎨 FOR IMAGE GENERATION: You MUST use tool_generate_image with the 'prompt' parameter for any request to generate, create, or show an image. Do NOT explain that you are doing it, just call the tool.",
 		ForceToolCall: true,
-		AlwaysInclude: []string{"generate image", "create image", "draw"},
+		AlwaysInclude: []string{"generate", "image", "draw"},
 		RejectText:    true,
 	})
 }

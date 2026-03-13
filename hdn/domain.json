@@ -1,6 +1,14 @@
 {
   "methods": [
     {
+      "task": "GenerateAnImage",
+      "preconditions": [],
+      "subtasks": [
+        "tool_generate_image"
+      ],
+      "task_type": "method"
+    },
+    {
       "task": "RespondToQuery",
       "preconditions": [],
       "subtasks": [
@@ -26,6 +34,14 @@
     }
   ],
   "actions": [
+    {
+      "task": "tool_generate_image",
+      "preconditions": [],
+      "effects": [
+        "image_generated"
+      ],
+      "task_type": "primitive"
+    },
     {
       "task": "GenerateResponse",
       "preconditions": [],
