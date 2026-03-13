@@ -251,6 +251,14 @@ graph TB
   - **Automatic Throttling**: Self-regulating system prevents overload
   - **Observability**: Real-time queue statistics via API and UI
 
+### 🎨 **Whisplay Integration**
+- **Purpose**: Real-time image generation and hardware display on Raspberry Pi
+- **Functions**:
+  - `tool_generate_image`: Dual-mode tool that handles AI image generation and remote projection
+  - **Remote Execution**: Uses SSH to deploy and execute proxy scripts on physical RPi hardware
+  - **UI Integration**: Communicates via network sockets with existing `chatbot-ui.py` services
+  - **Interactive Loops**: Listens for physical hardware interrupts (buttons) to drive conversational state
+
 ## Key Features
 
 ### ✅ **Safety & Security**

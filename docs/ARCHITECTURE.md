@@ -164,6 +164,27 @@ graph TB
 - **Daily Summary Pipeline**: Nightly FSM-triggered HDN execution that generates and persists daily summaries, exposed through dedicated Monitor API endpoints and UI panel.
 - **Cross-System Consistency Checking**: Global coherence monitor that detects inconsistencies across FSM, HDN, and Self-Model systems, generating self-reflection tasks to resolve contradictions, policy conflicts, goal drift, and behavior loops (see Coherence Monitor section below).
 - **Agentic AI System** (Feb 2026): YAML-configured autonomous agents with scheduled execution, tool integration (MCP, n8n, HDN tools), execution history tracking, and Telegram notifications. Agents can monitor services, check websites, and perform automated tasks autonomously (see Agentic AI section below).
+- **Whisplay Hardware Integration** (Mar 2026): Real-time image generation and display on physical Raspberry Pi hardware. Integrates with existing RPi Go chatbot services via network sockets and SSH, supporting SPI display output and physical button interrupts.
+
+## 🧩 Core Components
+
+### Whisplay Hardware Integration
+
+The system includes a specialized capability for interacting with physical Raspberry Pi hardware, specifically the **Whisplay** (a Pi-based smart display).
+
+**Architecture Components:**
+
+- **Tool Support** (`hdn/tools.go`):
+  - `tool_generate_image`: A dual-mode tool that generates images via AI and projects them to a remote RPi.
+  - Supports SSH-based remote execution on the target RPi.
+  - Dynamically packages and sends a Python "proxy script" to the RPi.
+- **RPi Integration Layer**:
+  - **Network Socket Communication**: The proxy script communicates with the already-running `chatbot-ui.py` on the RPi via port `12345`.
+  - **Socket protocol**: Sends JSON commands like `{"image": "/tmp/img.png"}`.
+  - **Event Feedback**: Listens for physical button events (`button_pressed`) from the UI to signal task completion.
+- **Deployment via k3s**:
+  - The HDN server on k3s identifies the target RPi via `RPI_HOST` and `RPI_USER` environment variables.
+  - Uses Kubernetes Secrets (`ssh-keys`) for seamless passwordless SSH access to the hardware.
 
 ## 🧩 Core Components
 

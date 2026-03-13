@@ -346,6 +346,14 @@ HDN_NATS_URL=nats://localhost:4222
 HDN_PRINCIPLES_URL=http://localhost:8080
 HDN_LLM_PROVIDER=openai
 HDN_OPENAI_API_KEY=your-key-here
+
+# Whisplay (Raspberry Pi) Integration
+# The target Raspberry Pi host for image display
+RPI_HOST=192.168.1.60
+# The SSH user for the target RPi
+RPI_USER=stevef
+# Timeout for hardware operations
+HDN_TOOL_TIMEOUT=300
 ```
 
 #### Configuration File

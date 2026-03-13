@@ -678,6 +678,28 @@ kubectl get secret secure-customer-private -n agi -o jsonpath='{.data.customer_p
 kubectl get secret secure-vendor -n agi -o jsonpath='{.data.token}' | base64 -d | head -c 50
 ```
 
+#### Whisplay (Raspberry Pi 5) Configuration
+
+When deploying the HDN server to interact with the Whisplay hardware (ST7789 display), you must configure the SSH access and host details:
+
+1. **Host Environment Variables**:
+   In `hdn-server-rpi58.yaml`, ensure these are set:
+   - `RPI_HOST`: IP of the RPi 5 (e.g., `192.168.1.60`)
+   - `RPI_USER`: SSH user (e.g., `stevef`)
+
+2. **SSH Secret**:
+   The `ssh-keys` secret must contain the private key authorized on the RPi:
+   ```bash
+   kubectl create secret generic ssh-keys -n agi \
+     --from-file=id_ed25519=$HOME/.ssh/id_ed25519 \
+     --from-file=id_ed25519.pub=$HOME/.ssh/id_ed25519.pub \
+     --from-file=known_hosts=$HOME/.ssh/known_hosts \
+     --dry-run=client -o yaml | kubectl apply -f -
+   ```
+
+3. **RPi Side Service**:
+   Ensure `chatbot-ui.py` is running on the RPi and listening on port `12345`.
+
 ### Updating Keys
 
 If you need to regenerate keys (e.g., after rebuilding images):

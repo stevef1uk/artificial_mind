@@ -107,6 +107,7 @@ graph TB
 ## Tools Overview
 
 - Tools are registered in the HDN Tool Registry (Redis) and executed via the Tool Executor (Docker).
+- **Whisplay Hardware Integration**: Special tool `tool_generate_image` targets physical Raspberry Pi hardware for image projection and button feedback.
 - FSM selects tools; HDN gates via Principles before execution.
 - Events: `agi.tool.*` emitted for discovery, creation, invocation, results, failures.
 - See `Tools.md` for catalog, schemas, and usage examples.
