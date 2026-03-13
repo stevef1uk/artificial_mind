@@ -610,6 +610,22 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 		{ID: "tool_register", Name: "Register Tool", Description: "Register tool metadata", InputSchema: map[string]string{"tool": "json"}, OutputSchema: map[string]string{"ok": "bool"}, Permissions: []string{"registry:write"}, SafetyLevel: "low", CreatedBy: "system"},
 		{ID: "tool_json_parse", Name: "JSON Parse", Description: "Parse JSON", InputSchema: map[string]string{"text": "string"}, OutputSchema: map[string]string{"object": "json"}, Permissions: []string{}, SafetyLevel: "low", CreatedBy: "system"},
 		{ID: "tool_text_search", Name: "Text Search", Description: "Search text", InputSchema: map[string]string{"pattern": "string", "text": "string"}, OutputSchema: map[string]string{"matches": "string[]"}, Permissions: []string{}, SafetyLevel: "low", CreatedBy: "system"},
+		{
+			ID:          "tool_generate_image",
+			Name:        "Generate Image",
+			Description: "Generate an image via AI and display it on the Whisplay screen. The tool will wait until you press the hardware button to dismiss the image.",
+			InputSchema: map[string]string{
+				"prompt": "string",
+			},
+			OutputSchema: map[string]string{
+				"success": "bool",
+				"image":   "string",
+				"seed":    "int",
+			},
+			Permissions: []string{"net:read", "net:write"},
+			SafetyLevel: "medium",
+			CreatedBy:   "system",
+		},
 		// MCP research_agent tool (chat-only)
 		{
 			ID:          "mcp_research_agent",
@@ -983,6 +999,23 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 		combined["drone_submission"] = droneResp
 		log.Printf("🔧 [SSH-TOOL] Returning combined results: %+v", combined)
 		_ = json.NewEncoder(w).Encode(combined)
+		return
+	case "tool_generate_image":
+		log.Printf("[HDN] Generating image for prompt: %s", params["prompt"])
+		prompt, _ := getString(params, "prompt")
+		if strings.TrimSpace(prompt) == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "prompt required"})
+			return
+		}
+
+		res, err := s.generateImageInternal(ctx, prompt)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(res)
 		return
 	default:
 		// Handle wiki bootstrapper by running host binary if present
@@ -2386,4 +2419,91 @@ func (s *APIServer) generateDroneCommands(code, language string) []string {
 			"sh code",
 		}
 	}
+}
+
+// generateImageInternal handles the image generation and display logic via SSH on RPI host
+func (s *APIServer) generateImageInternal(ctx context.Context, prompt string) (interface{}, error) {
+	pyCode := `
+import json, base64, socket, urllib.request, os, time
+
+def main():
+    prompt = os.environ.get("PROMPT", "")
+    api_url = "http://192.168.1.60:8806/generate"
+    try:
+        # 1. Generate Image
+        req_data = json.dumps({"prompt": prompt, "return_base64": True}).encode("utf-8")
+        req = urllib.request.Request(api_url, data=req_data, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            resp_data = json.loads(resp.read().decode("utf-8"))
+        
+        img_base64 = resp_data["image_base64"]
+        seed = resp_data.get("seed", 0)
+        
+        # 2. Save Image
+        img_path = "/tmp/generated_image.png"
+        with open(img_path, "wb") as f:
+            f.write(base64.b64decode(img_base64))
+        
+        # 3. Display and Wait
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(600) # 10 minutes timeout for waiting
+        try:
+            client.connect(("localhost", 12345))
+            # Send display command
+            client.sendall((json.dumps({"image": img_path}) + "\n").encode("utf-8"))
+            
+            # Wait for button pressed event
+            # Use makefile for easy line reading
+            f = client.makefile()
+            while True:
+                line = f.readline()
+                if not line: break
+                try:
+                    event = json.loads(line)
+                    if event.get("event") == "button_pressed":
+                        break
+                except:
+                    continue
+            
+            # Clear image
+            client.sendall((json.dumps({"image": ""}) + "\n").encode("utf-8"))
+        finally:
+            client.close()
+        
+        # 4. Return result
+        print(json.dumps({
+            "success": True, 
+            "image": img_path, 
+            "seed": seed
+        }))
+        
+    except Exception as e:
+        import traceback
+        print(json.dumps({
+            "success": False, 
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }))
+
+if __name__ == "__main__":
+    main()
+`
+	// Exec via SSH fallback (runs on RPI host where Whisplay Hat is)
+	res, err := s.fallbackSSHExecution(pyCode, "python", "", map[string]string{"PROMPT": prompt})
+	if err != nil {
+		return nil, err
+	}
+
+	outStr, ok := res["output"].(string)
+	if !ok || outStr == "" {
+		return nil, fmt.Errorf("empty output from generation script")
+	}
+
+	// Try to parse the script's JSON output
+	var scriptRes map[string]interface{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(outStr)), &scriptRes); err != nil {
+		return res, nil
+	}
+
+	return scriptRes, nil
 }

@@ -152,6 +152,10 @@ func (s *APIServer) executeToolDirect(ctx context.Context, toolID string, params
 		matches := re.FindAllString(text, -1)
 		return map[string]interface{}{"matches": matches, "count": len(matches)}, nil
 
+	case "tool_generate_image":
+		prompt, _ := getString(params, "prompt")
+		return s.generateImageInternal(ctx, prompt)
+
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolID)
 	}
