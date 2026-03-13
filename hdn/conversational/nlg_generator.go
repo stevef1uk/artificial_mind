@@ -1009,19 +1009,36 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 	var sb strings.Builder
 	sb.WriteString(basePrompt)
 
-	// 1. Add conversation summaries if available for continuity
-	if summaries, ok := req.Context["conversation_summaries"].([]string); ok && len(summaries) > 0 {
-		sb.WriteString("\n\nBACKGROUND: Relevant Past Conversation Context (Summarized):\n")
-		for _, summary := range summaries {
-			if len(summary) > 2000 {
-				summary = summary[:2000] + "... [TRUNCATED]"
+	// Start Consolidated Personal Context Section
+	sb.WriteString("\n\nRetrieved Personal Context:\n")
+	hasPersonalContext := false
+
+	// 1. Add conversation summaries for long-term memory
+	if summariesValue, ok := req.Context["conversation_summaries"]; ok {
+		var summaries []string
+		if s, ok := summariesValue.([]string); ok {
+			summaries = s
+		} else if i, ok := summariesValue.([]interface{}); ok {
+			for _, item := range i {
+				if str, ok := item.(string); ok {
+					summaries = append(summaries, str)
+				}
 			}
-			sb.WriteString(fmt.Sprintf("--- SUMMARY ---\n%s\n", summary))
 		}
-		sb.WriteString("\nUse these summaries ONLY for continuity. Do NOT repeat them unless relevant to the current request.")
+
+		if len(summaries) > 0 {
+			hasPersonalContext = true
+			sb.WriteString("### Past Conversation Summaries:\n")
+			for _, summary := range summaries {
+				if len(summary) > 2000 {
+					summary = summary[:2000] + "... [TRUNCATED]"
+				}
+				sb.WriteString(fmt.Sprintf("- %s\n", summary))
+			}
+		}
 	}
 
-	// 2. Add avatar context (personal info) if available
+	// 2. Add avatar context (personal info/bio)
 	if avatarData, ok := req.Context["avatar_context"].(*InterpretResult); ok && avatarData != nil {
 		if toolResult, ok := avatarData.Metadata["tool_result"].(map[string]interface{}); ok {
 			var items []interface{}
@@ -1034,30 +1051,45 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 			}
 
 			if len(items) > 0 {
-				sb.WriteString("\n\nBACKGROUND: User Profile Context (About Steven Fisher / User):\n")
+				hasPersonalContext = true
+				sb.WriteString("\n### Verified Facts About User:\n")
 				for _, res := range items {
 					if item, ok := res.(map[string]interface{}); ok {
 						if content, ok := item["content"].(string); ok {
-							if len(content) > 1000 {
-								content = content[:1000] + "... [TRUNCATED]"
-							}
 							sb.WriteString(fmt.Sprintf("- %s\n", content))
 						} else if text, ok := item["text"].(string); ok {
-							if len(text) > 1000 {
-								text = text[:1000] + "... [TRUNCATED]"
-							}
 							sb.WriteString(fmt.Sprintf("- %s\n", text))
+						} else {
+							sb.WriteString("- " + utils.SafeResultSummary(item, 1000) + "\n")
 						}
 					} else if str, ok := res.(string); ok {
 						sb.WriteString("- " + str + "\n")
 					}
 				}
-				sb.WriteString("\nUse this background ONLY to inform your tone. Do NOT summarize this profile unless requested.")
 			}
 		}
 	}
 
-	// 3. Add wiki/news context if available
+	// 3. Add immediate session history
+	if history, ok := req.Context["conversation_history"].([]ConversationEntry); ok && len(history) > 0 {
+		hasPersonalContext = true
+		sb.WriteString("\n### Recent Session History (Last 10 turns):\n")
+		start := 0
+		if len(history) > 10 {
+			start = len(history) - 10
+		}
+		for i := start; i < len(history); i++ {
+			entry := history[i]
+			sb.WriteString(fmt.Sprintf("User: %s\nAI: %s\n", entry.UserMessage, entry.AIResponse))
+		}
+	}
+
+	if !hasPersonalContext {
+		sb.WriteString("No personal context found for this user.\n")
+	}
+	sb.WriteString("\nUse the above personal context to ensure continuity and recall personal facts.\n")
+
+	// 4. Add wiki/news context (General Knowledge, not Personal)
 	if wikiData, ok := req.Context["wiki_context"].(*InterpretResult); ok && wikiData != nil {
 		if toolResult, ok := wikiData.Metadata["tool_result"].(map[string]interface{}); ok {
 			var items []interface{}
@@ -1085,23 +1117,9 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 						}
 					}
 				}
-				sb.WriteString("\nUse this information to provide the latest news or factual details requested by the user.")
+				sb.WriteString("\nUse this information for factual context.")
 			}
 		}
-	}
-
-	// 4. Add recent conversation history (the last 10 turns) for immediate context recall
-	if history, ok := req.Context["conversation_history"].([]ConversationEntry); ok && len(history) > 0 {
-		sb.WriteString("\n\nRECENT CONVERSATION HISTORY (Last 10 turns):\n")
-		start := 0
-		if len(history) > 10 {
-			start = len(history) - 10
-		}
-		for i := start; i < len(history); i++ {
-			entry := history[i]
-			sb.WriteString(fmt.Sprintf("User: %s\nAI: %s\n", entry.UserMessage, entry.AIResponse))
-		}
-		sb.WriteString("\nUse this recent history for continuity and to remember facts shared in this session.\n")
 	}
 
 	// 5. Add news context if available separately

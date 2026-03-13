@@ -65,8 +65,23 @@ func (cl *ConversationalLayer) stripInterpretResultForContext(ir *InterpretResul
 					}
 					summaryResults := make([]interface{}, 0, limit)
 					for i := 0; i < limit; i++ {
-						// For each item, use SafeResultSummary to ensure it's not massive
-						summaryResults = append(summaryResults, utils.SafeResultSummary(results[i], 2000))
+						item := results[i]
+						if m, ok := item.(map[string]interface{}); ok {
+							// Keep map structure but truncate large strings inside it
+							strippedItem := make(map[string]interface{})
+							for k, v := range m {
+								if s, ok := v.(string); ok {
+									strippedItem[k] = utils.TruncateString(s, 2000)
+								} else {
+									// For non-string fields, just keep them if they are simple
+									strippedItem[k] = v
+								}
+							}
+							summaryResults = append(summaryResults, strippedItem)
+						} else {
+							// For non-map items, use safe summary
+							summaryResults = append(summaryResults, utils.SafeResultSummary(item, 2000))
+						}
 					}
 					out["results"] = summaryResults
 				}
