@@ -36,7 +36,17 @@ func SafeResultSummary(v interface{}, limit int) string {
 		}
 		return summarizeMap(m, limit)
 	case []interface{}:
-		return fmt.Sprintf("List with %d items (len=%d)", len(val), len(val))
+		if len(val) == 0 {
+			return "[]"
+		}
+		// Show first item summary
+		first := SafeResultSummary(val[0], limit/5)
+		return fmt.Sprintf("List[%d]: [%s...]", len(val), first)
+	case []string:
+		if len(val) == 0 {
+			return "[]"
+		}
+		return fmt.Sprintf("List[%d]: [%s...]", len(val), TruncateString(val[0], limit/5))
 	default:
 		// Safe fallback for other types to avoid building massive strings with %v
 		return fmt.Sprintf("Object of type %T", v)

@@ -38,7 +38,7 @@ func NewIntentParser(llmClient LLMClientInterface) *IntentParser {
 }
 
 // ParseIntent analyzes user input to determine intent
-func (ip *IntentParser) ParseIntent(ctx context.Context, message string, context map[string]string) (*Intent, error) {
+func (ip *IntentParser) ParseIntent(ctx context.Context, message string, context map[string]interface{}) (*Intent, error) {
 	log.Printf("🧠 [INTENT-PARSER] Analyzing message: %s", message)
 
 	// Step 0: Check for hardcoded Task Overrides (higher priority for actions)
@@ -121,7 +121,7 @@ func (ip *IntentParser) ParseIntent(ctx context.Context, message string, context
 	}
 
 	// Step 2: Classify the type of intent
-	intentType, confidence, err := ip.classifyIntent(ctx, message)
+	intentType, confidence, err := ip.classifyIntent(ctx, message, context)
 	if err != nil {
 		log.Printf("⚠️ [INTENT-PARSER] Intent classification failed, using fallback: %v", err)
 		intentType = "general_conversation"
@@ -129,14 +129,14 @@ func (ip *IntentParser) ParseIntent(ctx context.Context, message string, context
 	}
 
 	// Step 2: Extract entities from the message
-	entities, err := ip.extractEntities(ctx, message, intentType)
+	entities, err := ip.extractEntities(ctx, message, intentType, context)
 	if err != nil {
 		log.Printf("⚠️ [INTENT-PARSER] Entity extraction failed: %v", err)
 		entities = make(map[string]string)
 	}
 
 	// Step 3: Generate goal statement
-	goal, err := ip.generateGoal(ctx, message, intentType, entities)
+	goal, err := ip.generateGoal(ctx, message, intentType, entities, context)
 	if err != nil {
 		log.Printf("⚠️ [INTENT-PARSER] Goal generation failed: %v", err)
 		goal = message // Fallback to original message
@@ -159,7 +159,14 @@ func (ip *IntentParser) ParseIntent(ctx context.Context, message string, context
 }
 
 // classifyIntent uses LLM to classify the intent type
-func (ip *IntentParser) classifyIntent(ctx context.Context, message string) (string, float64, error) {
+func (ip *IntentParser) classifyIntent(ctx context.Context, message string, context map[string]interface{}) (string, float64, error) {
+	// Construct message with history context for better classification
+	history := ip.getHistorySummary(context)
+	classificationText := message
+	if history != "" {
+		classificationText = fmt.Sprintf("%s\n\nCurrent Message: %s", history, message)
+	}
+
 	categories := []string{
 		"query",                // Asking for information
 		"task",                 // Requesting action execution
@@ -173,7 +180,7 @@ func (ip *IntentParser) classifyIntent(ctx context.Context, message string) (str
 	}
 
 	// Use LLM for classification
-	intentType, confidence, err := ip.llmClient.ClassifyText(ctx, message, categories)
+	intentType, confidence, err := ip.llmClient.ClassifyText(ctx, classificationText, categories)
 	if err != nil {
 		// Fallback to rule-based classification
 		return ip.ruleBasedClassification(message), 0.6, nil
@@ -305,7 +312,14 @@ func (ip *IntentParser) ruleBasedClassification(message string) string {
 }
 
 // extractEntities extracts relevant entities from the message
-func (ip *IntentParser) extractEntities(ctx context.Context, message string, intentType string) (map[string]string, error) {
+func (ip *IntentParser) extractEntities(ctx context.Context, message string, intentType string, context map[string]interface{}) (map[string]string, error) {
+	// Construct message with history context for better extraction
+	history := ip.getHistorySummary(context)
+	extractionText := message
+	if history != "" {
+		extractionText = fmt.Sprintf("%s\n\nCurrent Message: %s", history, message)
+	}
+
 	entityTypes := []string{
 		"query",       // The actual question or query
 		"topic",       // The subject matter
@@ -319,7 +333,7 @@ func (ip *IntentParser) extractEntities(ctx context.Context, message string, int
 	}
 
 	// Use LLM for entity extraction
-	entities, err := ip.llmClient.ExtractEntities(ctx, message, entityTypes)
+	entities, err := ip.llmClient.ExtractEntities(ctx, extractionText, entityTypes)
 	if err != nil {
 		// Fallback to rule-based extraction
 		return ip.ruleBasedEntityExtraction(message, intentType), nil
@@ -374,10 +388,15 @@ func (ip *IntentParser) ruleBasedEntityExtraction(message string, intentType str
 }
 
 // generateGoal creates a clear goal statement from the intent
-func (ip *IntentParser) generateGoal(ctx context.Context, message string, intentType string, entities map[string]string) (string, error) {
+func (ip *IntentParser) generateGoal(ctx context.Context, message string, intentType string, entities map[string]string, context map[string]interface{}) (string, error) {
+	// Get history for context-aware goal generation
+	history := ip.getHistorySummary(context)
+
 	// Create a prompt for goal generation
 	prompt := fmt.Sprintf(`
 Based on the user's message and intent, generate a clear, actionable goal statement.
+
+%s
 
 User Message: "%s"
 Intent Type: %s
@@ -385,8 +404,9 @@ Entities: %s
 
 Generate a goal statement that clearly describes what the AI should accomplish.
 The goal should be specific, measurable, and actionable.
+If the message refers to things from the history (e.g., "do it", "more", "why"), resolve the references using the history.
 
-Goal:`, message, intentType, fmt.Sprintf("%v", entities))
+Goal:`, history, message, intentType, fmt.Sprintf("%v", entities))
 
 	// Use LLM to generate goal
 	goal, err := ip.llmClient.GenerateResponse(ctx, prompt, 100)
@@ -537,4 +557,21 @@ func (ip *IntentParser) applyRuleBasedRefinements(message string, intentType str
 	}
 
 	return intentType, confidence
+}
+
+func (ip *IntentParser) getHistorySummary(context map[string]interface{}) string {
+	if history, ok := context["conversation_history"].([]ConversationEntry); ok && len(history) > 0 {
+		var sb strings.Builder
+		sb.WriteString("RECENT CONVERSATION HISTORY:\n")
+		start := 0
+		if len(history) > 5 {
+			start = len(history) - 5
+		}
+		for i := start; i < len(history); i++ {
+			entry := history[i]
+			sb.WriteString(fmt.Sprintf("User: %s\nAI: %s\n", entry.UserMessage, entry.AIResponse))
+		}
+		return sb.String()
+	}
+	return ""
 }

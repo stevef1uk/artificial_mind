@@ -147,20 +147,7 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 	// Start reasoning trace
 	cl.reasoningTrace.StartTrace(req.SessionID)
 
-	// Step 1: Parse intent and determine what the user wants
-	intent, err := cl.intentParser.ParseIntent(ctx, req.Message, req.Context)
-	if err != nil {
-		return cl.handleError("Failed to parse intent", err, req.SessionID)
-	}
-
-	cl.reasoningTrace.AddStep(req.SessionID, "intent_parsing", fmt.Sprintf("Parsed user intent: %s (confidence: %.2f)", intent.Type, intent.Confidence), map[string]interface{}{
-		"intent_type": intent.Type,
-		"confidence":  intent.Confidence,
-		"entities":    intent.Entities,
-		"goal":        intent.Goal,
-	})
-
-	// Step 2: Load conversation context
+	// Step 1: Load conversation context (moved before intent parsing for better context-aware analysis)
 	conversationContext, err := cl.conversationMemory.GetContext(ctx, req.SessionID)
 	if err != nil {
 		log.Printf("⚠️ [CONVERSATIONAL] Failed to load conversation context: %v", err)
@@ -190,6 +177,19 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 
 	cl.reasoningTrace.AddStep(req.SessionID, "context_loading", "Loaded conversation context", map[string]interface{}{
 		"context_keys": len(conversationContext),
+	})
+
+	// Step 2: Parse intent and determine what the user wants (now has access to conversationContext)
+	intent, err := cl.intentParser.ParseIntent(ctx, req.Message, conversationContext)
+	if err != nil {
+		return cl.handleError("Failed to parse intent", err, req.SessionID)
+	}
+
+	cl.reasoningTrace.AddStep(req.SessionID, "intent_parsing", fmt.Sprintf("Parsed user intent: %s (confidence: %.2f)", intent.Type, intent.Confidence), map[string]interface{}{
+		"intent_type": intent.Type,
+		"confidence":  intent.Confidence,
+		"entities":    intent.Entities,
+		"goal":        intent.Goal,
 	})
 
 	// Step 2b: Load relevant conversation summaries and personal context (RAG)
@@ -572,7 +572,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		// Skip definitely-too-large keys that HDN interpreter doesn't need for tool selection.
 		// Avoid passing structured objects like InterpretResult which serialize to massive strings.
 		if k == "conversation_history" || k == "last_result" || k == "reasoning_trace" ||
-			k == "avatar_context" || k == "wiki_context" || k == "news_context" || k == "conversation_summaries" {
+			k == "avatar_context" || k == "wiki_context" || k == "news_context" {
 			continue
 		}
 
@@ -595,8 +595,35 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			}
 		}
 
+		// Explicitly handle conversation_summaries (often []string) to preserve content
+		if k == "conversation_summaries" {
+			if summaries, ok := v.([]string); ok {
+				hdnContext[k] = utils.TruncateString(strings.Join(summaries, "\n\n"), 5000)
+				continue
+			}
+		}
+
 		// Use SafeResultSummary to prevent OOM during string conversion
 		hdnContext[k] = utils.SafeResultSummary(v, 5000)
+	}
+
+	// Add a concise summary of recent conversation history for tool selection context
+	if history, ok := context["conversation_history"].([]ConversationEntry); ok && len(history) > 0 {
+		var sb strings.Builder
+		sb.WriteString("Recent context: ")
+		start := 0
+		if len(history) > 5 {
+			start = len(history) - 5
+		}
+		for i := start; i < len(history); i++ {
+			entry := history[i]
+			aiResp := entry.AIResponse
+			if len(aiResp) > 150 {
+				aiResp = aiResp[:147] + "..."
+			}
+			sb.WriteString(fmt.Sprintf("User:%s -> AI:%s; ", entry.UserMessage, aiResp))
+		}
+		hdnContext["conversation_history_summary"] = sb.String()
 	}
 
 	// Add action parameters to context

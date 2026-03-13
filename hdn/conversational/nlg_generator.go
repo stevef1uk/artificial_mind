@@ -1090,7 +1090,21 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 		}
 	}
 
-	// 4. Add news context if available separately
+	// 4. Add recent conversation history (the last 10 turns) for immediate context recall
+	if history, ok := req.Context["conversation_history"].([]ConversationEntry); ok && len(history) > 0 {
+		sb.WriteString("\n\nRECENT CONVERSATION HISTORY (Last 10 turns):\n")
+		start := 0
+		if len(history) > 10 {
+			start = len(history) - 10
+		}
+		for i := start; i < len(history); i++ {
+			entry := history[i]
+			sb.WriteString(fmt.Sprintf("User: %s\nAI: %s\n", entry.UserMessage, entry.AIResponse))
+		}
+		sb.WriteString("\nUse this recent history for continuity and to remember facts shared in this session.\n")
+	}
+
+	// 5. Add news context if available separately
 	if newsData, ok := req.Context["news_context"].(*InterpretResult); ok && newsData != nil {
 		if toolResult, ok := newsData.Metadata["tool_result"].(map[string]interface{}); ok {
 			if items, ok := toolResult["results"].([]interface{}); ok && len(items) > 0 {
