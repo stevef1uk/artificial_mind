@@ -273,8 +273,15 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 		if terr == nil && len(tools) > 0 {
 			valid := false
 			for _, t := range tools {
-				if strings.TrimSpace(strings.ToLower(t.ID)) == strings.TrimSpace(strings.ToLower(result.ToolCall.ToolID)) {
+				target := strings.TrimSpace(strings.ToLower(t.ID))
+				requested := strings.TrimSpace(strings.ToLower(result.ToolCall.ToolID))
+				if target == requested ||
+					"mcp_"+target == requested ||
+					target == "mcp_"+requested ||
+					strings.TrimPrefix(target, "mcp_") == strings.TrimPrefix(requested, "mcp_") {
 					valid = true
+					// IMPORTANT: Update the requested tool ID to match the actual target tool ID
+					result.ToolCall.ToolID = t.ID
 					break
 				}
 			}
