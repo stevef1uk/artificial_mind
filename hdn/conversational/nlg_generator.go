@@ -1038,6 +1038,20 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 		return basePrompt
 	}
 
+	// PERFORMANCE & ANTI-HALLUCINATION: Skip personal context injection for simple greetings.
+	// This prevents the AI from summarizing the user's entire life story just because they said "hello".
+	isGreeting := false
+	if g, ok := req.Context["is_greeting"].(bool); ok && g {
+		isGreeting = true
+	}
+
+	// Force context skip for common greetings or if explicitly flagged
+	lowerMsg := strings.ToLower(strings.TrimSpace(req.UserMessage))
+	if isGreeting || lowerMsg == "hello" || lowerMsg == "hi" || lowerMsg == "hey" || lowerMsg == "yo" {
+		log.Printf("ℹ️ [NLG] Skipping memory context for greeting '%s'", req.UserMessage)
+		return basePrompt
+	}
+
 	var sb strings.Builder
 	sb.WriteString(basePrompt)
 

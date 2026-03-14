@@ -221,14 +221,15 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 	var intent *Intent
 	if isGreeting {
 		log.Printf("ℹ️ [CONVERSATIONAL] Greeting detected ('%s') - using pre-defined intent and skipping RAG", req.Message)
-		intent = &Intent{Type: "general_conversation", Goal: "Respond to greeting", Confidence: 1.0}
+		intent = &Intent{Type: "general_conversation", Goal: "Respond to greeting", Confidence: 1.0, OriginalMessage: req.Message}
+		conversationContext["is_greeting"] = true
 	} else {
 		// Parse intent only for non-greetings to save time and avoid LLM bias
 		var err error
 		intent, err = cl.intentParser.ParseIntent(ctx, req.Message, conversationContext)
 		if err != nil {
 			log.Printf("⚠️ [CONVERSATIONAL] Intent parsing failed, using general_conversation: %v", err)
-			intent = &Intent{Type: "general_conversation", Goal: req.Message, Confidence: 0.5}
+			intent = &Intent{Type: "general_conversation", Goal: req.Message, Confidence: 0.5, OriginalMessage: req.Message}
 		}
 	}
 
@@ -612,11 +613,17 @@ func (cl *ConversationalLayer) determineAction(ctx context.Context, intent *Inte
 		}, nil
 
 	default:
+		isGreeting := false
+		if g, ok := context["is_greeting"].(bool); ok && g {
+			isGreeting = true
+		}
+
 		return &Action{
 			Type: "general_conversation",
 			Goal: "Respond to user in a helpful way",
 			Parameters: map[string]interface{}{
-				"message": intent.OriginalMessage,
+				"message":     intent.OriginalMessage,
+				"is_greeting": isGreeting,
 			},
 		}, nil
 	}
@@ -1229,7 +1236,6 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 	case "personal_update":
 		log.Printf("📥 [CONVERSATIONAL] Processing personal information update")
 		// Use InterpretNaturalLanguage to handle the storage via tool_save_avatar_context
-		// The goal already contains the "Save the following..." instruction
 		interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, action.Goal, hdnContext)
 		if err != nil {
 			return nil, fmt.Errorf("personal update failed: %w", err)
@@ -1251,6 +1257,21 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				"source": "hdn_personal_update",
 			},
 		}, nil
+
+	case "general_conversation":
+		// Check for greeting skip
+		// hdnContext is map[string]string, so we check for "true"
+		if val, ok := hdnContext["is_greeting"]; ok && val == "true" {
+			log.Printf("ℹ️ [CONVERSATIONAL] Skipping interpreter for greeting")
+			return &ActionResult{
+				Type:    "conversation_result",
+				Success: true,
+				Data:    nil, // NLG will handle it directly
+			}, nil
+		}
+
+		// Fall through to default logic for non-greeting general conversation
+		fallthrough
 
 	default:
 		// For general conversation, use HDN's natural language interpretation

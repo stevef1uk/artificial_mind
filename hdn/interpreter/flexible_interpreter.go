@@ -83,36 +83,62 @@ func (f *FlexibleInterpreter) InterpretWithPriority(ctx context.Context, req *Na
 	inputLower := strings.ToLower(req.Input)
 	avatarKeywords := []string{"about me", "who am i", "who i am", "my employer", "my company", "my job", "my avatar", "my profile", "my info", "my information", "my identity", "my personal", "my cats", "my pets"}
 	prioritizeAvatar := false
+	// Detect scrape/news intent to avoid hijacking
+	isScrape := strings.Contains(inputLower, "scrape") || strings.Contains(inputLower, "browse") ||
+		strings.Contains(inputLower, "fetch") || strings.Contains(inputLower, "hacker news") ||
+		strings.Contains(inputLower, "hackernews") || strings.Contains(inputLower, "top 5")
+
 	// Only prioritize if it starts with a question or is a direct query about self
-	if strings.HasPrefix(inputLower, "who am i") || strings.HasPrefix(inputLower, "tell me about myself") {
-		prioritizeAvatar = true
-	} else {
-		for _, kw := range avatarKeywords {
-			if strings.Contains(inputLower, kw) {
-				prioritizeAvatar = true
-				break
+	if !isScrape {
+		if strings.HasPrefix(inputLower, "who am i") || strings.HasPrefix(inputLower, "tell me about myself") {
+			prioritizeAvatar = true
+		} else {
+			for _, kw := range avatarKeywords {
+				if strings.Contains(inputLower, kw) {
+					prioritizeAvatar = true
+					break
+				}
 			}
 		}
 	}
+
+	if isScrape {
+		for _, t := range tools {
+			if strings.Contains(strings.ToLower(t.ID), "smart_scrape") {
+				log.Printf("🦾 [FLEXIBLE-INTERPRETER] Prioritizing smart_scrape tool: %s", t.ID)
+				toolCall := &ToolCall{
+					ToolID:     t.ID,
+					Parameters: map[string]interface{}{"url_or_topic": req.Input, "query": req.Input},
+				}
+				result := &FlexibleInterpretationResult{
+					Success:       true,
+					ResponseType:  ResponseTypeToolCall,
+					Message:       "Detected scrape intent, routing directly to mcp_smart_scrape.",
+					SessionID:     req.SessionID,
+					InterpretedAt: time.Now(),
+					ToolCall:      toolCall,
+				}
+				return result, nil
+			}
+		}
+	}
+
 	if prioritizeAvatar {
 		// Force AvatarContext tool selection
 		for _, t := range tools {
 			if strings.Contains(strings.ToLower(t.ID), "avatar_context") {
 				log.Printf("🦾 [FLEXIBLE-INTERPRETER] Prioritizing AvatarContext tool: %s for user query", t.ID)
-				response := &FlexibleLLMResponse{
-					Type: ResponseTypeToolCall,
-					ToolCall: &ToolCall{
-						ToolID:     t.ID,
-						Parameters: map[string]interface{}{"query": req.Input},
-					},
+				toolCall := &ToolCall{
+					ToolID:     t.ID,
+					Parameters: map[string]interface{}{"query": req.Input},
 				}
 				result := &FlexibleInterpretationResult{
 					Success:       true,
-					ResponseType:  response.Type,
-					Message:       f.getMessageForResponseType(response),
+					ResponseType:  ResponseTypeToolCall,
+					Message:       fmt.Sprintf("Direct personal query detected for keyword. Using %s.", t.ID),
 					SessionID:     req.SessionID,
 					InterpretedAt: time.Now(),
-					ToolCall:      response.ToolCall,
+					ToolCall:      toolCall,
 				}
 				return result, nil
 			}
