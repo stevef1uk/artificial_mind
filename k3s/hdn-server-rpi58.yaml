@@ -187,7 +187,10 @@ spec:
             - name: RPI_HOST
               value: "192.168.1.60"
             - name: RPI_USER
-              value: "stevef"
+              valueFrom:
+                configMapKeyRef:
+                  name: hdn-config
+                  key: USER_NAME
             - name: HDN_TOOL_TIMEOUT
               value: "300"
             - name: HDN_INTERPRET_TIMEOUT
