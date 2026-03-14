@@ -395,19 +395,19 @@ func (nlg *NLGGenerator) buildKnowledgePrompt(req *NLGRequest) string {
 	sb.WriteString("\nGoal: ")
 	sb.WriteString(req.Action.Goal)
 	sb.WriteString("\n\n🚨 CRITICAL RULES:\n")
-	sb.WriteString("1. You MUST use the information provided in the \"Retrieved Information\" and \"Retrieved Personal Context\" sections below, but ONLY if they are relevant to the user's specific question.\n")
-	sb.WriteString("2. DO NOT repeat, echo, or include any of the labels or data from the \"Reasoning Process\" or \"Retrieved Information\" sections in your final response.\n")
+	sb.WriteString("1. You MUST use the information provided in the \"Knowledge/Intelligence Results\" and \"Information from Memory/Bio\" sections below, but ONLY if they are relevant to the user's specific question.\n")
+	sb.WriteString("2. DO NOT repeat, echo, or include any of the labels or data from the \"Reasoning Process\" or \"Knowledge/Intelligence Results\" sections in your final response.\n")
 	sb.WriteString("3. Provide ONLY a clean natural language answer. DO NOT include metadata, and DO NOT digress into unrelated personal facts if they were not asked for.\n")
 	sb.WriteString("4. DO NOT invent, make up, or hallucinate any data that is not explicitly shown in those sections.\n")
-	sb.WriteString("5. If the \"Retrieved Information\" contains email data or list data, present it cleanly and formatted for the user.\n")
-	sb.WriteString("6. If no information is retrieved in either section, say so clearly - do NOT invent fake data.\n")
+	sb.WriteString("5. If the \"Knowledge/Intelligence Results\" contains email data or list data, present it cleanly and formatted for the user.\n")
+	sb.WriteString("6. If information is present in ONE section but not the other, just use what is available. Do NOT mention that the other section was empty.\n")
 	sb.WriteString("7. NEVER provide code, scripts, or commands that could be harmful or destructive.\n")
-	sb.WriteString("8. If the 'Retrieved Personal Context' contains information about Steven Fisher, assume this is the user you are talking to.\n")
+	sb.WriteString("8. If the 'Information from Memory/Bio' contains information about Steven Fisher, assume this is the user you are talking to.\n")
 	sb.WriteString("9. Use a natural, conversational tone. DO NOT start every response with formal disclaimers like \"Based on our previous conversations\" or \"According to retrieved information\".\n")
-	sb.WriteString("10. Stay focused on the CURRENT message. DO NOT volunteer updates about your knowledge gaps (e.g. your missing info on the user's job) unless it is directly relevant.\n")
+	sb.WriteString("10. Stay focused on the CURRENT message. DO NOT volunteer updates about your knowledge gaps or what you 'couldn't find' unless it is absolutely necessary for the answer.\n")
 
 	sb.WriteString("Please provide a clear, informative answer.\n\n")
-	sb.WriteString("IMPORTANT: If both the 'Retrieved Information' and 'Retrieved Personal Context' are empty, use your internal knowledge but add a brief note that no specific real-time updates were found.\n")
+	sb.WriteString("IMPORTANT: If relevant information is found in either the 'Knowledge/Intelligence Results' or 'Information from Memory/Bio' sections, use it to provide a direct answer. Do NOT explain which section the info came from. Just answer the question naturally.\n")
 
 	// Add reasoning trace if available and requested
 	if req.ShowThinking && req.ReasoningTrace != nil {
@@ -432,10 +432,8 @@ func (nlg *NLGGenerator) buildKnowledgePrompt(req *NLGRequest) string {
 			formattedData = formattedData[:50000] + "... [RESULTS TRUNCATED]"
 		}
 
-		prompt += "\n\nRetrieved Information:\n" + formattedData + "\n\n"
-		prompt += "🚨 CRITICAL: You MUST use ONLY the information provided above. DO NOT make up, invent, or hallucinate any data.\n"
-		prompt += "If the \"Retrieved Information\" shows email data formatted as a list, you MUST copy and paste that entire formatted list EXACTLY as it appears.\n"
-		prompt += "If no information is provided, say so clearly - do NOT invent fake emails or data."
+		prompt += "\n\nKnowledge/Intelligence Results:\n" + formattedData + "\n\n"
+		prompt += "🚨 CRITICAL: You MUST use ONLY the information provided in the results above and the memory context sections. DO NOT invent or hallucinate any data.\n"
 	}
 
 	// Final safety truncation
@@ -462,7 +460,7 @@ func (nlg *NLGGenerator) buildTaskPrompt(req *NLGRequest) string {
 	sb.WriteString("1. Provide ONLY the final natural language response to the user.\n")
 	sb.WriteString("2. DO NOT include any labels like \"Goal:\", \"Task:\", \"Result:\", or \"Reasoning:\".\n")
 	sb.WriteString("3. DO NOT include confidence scores or metadata.\n")
-	sb.WriteString("4. DO NOT digress into unrelated personal information or talk about what you don't know (e.g., the user's occupation) unless they explicitly asked.\n")
+	sb.WriteString("4. DO NOT volunteer information about your knowledge gaps or mention what you 'couldn't find' unless it is absolutely necessary for the answer.\n")
 	sb.WriteString("5. Just tell the user what you did and show them the results. Be concise.\n\n")
 
 	sb.WriteString("Please provide a helpful, direct summary of the task results.")
@@ -586,7 +584,7 @@ func (nlg *NLGGenerator) buildConversationPrompt(req *NLGRequest) string {
 	sb.WriteString("\"\n\n🚨 CRITICAL RULES:\n")
 	sb.WriteString("1. Provide a helpful and engaging response.\n")
 	sb.WriteString("2. DO NOT digress into unrelated personal facts from the retrieved context unless they are directly relevant to the user's message.\n")
-	sb.WriteString("3. DO NOT mention that you don't know the user's occupation or other personal details unless specifically asked.\n")
+	sb.WriteString("3. DO NOT volunteer updates about your knowledge gaps or mention what you 'don't know' or 'couldn't find' about the user's personal details unless specifically asked.\n")
 	sb.WriteString("4. If the user asks about something specific (like their cats), answer that and ONLY that.\n\n")
 	sb.WriteString("Please provide your response now.")
 
@@ -1067,7 +1065,7 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 	sb.WriteString(basePrompt)
 
 	// Start Consolidated Personal Context Section
-	sb.WriteString("\n\nRetrieved Personal Context:\n")
+	sb.WriteString("\n\nInformation from Memory/Bio:\n")
 	hasPersonalContext := false
 
 	// 1. Add conversation summaries for long-term memory
