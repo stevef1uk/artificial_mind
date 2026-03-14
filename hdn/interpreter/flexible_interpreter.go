@@ -79,6 +79,41 @@ func (f *FlexibleInterpreter) InterpretWithPriority(ctx context.Context, req *Na
 		log.Printf("✅ [FLEXIBLE-INTERPRETER] Retrieved %d tools for LLM to use", len(tools))
 	}
 
+	// Patch: Always prioritize AvatarContext for user queries about themselves
+	inputLower := strings.ToLower(req.Input)
+	avatarKeywords := []string{"me", "myself", "about me", "who am i", "my employer", "my company", "my job", "my avatar", "my profile", "my info", "my information", "my identity"}
+	prioritizeAvatar := false
+	for _, kw := range avatarKeywords {
+		if strings.Contains(inputLower, kw) {
+			prioritizeAvatar = true
+			break
+		}
+	}
+	if prioritizeAvatar {
+		// Force AvatarContext tool selection
+		for _, t := range tools {
+			if strings.Contains(strings.ToLower(t.ID), "avatar_context") {
+				log.Printf("🦾 [FLEXIBLE-INTERPRETER] Prioritizing AvatarContext tool: %s for user query", t.ID)
+				response := &FlexibleLLMResponse{
+					Type: ResponseTypeToolCall,
+					ToolCall: &ToolCall{
+						ToolID: t.ID,
+						Parameters: map[string]interface{}{"query": req.Input},
+					},
+				}
+				result := &FlexibleInterpretationResult{
+					Success:       true,
+					ResponseType:  response.Type,
+					Message:       f.getMessageForResponseType(response),
+					SessionID:     req.SessionID,
+					InterpretedAt: time.Now(),
+					ToolCall:      response.ToolCall,
+				}
+				return result, nil
+			}
+		}
+		log.Printf("⚠️ [FLEXIBLE-INTERPRETER] AvatarContext tool not found, falling back to LLM processing")
+	}
 	// Process with flexible LLM using priority and original context (e.g., news_context, wiki_context)
 	response, err := f.llmAdapter.ProcessNaturalLanguageWithPriority(req.Input, tools, req.Context, highPriority)
 	if err != nil {

@@ -165,7 +165,7 @@ func (c *Client) DescribeImage(ctx context.Context, apiURL string, base64Image s
 					},
 					{
 						Type: "text",
-						Text: "Describe this image in detail",
+						Text: "Describe this image in two sentences.",
 					},
 				},
 			},
