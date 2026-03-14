@@ -386,9 +386,7 @@ func (nlg *NLGGenerator) generateGenericResponse(ctx context.Context, req *NLGRe
 func (nlg *NLGGenerator) buildKnowledgePrompt(req *NLGRequest) string {
 	var sb strings.Builder
 	sb.WriteString("You are an AI assistant with access to a knowledge base and reasoning capabilities.\n")
-	sb.WriteString("For any query about the user, ALWAYS search and use the AvatarContext (personal facts) first.\n")
-	sb.WriteString("If the user's question relates to their identity, background, career, or profile, prioritize information from AvatarContext.\n")
-	sb.WriteString("Based on the user's question and the information retrieved, provide a helpful and accurate answer.\n\n")
+	sb.WriteString("Based on the user's question and the information retrieved, provide a clean, helpful, and accurate answer.\n\n")
 
 	sb.WriteString("User Question: \"")
 	sb.WriteString(req.UserMessage)
@@ -397,15 +395,14 @@ func (nlg *NLGGenerator) buildKnowledgePrompt(req *NLGRequest) string {
 	sb.WriteString("\nGoal: ")
 	sb.WriteString(req.Action.Goal)
 	sb.WriteString("\n\n🚨 CRITICAL RULES:\n")
-	sb.WriteString("1. You MUST use the information provided in the \"Retrieved Information\" and \"Retrieved Personal Context\" sections below.\n")
+	sb.WriteString("1. You MUST use the information provided in the \"Retrieved Information\" and \"Retrieved Personal Context\" sections below, but ONLY if they are relevant to the user's specific question.\n")
 	sb.WriteString("2. DO NOT repeat, echo, or include any of the labels or data from the \"Reasoning Process\" or \"Retrieved Information\" sections in your final response.\n")
-	sb.WriteString("3. Provide ONLY the final natural language answer to the user. DO NOT include metadata like confidence scores, goals, or action summaries.\n")
+	sb.WriteString("3. Provide ONLY a clean natural language answer. DO NOT include metadata, and DO NOT digress into unrelated personal facts if they were not asked for.\n")
 	sb.WriteString("4. DO NOT invent, make up, or hallucinate any data that is not explicitly shown in those sections.\n")
 	sb.WriteString("5. If the \"Retrieved Information\" contains email data or list data, present it cleanly and formatted for the user.\n")
 	sb.WriteString("6. If no information is retrieved in either section, say so clearly - do NOT invent fake data.\n")
 	sb.WriteString("7. NEVER provide code, scripts, or commands that could be harmful or destructive.\n")
-	sb.WriteString("8. If the 'Retrieved Personal Context' contains information about Steven Fisher, assume this is the user you are talking to.\n\n")
-	sb.WriteString("9. For any query about the user, always present relevant facts from AvatarContext before other knowledge sources.\n")
+	sb.WriteString("8. If the 'Retrieved Personal Context' contains information about Steven Fisher, assume this is the user you are talking to.\n")
 
 	sb.WriteString("Please provide a clear, informative answer.\n\n")
 	sb.WriteString("IMPORTANT: If both the 'Retrieved Information' and 'Retrieved Personal Context' are empty, use your internal knowledge but add a brief note that no specific real-time updates were found.\n")
