@@ -906,6 +906,17 @@ func (h *SimpleChatHDN) SaveEpisode(ctx context.Context, text string, metadata m
 		return fmt.Errorf("knowledge server not available")
 	}
 
+	// Route to AvatarContext if it's a personal fact
+	if metadata != nil && metadata["type"] == "personal_context" {
+		log.Printf("👤 [SIMPLE-CHAT-HDN] Routing personal fact to AvatarContext")
+		args := map[string]interface{}{
+			"content": text,
+			"source":  "conversational_learning",
+		}
+		_, err := h.server.mcpKnowledgeServer.saveAvatarContext(ctx, args)
+		return err
+	}
+
 	args := map[string]interface{}{
 		"text":     text,
 		"metadata": metadata,

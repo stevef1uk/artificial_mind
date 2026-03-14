@@ -778,6 +778,27 @@ func (nlg *NLGGenerator) formatToolResultRecursive(result interface{}, depth int
 	case int, int32, int64, float32, float64, bool:
 		writeSafe(fmt.Sprintf("%v", v))
 
+	case *InterpretResult:
+		if v == nil {
+			return
+		}
+		if v.Interpreted != nil {
+			nlg.formatToolResultRecursive(v.Interpreted, depth+1, sb, budget)
+		} else if v.Metadata != nil {
+			if tr, ok := v.Metadata["tool_result"]; ok {
+				nlg.formatToolResultRecursive(tr, depth+1, sb, budget)
+			}
+		}
+
+	case InterpretResult:
+		if v.Interpreted != nil {
+			nlg.formatToolResultRecursive(v.Interpreted, depth+1, sb, budget)
+		} else if v.Metadata != nil {
+			if tr, ok := v.Metadata["tool_result"]; ok {
+				nlg.formatToolResultRecursive(tr, depth+1, sb, budget)
+			}
+		}
+
 	default:
 		// Try to handle typed slices that are common
 		if items, ok := v.([]map[string]interface{}); ok {
@@ -1042,7 +1063,15 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 	}
 
 	// 2. Add avatar context (personal info/bio)
-	if avatarData, ok := req.Context["avatar_context"].(*InterpretResult); ok && avatarData != nil {
+	rawAvatar := req.Context["avatar_context"]
+	var avatarData *InterpretResult
+	if v, ok := rawAvatar.(*InterpretResult); ok {
+		avatarData = v
+	} else if v, ok := rawAvatar.(InterpretResult); ok {
+		avatarData = &v
+	}
+
+	if avatarData != nil {
 		if toolResult, ok := avatarData.Metadata["tool_result"].(map[string]interface{}); ok {
 			var items []interface{}
 			if i, ok := toolResult["results"].([]interface{}); ok {
@@ -1093,7 +1122,15 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 	sb.WriteString("\nUse the above personal context to ensure continuity and recall personal facts.\n")
 
 	// 4. Add wiki/news context (General Knowledge, not Personal)
-	if wikiData, ok := req.Context["wiki_context"].(*InterpretResult); ok && wikiData != nil {
+	rawWiki := req.Context["wiki_context"]
+	var wikiData *InterpretResult
+	if v, ok := rawWiki.(*InterpretResult); ok {
+		wikiData = v
+	} else if v, ok := rawWiki.(InterpretResult); ok {
+		wikiData = &v
+	}
+
+	if wikiData != nil {
 		if toolResult, ok := wikiData.Metadata["tool_result"].(map[string]interface{}); ok {
 			var items []interface{}
 			if i, ok := toolResult["results"].([]interface{}); ok {
