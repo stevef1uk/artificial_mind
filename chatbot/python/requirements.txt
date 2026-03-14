@@ -1,0 +1,8 @@
+Pillow
+cairosvg
+numpy
+spidev
+opencv-python-headless
+Flask
+requests
+RPi.GPIO

@@ -1,0 +1,14 @@
+[Unit]
+Description=Remote Camera Server for Chatbot
+After=network.target
+
+[Service]
+Type=simple
+User=stevef
+WorkingDirectory=/home/stevef/dev/camera
+ExecStart=/usr/bin/python remote_camera_server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

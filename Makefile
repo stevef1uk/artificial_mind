@@ -38,7 +38,12 @@ FSM_BIN := $(BIN_DIR)/fsm-server
 GOAL_BIN := $(BIN_DIR)/goal-manager
 TELEGRAM_BOT_BIN := $(BIN_DIR)/telegram-bot
 SCRAPER_BIN := $(BIN_DIR)/playwright-scraper
+CHATBOT_DIR := chatbot
+CHATBOT_BIN := $(BIN_DIR)/chatbot
 TOOLS_DIR := tools
+CHATBOT_HOST ?= 192.168.1.60
+CHATBOT_USER ?= stevef
+CHATBOT_REMOTE_PATH ?= ~/dev/chatbot/chatbot
 
 # Go build flags
 GO_BUILD_FLAGS := -ldflags="-s -w" -o
@@ -121,7 +126,7 @@ help-cross:
 
 # Build all components
 .PHONY: build
-build: build-principles build-hdn build-monitor build-fsm build-goal build-telegram-bot build-tools build-scraper-binary build-wiki-bootstrapper build-wiki-summarizer build-news-ingestor build-nats-demos build-nats-test validate-safety
+build: build-principles build-hdn build-monitor build-fsm build-goal build-telegram-bot build-chatbot build-tools build-scraper-binary build-wiki-bootstrapper build-wiki-summarizer build-news-ingestor build-nats-demos build-nats-test validate-safety
 
 # Build NATS demos
 .PHONY: build-nats-demos
@@ -277,6 +282,27 @@ build-telegram-bot:
 	@mkdir -p $(BIN_DIR)
 	@cd $(TELEGRAM_BOT_DIR) && $(GO_ENV) GO111MODULE=on go build $(GO_BUILD_FLAGS) ../$(TELEGRAM_BOT_BIN) .
 	@echo "✅ Telegram Bot built: $(TELEGRAM_BOT_BIN)"
+	
+
+# Build Chatbot
+.PHONY: build-chatbot
+build-chatbot:
+	@echo "🔨 Building Chatbot..."
+	@mkdir -p $(BIN_DIR)
+	@cd $(CHATBOT_DIR) && $(GO_ENV) GO111MODULE=on go build $(GO_BUILD_FLAGS) ../$(CHATBOT_BIN) .
+	@echo "✅ Chatbot built: $(CHATBOT_BIN)"
+
+# Deploy Chatbot
+.PHONY: deploy-chatbot
+deploy-chatbot:
+	@echo "🚀 Building chatbot for ARM64..."
+	$(MAKE) TARGET_ARCH=arm64 build-chatbot
+	@echo "🚀 Deploying chatbot to $(CHATBOT_USER)@$(CHATBOT_HOST)..."
+	ssh -o StrictHostKeyChecking=no $(CHATBOT_USER)@$(CHATBOT_HOST) "sudo systemctl stop go-chatbot"
+	scp $(CHATBOT_BIN) $(CHATBOT_USER)@$(CHATBOT_HOST):$(CHATBOT_REMOTE_PATH)
+	scp -r $(CHATBOT_DIR)/python $(CHATBOT_USER)@$(CHATBOT_HOST):$$(dirname $(CHATBOT_REMOTE_PATH))/
+	ssh -o StrictHostKeyChecking=no $(CHATBOT_USER)@$(CHATBOT_HOST) "sudo systemctl start go-chatbot"
+	@echo "✅ Chatbot deployed and restarted"
 
 
 # Build memory smoke tool (episodic only)

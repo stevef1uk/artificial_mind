@@ -1,0 +1,23 @@
+[Unit]
+Description=RPi Go Chatbot
+# Start after networking is up and sound subsystem is ready
+After=network.target sound.target
+
+[Service]
+Type=simple
+User=stevef
+# Updated path to match the migration
+WorkingDirectory=/home/stevef/dev/chatbot
+# Source the script via bash so run.sh can use 'source' / set -a etc.
+ExecStart=/bin/bash /home/stevef/dev/chatbot/run.sh
+# Restart if the Go binary crashes, but not on a clean exit (e.g. button shutdown)
+Restart=on-failure
+RestartSec=5
+# Give audio hardware time to settle before restarting
+TimeoutStopSec=10
+# Allow access to the display / audio devices
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

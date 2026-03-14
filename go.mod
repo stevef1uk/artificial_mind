@@ -14,6 +14,8 @@ replace agi/fsm => ./fsm
 
 replace principles => ./principles
 
+replace agi/chatbot => ./chatbot
+
 replace async_llm => ./async_llm
 
 require (
