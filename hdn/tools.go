@@ -689,9 +689,23 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&params)
 
 	// Initialize tool call log
+	logParams := params
+	if id == "tool_generate_image" {
+		// Clone and redact for logging
+		redacted := make(map[string]interface{})
+		for k, v := range params {
+			if k == "prompt" {
+				redacted[k] = "[REDACTED FOR PRIVACY]"
+			} else {
+				redacted[k] = v
+			}
+		}
+		logParams = redacted
+	}
+
 	toolCallLog := &ToolCallLog{
 		ToolID:     id,
-		Parameters: params,
+		Parameters: logParams,
 		AgentID:    strings.TrimSpace(r.Header.Get("X-Agent-ID")),
 		ProjectID:  strings.TrimSpace(r.Header.Get("X-Project-ID")),
 		Timestamp:  startTime,
@@ -1003,7 +1017,7 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(combined)
 		return
 	case "tool_generate_image":
-		log.Printf("[HDN] Generating image for prompt: %s", params["prompt"])
+		log.Printf("[HDN] Generating image (prompt hidden for privacy)")
 		prompt, _ := getString(params, "prompt")
 		if strings.TrimSpace(prompt) == "" {
 			w.WriteHeader(http.StatusBadRequest)

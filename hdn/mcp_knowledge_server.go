@@ -2803,12 +2803,16 @@ func (s *MCPKnowledgeServer) searchAvatarContext(ctx context.Context, args map[s
 // getOllamaEmbedding gets an embedding vector from Ollama using nomic-embed-text model
 func (s *MCPKnowledgeServer) getOllamaEmbedding(ctx context.Context, text string) ([]float32, error) {
 	// Get Ollama URL from environment
-	ollamaURL := os.Getenv("OLLAMA_BASE_URL")
+	ollamaURL := os.Getenv("OLLAMA_URL")
+	if ollamaURL == "" {
+		ollamaURL = os.Getenv("OLLAMA_BASE_URL")
+	}
 	if ollamaURL == "" {
 		ollamaURL = os.Getenv("OPENAI_BASE_URL") // Fallback
 	}
 	if ollamaURL == "" {
-		ollamaURL = "http://ollama.agi.svc.cluster.local:11434"
+		// Default to localhost for development if not in a cluster
+		ollamaURL = "http://localhost:11434"
 	}
 
 	// Prepare request for Ollama embeddings API
