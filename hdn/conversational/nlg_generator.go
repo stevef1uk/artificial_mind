@@ -403,6 +403,8 @@ func (nlg *NLGGenerator) buildKnowledgePrompt(req *NLGRequest) string {
 	sb.WriteString("6. If no information is retrieved in either section, say so clearly - do NOT invent fake data.\n")
 	sb.WriteString("7. NEVER provide code, scripts, or commands that could be harmful or destructive.\n")
 	sb.WriteString("8. If the 'Retrieved Personal Context' contains information about Steven Fisher, assume this is the user you are talking to.\n")
+	sb.WriteString("9. Use a natural, conversational tone. DO NOT start every response with formal disclaimers like \"Based on our previous conversations\" or \"According to retrieved information\".\n")
+	sb.WriteString("10. Stay focused on the CURRENT message. DO NOT volunteer updates about your knowledge gaps (e.g. your missing info on the user's job) unless it is directly relevant.\n")
 
 	sb.WriteString("Please provide a clear, informative answer.\n\n")
 	sb.WriteString("IMPORTANT: If both the 'Retrieved Information' and 'Retrieved Personal Context' are empty, use your internal knowledge but add a brief note that no specific real-time updates were found.\n")
@@ -460,10 +462,10 @@ func (nlg *NLGGenerator) buildTaskPrompt(req *NLGRequest) string {
 	sb.WriteString("1. Provide ONLY the final natural language response to the user.\n")
 	sb.WriteString("2. DO NOT include any labels like \"Goal:\", \"Task:\", \"Result:\", or \"Reasoning:\".\n")
 	sb.WriteString("3. DO NOT include confidence scores or metadata.\n")
-	sb.WriteString("4. DO NOT repeat the user's request verbatim.\n")
-	sb.WriteString("5. Just tell the user what you did and show them the results.\n\n")
+	sb.WriteString("4. DO NOT digress into unrelated personal information or talk about what you don't know (e.g., the user's occupation) unless they explicitly asked.\n")
+	sb.WriteString("5. Just tell the user what you did and show them the results. Be concise.\n\n")
 
-	sb.WriteString("Please provide a helpful summary of the task execution.")
+	sb.WriteString("Please provide a helpful, direct summary of the task results.")
 
 	if req.Result != nil && req.Result.Success {
 		resultSummary := nlg.formatResultData(req.Result.Data)
@@ -581,7 +583,12 @@ func (nlg *NLGGenerator) buildConversationPrompt(req *NLGRequest) string {
 	sb.WriteString("You are a helpful AI assistant. Respond to the user's message in a friendly and helpful way.\n\n")
 	sb.WriteString("User Message: \"")
 	sb.WriteString(req.UserMessage)
-	sb.WriteString("\"\n\nPlease provide a helpful and engaging response.")
+	sb.WriteString("\"\n\n🚨 CRITICAL RULES:\n")
+	sb.WriteString("1. Provide a helpful and engaging response.\n")
+	sb.WriteString("2. DO NOT digress into unrelated personal facts from the retrieved context unless they are directly relevant to the user's message.\n")
+	sb.WriteString("3. DO NOT mention that you don't know the user's occupation or other personal details unless specifically asked.\n")
+	sb.WriteString("4. If the user asks about something specific (like their cats), answer that and ONLY that.\n\n")
+	sb.WriteString("Please provide your response now.")
 
 	// Add memory context
 	prompt := nlg.addMemoryContext(sb.String(), req)
@@ -602,7 +609,11 @@ func (nlg *NLGGenerator) buildGenericPrompt(req *NLGRequest) string {
 	sb.WriteString(req.Intent.Type)
 	sb.WriteString("\nGoal: ")
 	sb.WriteString(req.Action.Goal)
-	sb.WriteString("\n\nPlease provide a helpful response.")
+	sb.WriteString("\n\n🚨 CRITICAL RULES:\n")
+	sb.WriteString("1. Provide a helpful response focused on the user's goal.\n")
+	sb.WriteString("2. DO NOT include unrelated personal details or talk about what is missing from your knowledge base.\n")
+	sb.WriteString("3. Keep the response clean and relevant to the User Message.\n\n")
+	sb.WriteString("Please provide a helpful response.")
 
 	// Add memory context
 	prompt := nlg.addMemoryContext(sb.String(), req)

@@ -183,14 +183,8 @@ func MatchesConfiguredToolKeywords(message string) string {
 	hasURL := strings.Contains(messageLower, "http://") || strings.Contains(messageLower, "https://") || strings.Contains(messageLower, "www.") || wellKnown != ""
 	hasScrapeIntent := strings.Contains(messageLower, "scrape") || strings.Contains(messageLower, "browse") || strings.Contains(messageLower, "crawl") || strings.Contains(messageLower, "fetch") || strings.Contains(messageLower, "crape") || strings.Contains(messageLower, "visit") || wellKnown != ""
 
-	if hasURL && hasScrapeIntent {
-		log.Printf("🔗 [KEYWORD-MATCH] URL/WellKnown + scrape intent detected ('%s') - routing to mcp_smart_scrape", messageLower)
-		return "mcp_smart_scrape"
-	}
-
-	// Also catch natural "get me info from [site]" or "tell me what is on [site]" as scrape requests
-	if wellKnown != "" && (strings.Contains(messageLower, "what") || strings.Contains(messageLower, "get") || strings.Contains(messageLower, "tell") || strings.Contains(messageLower, "show") || strings.Contains(messageLower, "latest")) {
-		log.Printf("🔗 [KEYWORD-MATCH] Well-known site + info request detected - routing to mcp_smart_scrape")
+	if (hasURL && hasScrapeIntent) || (wellKnown != "" && (hasScrapeIntent || strings.Contains(messageLower, "top") || strings.Contains(messageLower, "news"))) {
+		log.Printf("🔗 [KEYWORD-MATCH] Scrape intent detected for '%s' - routing to mcp_smart_scrape", messageLower)
 		return "mcp_smart_scrape"
 	}
 
@@ -598,10 +592,27 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		"tool_generate_image": {"generate image", "create image", "draw", "image generation", "paint", "drawing"},
 	}
 
+	// Detect scrape intent for filtering
+	wellKnownResolved := resolveWellKnownURL(inputLower)
+	hasURL := strings.Contains(inputLower, "http://") || strings.Contains(inputLower, "https://") || strings.Contains(inputLower, "www.") || wellKnownResolved != ""
+	hasScrapeIntent := strings.Contains(inputLower, "scrape") || strings.Contains(inputLower, "browse") || strings.Contains(inputLower, "crawl") || strings.Contains(inputLower, "fetch") || strings.Contains(inputLower, "visit") || wellKnownResolved != ""
+	isPureScrape := hasURL && hasScrapeIntent
+
 	// First pass: include tools that match keywords
 	for _, tool := range tools {
 		if seen[tool.ID] {
 			continue
+		}
+
+		// STRATEGY: If this is a pure scrape request, DO NOT include knowledge/memory tools
+		// to prevent them from hijacking the request.
+		if isPureScrape {
+			toolIDLower := strings.ToLower(tool.ID)
+			if strings.Contains(toolIDLower, "weaviate") || strings.Contains(toolIDLower, "neo4j") ||
+				strings.Contains(toolIDLower, "knowledge") || strings.Contains(toolIDLower, "concept") ||
+				strings.Contains(toolIDLower, "avatar_context") || strings.Contains(toolIDLower, "episode") {
+				continue
+			}
 		}
 
 		matched := false
@@ -684,6 +695,16 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 	}
 
 	for _, toolID := range alwaysInclude {
+		// Respect isPureScrape filter
+		if isPureScrape {
+			toolIDLower := strings.ToLower(toolID)
+			if strings.Contains(toolIDLower, "weaviate") || strings.Contains(toolIDLower, "neo4j") ||
+				strings.Contains(toolIDLower, "knowledge") || strings.Contains(toolIDLower, "concept") ||
+				strings.Contains(toolIDLower, "avatar_context") || strings.Contains(toolIDLower, "episode") {
+				continue
+			}
+		}
+
 		if !seen[toolID] {
 			for _, tool := range tools {
 				if tool.ID == toolID {
