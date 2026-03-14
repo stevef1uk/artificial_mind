@@ -234,32 +234,41 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		})
 	}
 
-	// ALWAYS search personal context (AvatarContext) to ensure persona consistency
-	avatarResult, avatarErr := cl.hdnClient.SearchWeaviate(ctx, req.Message, "AvatarContext", 3)
-	if avatarErr != nil {
-		log.Printf("⚠️ [CONVERSATIONAL] Avatar context search failed: %v", avatarErr)
-	} else if avatarResult != nil && avatarResult.Metadata != nil {
-		if toolSuccess, ok := avatarResult.Metadata["tool_success"].(bool); ok && toolSuccess {
-			if toolResult, ok := avatarResult.Metadata["tool_result"].(map[string]interface{}); ok {
-				// Safely extract results as []interface{}
-				var items []interface{}
-				if i, ok := toolResult["results"].([]interface{}); ok {
-					items = i
-				} else if i, ok := toolResult["results"].([]map[string]interface{}); ok {
-					for _, item := range i {
-						items = append(items, item)
-					}
-				}
+	// ALWAYS search personal context (AvatarContext) to ensure persona consistency,
+	// UNLESS this is a clear tool/scrape request where background RAG might cause hallucinations.
+	isScrapeIntent := intent.Type == "task" && (strings.Contains(strings.ToLower(req.Message), "scrape") ||
+		strings.Contains(strings.ToLower(req.Message), "browse") ||
+		strings.Contains(strings.ToLower(req.Message), "visit") ||
+		strings.Contains(strings.ToLower(req.Message), "fetch"))
 
-				if len(items) > 0 {
-					conversationContext["avatar_context"] = cl.stripInterpretResultForContext(avatarResult)
-					log.Printf("✅ [CONVERSATIONAL] Found %d relevant personal facts", len(items))
-					cl.reasoningTrace.AddKnowledgeUsed(req.SessionID, "avatar_context")
+	if isScrapeIntent {
+		log.Printf("ℹ️ [CONVERSATIONAL] Skipping background RAG for scrape-intent request to ensure tool usage")
+	} else {
+		avatarResult, avatarErr := cl.hdnClient.SearchWeaviate(ctx, req.Message, "AvatarContext", 3)
+		if avatarErr != nil {
+			log.Printf("⚠️ [CONVERSATIONAL] Avatar context search failed: %v", avatarErr)
+		} else if avatarResult != nil && avatarResult.Metadata != nil {
+			if toolSuccess, ok := avatarResult.Metadata["tool_success"].(bool); ok && toolSuccess {
+				if toolResult, ok := avatarResult.Metadata["tool_result"].(map[string]interface{}); ok {
+					// Safely extract results as []interface{}
+					var items []interface{}
+					if i, ok := toolResult["results"].([]interface{}); ok {
+						items = i
+					} else if i, ok := toolResult["results"].([]map[string]interface{}); ok {
+						for _, item := range i {
+							items = append(items, item)
+						}
+					}
+
+					if len(items) > 0 {
+						conversationContext["avatar_context"] = cl.stripInterpretResultForContext(avatarResult)
+						log.Printf("✅ [CONVERSATIONAL] Found %d relevant personal facts", len(items))
+						cl.reasoningTrace.AddKnowledgeUsed(req.SessionID, "avatar_context")
+					}
 				}
 			}
 		}
 	}
-
 	// Step 2c: If it's a query, also search the general knowledge base (AgiWiki/News)
 	if intent.Type == "query" {
 		// Parallel search for general wiki and specialized news/Wikipedia

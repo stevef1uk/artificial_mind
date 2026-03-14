@@ -184,7 +184,13 @@ func MatchesConfiguredToolKeywords(message string) string {
 	hasScrapeIntent := strings.Contains(messageLower, "scrape") || strings.Contains(messageLower, "browse") || strings.Contains(messageLower, "crawl") || strings.Contains(messageLower, "fetch") || strings.Contains(messageLower, "crape") || strings.Contains(messageLower, "visit") || wellKnown != ""
 
 	if hasURL && hasScrapeIntent {
-		log.Printf("🔗 [KEYWORD-MATCH] URL/WellKnown + scrape intent detected - routing to mcp_smart_scrape")
+		log.Printf("🔗 [KEYWORD-MATCH] URL/WellKnown + scrape intent detected ('%s') - routing to mcp_smart_scrape", messageLower)
+		return "mcp_smart_scrape"
+	}
+
+	// Also catch natural "get me info from [site]" or "tell me what is on [site]" as scrape requests
+	if wellKnown != "" && (strings.Contains(messageLower, "what") || strings.Contains(messageLower, "get") || strings.Contains(messageLower, "tell") || strings.Contains(messageLower, "show") || strings.Contains(messageLower, "latest")) {
+		log.Printf("🔗 [KEYWORD-MATCH] Well-known site + info request detected - routing to mcp_smart_scrape")
 		return "mcp_smart_scrape"
 	}
 
@@ -491,8 +497,17 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 						strings.Contains(responseLower, "html_scraper") ||
 						strings.Contains(responseLower, "http_get") ||
 						strings.Contains(responseLower, "research_agent") ||
-						strings.Contains(responseLower, "deep_research")
-					if isScrapeOrBrowseTool {
+						strings.Contains(responseLower, "deep_research") ||
+						strings.Contains(responseLower, "smart_scrape")
+
+					// If we have clear scrape intent + URL, we MUST NOT allow knowledge tools to take over
+					isKnowledgeTool := strings.Contains(responseLower, "weaviate") ||
+						strings.Contains(responseLower, "neo4j") ||
+						strings.Contains(responseLower, "knowledge") ||
+						strings.Contains(responseLower, "concept") ||
+						strings.Contains(responseLower, "avatar_context")
+
+					if isScrapeOrBrowseTool && !isKnowledgeTool {
 						log.Printf("✅ [FLEXIBLE-LLM] Allowing LLM's tool choice '%s' (scrape/browse tool takes priority over %s)", responseToolID, actualToolID)
 					} else {
 						// For mcp_smart_scrape, try to extract URL before forcing
