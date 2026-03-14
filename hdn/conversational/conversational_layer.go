@@ -210,113 +210,136 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		"context_keys": len(conversationContext),
 	})
 
-	// Step 2: Parse intent and determine what the user wants (now has access to conversationContext)
-	intent, err := cl.intentParser.ParseIntent(ctx, req.Message, conversationContext)
-	if err != nil {
-		return cl.handleError("Failed to parse intent", err, req.SessionID)
-	}
+	// Step 2: Parse intent and determine what the user wants
+	lowerMsg := strings.ToLower(strings.TrimSpace(req.Message))
+	isGreeting := lowerMsg == "hello" || lowerMsg == "hi" || lowerMsg == "hey" ||
+		lowerMsg == "greetings" || lowerMsg == "good morning" ||
+		lowerMsg == "good afternoon" || lowerMsg == "good evening" ||
+		lowerMsg == "howdy" || lowerMsg == "yo" ||
+		(len(lowerMsg) < 4 && !strings.Contains(lowerMsg, "?"))
 
-	cl.reasoningTrace.AddStep(req.SessionID, "intent_parsing", fmt.Sprintf("Parsed user intent: %s (confidence: %.2f)", intent.Type, intent.Confidence), map[string]interface{}{
-		"intent_type": intent.Type,
-		"confidence":  intent.Confidence,
-		"entities":    intent.Entities,
-		"goal":        intent.Goal,
-	})
-
-	// Step 2b: Load relevant conversation summaries and personal context (RAG)
-	summaries, err := cl.summarizer.GetRelevantSummaries(ctx, req.SessionID, req.Message)
-	if err != nil {
-		log.Printf("⚠️ [CONVERSATIONAL] Failed to load conversation summaries: %v", err)
-	} else if len(summaries) > 0 {
-		conversationContext["conversation_summaries"] = summaries
-		cl.reasoningTrace.AddStep(req.SessionID, "summary_retrieval", fmt.Sprintf("Retrieved %d relevant conversation summaries", len(summaries)), map[string]interface{}{
-			"summary_count": len(summaries) + 1, // +1 for personal context
-		})
-	}
-
-	// ALWAYS search personal context (AvatarContext) to ensure persona consistency,
-	// UNLESS this is a clear tool/scrape request where background RAG might cause hallucinations.
-	isScrapeIntent := intent.Type == "task" && (strings.Contains(strings.ToLower(req.Message), "scrape") ||
-		strings.Contains(strings.ToLower(req.Message), "browse") ||
-		strings.Contains(strings.ToLower(req.Message), "visit") ||
-		strings.Contains(strings.ToLower(req.Message), "fetch"))
-
-	if isScrapeIntent {
-		log.Printf("ℹ️ [CONVERSATIONAL] Skipping background RAG for scrape-intent request to ensure tool usage")
+	var intent *Intent
+	if isGreeting {
+		log.Printf("ℹ️ [CONVERSATIONAL] Greeting detected ('%s') - using pre-defined intent and skipping RAG", req.Message)
+		intent = &Intent{Type: "general_conversation", Goal: "Respond to greeting", Confidence: 1.0}
 	} else {
-		avatarResult, avatarErr := cl.hdnClient.SearchWeaviate(ctx, req.Message, "AvatarContext", 3)
-		if avatarErr != nil {
-			log.Printf("⚠️ [CONVERSATIONAL] Avatar context search failed: %v", avatarErr)
-		} else if avatarResult != nil && avatarResult.Metadata != nil {
-			if toolSuccess, ok := avatarResult.Metadata["tool_success"].(bool); ok && toolSuccess {
-				if toolResult, ok := avatarResult.Metadata["tool_result"].(map[string]interface{}); ok {
-					// Safely extract results as []interface{}
-					var items []interface{}
-					if i, ok := toolResult["results"].([]interface{}); ok {
-						items = i
-					} else if i, ok := toolResult["results"].([]map[string]interface{}); ok {
-						for _, item := range i {
-							items = append(items, item)
-						}
-					}
-
-					if len(items) > 0 {
-						conversationContext["avatar_context"] = cl.stripInterpretResultForContext(avatarResult)
-						log.Printf("✅ [CONVERSATIONAL] Found %d relevant personal facts", len(items))
-						cl.reasoningTrace.AddKnowledgeUsed(req.SessionID, "avatar_context")
-					}
-				}
-			}
+		// Parse intent only for non-greetings to save time and avoid LLM bias
+		var err error
+		intent, err = cl.intentParser.ParseIntent(ctx, req.Message, conversationContext)
+		if err != nil {
+			log.Printf("⚠️ [CONVERSATIONAL] Intent parsing failed, using general_conversation: %v", err)
+			intent = &Intent{Type: "general_conversation", Goal: req.Message, Confidence: 0.5}
 		}
 	}
-	// Step 2c: If it's a query, also search the general knowledge base (AgiWiki/News)
-	if intent.Type == "query" {
-		// Parallel search for general wiki and specialized news/Wikipedia
-		// Collection: AgiWiki (vector-based)
-		wikiResult, wikiErr := cl.hdnClient.SearchWeaviate(ctx, req.Message, "AgiWiki", 5)
-		if wikiErr != nil {
-			log.Printf("⚠️ [CONVERSATIONAL] Wiki context search failed: %v", wikiErr)
-		} else if wikiResult != nil && wikiResult.Metadata != nil {
-			if toolSuccess, ok := wikiResult.Metadata["tool_success"].(bool); ok && toolSuccess {
-				if toolResult, ok := wikiResult.Metadata["tool_result"].(map[string]interface{}); ok {
-					var items []interface{}
-					if i, ok := toolResult["results"].([]interface{}); ok {
-						items = i
-					} else if i, ok := toolResult["results"].([]map[string]interface{}); ok {
-						for _, item := range i {
-							items = append(items, item)
-						}
-					}
 
-					if len(items) > 0 {
-						conversationContext["wiki_context"] = cl.stripInterpretResultForContext(wikiResult)
-						log.Printf("✅ [CONVERSATIONAL] Found %d relevant articles in AgiWiki", len(items))
-						cl.reasoningTrace.AddKnowledgeUsed(req.SessionID, "agi_wiki")
+	if isGreeting {
+		// Done with RAG skip
+	} else {
+		cl.reasoningTrace.AddStep(req.SessionID, "intent_parsing", fmt.Sprintf("Parsed user intent: %s (confidence: %.2f)", intent.Type, intent.Confidence), map[string]interface{}{
+			"intent_type": intent.Type,
+			"confidence":  intent.Confidence,
+			"entities":    intent.Entities,
+			"goal":        intent.Goal,
+		})
+
+		// Step 2b: Load relevant conversation summaries and personal context (RAG)
+		summaries, err := cl.summarizer.GetRelevantSummaries(ctx, req.SessionID, req.Message)
+		if err != nil {
+			log.Printf("⚠️ [CONVERSATIONAL] Failed to load conversation summaries: %v", err)
+		} else if len(summaries) > 0 {
+			conversationContext["conversation_summaries"] = summaries
+			cl.reasoningTrace.AddStep(req.SessionID, "summary_retrieval", fmt.Sprintf("Retrieved %d relevant conversation summaries", len(summaries)), map[string]interface{}{
+				"summary_count": len(summaries) + 1, // +1 for personal context
+			})
+		}
+
+		// ALWAYS search personal context (AvatarContext) to ensure persona consistency,
+		// UNLESS this is a clear tool/scrape request where background RAG might cause hallucinations.
+		isScrapeIntent := intent.Type == "task" && (strings.Contains(strings.ToLower(req.Message), "scrape") ||
+			strings.Contains(strings.ToLower(req.Message), "browse") ||
+			strings.Contains(strings.ToLower(req.Message), "visit") ||
+			strings.Contains(strings.ToLower(req.Message), "fetch"))
+
+		if isScrapeIntent {
+			log.Printf("ℹ️ [CONVERSATIONAL] Skipping background RAG for scrape-intent request to ensure tool usage")
+		} else {
+			avatarResult, avatarErr := cl.hdnClient.SearchWeaviate(ctx, req.Message, "AvatarContext", 3)
+			if avatarErr != nil {
+				log.Printf("⚠️ [CONVERSATIONAL] Avatar context search failed: %v", avatarErr)
+			} else if avatarResult != nil && avatarResult.Metadata != nil {
+				if toolSuccess, ok := avatarResult.Metadata["tool_success"].(bool); ok && toolSuccess {
+					if toolResult, ok := avatarResult.Metadata["tool_result"].(map[string]interface{}); ok {
+						// Safely extract results as []interface{}
+						var items []interface{}
+						if i, ok := toolResult["results"].([]interface{}); ok {
+							items = i
+						} else if i, ok := toolResult["results"].([]map[string]interface{}); ok {
+							for _, item := range i {
+								items = append(items, item)
+							}
+						}
+
+						if len(items) > 0 {
+							conversationContext["avatar_context"] = cl.stripInterpretResultForContext(avatarResult)
+							log.Printf("✅ [CONVERSATIONAL] Found %d relevant personal facts", len(items))
+							cl.reasoningTrace.AddKnowledgeUsed(req.SessionID, "avatar_context")
+						}
 					}
 				}
 			}
 		}
 
-		// Collection: WikipediaArticle (specialized news/keyword search)
-		newsResult, newsErr := cl.hdnClient.SearchWeaviate(ctx, req.Message, "WikipediaArticle", 5)
-		if newsErr != nil {
-			log.Printf("⚠️ [CONVERSATIONAL] News context search failed: %v", newsErr)
-		} else if newsResult != nil && newsResult.Metadata != nil {
-			if toolSuccess, ok := newsResult.Metadata["tool_success"].(bool); ok && toolSuccess {
-				if toolResult, ok := newsResult.Metadata["tool_result"].(map[string]interface{}); ok {
-					var items []interface{}
-					if i, ok := toolResult["results"].([]interface{}); ok {
-						items = i
-					} else if i, ok := toolResult["results"].([]map[string]interface{}); ok {
-						for _, item := range i {
-							items = append(items, item)
+		// Step 2c: If it's a query, also search the general knowledge base (AgiWiki/News)
+		if intent.Type == "query" {
+			// Parallel search for general wiki and specialized news/Wikipedia
+			// Collection: AgiWiki (vector-based)
+			wikiResult, wikiErr := cl.hdnClient.SearchWeaviate(ctx, req.Message, "AgiWiki", 5)
+			if wikiErr != nil {
+				log.Printf("⚠️ [CONVERSATIONAL] Wiki context search failed: %v", wikiErr)
+			} else if wikiResult != nil && wikiResult.Metadata != nil {
+				if toolSuccess, ok := wikiResult.Metadata["tool_success"].(bool); ok && toolSuccess {
+					if toolResult, ok := wikiResult.Metadata["tool_result"].(map[string]interface{}); ok {
+						// Safely extract results as []interface{}
+						var items []interface{}
+						if i, ok := toolResult["results"].([]interface{}); ok {
+							items = i
+						} else if i, ok := toolResult["results"].([]map[string]interface{}); ok {
+							for _, item := range i {
+								items = append(items, item)
+							}
+						}
+
+						if len(items) > 0 {
+							conversationContext["wiki_context"] = cl.stripInterpretResultForContext(wikiResult)
+							log.Printf("✅ [CONVERSATIONAL] Found %d relevant articles in AgiWiki", len(items))
+							cl.reasoningTrace.AddKnowledgeUsed(req.SessionID, "agi_wiki")
 						}
 					}
+				}
+			}
 
-					if len(items) > 0 {
-						conversationContext["news_context"] = cl.stripInterpretResultForContext(newsResult)
-						log.Printf("✅ [CONVERSATIONAL] Found %d relevant recent news/Wikipedia articles", len(items))
-						cl.reasoningTrace.AddKnowledgeUsed(req.SessionID, "wikipedia_news")
+			// Collection: WikipediaArticle (specialized news/keyword search)
+			newsResult, newsErr := cl.hdnClient.SearchWeaviate(ctx, req.Message, "WikipediaArticle", 5)
+			if newsErr != nil {
+				log.Printf("⚠️ [CONVERSATIONAL] News context search failed: %v", newsErr)
+			} else if newsResult != nil && newsResult.Metadata != nil {
+				if toolSuccess, ok := newsResult.Metadata["tool_success"].(bool); ok && toolSuccess {
+					if toolResult, ok := newsResult.Metadata["tool_result"].(map[string]interface{}); ok {
+						// Safely extract results as []interface{}
+						var items []interface{}
+						if i, ok := toolResult["results"].([]interface{}); ok {
+							items = i
+						} else if i, ok := toolResult["results"].([]map[string]interface{}); ok {
+							for _, item := range i {
+								items = append(items, item)
+							}
+						}
+
+						if len(items) > 0 {
+							conversationContext["news_context"] = cl.stripInterpretResultForContext(newsResult)
+							log.Printf("✅ [CONVERSATIONAL] Found %d relevant recent news/Wikipedia articles", len(items))
+							cl.reasoningTrace.AddKnowledgeUsed(req.SessionID, "wikipedia_news")
+						}
 					}
 				}
 			}

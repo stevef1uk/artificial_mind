@@ -81,12 +81,17 @@ func (f *FlexibleInterpreter) InterpretWithPriority(ctx context.Context, req *Na
 
 	// Patch: Always prioritize AvatarContext for user queries about themselves
 	inputLower := strings.ToLower(req.Input)
-	avatarKeywords := []string{"me", "myself", "about me", "who am i", "my employer", "my company", "my job", "my avatar", "my profile", "my info", "my information", "my identity"}
+	avatarKeywords := []string{"about me", "who am i", "who i am", "my employer", "my company", "my job", "my avatar", "my profile", "my info", "my information", "my identity", "my personal", "my cats", "my pets"}
 	prioritizeAvatar := false
-	for _, kw := range avatarKeywords {
-		if strings.Contains(inputLower, kw) {
-			prioritizeAvatar = true
-			break
+	// Only prioritize if it starts with a question or is a direct query about self
+	if strings.HasPrefix(inputLower, "who am i") || strings.HasPrefix(inputLower, "tell me about myself") {
+		prioritizeAvatar = true
+	} else {
+		for _, kw := range avatarKeywords {
+			if strings.Contains(inputLower, kw) {
+				prioritizeAvatar = true
+				break
+			}
 		}
 	}
 	if prioritizeAvatar {
