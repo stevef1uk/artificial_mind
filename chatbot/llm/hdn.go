@@ -165,7 +165,7 @@ func (c *Client) DescribeImage(ctx context.Context, apiURL string, base64Image s
 					},
 					{
 						Type: "text",
-						Text: "Provide a very brief, one-sentence description of this image.",
+						Text: "Describe this image in detail",
 					},
 				},
 			},
@@ -177,38 +177,24 @@ func (c *Client) DescribeImage(ctx context.Context, apiURL string, base64Image s
 		return "", err
 	}
 
-	var resp *http.Response
-	var body []byte
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
 
-	// Retry loop for the 503 "Model not ready" error
-	for i := 0; i < 5; i++ {
-		req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(jsonData))
-		if err != nil {
-			return "", err
-		}
-		req.Header.Set("Content-Type", "application/json")
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
 
-		resp, err = c.HTTPClient.Do(req)
-		if err != nil {
-			return "", err
-		}
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
 
-		body, err = ioutil.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return "", err
-		}
-
-		if resp.StatusCode == http.StatusOK {
-			break
-		}
-
-		if resp.StatusCode == http.StatusServiceUnavailable && strings.Contains(string(body), "ready") {
-			fmt.Printf("[Vision] Model not ready (attempt %d/5), waiting 5s...\n", i+1)
-			time.Sleep(5 * time.Second)
-			continue
-		}
-
+	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("Vision API error (%d): %s", resp.StatusCode, string(body))
 	}
 

@@ -328,10 +328,21 @@ def exit_camera_mode():
     notification = {"event": "exit_camera_mode", "v3": True}
     send_to_all_clients(notification)
 
+def check_is_released():
+    global camera_mode, camera_mode_button_press_time, camera_mode_button_release_time, camera_thread
+    if camera_mode and camera_mode_button_release_time < camera_mode_button_press_time:
+        # long press detected, exit camera mode
+        print("[Camera] Exiting camera mode due to long press...")
+        exit_camera_mode()
+
 def on_button_pressed():
     global camera_mode, camera_mode_button_press_time
     if camera_mode:
         camera_mode_button_press_time = time.time()
+        # check after 5 seconds, exit camera mode if not released (Long press to exit)
+        import threading
+        threading.Timer(5.0, check_is_released).start()
+        # forward event to Node so it can record audio!
     
     """Function executed when button is pressed"""
     print("[Server] Button pressed")
@@ -353,10 +364,10 @@ def on_button_release():
         camera_mode_button_release_time = time.time()
         duration = camera_mode_button_release_time - camera_mode_button_press_time
         
-        # if short press (< 0.8s) capture image
-        if duration < 0.8:
+        # if short press (< 0.5s) capture image
+        if duration < 0.5:
             # capture image
-            print(f"[Camera v3] --- Triggering Image Capture (Press: {duration:.2f}s) ---")
+            print(f"[Camera v3] --- Triggering Image Capture (Short Press: {duration:.2f}s) ---")
             if camera_thread is not None:
                 is_capturing = True
                 try:
@@ -369,7 +380,8 @@ def on_button_release():
                 finally:
                     is_capturing = False
         else:
-            print(f"[Camera v3] Hold too long ({duration:.2f}s) - No capture")
+            print(f"[Camera v3] Hold ({duration:.2f}s) detected - treated as Voice Command")
+            # Do not capture, do not exit (unless > 10s handled by timer)
 
 def handle_client(client_socket, addr, whisplay):
     global camera_capture_image_path, camera_mode, camera_thread

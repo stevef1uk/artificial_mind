@@ -142,12 +142,10 @@ func main() {
 	var playMu sync.Mutex
 	var buttonPressTime time.Time
 	var lastButtonPressTime time.Time
-	var lastButtonReleaseTime time.Time
-	var lastDoublePressHandled time.Time
 	var speakCancel bool
 	var cancelMu sync.Mutex
-	var currentSpeechID int
-	var speechIDMu sync.Mutex
+	var cameraTimer *time.Timer
+	var cameraTimerMu sync.Mutex
 	var cameraIsActive bool
 	var cameraMu sync.Mutex
 	var isStabilizing bool
@@ -160,14 +158,9 @@ func main() {
 	var speakText func(string)
 	var switchModelSync func(string, string)
 	var switchModelAsync func(string)
-	var toggleCameraMode func()
 
 	// Function Definitions
 	stopPlayback = func() {
-		speechIDMu.Lock()
-		currentSpeechID++
-		speechIDMu.Unlock()
-
 		cancelMu.Lock()
 		speakCancel = true
 		cancelMu.Unlock()
@@ -179,30 +172,13 @@ func main() {
 
 		if cmd != nil {
 			fmt.Println("Stopping playback process...")
-			audio.StopPlayback(cmd)
-		} else {
-			// Even if no cmd, kill lingering players
-			_ = exec.Command("pkill", "-9", "sox").Run()
-			_ = exec.Command("pkill", "-9", "play").Run()
-			_ = exec.Command("pkill", "-9", "aplay").Run()
 		}
+		audio.StopPlayback(cmd)
 	}
 
 	speakText = func(sayText string) {
-		speechIDMu.Lock()
-		id := currentSpeechID
-		speechIDMu.Unlock()
-
 		audioMu.Lock()
 		defer audioMu.Unlock()
-
-		// If a new stop or speech happened while waiting for lock, bail
-		speechIDMu.Lock()
-		if id != currentSpeechID {
-			speechIDMu.Unlock()
-			return
-		}
-		speechIDMu.Unlock()
 
 		cancelMu.Lock()
 		speakCancel = false
@@ -325,78 +301,12 @@ func main() {
 		}()
 	}
 
-	toggleCameraMode = func() {
-		cameraMu.Lock()
-		if !cameraIsActive {
-			stopPlayback()
-			cameraIsActive = true
-			cameraMu.Unlock()
-
-			fmt.Println("[Vision] Hold trigger: Enabling Vision Mode")
-			go switchModelSync("vision", visionURL)
-			cameraOn := true
-			disp.Display(display.Status{
-				CameraMode:       &cameraOn,
-				CaptureImagePath: filepath.Join(os.TempDir(), "vision_capture.jpg"),
-			})
-		} else {
-			// Camera IS active, so this hold means "turn it off"
-			stopPlayback()
-			cameraIsActive = false
-			cameraMu.Unlock()
-
-			fmt.Println("[Vision] Hold trigger: Disabling Vision Mode (Return to image_gen)")
-			go switchModelSync("image_gen", hdnAddr)
-			cameraOff := false
-			disp.Display(display.Status{
-				CameraMode: &cameraOff,
-				Status:     "Idle",
-				Emoji:      "😴",
-				Text:       "Ready! Push button to talk.",
-				RGB:        "#000055",
-			})
-			go speakText("Returning to chat mode.")
-		}
-	}
-
 	switchModelAsync("image_gen")
 
 	var vActive bool
 	for ev := range disp.EventChan {
 		// Global event handlers (regardless of current chatbot state)
 		if ev == "camera_capture" {
-			now := time.Now()
-			// If we just handled a double press on the 'pressed' side, ignore the releases
-			if now.Sub(lastDoublePressHandled) < 800*time.Millisecond {
-				fmt.Println("[Vision] Ignoring capture event – just handled double-press stop.")
-				continue
-			}
-
-			// If releases are too close together, it's a double-release (part of a double-click)
-			if now.Sub(lastButtonReleaseTime) < 400*time.Millisecond {
-				fmt.Println("[Vision] Double click detected on release - Cancelling capture and stopping speech.")
-				stopPlayback()
-				lastButtonReleaseTime = now
-				lastDoublePressHandled = now // Mark it handled
-				// Visual update to confirm stop
-				disp.Display(display.Status{
-					Status: "Stopped",
-					Emoji:  "🔇",
-					Text:   "Ready! Push button to talk.",
-					RGB:    "#000055",
-				})
-				time.Sleep(1 * time.Second)
-				cameraOn := true
-				disp.Display(display.Status{
-					CameraMode: &cameraOn,
-					Status:     "Ready",
-					Emoji:      "✅",
-					Text:       "Vision is ready! Press button to capture.",
-				})
-				continue
-			}
-			lastButtonReleaseTime = now
-
 			stopPlayback()
 
 			stabMu.Lock()
@@ -446,17 +356,9 @@ func main() {
 					disp.Display(display.Status{
 						Status: "Error",
 						Emoji:  "❌",
-						Text:   "Vision backend not ready. Try again in a moment.",
+						Text:   "Vision backend not ready",
 					})
-					// Do NOT switch back to image_gen automatically
-					time.Sleep(3 * time.Second)
-					cameraOn := true
-					disp.Display(display.Status{
-						CameraMode: &cameraOn,
-						Status:     "Ready",
-						Emoji:      "✅",
-						Text:       "Vision is ready! Press button to capture.",
-					})
+					switchModelAsync("image_gen") // fallback
 					return
 				}
 
@@ -478,14 +380,8 @@ func main() {
 						Emoji:  "❌",
 						Text:   "Vision error: " + err.Error(),
 					})
-					time.Sleep(3 * time.Second)
-					cameraOn := true
-					disp.Display(display.Status{
-						CameraMode: &cameraOn,
-						Status:     "Ready",
-						Emoji:      "✅",
-						Text:       "Vision is ready! Press button to capture.",
-					})
+					// Also switch back to image_gen if it fails
+					switchModelAsync("image_gen")
 					return
 				}
 
@@ -544,7 +440,6 @@ func main() {
 				if now.Sub(lastButtonPressTime) < 500*time.Millisecond {
 					fmt.Println("Double press verified – stopping playback.")
 					stopPlayback()
-					lastDoublePressHandled = now
 				}
 				lastButtonPressTime = now
 
@@ -555,60 +450,94 @@ func main() {
 				state = StateListening
 				buttonPressTime = time.Now()
 
-				audioPath = filepath.Join(os.TempDir(), fmt.Sprintf("rec_%d.wav", time.Now().Unix()))
-				fmt.Println("Recording to", audioPath)
-				cmd, err := audio.RecordAudio(audioPath)
-				if err != nil {
-					fmt.Printf("Record error: %v\n", err)
-					state = StateIdle
-					continue
-				}
-				recordCmd = cmd
+				if !vActive {
+					audioPath = filepath.Join(os.TempDir(), fmt.Sprintf("rec_%d.wav", time.Now().Unix()))
+					fmt.Println("Recording to", audioPath)
+					cmd, err := audio.RecordAudio(audioPath)
+					if err != nil {
+						fmt.Printf("Record error: %v\n", err)
+						state = StateIdle
+						continue
+					}
+					recordCmd = cmd
 
-				if vActive {
-					fmt.Println("[Vision] Recording started for potential command (Hold for voice, Tap for capture)")
-					disp.Display(display.Status{
-						Status: "Listening",
-						Emoji:  "🎤",
-						Text:   "Hold for voice command...",
-						RGB:    "#00ff88",
-					})
-				} else {
 					disp.Display(display.Status{
 						Status: "Listening",
 						Emoji:  "😐",
 						Text:   "Listening...",
 						RGB:    "#00ff00",
 					})
+				} else {
+					fmt.Println("[Vision] Button pressed in Vision Mode (Monitoring for hold/release)")
+					// We don't record audio if vision is already active
 				}
+				// Start the hold timer for camera
+				cameraTimerMu.Lock()
+				cameraTimer = time.AfterFunc(4*time.Second, func() {
+					cameraMu.Lock()
+					if !cameraIsActive {
+						stopPlayback()
+						cameraIsActive = true
+						cameraMu.Unlock()
+
+						fmt.Println("[Vision] Hold trigger: Enabling Vision Mode")
+						go switchModelSync("vision", visionURL)
+						cameraOn := true
+						disp.Display(display.Status{
+							CameraMode:       &cameraOn,
+							CaptureImagePath: filepath.Join(os.TempDir(), "vision_capture.jpg"),
+						})
+					} else {
+						// Camera IS active, so this hold means "turn it off"
+						stopPlayback()
+						cameraIsActive = false
+						cameraMu.Unlock()
+
+						fmt.Println("[Vision] Hold trigger: Disabling Vision Mode (Return to image_gen)")
+						go switchModelSync("image_gen", hdnAddr)
+						cameraOff := false
+						disp.Display(display.Status{
+							CameraMode: &cameraOff,
+							Status:     "Idle",
+							Emoji:      "😴",
+							Text:       "Ready! Push button to talk.",
+							RGB:        "#000055",
+						})
+						go speakText("Returning to chat mode.")
+					}
+				})
+				cameraTimerMu.Unlock()
 			}
 		case StateListening:
 			if ev == "button_released" {
+				state = StateASR
+				audio.StopRecording(recordCmd)
+				recordCmd = nil
 				holdDuration := time.Since(buttonPressTime)
+
+				// Cancel the proactive timer
+				cameraTimerMu.Lock()
+				if cameraTimer != nil {
+					cameraTimer.Stop()
+					cameraTimer = nil
+				}
+				cameraTimerMu.Unlock()
 
 				// Check current camera status
 				cameraMu.Lock()
 				vActive = cameraIsActive
 				cameraMu.Unlock()
 
-				// If in Camera Mode, distinguish between Tap (Capture) and Hold (Voice)
-				if vActive {
-					if holdDuration < 800*time.Millisecond {
-						fmt.Printf("[System] Short tap in Vision Mode (%v). Expecting capture event.\n", holdDuration)
-						state = StateIdle
-						audio.StopRecording(recordCmd)
-						recordCmd = nil
-						if audioPath != "" {
-							os.Remove(audioPath)
-						}
-						continue
+				// If we just handled a 4s hold toggle, or if we are still in Vision mode,
+				// don't proceed to STT/ASR.
+				if vActive || holdDuration > 4*time.Second {
+					fmt.Printf("[System] Release handled (Hold: %v, Camera: %v). Returning to Idle.\n", holdDuration, vActive)
+					state = StateIdle
+					if audioPath != "" {
+						os.Remove(audioPath)
 					}
-					fmt.Printf("[System] Long press in Vision Mode (%v). Proceeding to ASR for command.\n", holdDuration)
+					continue
 				}
-
-				state = StateASR
-				audio.StopRecording(recordCmd)
-				recordCmd = nil
 
 				disp.Display(display.Status{
 					Status: "Recognizing",
@@ -662,20 +591,24 @@ func main() {
 					Text:   text,
 				})
 
-				// Check for camera/vision keywords to trigger live feed or exit it
+				// Check for camera/vision keywords to trigger live feed
 				lowerText := strings.ToLower(text)
-				isCameraRequest := strings.Contains(lowerText, "camera") || strings.Contains(lowerText, "vision") || strings.Contains(lowerText, "see")
-				isExitRequest := strings.Contains(lowerText, "exit") || strings.Contains(lowerText, "stop") || strings.Contains(lowerText, "chat") || strings.Contains(lowerText, "back")
+				if strings.Contains(lowerText, "camera") || strings.Contains(lowerText, "vision") || strings.Contains(lowerText, "see") {
+					cameraMu.Lock()
+					if !cameraIsActive {
+						stopPlayback()
+						cameraIsActive = true
+						cameraMu.Unlock()
 
-				cameraMu.Lock()
-				active := cameraIsActive
-				cameraMu.Unlock()
-
-				if isCameraRequest && !isExitRequest && !active {
-					toggleCameraMode()
-				} else if isExitRequest && (active || isCameraRequest) {
-					if active {
-						toggleCameraMode()
+						fmt.Println("[Vision] Triggering live camera feed via keywords...")
+						go switchModelSync("vision", visionURL)
+						cameraOn := true
+						disp.Display(display.Status{
+							CameraMode:       &cameraOn,
+							CaptureImagePath: filepath.Join(os.TempDir(), "vision_capture.jpg"),
+						})
+					} else {
+						cameraMu.Unlock()
 					}
 				}
 

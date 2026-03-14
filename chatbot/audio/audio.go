@@ -43,7 +43,6 @@ func RecordAudio(outputPath string) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
-// StopRecording sends a SIGINT to the recording process and waits for it to exit.
 func StopRecording(cmd *exec.Cmd) error {
 	if cmd == nil || cmd.Process == nil {
 		return nil
@@ -55,9 +54,9 @@ func StopRecording(cmd *exec.Cmd) error {
 	return err
 }
 
-// StartPlayback begins playback of filePath without blocking.
-// It returns the running *exec.Cmd so the caller can cancel it via StopPlayback.
-// The returned cmd.Wait() must eventually be called (StopPlayback does this).
+// StartPlayback begins playback of filePath without blocking.  It returns the
+// running *exec.Cmd so the caller can cancel it via StopPlayback.  The
+// returned cmd.Wait() must eventually be called (StopPlayback does this).
 func StartPlayback(filePath string) (*exec.Cmd, error) {
 	device := "plughw:2,0"
 	if cardIndex := os.Getenv("SOUND_CARD_INDEX"); cardIndex != "" {
