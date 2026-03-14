@@ -89,7 +89,7 @@ func main() {
 		return defaultValue
 	}
 
-	hdnAddr := getAddr("HDN_ADDR", "http://192.168.1.53:8083")
+	hdnAddr := getAddr("HDN_ADDR", "http://192.168.1.53:8081")
 	whisperHost := getAddr("LLM8850_WHISPER_HOST", "http://localhost:8801")
 	meloHost := getAddr("LLM8850_MELOTTS_HOST", "http://localhost:8802")
 	piperHost := getAddr("PIPER_HTTP_HOST", "")
