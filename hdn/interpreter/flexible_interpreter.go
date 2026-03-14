@@ -97,7 +97,7 @@ func (f *FlexibleInterpreter) InterpretWithPriority(ctx context.Context, req *Na
 				response := &FlexibleLLMResponse{
 					Type: ResponseTypeToolCall,
 					ToolCall: &ToolCall{
-						ToolID: t.ID,
+						ToolID:     t.ID,
 						Parameters: map[string]interface{}{"query": req.Input},
 					},
 				}
