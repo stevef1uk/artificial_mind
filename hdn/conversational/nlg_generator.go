@@ -397,14 +397,14 @@ func (nlg *NLGGenerator) buildKnowledgePrompt(req *NLGRequest) string {
 	sb.WriteString("\n\n🚨 CRITICAL RULES:\n")
 	sb.WriteString("1. You MUST use the information provided in the \"Knowledge/Intelligence Results\" and \"Information from Memory/Bio\" sections below, but ONLY if they are relevant to the user's specific question.\n")
 	sb.WriteString("2. DO NOT repeat, echo, or include any of the labels or data from the \"Reasoning Process\" or \"Knowledge/Intelligence Results\" sections in your final response.\n")
-	sb.WriteString("3. Provide ONLY a clean natural language answer. DO NOT include metadata, and DO NOT digress into unrelated personal facts if they were not asked for.\n")
+	sb.WriteString("3. Provide ONLY a clean natural language answer. 🚨 NO PREAMBLES (e.g., 'Hello Steven!', 'I'd be happy to help...', 'Unfortunately...'). Just answer the question.\n")
 	sb.WriteString("4. DO NOT invent, make up, or hallucinate any data that is not explicitly shown in those sections.\n")
 	sb.WriteString("5. If the \"Knowledge/Intelligence Results\" contains email data or list data, present it cleanly and formatted for the user.\n")
 	sb.WriteString("6. If information is present in ONE section but not the other, just use what is available. Do NOT mention that the other section was empty.\n")
 	sb.WriteString("7. NEVER provide code, scripts, or commands that could be harmful or destructive.\n")
 	sb.WriteString("8. If the 'Information from Memory/Bio' contains information about Steven Fisher, assume this is the user you are talking to.\n")
-	sb.WriteString("9. Use a natural, conversational tone. DO NOT start every response with formal disclaimers like \"Based on our previous conversations\" or \"According to retrieved information\".\n")
-	sb.WriteString("10. Stay focused on the CURRENT message. DO NOT volunteer updates about your knowledge gaps or what you 'couldn't find' unless it is absolutely necessary for the answer.\n")
+	sb.WriteString("9. Use a natural, direct tone. DO NOT start every response with formal disclaimers or polite filler.\n")
+	sb.WriteString("10. Stay focused on the CURRENT message. DO NOT volunteer updates about your knowledge gaps or what you 'couldn't find'. If you can't find it, answer based on common sense or ask a short clarifying question.\n")
 
 	sb.WriteString("Please provide a clear, informative answer.\n\n")
 	sb.WriteString("IMPORTANT: If relevant information is found in either the 'Knowledge/Intelligence Results' or 'Information from Memory/Bio' sections, use it to provide a direct answer. Do NOT explain which section the info came from. Just answer the question naturally.\n")
@@ -1149,10 +1149,10 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 		}
 	}
 
-	if !hasPersonalContext {
-		sb.WriteString("No personal context found for this user.\n")
+	// Sections moved inside hasPersonalContext check to avoid "missing" headers
+	if hasPersonalContext {
+		sb.WriteString("\nUse the above personal context to ensure continuity and recall personal facts.\n")
 	}
-	sb.WriteString("\nUse the above personal context to ensure continuity and recall personal facts.\n")
 
 	// 4. Add wiki/news context (General Knowledge, not Personal)
 	rawWiki := req.Context["wiki_context"]

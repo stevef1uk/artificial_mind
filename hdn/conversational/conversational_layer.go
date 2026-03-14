@@ -261,6 +261,11 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 			strings.Contains(strings.ToLower(req.Message), "visit") ||
 			strings.Contains(strings.ToLower(req.Message), "fetch"))
 
+		lowerMsg := strings.ToLower(req.Message)
+		isPersonal := strings.Contains(lowerMsg, " me") || strings.Contains(lowerMsg, " my") ||
+			strings.Contains(lowerMsg, " am i") || strings.Contains(lowerMsg, " myself") ||
+			strings.Contains(lowerMsg, " i am") || strings.Contains(lowerMsg, " i work")
+
 		if isScrapeIntent {
 			log.Printf("ℹ️ [CONVERSATIONAL] Skipping background RAG for scrape-intent request to ensure tool usage")
 		} else {
@@ -291,7 +296,8 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		}
 
 		// Step 2c: If it's a query, also search the general knowledge base (AgiWiki/News)
-		if intent.Type == "query" {
+		// UNLESS it's a personal query, in which case we only want facts from bio/memory.
+		if intent.Type == "query" && !isPersonal {
 			// Parallel search for general wiki and specialized news/Wikipedia
 			// Collection: AgiWiki (vector-based)
 			wikiResult, wikiErr := cl.hdnClient.SearchWeaviate(ctx, req.Message, "AgiWiki", 5)
