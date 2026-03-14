@@ -106,9 +106,17 @@ func (f *FlexibleInterpreter) InterpretWithPriority(ctx context.Context, req *Na
 		for _, t := range tools {
 			if strings.Contains(strings.ToLower(t.ID), "smart_scrape") {
 				log.Printf("🦾 [FLEXIBLE-INTERPRETER] Prioritizing smart_scrape tool: %s", t.ID)
+
+				// Try to resolve URL if it's a well-known site
+				targetURL := req.Input
+				extracted := resolveWellKnownURL(inputLower)
+				if extracted != "" {
+					targetURL = extracted
+				}
+
 				toolCall := &ToolCall{
 					ToolID:     t.ID,
-					Parameters: map[string]interface{}{"url_or_topic": req.Input, "query": req.Input},
+					Parameters: map[string]interface{}{"url": targetURL, "goal": req.Input},
 				}
 				result := &FlexibleInterpretationResult{
 					Success:       true,
@@ -400,6 +408,35 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 						"parameters": utils.SafeResultSummary(result.ToolCall.Parameters, 2000),
 						"success":    true,
 					},
+				}
+				// Special handling for smart_scrape tool to extract URL and Goal
+				if result.ToolCall.ToolID == "smart_scrape" {
+					if url, ok := result.ToolCall.Parameters["url"].(string); ok {
+						event.Metadata["url"] = url
+					}
+					if goal, ok := result.ToolCall.Parameters["goal"].(string); ok {
+						event.Metadata["goal"] = goal
+					}
+
+					// If the result is a list of maps, try to summarize it
+					if results, ok := executionResult.([]interface{}); ok {
+						var sb strings.Builder
+						sb.WriteString("Scraped items:\n")
+						for _, res := range results {
+							if item, ok := res.(map[string]interface{}); ok {
+								if content, ok := item["content"].(string); ok {
+									sb.WriteString(fmt.Sprintf("- %s\n", content))
+								} else if text, ok := item["text"].(string); ok {
+									sb.WriteString(fmt.Sprintf("- %s\n", text))
+								} else {
+									sb.WriteString("- " + utils.SafeResultSummary(item, 1000) + "\n")
+								}
+							} else if str, ok := res.(string); ok {
+								sb.WriteString("- " + str + "\n")
+							}
+						}
+						event.Result = sb.String()
+					}
 				}
 				if err := f.thoughtExpression.StoreThoughtEvent(ctx, event); err != nil {
 					log.Printf("⚠️ [FLEXIBLE-INTERPRETER] Failed to store ThoughtEvent after tool execution: %v", err)

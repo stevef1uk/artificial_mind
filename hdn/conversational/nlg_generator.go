@@ -1052,6 +1052,17 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 		return basePrompt
 	}
 
+	// ANTI-TANGENT: Skip personal facts (avatar_context) for tasks like scraping/research
+	// unless the user message explicitly mentions "me", "my", or "myself".
+	skipBio := false
+	if req.Intent != nil && req.Intent.Type == "task" {
+		if !strings.Contains(lowerMsg, " me ") && !strings.Contains(lowerMsg, " my ") &&
+			!strings.Contains(lowerMsg, " myself") && !strings.HasPrefix(lowerMsg, "my ") {
+			skipBio = true
+			log.Printf("ℹ️ [NLG] Skipping bio for task intent without self-references")
+		}
+	}
+
 	var sb strings.Builder
 	sb.WriteString(basePrompt)
 
@@ -1086,38 +1097,40 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 
 	// 2. Add avatar context (personal info/bio)
 	rawAvatar := req.Context["avatar_context"]
-	var avatarData *InterpretResult
-	if v, ok := rawAvatar.(*InterpretResult); ok {
-		avatarData = v
-	} else if v, ok := rawAvatar.(InterpretResult); ok {
-		avatarData = &v
-	}
+	if !skipBio && rawAvatar != nil {
+		var avatarData *InterpretResult
+		if v, ok := rawAvatar.(*InterpretResult); ok {
+			avatarData = v
+		} else if v, ok := rawAvatar.(InterpretResult); ok {
+			avatarData = &v
+		}
 
-	if avatarData != nil {
-		if toolResult, ok := avatarData.Metadata["tool_result"].(map[string]interface{}); ok {
-			var items []interface{}
-			if i, ok := toolResult["results"].([]interface{}); ok {
-				items = i
-			} else if i, ok := toolResult["results"].([]map[string]interface{}); ok {
-				for _, item := range i {
-					items = append(items, item)
+		if avatarData != nil {
+			if toolResult, ok := avatarData.Metadata["tool_result"].(map[string]interface{}); ok {
+				var items []interface{}
+				if i, ok := toolResult["results"].([]interface{}); ok {
+					items = i
+				} else if i, ok := toolResult["results"].([]map[string]interface{}); ok {
+					for _, item := range i {
+						items = append(items, item)
+					}
 				}
-			}
 
-			if len(items) > 0 {
-				hasPersonalContext = true
-				sb.WriteString("\n### Verified Facts About User:\n")
-				for _, res := range items {
-					if item, ok := res.(map[string]interface{}); ok {
-						if content, ok := item["content"].(string); ok {
-							sb.WriteString(fmt.Sprintf("- %s\n", content))
-						} else if text, ok := item["text"].(string); ok {
-							sb.WriteString(fmt.Sprintf("- %s\n", text))
-						} else {
-							sb.WriteString("- " + utils.SafeResultSummary(item, 1000) + "\n")
+				if len(items) > 0 {
+					hasPersonalContext = true
+					sb.WriteString("\n### Verified Facts About User (ONLY use if relevant to the request):\n")
+					for _, res := range items {
+						if item, ok := res.(map[string]interface{}); ok {
+							if content, ok := item["content"].(string); ok {
+								sb.WriteString(fmt.Sprintf("- %s\n", content))
+							} else if text, ok := item["text"].(string); ok {
+								sb.WriteString(fmt.Sprintf("- %s\n", text))
+							} else {
+								sb.WriteString("- " + utils.SafeResultSummary(item, 1000) + "\n")
+							}
+						} else if str, ok := res.(string); ok {
+							sb.WriteString("- " + str + "\n")
 						}
-					} else if str, ok := res.(string); ok {
-						sb.WriteString("- " + str + "\n")
 					}
 				}
 			}
