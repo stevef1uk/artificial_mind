@@ -83,7 +83,6 @@ func resolveWellKnownURL(input string) string {
 func init() {
 	Set_mcp_smart_scrape_hints()
 	Set_mcp_research_agent_hints()
-	Set_tool_generate_image_hints()
 }
 
 func Set_mcp_smart_scrape_hints() {
@@ -97,24 +96,12 @@ func Set_mcp_smart_scrape_hints() {
 }
 
 func Set_mcp_research_agent_hints() {
-	hints := &PromptHintsConfig{
+	SetPromptHints("mcp_research_agent", &PromptHintsConfig{
 		Keywords:      []string{"research", "deep research", "comprehensive", "analysis", "latest developments", "multi-step research"},
-		PromptText:    "⚠️ FOR COMPLEX RESEARCH: Use mcp_research_agent or deep_research for multi-step research or deep analysis tasks. Set 'query' (or 'topic' for deep_research) to a detailed research goal and 'depth' (1-3).",
+		PromptText:    "⚠️ FOR COMPLEX RESEARCH: Use mcp_research_agent for multi-step research or deep analysis tasks. Set 'query' to a detailed research goal and 'depth' (1-3).",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"research", "deep research", "analysis"},
 		RejectText:    true, // Force research tool usage
-	}
-	SetPromptHints("mcp_research_agent", hints)
-	SetPromptHints("deep_research", hints)
-}
-
-func Set_tool_generate_image_hints() {
-	SetPromptHints("tool_generate_image", &PromptHintsConfig{
-		Keywords:      []string{"generate image", "create image", "draw", "generate an image", "create an image", "make an image", "generate me", "show me an image"},
-		PromptText:    "🎨 FOR IMAGE GENERATION: You MUST use tool_generate_image with the 'prompt' parameter for any request to generate, create, or show an image. Do NOT explain that you are doing it, just call the tool.",
-		ForceToolCall: true,
-		AlwaysInclude: []string{"generate", "image", "draw"},
-		RejectText:    true,
 	})
 }
 
@@ -177,25 +164,14 @@ func MatchesConfiguredToolKeywords(message string) string {
 	messageLower := strings.ToLower(message)
 	allHints := GetAllPromptHints()
 
-	// If the message contains a URL with "scrape" intent, or mentions a well-known site, route directly to mcp_smart_scrape
+	// If the message contains a URL with "scrape" intent, route directly to mcp_smart_scrape
 	// instead of letting search_weaviate keywords ("news", "latest") hijack the request
-	wellKnown := resolveWellKnownURL(messageLower)
-	hasURL := strings.Contains(messageLower, "http://") || strings.Contains(messageLower, "https://") || strings.Contains(messageLower, "www.") || wellKnown != ""
-	hasScrapeIntent := strings.Contains(messageLower, "scrape") || strings.Contains(messageLower, "browse") || strings.Contains(messageLower, "crawl") || strings.Contains(messageLower, "fetch") || strings.Contains(messageLower, "crape") || strings.Contains(messageLower, "visit") || wellKnown != ""
+	hasURL := strings.Contains(messageLower, "http://") || strings.Contains(messageLower, "https://") || strings.Contains(messageLower, "www.")
+	hasScrapeIntent := strings.Contains(messageLower, "scrape") || strings.Contains(messageLower, "browse") || strings.Contains(messageLower, "crawl") || strings.Contains(messageLower, "fetch") || strings.Contains(messageLower, "crape")
 
-	if (hasURL && hasScrapeIntent) || (wellKnown != "" && (hasScrapeIntent || strings.Contains(messageLower, "top") || strings.Contains(messageLower, "news"))) {
-		log.Printf("🔗 [KEYWORD-MATCH] Scrape intent detected for '%s' - routing to mcp_smart_scrape", messageLower)
+	if hasURL && hasScrapeIntent {
+		log.Printf("🔗 [KEYWORD-MATCH] URL + scrape intent detected - routing to mcp_smart_scrape")
 		return "mcp_smart_scrape"
-	}
-
-	// PRIORITIZATION: If 'research' is in the message, try to find a research tool first
-	if strings.Contains(messageLower, "research") {
-		if _, ok := allHints["mcp_research_agent"]; ok {
-			return "mcp_research_agent"
-		}
-		if _, ok := allHints["deep_research"]; ok {
-			return "deep_research"
-		}
 	}
 
 	var fallbackMatch string
@@ -402,13 +378,6 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 		matchesAlwaysInclude := false
 		for _, keyword := range hints.AlwaysInclude {
 			if strings.Contains(inputLower, strings.ToLower(keyword)) {
-				// PRIORITIZATION: If this is a "research" request, favor mcp_research_agent over search_weaviate
-				if toolID == "mcp_search_weaviate" || toolID == "search_weaviate" {
-					if strings.Contains(inputLower, "research") {
-						log.Printf("🧪 [FLEXIBLE-LLM] Research intent detected - favoring research_agent over search_weaviate in AlwaysInclude loop")
-						continue
-					}
-				}
 				matchesAlwaysInclude = true
 				break
 			}
@@ -452,11 +421,10 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 						params["goal"] = input
 						log.Printf("🔗 [FLEXIBLE-LLM] Resolved well-known site URL=%s for forced mcp_smart_scrape call", resolved)
 					}
-				} else if actualToolID == "mcp_research_agent" || strings.TrimPrefix(actualToolID, "mcp_") == "research_agent" || actualToolID == "deep_research" || actualToolID == "mcp_deep_research" {
+				} else if actualToolID == "mcp_research_agent" || strings.TrimPrefix(actualToolID, "mcp_") == "research_agent" {
 					params["query"] = input
-					params["topic"] = input
 					params["depth"] = 2
-					log.Printf("🧪 [FLEXIBLE-LLM] Extracted query/topic for forced %s call", actualToolID)
+					log.Printf("🧪 [FLEXIBLE-LLM] Extracted query for forced mcp_research_agent call")
 				} else if strings.Contains(actualToolID, "weaviate") || strings.Contains(actualToolID, "neo4j") || strings.Contains(actualToolID, "knowledge") || strings.Contains(actualToolID, "search") {
 					// General fallback for search/knowledge tools: default to passing the whole input as "query"
 					params["query"] = input
@@ -489,19 +457,8 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 					isScrapeOrBrowseTool := strings.Contains(responseLower, "scrape") ||
 						strings.Contains(responseLower, "browse") ||
 						strings.Contains(responseLower, "html_scraper") ||
-						strings.Contains(responseLower, "http_get") ||
-						strings.Contains(responseLower, "research_agent") ||
-						strings.Contains(responseLower, "deep_research") ||
-						strings.Contains(responseLower, "smart_scrape")
-
-					// If we have clear scrape intent + URL, we MUST NOT allow knowledge tools to take over
-					isKnowledgeTool := strings.Contains(responseLower, "weaviate") ||
-						strings.Contains(responseLower, "neo4j") ||
-						strings.Contains(responseLower, "knowledge") ||
-						strings.Contains(responseLower, "concept") ||
-						strings.Contains(responseLower, "avatar_context")
-
-					if isScrapeOrBrowseTool && !isKnowledgeTool {
+						strings.Contains(responseLower, "http_get")
+					if isScrapeOrBrowseTool {
 						log.Printf("✅ [FLEXIBLE-LLM] Allowing LLM's tool choice '%s' (scrape/browse tool takes priority over %s)", responseToolID, actualToolID)
 					} else {
 						// For mcp_smart_scrape, try to extract URL before forcing
@@ -577,42 +534,24 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		"mcp_find_related_concepts": {"related", "related concepts", "find related", "connections"},
 		"mcp_search_weaviate":       {"weaviate", "search", "vector", "semantic", "similar", "episodes", "memories", "wikipedia", "wiki", "news"},
 		// Note: mcp_read_google_data keywords are now loaded from configuration
-		"tool_http_get":       {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
-		"tool_html_scraper":   {"scrape", "html", "web", "website", "article", "news", "page", "parse html"},
-		"tool_file_read":      {"read", "file", "load", "open", "readfile", "read file", "content", "text"},
-		"tool_file_write":     {"write", "file", "save", "store", "output", "write file", "save file", "create file"},
-		"tool_ls":             {"list", "directory", "dir", "files", "ls", "list files", "directory listing"},
-		"tool_exec":           {"exec", "execute", "command", "shell", "run", "cmd", "system", "bash", "sh"},
-		"tool_codegen":        {"generate", "code", "create", "write code", "generate code", "program", "script"},
-		"tool_json_parse":     {"json", "parse", "parse json", "decode", "unmarshal"},
-		"tool_text_search":    {"search", "find", "text", "pattern", "match", "grep", "filter"},
-		"tool_docker_list":    {"docker", "container", "image", "list docker", "docker list"},
-		"tool_docker_build":   {"docker build", "build image", "dockerfile", "container build"},
-		"tool_docker_exec":    {"docker exec", "run docker", "execute docker", "container exec"},
-		"tool_generate_image": {"generate image", "create image", "draw", "image generation", "paint", "drawing"},
+		"tool_http_get":     {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
+		"tool_html_scraper": {"scrape", "html", "web", "website", "article", "news", "page", "parse html"},
+		"tool_file_read":    {"read", "file", "load", "open", "readfile", "read file", "content", "text"},
+		"tool_file_write":   {"write", "file", "save", "store", "output", "write file", "save file", "create file"},
+		"tool_ls":           {"list", "directory", "dir", "files", "ls", "list files", "directory listing"},
+		"tool_exec":         {"exec", "execute", "command", "shell", "run", "cmd", "system", "bash", "sh"},
+		"tool_codegen":      {"generate", "code", "create", "write code", "generate code", "program", "script"},
+		"tool_json_parse":   {"json", "parse", "parse json", "decode", "unmarshal"},
+		"tool_text_search":  {"search", "find", "text", "pattern", "match", "grep", "filter"},
+		"tool_docker_list":  {"docker", "container", "image", "list docker", "docker list"},
+		"tool_docker_build": {"docker build", "build image", "dockerfile", "container build"},
+		"tool_docker_exec":  {"docker exec", "run docker", "execute docker", "container exec"},
 	}
-
-	// Detect scrape intent for filtering
-	wellKnownResolved := resolveWellKnownURL(inputLower)
-	hasURL := strings.Contains(inputLower, "http://") || strings.Contains(inputLower, "https://") || strings.Contains(inputLower, "www.") || wellKnownResolved != ""
-	hasScrapeIntent := strings.Contains(inputLower, "scrape") || strings.Contains(inputLower, "browse") || strings.Contains(inputLower, "crawl") || strings.Contains(inputLower, "fetch") || strings.Contains(inputLower, "visit") || wellKnownResolved != ""
-	isPureScrape := hasURL && hasScrapeIntent
 
 	// First pass: include tools that match keywords
 	for _, tool := range tools {
 		if seen[tool.ID] {
 			continue
-		}
-
-		// STRATEGY: If this is a pure scrape request, DO NOT include knowledge/memory tools
-		// to prevent them from hijacking the request.
-		if isPureScrape {
-			toolIDLower := strings.ToLower(tool.ID)
-			if strings.Contains(toolIDLower, "weaviate") || strings.Contains(toolIDLower, "neo4j") ||
-				strings.Contains(toolIDLower, "knowledge") || strings.Contains(toolIDLower, "concept") ||
-				strings.Contains(toolIDLower, "avatar_context") || strings.Contains(toolIDLower, "episode") {
-				continue
-			}
 		}
 
 		matched := false
@@ -695,16 +634,6 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 	}
 
 	for _, toolID := range alwaysInclude {
-		// Respect isPureScrape filter
-		if isPureScrape {
-			toolIDLower := strings.ToLower(toolID)
-			if strings.Contains(toolIDLower, "weaviate") || strings.Contains(toolIDLower, "neo4j") ||
-				strings.Contains(toolIDLower, "knowledge") || strings.Contains(toolIDLower, "concept") ||
-				strings.Contains(toolIDLower, "avatar_context") || strings.Contains(toolIDLower, "episode") {
-				continue
-			}
-		}
-
 		if !seen[toolID] {
 			for _, tool := range tools {
 				if tool.ID == toolID {
@@ -822,7 +751,7 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 			}
 
 			// Extra boost for research_agent when 'research' is explicitly mentioned
-			if (tool.ID == "mcp_research_agent" || tool.ID == "research_agent" || tool.ID == "deep_research" || tool.ID == "mcp_deep_research") && strings.Contains(inputLower, "research") {
+			if (tool.ID == "mcp_research_agent" || tool.ID == "research_agent") && strings.Contains(inputLower, "research") {
 				score += 15 // Ensure it stays in top 20
 			}
 
@@ -1090,14 +1019,6 @@ func (f *FlexibleLLMAdapter) normalizeResponse(resp *FlexibleLLMResponse, rawJSO
 			isStandard = true
 			break
 		}
-	}
-
-	// Treat completely empty type as a plain text response by default. This makes
-	// downstream enforcement logic (e.g. ForceToolCall + RejectText) work even
-	// when the model omits the "type" field or sets it to an empty string.
-	if resp.Type == "" {
-		resp.Type = ResponseTypeText
-		isStandard = true
 	}
 
 	if !isStandard && resp.Type != "" {

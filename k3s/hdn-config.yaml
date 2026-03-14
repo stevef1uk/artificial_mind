@@ -3,7 +3,14 @@ kind: ConfigMap
 metadata:
   name: hdn-config
   namespace: agi
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hdn-config
+  namespace: agi
 data:
+  USER_NAME: "Steven Fisher"
+  RPI_USER: "stevef"
   agents.yaml: |
     agents:
       - id: email_monitor_agent
@@ -467,4 +474,4 @@ data:
             - inbox
             - gmail
             - check my
-          reject_text_response: true
+          reject_text_response: trues
