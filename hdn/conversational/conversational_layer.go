@@ -56,16 +56,27 @@ func (cl *ConversationalLayer) stripInterpretResultForContext(ir *InterpretResul
 				out := map[string]interface{}{
 					"success": tr["success"],
 				}
-				if results, ok := tr["results"].([]interface{}); ok {
-					out["count"] = len(results)
+
+				// Handle both []interface{} and []map[string]interface{}
+				var rawResults []interface{}
+				if res, ok := tr["results"].([]interface{}); ok {
+					rawResults = res
+				} else if res, ok := tr["results"].([]map[string]interface{}); ok {
+					for _, item := range res {
+						rawResults = append(rawResults, item)
+					}
+				}
+
+				if len(rawResults) > 0 {
+					out["count"] = len(rawResults)
 					// Keep up to 5 items to allow current request to function
-					limit := len(results)
+					limit := len(rawResults)
 					if limit > 5 {
 						limit = 5
 					}
 					summaryResults := make([]interface{}, 0, limit)
 					for i := 0; i < limit; i++ {
-						item := results[i]
+						item := rawResults[i]
 						if m, ok := item.(map[string]interface{}); ok {
 							// Keep map structure but truncate large strings inside it
 							strippedItem := make(map[string]interface{})
@@ -84,7 +95,12 @@ func (cl *ConversationalLayer) stripInterpretResultForContext(ir *InterpretResul
 						}
 					}
 					out["results"] = summaryResults
+				} else if count, ok := tr["count"].(int); ok {
+					out["count"] = count
+				} else if count, ok := tr["count"].(float64); ok {
+					out["count"] = int(count)
 				}
+
 				stripped.Metadata[mk] = out
 			}
 		}
