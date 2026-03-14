@@ -81,8 +81,8 @@ if [ -z "$FONT_PATH" ]; then
     FONT_PATH=$(realpath "../python/NotoSansSC-Bold.ttf")
   elif [ -f "./NotoSansSC-Bold.ttf" ]; then
     FONT_PATH=$(realpath "./NotoSansSC-Bold.ttf")
-  elif [ -f "/home/stevef/python/NotoSansSC-Bold.ttf" ]; then
-    FONT_PATH="/home/stevef/python/NotoSansSC-Bold.ttf"
+  elif [ -f "/home/${USER}/python/NotoSansSC-Bold.ttf" ]; then
+    FONT_PATH="/home/${USER}/python/NotoSansSC-Bold.ttf"
   fi
 fi
 

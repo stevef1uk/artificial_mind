@@ -5,11 +5,11 @@ After=network.target sound.target
 
 [Service]
 Type=simple
-User=stevef
+User=${USER}
 # Updated path to match the migration
-WorkingDirectory=/home/stevef/dev/chatbot
+WorkingDirectory=/home/${USER}/dev/chatbot
 # Source the script via bash so run.sh can use 'source' / set -a etc.
-ExecStart=/bin/bash /home/stevef/dev/chatbot/run.sh
+ExecStart=/bin/bash /home/${USER}/dev/chatbot/run.sh
 # Restart if the Go binary crashes, but not on a clean exit (e.g. button shutdown)
 Restart=on-failure
 RestartSec=5

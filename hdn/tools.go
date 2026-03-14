@@ -1773,7 +1773,10 @@ func (s *APIServer) submitToDroneCI(code, language, image string) (map[string]in
 		// Use configurable repository instead of hardcoding
 		existingRepo := strings.TrimSpace(os.Getenv("DRONE_REPO"))
 		if existingRepo == "" {
-			existingRepo = "stevef/agi" // fallback default
+			existingRepo = os.Getenv("USER_REPO")
+			if existingRepo == "" {
+				existingRepo = "agi" // fallback default repo name
+			}
 		}
 		log.Printf("🚀 [DRONE-CI] Using repository: %s", existingRepo)
 
@@ -1852,7 +1855,10 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string, env map[s
 	}
 	rpiUser := os.Getenv("RPI_USER")
 	if rpiUser == "" {
-		rpiUser = "stevef" // Default as per user feedback
+		rpiUser = os.Getenv("RPI_USER")
+		if rpiUser == "" {
+			rpiUser = "user" // Default generic user
+		}
 	}
 	log.Printf("🔧 [SSH-FALLBACK] Using host: %s, user: %s", rpiHost, rpiUser)
 
@@ -2522,7 +2528,10 @@ if __name__ == "__main__":
 	}
 	rpiUser := os.Getenv("RPI_USER")
 	if rpiUser == "" {
-		rpiUser = "stevef"
+		rpiUser = os.Getenv("RPI_USER")
+		if rpiUser == "" {
+			rpiUser = "user"
+		}
 	}
 
 	res, err := s.fallbackSSHExecution(pyCode, "python", "", map[string]string{

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hdn/utils"
 	"log"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -397,12 +398,16 @@ func (nlg *NLGGenerator) buildKnowledgePrompt(req *NLGRequest) string {
 	sb.WriteString("\n\n🚨 CRITICAL RULES:\n")
 	sb.WriteString("1. You MUST use the information provided in the \"Knowledge/Intelligence Results\" and \"Information from Memory/Bio\" sections below, but ONLY if they are relevant to the user's specific question.\n")
 	sb.WriteString("2. DO NOT repeat, echo, or include any of the labels or data from the \"Reasoning Process\" or \"Knowledge/Intelligence Results\" sections in your final response.\n")
-	sb.WriteString("3. Provide ONLY a clean natural language answer. 🚨 NO PREAMBLES (e.g., 'Hello Steven!', 'I'd be happy to help...', 'Unfortunately...'). Just answer the question.\n")
+	userName := os.Getenv("USER_NAME")
+	if userName == "" {
+		userName = "User"
+	}
+	sb.WriteString("3. Provide ONLY a clean natural language answer. 🚨 NO PREAMBLES (e.g., 'Hello " + userName + "!', 'I'd be happy to help...', 'Unfortunately...'). Just answer the question.\n")
 	sb.WriteString("4. DO NOT invent, make up, or hallucinate any data that is not explicitly shown in those sections.\n")
 	sb.WriteString("5. If the \"Knowledge/Intelligence Results\" contains email data or list data, present it cleanly and formatted for the user.\n")
 	sb.WriteString("6. If information is present in ONE section but not the other, just use what is available. Do NOT mention that the other section was empty.\n")
 	sb.WriteString("7. NEVER provide code, scripts, or commands that could be harmful or destructive.\n")
-	sb.WriteString("8. If the 'Information from Memory/Bio' contains information about Steven Fisher, assume this is the user you are talking to.\n")
+	sb.WriteString("8. If the 'Information from Memory/Bio' contains information about " + userName + ", assume this is the user you are talking to.\n")
 	sb.WriteString("9. Use a natural, direct tone. DO NOT start every response with formal disclaimers or polite filler.\n")
 	sb.WriteString("10. Stay focused on the CURRENT message. DO NOT volunteer updates about your knowledge gaps or what you 'couldn't find'. If you can't find it, answer based on common sense or ask a short clarifying question.\n")
 
@@ -433,8 +438,16 @@ func (nlg *NLGGenerator) buildKnowledgePrompt(req *NLGRequest) string {
 		}
 
 		prompt += "\n\nKnowledge/Intelligence Results:\n" + formattedData + "\n\n"
-		prompt += "🚨 CRITICAL: You MUST use ONLY the information provided in the results above and the memory context sections. DO NOT invent or hallucinate any data.\n"
 	}
+
+	// Final aggressive rules at the VERY END to overcome long context
+	prompt += "\n\n🚨 FINAL CRITICAL INSTRUCTIONS (MANDATORY):\n"
+	prompt += "1. YOU ARE TALKING DIRECTLY TO THE USER. Use 'you' and 'your'. NEVER use the user's name (" + userName + ") or speak in the third person.\n"
+	prompt += "2. NO PREAMBLES. Do not say 'Hello', 'I'd be happy to help', or 'Based on...'.\n"
+	prompt += "3. NO DISCLAIMERS. Do not say 'Unfortunately', 'I couldn't find', or 'My knowledge base says...'.\n"
+	prompt += "4. If you have partial information, just give it. Do NOT explain that it is partial.\n"
+	prompt += "5. DO NOT volunteer information about knowledge gaps. Just answer the question directly.\n"
+	prompt += "6. Provide ONLY the natural language answer. No labels, no metadata.\n"
 
 	// Final safety truncation
 	if len(prompt) > 400000 {
@@ -481,6 +494,15 @@ func (nlg *NLGGenerator) buildTaskPrompt(req *NLGRequest) string {
 
 	// Add memory context (summaries and personal facts)
 	prompt := nlg.addMemoryContext(sb.String(), req)
+
+	// Final aggressive rules at the VERY END
+	prompt += "\n\n🚨 FINAL CRITICAL INSTRUCTIONS (MANDATORY):\n"
+	prompt += "1. YOU ARE TALKING DIRECTLY TO THE USER. Use 'you' and 'your'. NEVER use the user's name (Steven Fisher) or speak in the third person.\n"
+	prompt += "2. NO PREAMBLES. Do not say 'Hello', 'I'd be happy to help', or 'Based on...'.\n"
+	prompt += "3. NO DISCLAIMERS. Do not say 'Unfortunately', 'I couldn't find', or 'My knowledge base says...'.\n"
+	prompt += "4. If you have partial information, just give it. Do NOT explain that it is partial.\n"
+	prompt += "5. DO NOT volunteer information about knowledge gaps. Just answer the question directly.\n"
+	prompt += "6. Provide ONLY the natural language answer. No labels, no metadata.\n"
 
 	// Final safety truncation
 	if len(prompt) > 400000 {
@@ -1088,7 +1110,9 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 				if len(summary) > 2000 {
 					summary = summary[:2000] + "... [TRUNCATED]"
 				}
-				sb.WriteString(fmt.Sprintf("- %s\n", summary))
+				cleanSummary := strings.ReplaceAll(summary, "Steven Fisher", "You")
+				cleanSummary = strings.ReplaceAll(cleanSummary, "Steven", "You")
+				sb.WriteString(fmt.Sprintf("- %s\n", cleanSummary))
 			}
 		}
 	}
@@ -1119,15 +1143,23 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 					sb.WriteString("\n### Verified Facts About User (ONLY use if relevant to the request):\n")
 					for _, res := range items {
 						if item, ok := res.(map[string]interface{}); ok {
+							rawContent := ""
 							if content, ok := item["content"].(string); ok {
-								sb.WriteString(fmt.Sprintf("- %s\n", content))
+								rawContent = content
 							} else if text, ok := item["text"].(string); ok {
-								sb.WriteString(fmt.Sprintf("- %s\n", text))
+								rawContent = text
 							} else {
-								sb.WriteString("- " + utils.SafeResultSummary(item, 1000) + "\n")
+								rawContent = utils.SafeResultSummary(item, 1000)
 							}
+
+							// PERSONA-FLIP: Replace "Steven Fisher" with "You" to force LLM into first-person address
+							cleanContent := strings.ReplaceAll(rawContent, "Steven Fisher", "You")
+							cleanContent = strings.ReplaceAll(cleanContent, "Steven", "You")
+							sb.WriteString(fmt.Sprintf("- %s\n", cleanContent))
 						} else if str, ok := res.(string); ok {
-							sb.WriteString("- " + str + "\n")
+							cleanStr := strings.ReplaceAll(str, "Steven Fisher", "You")
+							cleanStr = strings.ReplaceAll(cleanStr, "Steven", "You")
+							sb.WriteString("- " + cleanStr + "\n")
 						}
 					}
 				}

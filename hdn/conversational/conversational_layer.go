@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -1002,12 +1003,16 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		// Extract meaningful search term from text
 		ragQueryText := filterSkipWords(searchText)
 
-		// If query is about the user (e.g. "who am i", "about me"), ensure we search for Steven Fisher
+		// If query is about the user (e.g. "who am i", "about me"), ensure we search for the configured user name
+		userName := os.Getenv("USER_NAME")
+		if userName == "" {
+			userName = "User" // fallback
+		}
 		if strings.Contains(strings.ToLower(searchText), "who am i") ||
 			strings.Contains(strings.ToLower(searchText), "about me") ||
-			strings.Contains(strings.ToLower(searchText), "who is steven") {
+			strings.Contains(strings.ToLower(searchText), "who is "+strings.ToLower(userName)) {
 			if ragQueryText == "" || len(ragQueryText) < 5 {
-				ragQueryText = "Steven Fisher personal information biography work history"
+				ragQueryText = userName + " personal information biography work history"
 			}
 		}
 

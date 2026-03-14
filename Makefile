@@ -42,7 +42,7 @@ CHATBOT_DIR := chatbot
 CHATBOT_BIN := $(BIN_DIR)/chatbot
 TOOLS_DIR := tools
 CHATBOT_HOST ?= 192.168.1.60
-CHATBOT_USER ?= stevef
+CHATBOT_USER ?= $(USER)
 CHATBOT_REMOTE_PATH ?= ~/dev/chatbot/chatbot
 
 # Go build flags
