@@ -422,7 +422,12 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 			if hints.RejectText && parsedResponse.Type == ResponseTypeText {
 				// Force tool call — extract parameters from input where possible
 				params := map[string]interface{}{}
-				if actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape" {
+				if actualToolID == "tool_generate_image" {
+					// Always set prompt for image generation
+					params["prompt"] = input
+					// Optionally set source_image if available in context (handled elsewhere)
+					log.Printf("🖼️ [FLEXIBLE-LLM] Forced tool_generate_image call with prompt: %s", input)
+				} else if actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape" {
 					if match := urlRe.FindString(input); match != "" {
 						params["url"] = match
 						params["goal"] = input
