@@ -619,13 +619,16 @@ func main() {
 
 				// Check for camera/vision keywords to trigger live feed
 				lowerText := strings.ToLower(text)
+				intentHandled := false
 				if strings.Contains(lowerText, "camera") || strings.Contains(lowerText, "vision mode") {
 					cameraMu.Lock()
 					if !cameraIsActive {
 						stopPlayback()
 						if !isRemoteCameraAvailable(remoteCameraURL) {
 							fmt.Println("[Vision] Keyword trigger rejected: Remote camera unavailable")
+							go speakText("The remote camera is currently unavailable. Please check if the camera Pi is turned on.")
 							cameraMu.Unlock()
+							intentHandled = true
 						} else {
 							cameraIsActive = true
 							cameraMu.Unlock()
@@ -637,10 +640,22 @@ func main() {
 								CameraMode:       &cameraOn,
 								CaptureImagePath: filepath.Join(os.TempDir(), "vision_capture.jpg"),
 							})
+							intentHandled = true
+							go speakText("Switching to vision mode.")
 						}
 					} else {
 						cameraMu.Unlock()
 					}
+				}
+
+				if intentHandled {
+					state = StateIdle
+					disp.Display(display.Status{
+						Status: "Ready",
+						Emoji:  "✅",
+						Text:   "Vision mode requested.",
+					})
+					continue
 				}
 
 				// Let the user know we are thinking about it out loud
