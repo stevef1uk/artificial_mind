@@ -59,6 +59,32 @@ func (ip *IntentParser) ParseIntent(ctx context.Context, message string, context
 		}
 	}
 
+	// Step 0c: Check for image manipulation / generation (priority for tools)
+	// These should be 'query' intent to trigger the HDN knowledge interpreter which handles single tool calls well
+	imageVerbPatterns := []string{
+		`^generate\b`, `^create\b`, `^make\b`, `^draw\b`,
+		`^change\b`, `^modify\b`, `^update\b`, `^edit\b`, `^show me\b`,
+	}
+	for _, pattern := range imageVerbPatterns {
+		if matched, _ := regexp.MatchString("(?i)"+pattern, strings.TrimSpace(message)); matched {
+			lower := strings.ToLower(message)
+			// Heuristic: if it mentions visual terms, it's an image/tool request
+			if strings.Contains(lower, "image") || strings.Contains(lower, "picture") ||
+				strings.Contains(lower, "photo") || strings.Contains(lower, "capture") ||
+				strings.Contains(lower, "drawing") || strings.Contains(lower, "artwork") ||
+				strings.Contains(lower, "background") || strings.Contains(lower, "foreground") ||
+				strings.Contains(lower, "style") || strings.Contains(lower, "that") {
+				return &Intent{
+					Type:            "query",
+					Confidence:      0.99,
+					Goal:            "Generate or modify an image: " + message,
+					OriginalMessage: message,
+					Entities:        map[string]string{"query": message},
+				}, nil
+			}
+		}
+	}
+
 	// Step 0b: Check for hardcoded Query Overrides (high priority for questions)
 	queryOverridePatterns := []string{
 		`^what is `, `^what are `, `^what's `, `^what was `, `^what were `,

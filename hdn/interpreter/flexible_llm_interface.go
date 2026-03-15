@@ -88,10 +88,10 @@ func init() {
 
 func Set_tool_generate_image_hints() {
 	SetPromptHints("tool_generate_image", &PromptHintsConfig{
-		Keywords:      []string{"image", "create image", "generate image", "make image", "picture", "drawing", "illustration", "visual"},
-		PromptText:    "🖼️ FOR IMAGE GENERATION: Use tool_generate_image with a descriptive 'prompt' parameter. Important: ONLY use this tool if the user explicitly asks to CREATE or GENERATE a new image, not for describing existing ones.",
+		Keywords:      []string{"image", "create image", "generate image", "make image", "picture", "drawing", "illustration", "visual", "photo", "artwork", "change", "modify", "update", "edit", "background", "foreground", "style"},
+		PromptText:    "🖼️ FOR IMAGE GENERATION: Use tool_generate_image with a descriptive 'prompt' parameter. If a 'source_image' is available in context, you can use it for Image-to-Image tasks. Important: ONLY use this tool if the user explicitly asks to CREATE, GENERATE or MODIFY an image.",
 		ForceToolCall: true,
-		AlwaysInclude: []string{"create image", "generate image"},
+		AlwaysInclude: []string{"create image", "generate image", "modify image", "change image"},
 		RejectText:    true,
 	})
 }

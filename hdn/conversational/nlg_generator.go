@@ -448,6 +448,7 @@ func (nlg *NLGGenerator) buildKnowledgePrompt(req *NLGRequest) string {
 	prompt += "4. If you have partial information, just give it. Do NOT explain that it is partial.\n"
 	prompt += "5. DO NOT volunteer information about knowledge gaps. Just answer the question directly.\n"
 	prompt += "6. Provide ONLY the natural language answer. No labels, no metadata.\n"
+	prompt += "7. 🖼️ IMAGE CONFIRMATION: If 'tool_generate_image' was used, assume the result is already visible. Briefly confirm (e.g., 'I've updated the background to red.') instead of suggesting the user search for it.\n"
 
 	// Final safety truncation
 	if len(prompt) > 400000 {
