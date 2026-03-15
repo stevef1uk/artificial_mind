@@ -77,16 +77,37 @@ const cameraHoldThreshold = 10 * time.Second
 
 func isRemoteCameraAvailable(url string) bool {
 	if url == "" {
-		// If no remote camera URL, it's local or not configured.
 		return true
 	}
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(url + "/preview")
+	// Strip trailing slash if present to avoid double slashes
+	url = strings.TrimSuffix(url, "/")
+
+	fmt.Printf("[Camera] Checking camera availability at: %s\n", url)
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	// 1. Try dedicated health endpoint first (lightweight)
+	resp, err := client.Get(url + "/health")
+	if err == nil {
+		if resp.StatusCode == http.StatusOK {
+			resp.Body.Close()
+			fmt.Printf("[Camera] Remote camera healthy via /health\n")
+			return true
+		}
+		fmt.Printf("[Camera] /health returned status: %d\n", resp.StatusCode)
+		resp.Body.Close()
+	} else {
+		fmt.Printf("[Camera] /health check error: %v\n", err)
+	}
+
+	// 2. Fallback to /preview (traditional check, but heavier)
+	fmt.Printf("[Camera] Checking /preview fallback...\n")
+	resp, err = client.Get(url + "/preview")
 	if err != nil {
-		fmt.Printf("[Camera] Remote camera check failed: %v\n", err)
+		fmt.Printf("[Camera] /preview check error: %v\n", err)
 		return false
 	}
 	defer resp.Body.Close()
+	fmt.Printf("[Camera] /preview status: %d\n", resp.StatusCode)
 	return resp.StatusCode == http.StatusOK
 }
 

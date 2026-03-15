@@ -14,6 +14,10 @@ config = picam2.create_preview_configuration(main={"size": (640, 480)})
 picam2.configure(config)
 picam2.start()
 
+@app.route('/health')
+def health():
+    return "OK", 200
+
 @app.route('/preview')
 @app.route('/capture')
 def capture_image():
