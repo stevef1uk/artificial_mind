@@ -1019,12 +1019,19 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 		return
 	case "tool_generate_image":
 		log.Printf("[HDN] Generating image (prompt hidden for privacy)")
-		prompt, _ := getString(params, "prompt")
-		if strings.TrimSpace(prompt) == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "prompt required"})
-			return
-		}
+		   prompt, _ := getString(params, "prompt")
+		   if strings.TrimSpace(prompt) == "" {
+			   // Fallback: accept 'task' as prompt if present
+			   taskPrompt, _ := getString(params, "task")
+			   if strings.TrimSpace(taskPrompt) != "" {
+				   prompt = taskPrompt
+			   }
+		   }
+		   if strings.TrimSpace(prompt) == "" {
+			   w.WriteHeader(http.StatusBadRequest)
+			   _ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "prompt required"})
+			   return
+		   }
 
 		sourceImage, _ := getString(params, "source_image")
 		res, err := s.generateImageInternal(ctx, prompt, sourceImage)
