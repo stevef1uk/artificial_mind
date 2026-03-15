@@ -778,18 +778,21 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				if toolID == "tool_generate_image" {
 					log.Printf("🖼️ [CONVERSATIONAL] Image generation detected - bypassing core query extraction")
 					if hdnContext != nil {
-						// Always set prompt for tool_generate_image
 						modInstruction := originalMessage
 						strDesc := hdnContext["last_vision_description"]
-						if strDesc != "" {
-							hdnContext["prompt"] = fmt.Sprintf("%s. %s", strDesc, modInstruction)
-						} else {
-							hdnContext["prompt"] = modInstruction
+						var prompt string
+						if strDesc != "" && modInstruction != "" {
+							prompt = fmt.Sprintf("%s. %s", strDesc, modInstruction)
+						} else if strDesc != "" {
+							prompt = strDesc
+						} else if modInstruction != "" {
+							prompt = modInstruction
 						}
-						// If prompt is still empty, set from originalMessage
-						if hdnContext["prompt"] == "" {
-							hdnContext["prompt"] = originalMessage
+						// Fallback to originalMessage if prompt is still empty
+						if prompt == "" && originalMessage != "" {
+							prompt = originalMessage
 						}
+						hdnContext["prompt"] = prompt
 						strPath := hdnContext["last_vision_path"]
 						if strPath != "" {
 							hdnContext["source_image"] = strPath
