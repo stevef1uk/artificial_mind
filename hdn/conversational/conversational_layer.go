@@ -781,12 +781,13 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 						modInstruction := originalMessage
 						strDesc := hdnContext["last_vision_description"]
 						var prompt string
+						// Always clarify subject and modification
 						if strDesc != "" && modInstruction != "" {
-							prompt = fmt.Sprintf("%s. %s", strDesc, modInstruction)
+							prompt = fmt.Sprintf("Modify the last image described as: '%s'. Instruction: %s", strDesc, modInstruction)
 						} else if strDesc != "" {
-							prompt = strDesc
+							prompt = fmt.Sprintf("Modify the last image described as: '%s'.", strDesc)
 						} else if modInstruction != "" {
-							prompt = modInstruction
+							prompt = fmt.Sprintf("Instruction: %s", modInstruction)
 						}
 						// Fallback to originalMessage if prompt is still empty
 						if prompt == "" && originalMessage != "" {
