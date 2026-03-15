@@ -327,11 +327,11 @@ func (f *FlexibleLLMAdapter) ProcessNaturalLanguageWithPriority(input string, av
 		return nil, fmt.Errorf("failed to call LLM: %v", err)
 	}
 
-	return f.validateAndEnforceHints(input, response, filteredTools)
+	return f.validateAndEnforceHints(input, response, filteredTools, context)
 }
 
 // validateAndEnforceHints parses the LLM response and applies configured prompt hints/forcing
-func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response string, filteredTools []Tool) (*FlexibleLLMResponse, error) {
+func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response string, filteredTools []Tool, context map[string]string) (*FlexibleLLMResponse, error) {
 	log.Printf("✅ [FLEXIBLE-LLM] Generated response length: %d", len(response))
 	parsedResponse, err := f.parseFlexibleResponse(response, len(filteredTools))
 	if err != nil {
@@ -424,15 +424,22 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 				params := map[string]interface{}{}
 				if actualToolID == "tool_generate_image" {
 					// Always set prompt for image generation
-					// Map query, description, or task to prompt
-					if q, ok := params["query"]; ok && strings.TrimSpace(fmt.Sprintf("%v", q)) != "" {
-						params["prompt"] = q
-					} else if d, ok := params["description"]; ok && strings.TrimSpace(fmt.Sprintf("%v", d)) != "" {
-						params["prompt"] = d
-					} else if t, ok := params["task"]; ok && strings.TrimSpace(fmt.Sprintf("%v", t)) != "" {
-						params["prompt"] = t
-					} else {
-						params["prompt"] = input
+					// Prefer context["prompt"] if available
+					if context != nil {
+						if p, ok := context["prompt"]; ok && strings.TrimSpace(fmt.Sprintf("%v", p)) != "" {
+							params["prompt"] = p
+						}
+					}
+					if params["prompt"] == nil || strings.TrimSpace(fmt.Sprintf("%v", params["prompt"])) == "" {
+						if q, ok := params["query"]; ok && strings.TrimSpace(fmt.Sprintf("%v", q)) != "" {
+							params["prompt"] = q
+						} else if d, ok := params["description"]; ok && strings.TrimSpace(fmt.Sprintf("%v", d)) != "" {
+							params["prompt"] = d
+						} else if t, ok := params["task"]; ok && strings.TrimSpace(fmt.Sprintf("%v", t)) != "" {
+							params["prompt"] = t
+						} else {
+							params["prompt"] = input
+						}
 					}
 					log.Printf("🖼️ [FLEXIBLE-LLM] tool_generate_image call with prompt: %v", params["prompt"])
 				} else if actualToolID == "mcp_research_agent" || strings.TrimPrefix(actualToolID, "mcp_") == "research_agent" {
