@@ -1028,6 +1028,13 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			   }
 		   }
 		   if strings.TrimSpace(prompt) == "" {
+			   // Fallback: accept 'description' as prompt if present
+			   descPrompt, _ := getString(params, "description")
+			   if strings.TrimSpace(descPrompt) != "" {
+				   prompt = descPrompt
+			   }
+		   }
+		   if strings.TrimSpace(prompt) == "" {
 			   w.WriteHeader(http.StatusBadRequest)
 			   _ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "prompt required"})
 			   return
