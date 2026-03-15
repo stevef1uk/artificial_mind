@@ -423,10 +423,18 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 				// Force tool call — extract parameters from input where possible
 				params := map[string]interface{}{}
 				if actualToolID == "tool_generate_image" {
-					// Always set prompt for image generation
-					params["prompt"] = input
-					// Optionally set source_image if available in context (handled elsewhere)
-					log.Printf("🖼️ [FLEXIBLE-LLM] tool_generate_image call with prompt: %s", input)
+	 				// Always set prompt for image generation
+	 				// Map query, description, or task to prompt
+	 				if q, ok := params["query"]; ok && strings.TrimSpace(fmt.Sprintf("%v", q)) != "" {
+	 					params["prompt"] = q
+	 				} else if d, ok := params["description"]; ok && strings.TrimSpace(fmt.Sprintf("%v", d)) != "" {
+	 					params["prompt"] = d
+	 				} else if t, ok := params["task"]; ok && strings.TrimSpace(fmt.Sprintf("%v", t)) != "" {
+	 					params["prompt"] = t
+	 				} else {
+	 					params["prompt"] = input
+	 				}
+	 				log.Printf("🖼️ [FLEXIBLE-LLM] tool_generate_image call with prompt: %v", params["prompt"])
 				} else if actualToolID == "tool_generate_image" {
 					// Ensure prompt is set even if not ForceToolCall
 					if _, ok := params["prompt"]; !ok || strings.TrimSpace(fmt.Sprintf("%v", params["prompt"])) == "" {

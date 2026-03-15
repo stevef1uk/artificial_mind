@@ -777,10 +777,19 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				// which sometimes strips useful words.
 				if toolID == "tool_generate_image" {
 					log.Printf("🖼️ [CONVERSATIONAL] Image generation detected - bypassing core query extraction")
-				   // Ensure prompt is set for tool_generate_image
-				   if hdnContext != nil {
-					   hdnContext["prompt"] = originalMessage
-				   }
+					// Ensure prompt is set for tool_generate_image
+ 					if hdnContext != nil {
+ 						// Map query, description, or task to prompt
+ 						if q, ok := hdnContext["query"]; ok && strings.TrimSpace(fmt.Sprintf("%v", q)) != "" {
+ 							hdnContext["prompt"] = q
+ 						} else if d, ok := hdnContext["description"]; ok && strings.TrimSpace(fmt.Sprintf("%v", d)) != "" {
+ 							hdnContext["prompt"] = d
+ 						} else if t, ok := hdnContext["task"]; ok && strings.TrimSpace(fmt.Sprintf("%v", t)) != "" {
+ 							hdnContext["prompt"] = t
+ 						} else {
+ 							hdnContext["prompt"] = originalMessage
+ 						}
+ 					}
 					interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, originalMessage, hdnContext)
 					if err != nil {
 						return nil, fmt.Errorf("image tool interpretation failed: %w", err)
