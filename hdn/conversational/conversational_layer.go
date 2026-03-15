@@ -742,6 +742,13 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		hdnContext[k] = utils.SafeResultSummary(v, 5000)
 	}
 
+	if visionPath, ok := context["last_vision_path"].(string); ok && visionPath != "" {
+		hdnContext["last_vision_path"] = visionPath
+	}
+	if visionDesc, ok := context["last_vision_description"].(string); ok && visionDesc != "" {
+		hdnContext["last_vision_description"] = visionDesc
+	}
+
 	// Add original message if available in context for knowledge query extraction
 	if origMsg, ok := context["original_message"].(string); ok {
 		hdnContext["original_message"] = origMsg
