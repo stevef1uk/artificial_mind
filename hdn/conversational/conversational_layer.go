@@ -779,16 +779,16 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 					log.Printf("🖼️ [CONVERSATIONAL] Image generation detected - bypassing core query extraction")
 					if hdnContext != nil {
 						// Combine last image subject and modification instruction for prompt
-						lastDesc, _ := hdnContext["last_vision_description"].(string)
 						modInstruction := originalMessage
-						if lastDesc != "" {
-							hdnContext["prompt"] = fmt.Sprintf("%s. %s", lastDesc, modInstruction)
+						strDesc := hdnContext["last_vision_description"]
+						if strDesc != "" {
+							hdnContext["prompt"] = fmt.Sprintf("%s. %s", strDesc, modInstruction)
 						} else {
 							hdnContext["prompt"] = modInstruction
 						}
-						// Always set source_image if available
-						if lastPath, ok := hdnContext["last_vision_path"].(string); ok && lastPath != "" {
-							hdnContext["source_image"] = lastPath
+						strPath := hdnContext["last_vision_path"]
+						if strPath != "" {
+							hdnContext["source_image"] = strPath
 						}
 					}
 					interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, originalMessage, hdnContext)
