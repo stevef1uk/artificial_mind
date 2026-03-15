@@ -349,6 +349,7 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 		strings.Contains(inputLower, "just return a json array")
 	if isAntiToolPrompt {
 		log.Printf("ℹ️ [FLEXIBLE-LLM] Skipping all ForceToolCall enforcement — input explicitly requests no tool usage")
+		// End of tool enforcement logic
 		return parsedResponse, nil
 	}
 
@@ -418,10 +419,11 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 		}
 
 		if hasTool && hints.ForceToolCall {
+			params := map[string]interface{}{}
 			// Reject text responses if configured
 			if hints.RejectText && parsedResponse.Type == ResponseTypeText {
 				// Force tool call — extract parameters from input where possible
-				params := map[string]interface{}{}
+				// ...existing code...
 				if actualToolID == "tool_generate_image" {
 	 				// Always set prompt for image generation
 	 				// Map query, description, or task to prompt
@@ -448,9 +450,9 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 								} else {
 									params["prompt"] = input
 								}
-								log.Printf("🖼️ [FLEXIBLE-LLM] tool_generate_image fallback prompt set: %v", params["prompt"])
-							}
-						log.Printf("🔗 [FLEXIBLE-LLM] Resolved well-known site URL=%s for forced mcp_smart_scrape call", resolved)
+		 						log.Printf("🖼️ [FLEXIBLE-LLM] tool_generate_image fallback prompt set: %v", params["prompt"])
+		 					}
+		 				}
 					}
 				} else if actualToolID == "mcp_research_agent" || strings.TrimPrefix(actualToolID, "mcp_") == "research_agent" {
 					params["query"] = input
@@ -504,7 +506,7 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 							} else {
 								// No URL available — don't force a useless scrape
 								log.Printf("⚠️ [FLEXIBLE-LLM] Skipping forced %s (wrong tool '%s') — no URL could be extracted", actualToolID, responseToolID)
-								break
+								return parsedResponse, nil
 							}
 						} else if actualToolID == "mcp_research_agent" || strings.TrimPrefix(actualToolID, "mcp_") == "research_agent" {
 							forceParams["query"] = input
@@ -525,8 +527,7 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 				}
 			}
 		}
-	}
-
+	// End of tool enforcement logic
 	return parsedResponse, nil
 }
 
