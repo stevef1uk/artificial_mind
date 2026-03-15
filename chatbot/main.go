@@ -191,6 +191,8 @@ func main() {
 	var stabMu sync.Mutex
 	var isProcessingVision bool
 	var visionMu sync.Mutex
+	var lastVisionDescription string
+	var lastVisionMu sync.Mutex
 
 	// Local function declarations
 	var stopPlayback func()
@@ -426,6 +428,9 @@ func main() {
 				}
 
 				fmt.Printf("[Vision] Description: %s\n", description)
+				lastVisionMu.Lock()
+				lastVisionDescription = description
+				lastVisionMu.Unlock()
 
 				// Do NOT switch back to image_gen yet - user wants to stay in vision mode
 				disp.Display(display.Status{
@@ -705,7 +710,18 @@ func main() {
 
 				// Call AI in a goroutine so we can stay responsive to button presses
 				go func() {
-					res, err := ai.Chat(ctx, text+" (Brevity required: under 200 tokens)")
+					lastVisionMu.Lock()
+					desc := lastVisionDescription
+					lastVisionMu.Unlock()
+
+					var chatCtx map[string]interface{}
+					if desc != "" {
+						chatCtx = map[string]interface{}{
+							"last_vision_description": desc,
+						}
+					}
+
+					res, err := ai.ChatWithContext(ctx, text+" (Brevity required: under 200 tokens)", chatCtx)
 					chatChan <- chatResult{res, err}
 				}()
 

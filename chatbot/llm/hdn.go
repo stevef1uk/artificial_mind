@@ -48,7 +48,11 @@ func NewClient(addr string) *Client {
 }
 
 func (c *Client) Chat(ctx context.Context, message string) (*ChatResponse, error) {
-	fmt.Printf("Invoking Chat API at: %s/api/v1/chat\n", c.BaseURL)
+	return c.ChatWithContext(ctx, message, nil)
+}
+
+func (c *Client) ChatWithContext(ctx context.Context, message string, context map[string]interface{}) (*ChatResponse, error) {
+	fmt.Printf("Invoking Chat API with context at: %s/api/v1/chat\n", c.BaseURL)
 
 	// If the URL ends in /v1, we use the OpenAI-compatible endpoint
 	if strings.HasSuffix(c.BaseURL, "/v1") || strings.HasSuffix(c.BaseURL, "/v1/") {
@@ -59,6 +63,7 @@ func (c *Client) Chat(ctx context.Context, message string) (*ChatResponse, error
 		Message:      message,
 		SessionID:    c.SessionID,
 		ShowThinking: true,
+		Context:      context,
 	}
 
 	var err error
@@ -97,7 +102,6 @@ func (c *Client) Chat(ctx context.Context, message string) (*ChatResponse, error
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("AI Raw Response: %s\n", string(body))
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API returned status: %s, body: %s", resp.Status, string(body))

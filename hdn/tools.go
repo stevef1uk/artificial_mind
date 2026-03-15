@@ -615,9 +615,10 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 		{
 			ID:          "tool_generate_image",
 			Name:        "Generate Image",
-			Description: "Generate an image via AI and display it on the Whisplay screen. The tool will wait until you press the hardware button to dismiss the image.",
+			Description: "Generate an image via AI and display it on the Whisplay screen. If source_image is provided, it uses that image as a starting point (Image-to-Image). The tool will wait until you press the hardware button to dismiss the image.",
 			InputSchema: map[string]string{
-				"prompt": "string",
+				"prompt":       "string",
+				"source_image": "string (optional: set to '/tmp/vision_capture.jpg' to update the last camera capture)",
 			},
 			OutputSchema: map[string]string{
 				"success": "bool",
@@ -1025,7 +1026,8 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		res, err := s.generateImageInternal(ctx, prompt)
+		sourceImage, _ := getString(params, "source_image")
+		res, err := s.generateImageInternal(ctx, prompt, sourceImage)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
@@ -1851,25 +1853,23 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string, env map[s
 	// Get RPI host and user from environment or use default
 	rpiHost := os.Getenv("RPI_HOST")
 	if rpiHost == "" {
-		rpiHost = "192.168.1.60" // Updated default to .60 as per user feedback
+		rpiHost = "192.168.1.60"
 	}
 	rpiUser := os.Getenv("RPI_USER")
 	if rpiUser == "" {
-		rpiUser = os.Getenv("RPI_USER")
-		if rpiUser == "" {
-			rpiUser = "user" // Default generic user
-		}
+		rpiUser = "user"
 	}
 	log.Printf("🔧 [SSH-FALLBACK] Using host: %s, user: %s", rpiHost, rpiUser)
 
-	// Create temporary file on RPI host under $HOME
-	tempFile := fmt.Sprintf("/home/%s/.hdn/tmp/drone_code_%d.%s", rpiUser, time.Now().UnixNano(), getFileExtension(language))
+	// Create temporary file on RPI host under $HOME. Use quotes to handle spaces in usernames or paths.
+	tempFileName := fmt.Sprintf("drone_code_%d.%s", time.Now().UnixNano(), getFileExtension(language))
+	tempFile := fmt.Sprintf("/home/%s/.hdn/tmp/%s", rpiUser, tempFileName)
 	log.Printf("🔧 [SSH-FALLBACK] Creating temp file: %s", tempFile)
 
 	// Write code to temporary file on RPI via SSH using base64 to avoid escaping issues
-	// Use sh to prevent environment dumps
 	encodedCode := base64.StdEncoding.EncodeToString([]byte(code))
-	writeCmd := fmt.Sprintf("sh -c 'mkdir -p $(dirname %s) && echo %s | base64 -d > %s'", tempFile, encodedCode, tempFile)
+	// Quote tempFile to handle potential spaces in username/path
+	writeCmd := fmt.Sprintf("sh -c 'mkdir -p \"$(dirname \"%s\")\" && echo %s | base64 -d > \"%s\"'", tempFile, encodedCode, tempFile)
 	log.Printf("🔧 [SSH-FALLBACK] Writing code via SSH (base64 encoded, %d bytes)", len(code))
 
 	sshCmd := exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
@@ -1914,16 +1914,16 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string, env map[s
 		// This matches the expectation of chained JSON → Go consumers that read from stdin.
 		runCmd := "./app"
 		if hasPrevOutput {
-			// Use printf to avoid adding extra newlines or quotes
+			// Use printf to avoid adding extra newlines or quotes. Use double quotes for $previous_output.
 			runCmd = "printf '%s' \"$previous_output\" | ./app"
 		}
 
 		var goHostCmd string
 		if quietMode {
 			goHostCmd = fmt.Sprintf(`set -eu
-WORK="$(mktemp -d /home/%s/.hdn/go_tmp_XXXXXX)"
+WORK="$(mktemp -d "/home/%s/.hdn/go_tmp_XXXXXX")"
 mkdir -p "$WORK"
-cp %s "$WORK"/main.go
+cp "%s" "$WORK"/main.go
 cd "$WORK"
 export PATH="$PATH:/usr/local/go/bin:/home/%s/go/bin:/usr/local/bin:/usr/bin"
 %sif ! command -v go >/dev/null 2>&1; then 
@@ -1936,9 +1936,9 @@ GOFLAGS= go build -o app ./main.go || exit 1
 `, rpiUser, tempFile, rpiUser, envExports, runCmd)
 		} else {
 			goHostCmd = fmt.Sprintf(`set -euo pipefail
-WORK="$(mktemp -d /home/%s/.hdn/go_tmp_XXXXXX)"
+WORK="$(mktemp -d "/home/%s/.hdn/go_tmp_XXXXXX")"
 mkdir -p "$WORK"
-cp %s "$WORK"/main.go
+cp "%s" "$WORK"/main.go
 cd "$WORK"
 export PATH="$PATH:/usr/local/go/bin:/home/%s/go/bin:/usr/local/bin:/usr/bin"
 %sif ! command -v go >/dev/null 2>&1; then 
@@ -1992,14 +1992,14 @@ VENV="/home/%s/.hdn/venv"
 python3 -m venv --system-site-packages "$VENV" >/dev/null 2>&1 || true
 . "$VENV"/bin/activate
 python -m pip install --upgrade pip >/dev/null 2>&1 || true
-%s%spython %s`, rpiUser, envExports, pkgLine, tempFile)
+%s%spython "%s"`, rpiUser, envExports, pkgLine, tempFile)
 		} else {
 			hostCmd = fmt.Sprintf(`set -euo pipefail
 VENV="/home/%s/.hdn/venv"
 python3 -m venv --system-site-packages "$VENV" >/dev/null 2>&1 || true
 . "$VENV"/bin/activate
 python -m pip install --upgrade pip >/dev/null 2>&1 || true
-%s%spython %s`, rpiUser, envExports, pkgLine, tempFile)
+%s%spython "%s"`, rpiUser, envExports, pkgLine, tempFile)
 		}
 		// Use a clean environment with sh to avoid user shell hooks and env dumps
 		execCmd = exec.CommandContext(
@@ -2020,9 +2020,9 @@ python -m pip install --upgrade pip >/dev/null 2>&1 || true
 		// Run shell script directly on the host
 		var bashHostCmd string
 		if quietMode {
-			bashHostCmd = fmt.Sprintf("set -eu\nsh %s\n", tempFile)
+			bashHostCmd = fmt.Sprintf("set -eu\nsh \"%s\"\n", tempFile)
 		} else {
-			bashHostCmd = fmt.Sprintf("set -euo pipefail\nsh %s\n", tempFile)
+			bashHostCmd = fmt.Sprintf("set -euo pipefail\nsh \"%s\"\n", tempFile)
 		}
 		// Use a clean environment with sh to avoid user shell hooks and env dumps
 		execCmd = exec.CommandContext(
@@ -2034,8 +2034,8 @@ python -m pip install --upgrade pip >/dev/null 2>&1 || true
 			rpiUser+"@"+rpiHost,
 			"env", "-i",
 			"PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-			"HOME=/home/"+rpiUser,
-			"USER="+rpiUser,
+			fmt.Sprintf("HOME=\"/home/%s\"", rpiUser),
+			fmt.Sprintf("USER=\"%s\"", rpiUser),
 			"sh", "-c", bashHostCmd,
 		)
 
@@ -2046,28 +2046,28 @@ python -m pip install --upgrade pip >/dev/null 2>&1 || true
 			jsHostCmd = fmt.Sprintf(`set -eu
 # Try Docker first (preferred for isolation and consistency)
 if command -v docker >/dev/null 2>&1; then
-	docker run --rm -v %s:/app/code.js node:18-slim node /app/code.js 2>&1
+	docker run --rm -v "%s":/app/code.js node:18-slim node /app/code.js 2>&1
 else
 	# Fallback to direct execution if Docker not available
 	if ! command -v node >/dev/null 2>&1; then 
 		echo 'node not installed on host and Docker not available' >&2
 		exit 127
 	fi
-	node %s
+	node "%s"
 fi
 `, tempFile, tempFile)
 		} else {
 			jsHostCmd = fmt.Sprintf(`set -euo pipefail
 # Try Docker first (preferred for isolation and consistency)
 if command -v docker >/dev/null 2>&1; then
-	docker run --rm -v %s:/app/code.js node:18-slim node /app/code.js 2>&1
+	docker run --rm -v "%s":/app/code.js node:18-slim node /app/code.js 2>&1
 else
 	# Fallback to direct execution if Docker not available
 	if ! command -v node >/dev/null 2>&1; then 
 		echo 'node not installed on host and Docker not available' >&2
 		exit 127
 	fi
-	node %s
+	node "%s"
 fi
 `, tempFile, tempFile)
 		}
@@ -2449,7 +2449,7 @@ func (s *APIServer) generateDroneCommands(code, language string) []string {
 
 // generateImageInternal handles the image generation and display logic via SSH on RPI host
 // Updated Python script: Robust, self-contained Whisplay image generator + viewer
-func (s *APIServer) generateImageInternal(ctx context.Context, prompt string) (interface{}, error) {
+func (s *APIServer) generateImageInternal(ctx context.Context, prompt string, sourceImage string) (interface{}, error) {
 	pyCode := `
 import os, sys, time, json, base64, socket
 import http.client
@@ -2467,7 +2467,19 @@ def main():
         gen_port = int(os.getenv("WHISPLAY_GEN_PORT", "8806"))
         
         conn = http.client.HTTPConnection(gen_host, gen_port)
-        payload = json.dumps({"prompt": prompt, "return_base64": True})
+        payload_data = {"prompt": prompt, "return_base64": True}
+        
+        source_image = os.getenv("SOURCE_IMAGE", "")
+        if source_image and os.path.exists(source_image):
+            try:
+                with open(source_image, "rb") as f:
+                    payload_data["init_image"] = base64.b64encode(f.read()).decode()
+                payload_data["denoising_strength"] = 0.5  # Default for i2i
+                print(f"DEBUG: Using source image {source_image}")
+            except Exception as e:
+                print(f"DEBUG: Failed to read source image: {e}")
+
+        payload = json.dumps(payload_data)
         headers = {"Content-Type": "application/json"}
         conn.request("POST", "/generate", payload, headers)
         res = conn.getresponse()
@@ -2546,6 +2558,7 @@ if __name__ == "__main__":
 
 	res, err := s.fallbackSSHExecution(pyCode, "python", "", map[string]string{
 		"PROMPT":            prompt,
+		"SOURCE_IMAGE":      sourceImage,
 		"RPI_HOST":          rpiHost,
 		"RPI_USER":          rpiUser,
 		"WHISPLAY_GEN_HOST": genHost,

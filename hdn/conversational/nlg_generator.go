@@ -1117,6 +1117,15 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 		}
 	}
 
+	// 1b. Add last vision capture (if available)
+	if visionDesc, ok := req.Context["last_vision_description"].(string); ok && visionDesc != "" {
+		hasPersonalContext = true
+		sb.WriteString("\n### Last Camera Capture:\n")
+		sb.WriteString("You recently used your camera to look at the surroundings. This is what was seen:\n")
+		sb.WriteString(fmt.Sprintf("- %s\n", visionDesc))
+		sb.WriteString("You can refer to this as 'that image' or 'the last capture'. If the user asks to update or modify it, call 'tool_generate_image' and explain you are basing it on the previous camera view.\n")
+	}
+
 	// 2. Add avatar context (personal info/bio)
 	rawAvatar := req.Context["avatar_context"]
 	if !skipBio && rawAvatar != nil {

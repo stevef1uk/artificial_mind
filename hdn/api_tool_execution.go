@@ -154,7 +154,8 @@ func (s *APIServer) executeToolDirect(ctx context.Context, toolID string, params
 
 	case "tool_generate_image":
 		prompt, _ := getString(params, "prompt")
-		return s.generateImageInternal(ctx, prompt)
+		sourceImage, _ := getString(params, "source_image")
+		return s.generateImageInternal(ctx, prompt, sourceImage)
 
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolID)
