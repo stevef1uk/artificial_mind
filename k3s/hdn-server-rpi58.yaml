@@ -190,7 +190,7 @@ spec:
               valueFrom:
                 configMapKeyRef:
                   name: hdn-config
-                  key: USER_NAME
+                  key: RPI_USER
             - name: HDN_TOOL_TIMEOUT
               value: "300"
             - name: HDN_INTERPRET_TIMEOUT
