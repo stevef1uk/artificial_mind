@@ -349,7 +349,6 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 		strings.Contains(inputLower, "just return a json array")
 	if isAntiToolPrompt {
 		log.Printf("ℹ️ [FLEXIBLE-LLM] Skipping all ForceToolCall enforcement — input explicitly requests no tool usage")
-		// End of tool enforcement logic
 		return parsedResponse, nil
 	}
 
@@ -419,41 +418,23 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 		}
 
 		if hasTool && hints.ForceToolCall {
-			params := map[string]interface{}{}
 			// Reject text responses if configured
 			if hints.RejectText && parsedResponse.Type == ResponseTypeText {
 				// Force tool call — extract parameters from input where possible
-				// ...existing code...
+				params := map[string]interface{}{}
 				if actualToolID == "tool_generate_image" {
-	 				// Always set prompt for image generation
-	 				// Map query, description, or task to prompt
-	 				if q, ok := params["query"]; ok && strings.TrimSpace(fmt.Sprintf("%v", q)) != "" {
-	 					params["prompt"] = q
-	 				} else if d, ok := params["description"]; ok && strings.TrimSpace(fmt.Sprintf("%v", d)) != "" {
-	 					params["prompt"] = d
-	 				} else if t, ok := params["task"]; ok && strings.TrimSpace(fmt.Sprintf("%v", t)) != "" {
-	 					params["prompt"] = t
-	 				} else {
-	 					params["prompt"] = input
-	 				}
-	 				log.Printf("🖼️ [FLEXIBLE-LLM] tool_generate_image call with prompt: %v", params["prompt"])
+					// Always set prompt for image generation
+					// Map query, description, or task to prompt
+					if q, ok := params["query"]; ok && strings.TrimSpace(fmt.Sprintf("%v", q)) != "" {
+						params["prompt"] = q
+					} else if d, ok := params["description"]; ok && strings.TrimSpace(fmt.Sprintf("%v", d)) != "" {
+						params["prompt"] = d
+					} else if t, ok := params["task"]; ok && strings.TrimSpace(fmt.Sprintf("%v", t)) != "" {
+						params["prompt"] = t
 					} else {
-						if actualToolID == "tool_generate_image" {
-							// Ensure prompt is set even if parameters are present
-							if _, ok := params["prompt"]; !ok || strings.TrimSpace(fmt.Sprintf("%v", params["prompt"])) == "" {
-								if q, ok := params["query"]; ok && strings.TrimSpace(fmt.Sprintf("%v", q)) != "" {
-									params["prompt"] = q
-								} else if d, ok := params["description"]; ok && strings.TrimSpace(fmt.Sprintf("%v", d)) != "" {
-									params["prompt"] = d
-								} else if t, ok := params["task"]; ok && strings.TrimSpace(fmt.Sprintf("%v", t)) != "" {
-									params["prompt"] = t
-								} else {
-									params["prompt"] = input
-								}
-		 						log.Printf("🖼️ [FLEXIBLE-LLM] tool_generate_image fallback prompt set: %v", params["prompt"])
-		 					}
-		 				}
+						params["prompt"] = input
 					}
+					log.Printf("🖼️ [FLEXIBLE-LLM] tool_generate_image call with prompt: %v", params["prompt"])
 				} else if actualToolID == "mcp_research_agent" || strings.TrimPrefix(actualToolID, "mcp_") == "research_agent" {
 					params["query"] = input
 					params["depth"] = 2
@@ -527,6 +508,7 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 				}
 			}
 		}
+	}
 	// End of tool enforcement logic
 	return parsedResponse, nil
 }
