@@ -426,7 +426,13 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 					// Always set prompt for image generation
 					params["prompt"] = input
 					// Optionally set source_image if available in context (handled elsewhere)
-					log.Printf("🖼️ [FLEXIBLE-LLM] Forced tool_generate_image call with prompt: %s", input)
+					log.Printf("🖼️ [FLEXIBLE-LLM] tool_generate_image call with prompt: %s", input)
+				} else if actualToolID == "tool_generate_image" {
+					// Ensure prompt is set even if not ForceToolCall
+					if _, ok := params["prompt"]; !ok || strings.TrimSpace(fmt.Sprintf("%v", params["prompt"])) == "" {
+						params["prompt"] = input
+						log.Printf("🖼️ [FLEXIBLE-LLM] tool_generate_image fallback prompt set: %s", input)
+					}
 				} else if actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape" {
 					if match := urlRe.FindString(input); match != "" {
 						params["url"] = match
