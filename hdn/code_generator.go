@@ -419,6 +419,7 @@ func (cg *CodeGenerator) filterRelevantToolsForTask(tools []Tool, taskName, desc
 		"tool_codegen":              {"generate", "code", "create", "write code", "generate code", "program", "script"},
 		"tool_json_parse":           {"json", "parse", "parse json", "decode", "unmarshal"},
 		"tool_text_search":          {"search", "find", "text", "pattern", "match", "grep", "filter"},
+		"tool_generate_image":       {"image", "generate image", "draw", "picture", "create image", "photo"},
 	}
 
 	var relevant []Tool
@@ -487,7 +488,7 @@ func (cg *CodeGenerator) filterRelevantToolsForTask(tools []Tool, taskName, desc
 			toolDesc += " " + strings.ToLower(tool.Name)
 		}
 		// Check if any keywords from the task match the tool description
-		commonKeywords := []string{"query", "neo4j", "http", "file", "read", "write", "exec", "docker", "code", "generate", "search", "scrape"}
+		commonKeywords := []string{"query", "neo4j", "http", "file", "read", "write", "exec", "docker", "code", "generate", "search", "scrape", "image", "draw", "picture", "photo"}
 		for _, keyword := range commonKeywords {
 			if strings.Contains(combined, keyword) && strings.Contains(toolDesc, keyword) {
 				relevant = append(relevant, tool)

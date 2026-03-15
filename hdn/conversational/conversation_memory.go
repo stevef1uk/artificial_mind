@@ -86,6 +86,16 @@ func (cm *ConversationMemory) GetContext(ctx context.Context, sessionID string) 
 	result["created_at"] = context.CreatedAt
 	result["updated_at"] = context.UpdatedAt
 
+	// Flatten ContextData into the main map for easier access
+	if context.ContextData != nil {
+		for k, v := range context.ContextData {
+			// Don't overwrite fixed fields if they happen to be in ContextData
+			if _, exists := result[k]; !exists {
+				result[k] = v
+			}
+		}
+	}
+
 	return result, nil
 }
 

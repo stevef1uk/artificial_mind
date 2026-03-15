@@ -194,6 +194,7 @@ func MatchesConfiguredToolKeywords(message string) string {
 		// Check keywords
 		for _, keyword := range hints.Keywords {
 			if strings.Contains(messageLower, strings.ToLower(keyword)) {
+				log.Printf("🎯 [KEYWORD-MATCH] Found match for '%s' using keyword '%s'", toolID, keyword)
 				// PRIORITIZATION: If this is a "research" request, favor mcp_research_agent over search_weaviate
 				if (toolID == "mcp_search_weaviate" || toolID == "search_weaviate") && strings.Contains(messageLower, "research") {
 					log.Printf("🧪 [KEYWORD-MATCH] Research intent detected - holding '%s' as fallback", toolID)
@@ -207,6 +208,7 @@ func MatchesConfiguredToolKeywords(message string) string {
 		// Check always_include keywords
 		for _, keyword := range hints.AlwaysInclude {
 			if strings.Contains(messageLower, strings.ToLower(keyword)) {
+				log.Printf("🎯 [KEYWORD-MATCH] Found match for '%s' using always_include keyword '%s'", toolID, keyword)
 				if (toolID == "mcp_search_weaviate" || toolID == "search_weaviate") && strings.Contains(messageLower, "research") {
 					fallbackMatch = toolID
 					continue
@@ -214,6 +216,9 @@ func MatchesConfiguredToolKeywords(message string) string {
 				return toolID
 			}
 		}
+	}
+	if fallbackMatch != "" {
+		log.Printf("🎯 [KEYWORD-MATCH] Using fallback match: %s", fallbackMatch)
 	}
 
 	return fallbackMatch
@@ -373,6 +378,7 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 		matchesKeywords := false
 		for _, keyword := range hints.Keywords {
 			if strings.Contains(inputLower, strings.ToLower(keyword)) {
+				log.Printf("🎯 [FLEXIBLE-LLM] Found match for hint '%s' using keyword '%s'", toolID, keyword)
 				// PRIORITIZATION: If this is a "research" request, favor mcp_research_agent over search_weaviate
 				if toolID == "mcp_search_weaviate" || toolID == "search_weaviate" {
 					if strings.Contains(inputLower, "research") {
@@ -456,6 +462,53 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 					log.Printf("⚠️ [FLEXIBLE-LLM] Skipping forced %s — no URL could be extracted from input", actualToolID)
 					return parsedResponse, nil
 				}
+				if actualToolID == "mcp_research_agent" {
+					params := map[string]interface{}{
+						"query": input,
+						"depth": 2, // Default depth
+					}
+					return &FlexibleLLMResponse{
+						Type: ResponseTypeToolCall,
+						ToolCall: &ToolCall{
+							ToolID:      actualToolID,
+							Parameters:  params,
+							Description: "Forcing research agent for research task",
+						},
+					}, nil
+				}
+
+				// If we forced a tool call above but it's tool_generate_image, we might need to add source_image
+				if actualToolID == "tool_generate_image" {
+					params := map[string]interface{}{
+						"prompt": input,
+					}
+					// Prefer context["prompt"] if available (ConversationalLayer makes a better one)
+					if context != nil {
+						if cp, ok := context["prompt"]; ok && strings.TrimSpace(fmt.Sprintf("%v", cp)) != "" {
+							params["prompt"] = cp
+						}
+						if si, ok := context["source_image"]; ok && strings.TrimSpace(fmt.Sprintf("%v", si)) != "" {
+							params["source_image"] = si
+						} else if si, ok := context["last_vision_path"]; ok && strings.TrimSpace(fmt.Sprintf("%v", si)) != "" {
+							params["source_image"] = si
+						}
+					}
+					log.Printf("🖼️ [FLEXIBLE-LLM] FORCED tool_generate_image with prompt: %v, source: %v", params["prompt"], params["source_image"])
+					return &FlexibleLLMResponse{
+						Type: ResponseTypeToolCall,
+						ToolCall: &ToolCall{
+							ToolID:      actualToolID,
+							Parameters:  params,
+							Description: "Forcing image generation tool",
+						},
+						Content: "", // Clear refusal text
+					}, nil
+				}
+				// General fallback for search/knowledge tools: default to passing the whole input as "query"
+				if strings.Contains(actualToolID, "weaviate") || strings.Contains(actualToolID, "neo4j") || strings.Contains(actualToolID, "knowledge") || strings.Contains(actualToolID, "search") {
+					params["query"] = input
+					log.Printf("🔍 [FLEXIBLE-LLM] Extracted query for forced %s call (fallback)", actualToolID)
+				}
 				log.Printf("❌ [FLEXIBLE-LLM] REJECTED: Text response when %s tool is available. Forcing tool call.", actualToolID)
 				return &FlexibleLLMResponse{
 					Type: ResponseTypeToolCall,
@@ -467,20 +520,70 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 				}, nil
 			}
 
+			// EVEN IF it is already a tool_call, if it's tool_generate_image, we must ensure it has a prompt
+			if parsedResponse.Type == ResponseTypeToolCall && parsedResponse.ToolCall != nil &&
+				(parsedResponse.ToolCall.ToolID == actualToolID || strings.TrimPrefix(parsedResponse.ToolCall.ToolID, "mcp_") == actualToolID) {
+				if actualToolID == "tool_generate_image" {
+					parsedResponse.Content = "" // Clear refusal text to avoid mixed messages
+					if parsedResponse.ToolCall.Parameters == nil {
+						parsedResponse.ToolCall.Parameters = make(map[string]interface{})
+					}
+					params := parsedResponse.ToolCall.Parameters
+
+					// Ensure prompt is set correctly
+					hasPrompt := false
+					if p, ok := params["prompt"]; ok && strings.TrimSpace(fmt.Sprintf("%v", p)) != "" {
+						hasPrompt = true
+					}
+
+					// If prompt is missing or generic, try to use the one from context (it has subject info like "dog")
+					if !hasPrompt || strings.Contains(strings.ToLower(fmt.Sprintf("%v", params["prompt"])), "modify") ||
+						strings.Contains(strings.ToLower(fmt.Sprintf("%v", params["prompt"])), "change") {
+						if context != nil {
+							if cp, ok := context["prompt"]; ok && strings.TrimSpace(fmt.Sprintf("%v", cp)) != "" {
+								params["prompt"] = cp
+								parsedResponse.Content = "" // Clear refusal text
+								log.Printf("🖼️ [FLEXIBLE-LLM] Upgraded prompt for %s using context: %v", actualToolID, cp)
+								hasPrompt = true
+							}
+						}
+					}
+
+					if !hasPrompt {
+						params["prompt"] = input
+						log.Printf("🖼️ [FLEXIBLE-LLM] Fixed missing prompt for %s using input: %v", actualToolID, input)
+					}
+
+					// Ensure source_image is set if available in context
+					if _, ok := params["source_image"]; !ok {
+						if context != nil {
+							if si, ok := context["source_image"]; ok && strings.TrimSpace(fmt.Sprintf("%v", si)) != "" {
+								params["source_image"] = si
+								log.Printf("🖼️ [FLEXIBLE-LLM] Fixed missing source_image for %s using context: %v", actualToolID, si)
+							} else if si, ok := context["last_vision_path"]; ok && strings.TrimSpace(fmt.Sprintf("%v", si)) != "" {
+								params["source_image"] = si
+								log.Printf("🖼️ [FLEXIBLE-LLM] Fixed missing source_image for %s using last_vision_path: %v", actualToolID, si)
+							}
+						}
+					}
+				}
+			}
 			// Reject wrong tool calls if configured
 			// BUT: Don't reject if the LLM chose a scraping/browsing tool - those are more
 			// appropriate for URL-based requests than search_weaviate
 			if parsedResponse.Type == ResponseTypeToolCall && parsedResponse.ToolCall != nil {
 				responseToolID := parsedResponse.ToolCall.ToolID
 				if responseToolID != actualToolID && strings.TrimPrefix(responseToolID, "mcp_") != strings.TrimPrefix(actualToolID, "mcp_") {
-					// Allow scraping/browsing tools to take priority - the LLM chose them for a reason
 					responseLower := strings.ToLower(responseToolID)
 					isScrapeOrBrowseTool := strings.Contains(responseLower, "scrape") ||
 						strings.Contains(responseLower, "browse") ||
 						strings.Contains(responseLower, "html_scraper") ||
 						strings.Contains(responseLower, "http_get")
+					isImageTool := strings.Contains(responseLower, "image") || strings.Contains(responseLower, "picture") || strings.Contains(responseLower, "drawing") || strings.Contains(responseLower, "visual") || strings.Contains(responseLower, "photo") || strings.Contains(responseLower, "artwork")
 					if isScrapeOrBrowseTool {
 						log.Printf("✅ [FLEXIBLE-LLM] Allowing LLM's tool choice '%s' (scrape/browse tool takes priority over %s)", responseToolID, actualToolID)
+					} else if isImageTool || actualToolID == "tool_generate_image" {
+						log.Printf("✅ [FLEXIBLE-LLM] Allowing image tool invocation for '%s' (using tool_generate_image)", responseToolID)
 					} else {
 						// For mcp_smart_scrape, try to extract URL before forcing
 						forceParams := map[string]interface{}{}
@@ -492,7 +595,6 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 								forceParams["url"] = resolved
 								forceParams["goal"] = input
 							} else {
-								// No URL available — don't force a useless scrape
 								log.Printf("⚠️ [FLEXIBLE-LLM] Skipping forced %s (wrong tool '%s') — no URL could be extracted", actualToolID, responseToolID)
 								return parsedResponse, nil
 							}
@@ -555,18 +657,19 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		"mcp_find_related_concepts": {"related", "related concepts", "find related", "connections"},
 		"mcp_search_weaviate":       {"weaviate", "search", "vector", "semantic", "similar", "episodes", "memories", "wikipedia", "wiki", "news"},
 		// Note: mcp_read_google_data keywords are now loaded from configuration
-		"tool_http_get":     {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
-		"tool_html_scraper": {"scrape", "html", "web", "website", "article", "news", "page", "parse html"},
-		"tool_file_read":    {"read", "file", "load", "open", "readfile", "read file", "content", "text"},
-		"tool_file_write":   {"write", "file", "save", "store", "output", "write file", "save file", "create file"},
-		"tool_ls":           {"list", "directory", "dir", "files", "ls", "list files", "directory listing"},
-		"tool_exec":         {"exec", "execute", "command", "shell", "run", "cmd", "system", "bash", "sh"},
-		"tool_codegen":      {"generate", "code", "create", "write code", "generate code", "program", "script"},
-		"tool_json_parse":   {"json", "parse", "parse json", "decode", "unmarshal"},
-		"tool_text_search":  {"search", "find", "text", "pattern", "match", "grep", "filter"},
-		"tool_docker_list":  {"docker", "container", "image", "list docker", "docker list"},
-		"tool_docker_build": {"docker build", "build image", "dockerfile", "container build"},
-		"tool_docker_exec":  {"docker exec", "run docker", "execute docker", "container exec"},
+		"tool_http_get":       {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
+		"tool_html_scraper":   {"scrape", "html", "web", "website", "article", "news", "page", "parse html"},
+		"tool_file_read":      {"read", "file", "load", "open", "readfile", "read file", "content", "text"},
+		"tool_file_write":     {"write", "file", "save", "store", "output", "write file", "save file", "create file"},
+		"tool_ls":             {"list", "directory", "dir", "files", "ls", "list files", "directory listing"},
+		"tool_exec":           {"exec", "execute", "command", "shell", "run", "cmd", "system", "bash", "sh"},
+		"tool_codegen":        {"generate", "code", "create", "write code", "generate code", "program", "script"},
+		"tool_json_parse":     {"json", "parse", "parse json", "decode", "unmarshal"},
+		"tool_text_search":    {"search", "find", "text", "pattern", "match", "grep", "filter"},
+		"tool_docker_list":    {"docker", "container", "image", "list docker", "docker list"},
+		"tool_docker_build":   {"docker build", "build image", "dockerfile", "container build"},
+		"tool_docker_exec":    {"docker exec", "run docker", "execute docker", "container exec"},
+		"tool_generate_image": {"image", "generate image", "draw", "picture", "create image", "photo", "modify image", "change image", "background"},
 	}
 
 	// First pass: include tools that match keywords

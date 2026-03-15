@@ -1018,7 +1018,7 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(combined)
 		return
 	case "tool_generate_image":
-		log.Printf("[HDN] Generating image (prompt hidden for privacy)")
+		log.Printf("🖼️ [HDN] Generating image with prompt: '%v' (source: '%v')", params["prompt"], params["source_image"])
 		prompt, _ := getString(params, "prompt")
 		if strings.TrimSpace(prompt) == "" {
 			// Fallback: accept 'task' as prompt if present
@@ -2464,35 +2464,87 @@ func (s *APIServer) generateDroneCommands(code, language string) []string {
 // generateImageInternal handles the image generation and display logic via SSH on RPI host
 // Updated Python script: Robust, self-contained Whisplay image generator + viewer
 func (s *APIServer) generateImageInternal(ctx context.Context, prompt string, sourceImage string) (interface{}, error) {
-	pyCode := `
+	log.Printf("🖼️ [HDN] Generating image with prompt: '%s' (source: '%s')", prompt, sourceImage)
+
+	// Determine generation host/port
+	genHost := os.Getenv("WHISPLAY_GEN_HOST")
+	if genHost == "" {
+		genHost = "192.168.1.60"
+	}
+	genPort := os.Getenv("WHISPLAY_GEN_PORT")
+	if genPort == "" {
+		genPort = "8806"
+	}
+	genURL := fmt.Sprintf("http://%s:%s/generate", genHost, genPort)
+
+	// Step 1: Generate or Edit the image
+	var imgBase64 string
+	var seed interface{}
+
+	// If sourceImage is provided and exists locally, we follow the llm_edit.py approach
+	if sourceImage != "" && fileExists(sourceImage) {
+		log.Printf("🖼️ [HDN] Source image found locally, using llm_edit.py approach")
+
+		// Prepare payload like llm_edit.py
+		b, err := os.ReadFile(sourceImage)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read source image: %v", err)
+		}
+
+		payloadData := map[string]interface{}{
+			"prompt":             prompt,
+			"return_base64":      true,
+			"init_image":         base64.StdEncoding.EncodeToString(b),
+			"denoising_strength": 0.5,
+		}
+
+		payloadBytes, _ := json.Marshal(payloadData)
+		req, err := http.NewRequestWithContext(ctx, "POST", genURL, bytes.NewBuffer(payloadBytes))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create generation request: %v", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		client := &http.Client{Timeout: 300 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("generation request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return nil, fmt.Errorf("failed to decode generation response: %v", err)
+		}
+
+		var ok bool
+		imgBase64, ok = result["image_base64"].(string)
+		if !ok {
+			return nil, fmt.Errorf("API failed to return image_base64: %v", result)
+		}
+		seed = result["seed"]
+	} else {
+		// No source image or not local - use RPI-based script for generation + display
+		// This handles cases where source_image might be on the RPI (like camera captures)
+		pyCode := fmt.Sprintf(`
 import os, sys, time, json, base64, socket
 import http.client
 
 def main():
     try:
-        prompt = os.getenv("PROMPT", "")
-        if not prompt:
-            print(json.dumps({"success": False, "error": "No prompt provided"}))
-            return
-
-        # 1. Call API to generate image
-        # This runs on the RPi via SSH, so we call the local API
-        gen_host = os.getenv("WHISPLAY_GEN_HOST", "192.168.1.60")
-        gen_port = int(os.getenv("WHISPLAY_GEN_PORT", "8806"))
+        prompt = "%s"
+        source_image = "%s"
+        gen_host = "%s"
+        gen_port = %s
         
         conn = http.client.HTTPConnection(gen_host, gen_port)
         payload_data = {"prompt": prompt, "return_base64": True}
         
-        source_image = os.getenv("SOURCE_IMAGE", "")
         if source_image and os.path.exists(source_image):
-            try:
-                with open(source_image, "rb") as f:
-                    payload_data["init_image"] = base64.b64encode(f.read()).decode()
-                payload_data["denoising_strength"] = 0.5  # Default for i2i
-                print(f"DEBUG: Using source image {source_image}")
-            except Exception as e:
-                print(f"DEBUG: Failed to read source image: {e}")
-
+            with open(source_image, "rb") as f:
+                payload_data["init_image"] = base64.b64encode(f.read()).decode()
+            payload_data["denoising_strength"] = 0.5
+        
         payload = json.dumps(payload_data)
         headers = {"Content-Type": "application/json"}
         conn.request("POST", "/generate", payload, headers)
@@ -2511,92 +2563,79 @@ def main():
         
         seed = data.get("seed", 0)
 
-        # 2. Proxy the request to the already running chatbot-ui.py
-        # It is listening on localhost:12345
+        # Proxy the request to the already running chatbot-ui.py
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            client.settimeout(300) # 5m timeout
-            client.connect(("localhost", 12345))
-            
-            # Send display command
-            client.sendall((json.dumps({"image": img_path}) + "\n").encode("utf-8"))
-            
-            # Wait for button pressed event from the existing UI
-            f = client.makefile()
-            while True:
-                line = f.readline()
-                if not line: break
-                try:
-                    event = json.loads(line)
-                    if event.get("event") == "button_pressed":
-                        break
-                except:
-                    continue
-            
-            # Clear image command
-            client.sendall((json.dumps({"image": ""}) + "\n").encode("utf-8"))
-        finally:
-            client.close()
+        client.settimeout(30)
+        client.connect(("localhost", 12345))
+        client.sendall((json.dumps({"image": img_path}) + "\n").encode("utf-8"))
+        client.close()
         
-        print(json.dumps({
-            "success": True, 
-            "image": img_path, 
-            "seed": seed
-        }))
+        print(json.dumps({"success": True, "image": img_path, "seed": seed}))
         
     except Exception as e:
         print(json.dumps({"success": False, "error": str(e)}))
 
 if __name__ == "__main__":
     main()
-`
-	// Exec via SSH fallback (runs on RPI host where Whisplay Hat is)
-	rpiHost := os.Getenv("RPI_HOST")
-	if rpiHost == "" {
-		rpiHost = "192.168.1.60"
-	}
-	rpiUser := os.Getenv("RPI_USER")
-	if rpiUser == "" {
-		rpiUser = "user"
+`, strings.ReplaceAll(prompt, "\"", "\\\""), strings.ReplaceAll(sourceImage, "\"", "\\\""), genHost, genPort)
+
+		res, err := s.fallbackSSHExecution(pyCode, "python", "", nil)
+		if err != nil {
+			return nil, err
+		}
+		outStr, _ := res["output"].(string)
+		var scriptRes map[string]interface{}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(outStr)), &scriptRes); err != nil {
+			return nil, fmt.Errorf("failed to parse RPI response: %s", outStr)
+		}
+		return scriptRes, nil
 	}
 
-	// Get image generator API details from environment
-	genHost := os.Getenv("WHISPLAY_GEN_HOST")
-	if genHost == "" {
-		genHost = "192.168.1.60"
-	}
-	genPort := os.Getenv("WHISPLAY_GEN_PORT")
-	if genPort == "" {
-		genPort = "8806"
-	}
+	// Step 2: If we generated locally, we need to send it to RPI for display
+	log.Printf("🖼️ [HDN] Sending locally generated image to RPI for display")
 
-	res, err := s.fallbackSSHExecution(pyCode, "python", "", map[string]string{
-		"PROMPT":            prompt,
-		"SOURCE_IMAGE":      sourceImage,
-		"RPI_HOST":          rpiHost,
-		"RPI_USER":          rpiUser,
-		"WHISPLAY_GEN_HOST": genHost,
-		"WHISPLAY_GEN_PORT": genPort,
+	displayScript := fmt.Sprintf(`
+import os, json, base64, socket
+def main():
+    try:
+        # Use base64 from environment to avoid huge script strings
+        img_b64 = os.getenv("IMG_BASE64", "")
+        if not img_b64:
+            print(json.dumps({"success": False, "error": "No image data"}))
+            return
+            
+        data = base64.b64decode(img_b64)
+        path = "/tmp/generated_image.png"
+        with open(path, "wb") as f:
+            f.write(data)
+        
+        # Display via socket
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(30)
+        client.connect(("localhost", 12345))
+        client.sendall((json.dumps({"image": path}) + "\n").encode("utf-8"))
+        client.close()
+        
+        print(json.dumps({"success": True, "image": path}))
+    except Exception as e:
+        print(json.dumps({"success": False, "error": str(e)}))
+
+if __name__ == "__main__":
+    main()
+`)
+
+	res, err := s.fallbackSSHExecution(displayScript, "python", "", map[string]string{
+		"IMG_BASE64": imgBase64,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to send image to RPI: %v", err)
 	}
 
-	outStr, ok := res["output"].(string)
-	if !ok || outStr == "" {
-		return nil, fmt.Errorf("empty output from generation script")
-	}
+	outStr, _ := res["output"].(string)
+	var displayRes map[string]interface{}
+	json.Unmarshal([]byte(strings.TrimSpace(outStr)), &displayRes)
 
-	// Try to parse the script's JSON output
-	var scriptRes map[string]interface{}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(outStr)), &scriptRes); err != nil {
-		// If parsing fails, return raw output for debugging
-		return map[string]interface{}{
-			"success": false,
-			"output":  outStr,
-			"error":   "failed to parse JSON results",
-		}, nil
-	}
-
-	return scriptRes, nil
+	// Add seed back to response
+	displayRes["seed"] = seed
+	return displayRes, nil
 }

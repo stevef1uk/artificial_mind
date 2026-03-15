@@ -260,19 +260,20 @@ func (ie *IntelligentExecutor) filterRelevantTools(tools []Tool, req *ExecutionR
 
 	// Expanded keywords that suggest tool usage - more comprehensive matching
 	toolKeywords := map[string][]string{
-		"mcp_scrape_url":    {"scrape", "html", "web", "fetch", "url", "website", "article", "news", "page", "content", "parse html"},
-		"mcp_smart_scrape":  {"scrape", "html", "web", "fetch", "url", "website", "article", "news", "page", "content", "parse html", "intelligent"},
-		"tool_http_get":     {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
-		"tool_file_read":    {"read", "file", "load", "open", "readfile", "read file", "readfile", "content", "text"},
-		"tool_file_write":   {"write", "file", "save", "store", "output", "write file", "save file", "create file", "writefile"},
-		"tool_ls":           {"list", "directory", "dir", "files", "ls", "list files", "directory listing", "contents"},
-		"tool_exec":         {"exec", "execute", "command", "shell", "run", "cmd", "system", "bash", "sh", "terminal"},
-		"tool_codegen":      {"generate", "code", "create", "write code", "generate code", "program", "script"},
-		"tool_json_parse":   {"json", "parse", "parse json", "decode", "unmarshal", "deserialize"},
-		"tool_text_search":  {"search", "find", "text", "pattern", "match", "grep", "filter", "text search"},
-		"tool_docker_list":  {"docker", "container", "image", "list docker", "docker list", "containers"},
-		"tool_docker_build": {"docker build", "build image", "dockerfile", "container build"},
-		"tool_ssh_executor": {"ssh", "remote", "execute", "remote execution", "ssh exec"},
+		"mcp_scrape_url":      {"scrape", "html", "web", "fetch", "url", "website", "article", "news", "page", "content", "parse html"},
+		"mcp_smart_scrape":    {"scrape", "html", "web", "fetch", "url", "website", "article", "news", "page", "content", "parse html", "intelligent"},
+		"tool_http_get":       {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
+		"tool_file_read":      {"read", "file", "load", "open", "readfile", "read file", "readfile", "content", "text"},
+		"tool_file_write":     {"write", "file", "save", "store", "output", "write file", "save file", "create file", "writefile"},
+		"tool_ls":             {"list", "directory", "dir", "files", "ls", "list files", "directory listing", "contents"},
+		"tool_exec":           {"exec", "execute", "command", "shell", "run", "cmd", "system", "bash", "sh", "terminal"},
+		"tool_codegen":        {"generate", "code", "create", "write code", "generate code", "program", "script"},
+		"tool_json_parse":     {"json", "parse", "parse json", "decode", "unmarshal", "deserialize"},
+		"tool_text_search":    {"search", "find", "text", "pattern", "match", "grep", "filter", "text search"},
+		"tool_docker_list":    {"docker", "container", "image", "list docker", "docker list", "containers"},
+		"tool_docker_build":   {"docker build", "build image", "dockerfile", "container build"},
+		"tool_ssh_executor":   {"ssh", "remote", "execute", "remote execution", "ssh exec"},
+		"tool_generate_image": {"image", "generate image", "draw", "picture", "create image", "photo"},
 	}
 
 	seen := make(map[string]bool) // Track tools we've already added
@@ -314,7 +315,7 @@ func (ie *IntelligentExecutor) filterRelevantTools(tools []Tool, req *ExecutionR
 
 		// Also check tool description/name for keyword matches (expanded keyword list)
 		toolDesc := strings.ToLower(tool.Description + " " + tool.Name + " " + tool.ID)
-		expandedKeywords := []string{"scrape", "http", "fetch", "url", "web", "file", "read", "write", "calculator", "calculate", "add", "subtract", "multiply", "divide", "math", "exec", "execute", "command", "shell", "run", "code", "generate", "json", "parse", "search", "find", "text", "docker", "container", "ssh", "remote", "list", "directory", "dir"}
+		expandedKeywords := []string{"scrape", "http", "fetch", "url", "web", "file", "read", "write", "calculator", "calculate", "add", "subtract", "multiply", "divide", "math", "exec", "execute", "command", "shell", "run", "code", "generate", "json", "parse", "search", "find", "text", "docker", "container", "ssh", "remote", "list", "directory", "dir", "image", "draw", "picture", "photo"}
 		for _, keyword := range expandedKeywords {
 			if strings.Contains(combined, keyword) && strings.Contains(toolDesc, keyword) {
 				relevant = append(relevant, tool)
@@ -328,13 +329,14 @@ func (ie *IntelligentExecutor) filterRelevantTools(tools []Tool, req *ExecutionR
 	// This ensures the LLM has access to a good set of tools even if keywords don't match
 	// We include tools that are generally useful for most tasks
 	alwaysInclude := []string{
-		"tool_http_get",     // Very commonly used
-		"tool_file_read",    // Commonly used
-		"tool_file_write",   // Commonly used
-		"tool_exec",         // Commonly used for system operations
-		"tool_json_parse",   // Commonly used for data processing
-		"tool_text_search",  // Commonly used for text operations
-		"tool_ssh_executor", // For remote execution
+		"tool_http_get",       // Very commonly used
+		"tool_file_read",      // Commonly used
+		"tool_file_write",     // Commonly used
+		"tool_exec",           // Commonly used for system operations
+		"tool_json_parse",     // Commonly used for data processing
+		"tool_text_search",    // Commonly used for text operations
+		"tool_ssh_executor",   // For remote execution
+		"tool_generate_image", // Often used in user interactions
 	}
 
 	for _, toolID := range alwaysInclude {
@@ -3374,6 +3376,17 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 		}
 		req.Context["allow_requests"] = "true"
 		log.Printf("🔓 [VALIDATION] Allowing HTTP requests for knowledge base query task")
+	}
+
+	// Also check for image generation tasks
+	if strings.Contains(descLower, "tool_generate_image") || strings.Contains(taskLower, "tool_generate_image") ||
+		strings.Contains(descLower, "generate image") || strings.Contains(descLower, "create image") ||
+		strings.Contains(descLower, "draw an image") || strings.Contains(descLower, "draw a picture") {
+		if req.Context == nil {
+			req.Context = make(map[string]string)
+		}
+		req.Context["allow_requests"] = "true"
+		log.Printf("🔓 [VALIDATION] Allowing HTTP requests for image generation task")
 	}
 
 	// Also check if context already has hypothesis_testing flag set

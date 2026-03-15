@@ -6,9 +6,8 @@
 echo "=== HTN API Example Usage ==="
 echo
 
-# Start the server in the background
 echo "Starting API server..."
-./hdn -mode=server -port=8080 &
+../bin/hdn-server -mode=server -port=8080 &
 SERVER_PID=$!
 
 # Wait for server to start

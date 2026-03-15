@@ -185,6 +185,9 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		log.Printf("⚠️ [CONVERSATIONAL] Failed to load conversation context: %v", err)
 		conversationContext = make(map[string]interface{})
 	}
+	if conversationContext == nil {
+		conversationContext = make(map[string]interface{})
+	}
 
 	// Create a lean version of the context for the reasoning trace to prevent OOM
 	leanContext := make(map[string]interface{})
@@ -267,8 +270,16 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 			strings.Contains(lowerMsg, " am i") || strings.Contains(lowerMsg, " myself") ||
 			strings.Contains(lowerMsg, " i am") || strings.Contains(lowerMsg, " i work")
 
-		if isScrapeIntent {
-			log.Printf("ℹ️ [CONVERSATIONAL] Skipping background RAG for scrape-intent request to ensure tool usage")
+		// Check for tool keywords to skip heavy background RAG
+		toolMatch := interpreter.MatchesConfiguredToolKeywords(req.Message)
+		isToolIntent := toolMatch != ""
+
+		if isScrapeIntent || isToolIntent {
+			if isScrapeIntent {
+				log.Printf("ℹ️ [CONVERSATIONAL] Skipping background RAG for scrape-intent request to ensure tool usage")
+			} else {
+				log.Printf("ℹ️ [CONVERSATIONAL] Skipping background RAG for tool-match request ('%s') to prioritize performance", toolMatch)
+			}
 		} else {
 			avatarResult, avatarErr := cl.hdnClient.SearchWeaviate(ctx, req.Message, "AvatarContext", 3)
 			if avatarErr != nil {
@@ -298,7 +309,7 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 
 		// Step 2c: If it's a query, also search the general knowledge base (AgiWiki/News)
 		// UNLESS it's a personal query, in which case we only want facts from bio/memory.
-		if intent.Type == "query" && !isPersonal {
+		if intent.Type == "query" && !isPersonal && !isToolIntent {
 			// Parallel search for general wiki and specialized news/Wikipedia
 			// Collection: AgiWiki (vector-based)
 			wikiResult, wikiErr := cl.hdnClient.SearchWeaviate(ctx, req.Message, "AgiWiki", 5)
@@ -435,9 +446,22 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		}
 
 		if toolOutput != nil {
-			if imgPath, ok := toolOutput["image"].(string); ok && imgPath != "" {
+			imgPath := ""
+			if path, ok := toolOutput["image"].(string); ok && path != "" {
+				imgPath = path
+			} else if results, ok := toolOutput["results"].([]interface{}); ok && len(results) > 0 {
+				if first, ok := results[0].(map[string]interface{}); ok {
+					if path, ok := first["image"].(string); ok && path != "" {
+						imgPath = path
+					}
+				}
+			}
+
+			if imgPath != "" {
 				desc := "A generated image depicting: " + req.Message
-				log.Printf("🖼️ [CONVERSATIONAL] Persistence: Successfully generated image, updating context with: %s", desc)
+				log.Printf("🖼️ [CONVERSATIONAL] Persistence: Successfully generated image, updating context with: %s (path: %s)", desc, imgPath)
+				log.Printf("🖼️ [DEBUG] Setting last_vision_description: %s", desc)
+				log.Printf("🖼️ [DEBUG] Setting last_vision_path: %s", imgPath)
 				conversationContext["last_vision_description"] = desc
 				conversationContext["last_vision_path"] = imgPath
 			}
@@ -459,9 +483,11 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 
 	// Also include any updated context keys (like last_vision_description)
 	if vd, ok := conversationContext["last_vision_description"].(string); ok {
+		log.Printf("🖼️ [DEBUG] Saving last_vision_description to memory: %s", vd)
 		saveMap["last_vision_description"] = vd
 	}
 	if vp, ok := conversationContext["last_vision_path"].(string); ok {
+		log.Printf("🖼️ [DEBUG] Saving last_vision_path to memory: %s", vp)
 		saveMap["last_vision_path"] = vp
 	}
 
@@ -743,9 +769,11 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 	}
 
 	if visionPath, ok := context["last_vision_path"].(string); ok && visionPath != "" {
+		log.Printf("🖼️ [DEBUG] Retrieved last_vision_path from context: %s", visionPath)
 		hdnContext["last_vision_path"] = visionPath
 	}
 	if visionDesc, ok := context["last_vision_description"].(string); ok && visionDesc != "" {
+		log.Printf("🖼️ [DEBUG] Retrieved last_vision_description from context: %s", visionDesc)
 		hdnContext["last_vision_description"] = visionDesc
 	}
 
@@ -769,63 +797,8 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 
 		// Check if original message matches configured tool keywords
 		if originalMessage != "" {
-			// Use configurable tool keyword matching instead of hardcoded email checks
 			if toolID := interpreter.MatchesConfiguredToolKeywords(originalMessage); toolID != "" {
-				log.Printf("🔧 [CONVERSATIONAL] Detected configured tool request (%s) - preserving original message: %s", toolID, originalMessage)
-
-				// SPECIAL CASE: If it's an image generation request, we want to skip the "core query" extraction
-				// which sometimes strips useful words.
-				if toolID == "tool_generate_image" {
-					log.Printf("🖼️ [CONVERSATIONAL] Image generation detected - bypassing core query extraction")
-					if hdnContext != nil {
-						modInstruction := originalMessage
-						strDesc := hdnContext["last_vision_description"]
-						var prompt string
-						// Always clarify subject and modification
-						if strDesc != "" && modInstruction != "" {
-							prompt = fmt.Sprintf("Modify the last image described as: '%s'. Instruction: %s", strDesc, modInstruction)
-						} else if strDesc != "" {
-							prompt = fmt.Sprintf("Modify the last image described as: '%s'.", strDesc)
-						} else if modInstruction != "" {
-							prompt = fmt.Sprintf("Instruction: %s", modInstruction)
-						}
-						// Fallback to originalMessage if prompt is still empty
-						if prompt == "" && originalMessage != "" {
-							prompt = originalMessage
-						}
-						hdnContext["prompt"] = prompt
-						strPath := hdnContext["last_vision_path"]
-						if strPath != "" {
-							hdnContext["source_image"] = strPath
-						}
-					}
-					interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, originalMessage, hdnContext)
-					if err != nil {
-						return nil, fmt.Errorf("image tool interpretation failed: %w", err)
-					}
-					return &ActionResult{
-						Type:    "conversation_result",
-						Success: true,
-						Data: map[string]interface{}{
-							"result": interpretResult,
-							"source": "hdn_natural_language",
-						},
-					}, nil
-				}
-
-				// Pass original message directly to preserve keywords for tool detection
-				interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, originalMessage, hdnContext)
-				if err != nil {
-					return nil, fmt.Errorf("tool request interpretation failed: %w", err)
-				}
-				return &ActionResult{
-					Type:    "conversation_result",
-					Success: true,
-					Data: map[string]interface{}{
-						"result": interpretResult,
-						"source": "hdn_natural_language",
-					},
-				}, nil
+				return cl.executeConfiguredToolIntent(ctx, toolID, originalMessage, hdnContext, context)
 			}
 		}
 
@@ -1231,22 +1204,9 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 
 		// Check if original message matches configured tool keywords
 		if originalMessage != "" {
-			// Use configurable tool keyword matching instead of hardcoded email checks
 			if toolID := interpreter.MatchesConfiguredToolKeywords(originalMessage); toolID != "" {
-				log.Printf("🔧 [CONVERSATIONAL] Detected configured tool request (%s) in task_execution - using InterpretNaturalLanguage: %s", toolID, originalMessage)
-				// Pass original message directly to preserve keywords for tool detection
-				interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, originalMessage, hdnContext)
-				if err != nil {
-					return nil, fmt.Errorf("tool request interpretation failed: %w", err)
-				}
-				return &ActionResult{
-					Type:    "conversation_result",
-					Success: true,
-					Data: map[string]interface{}{
-						"result": interpretResult,
-						"source": "hdn_natural_language",
-					},
-				}, nil
+				log.Printf("🔧 [CONVERSATIONAL] Detected configured tool request (%s) in task_execution", toolID)
+				return cl.executeConfiguredToolIntent(ctx, toolID, originalMessage, hdnContext, context)
 			}
 		}
 
@@ -1430,6 +1390,74 @@ func (cl *ConversationalLayer) GetConversationHistory(ctx context.Context, sessi
 // GetCurrentThinking returns the current reasoning process
 func (cl *ConversationalLayer) GetCurrentThinking(ctx context.Context, sessionID string) (*ReasoningTraceData, error) {
 	return cl.reasoningTrace.GetTrace(sessionID), nil
+}
+
+// executeConfiguredToolIntent handles a direct tool request detected via keywords
+func (cl *ConversationalLayer) executeConfiguredToolIntent(ctx context.Context, toolID string, originalMessage string, hdnContext map[string]string, context map[string]interface{}) (*ActionResult, error) {
+	log.Printf("🔧 [CONVERSATIONAL] Executing configured tool intent (%s) for message: %s", toolID, originalMessage)
+
+	// SPECIAL CASE: If it's an image generation request, we want to skip the "core query" extraction
+	// which sometimes strips useful words.
+	if toolID == "tool_generate_image" {
+		log.Printf("🖼️ [CONVERSATIONAL] Image generation detected in helper - preparing parameters")
+		modInstruction := originalMessage
+		strDesc := hdnContext["last_vision_description"]
+		var prompt string
+		// Always clarify subject and modification
+		if strDesc != "" && modInstruction != "" {
+			prompt = fmt.Sprintf("Modify the last image described as: '%s'. Instruction: %s", strDesc, modInstruction)
+		} else if strDesc != "" {
+			prompt = fmt.Sprintf("Modify the last image described as: '%s'.", strDesc)
+		} else if modInstruction != "" {
+			prompt = fmt.Sprintf("Instruction: %s", modInstruction)
+		}
+		// Fallback to originalMessage if prompt is still empty
+		if prompt == "" && originalMessage != "" {
+			prompt = originalMessage
+		}
+		hdnContext["prompt"] = prompt
+
+		// Use top-level field if available (via flattened context)
+		strPath := hdnContext["last_vision_path"]
+		if strPath == "" {
+			// Fallback to searching context map explicitly if not in hdnContext
+			if val, ok := context["last_vision_path"].(string); ok {
+				strPath = val
+			}
+		}
+
+		if strPath != "" {
+			hdnContext["source_image"] = strPath
+		}
+		log.Printf("🖼️ [CONVERSATIONAL] Prepared image tool parameters - prompt: '%s', source: '%s'", prompt, hdnContext["source_image"])
+
+		interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, originalMessage, hdnContext)
+		if err != nil {
+			return nil, fmt.Errorf("image tool interpretation failed: %w", err)
+		}
+		return &ActionResult{
+			Type:    "conversation_result",
+			Success: true,
+			Data: map[string]interface{}{
+				"result": interpretResult,
+				"source": "hdn_natural_language",
+			},
+		}, nil
+	}
+
+	// Default: Pass original message directly to preserve keywords for tool detection
+	interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, originalMessage, hdnContext)
+	if err != nil {
+		return nil, fmt.Errorf("tool request interpretation failed: %w", err)
+	}
+	return &ActionResult{
+		Type:    "conversation_result",
+		Success: true,
+		Data: map[string]interface{}{
+			"result": interpretResult,
+			"source": "hdn_natural_language",
+		},
+	}, nil
 }
 
 // hasResultsInToolResult checks if a tool result map contains actual results
