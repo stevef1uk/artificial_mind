@@ -3,14 +3,12 @@ kind: ConfigMap
 metadata:
   name: hdn-config
   namespace: agi
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: hdn-config
-  namespace: agi
 data:
   USER_NAME: "Steven Fisher"
   RPI_USER: "stevef"
+  RPI_HOST: "192.168.1.60"
+  WHISPLAY_GEN_HOST: "192.168.1.60"
+  WHISPLAY_GEN_PORT: "8806"
   agents.yaml: |
     agents:
       - id: email_monitor_agent
