@@ -435,20 +435,21 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 	 					params["prompt"] = input
 	 				}
 	 				log.Printf("🖼️ [FLEXIBLE-LLM] tool_generate_image call with prompt: %v", params["prompt"])
-				} else if actualToolID == "tool_generate_image" {
-					// Ensure prompt is set even if not ForceToolCall
-					if _, ok := params["prompt"]; !ok || strings.TrimSpace(fmt.Sprintf("%v", params["prompt"])) == "" {
-						params["prompt"] = input
-						log.Printf("🖼️ [FLEXIBLE-LLM] tool_generate_image fallback prompt set: %s", input)
-					}
-				} else if actualToolID == "mcp_smart_scrape" || strings.TrimPrefix(actualToolID, "mcp_") == "smart_scrape" {
-					if match := urlRe.FindString(input); match != "" {
-						params["url"] = match
-						params["goal"] = input
-						log.Printf("🔗 [FLEXIBLE-LLM] Extracted URL=%s for forced mcp_smart_scrape call", match)
-					} else if resolved := resolveWellKnownURL(input); resolved != "" {
-						params["url"] = resolved
-						params["goal"] = input
+					} else {
+						if actualToolID == "tool_generate_image" {
+							// Ensure prompt is set even if parameters are present
+							if _, ok := params["prompt"]; !ok || strings.TrimSpace(fmt.Sprintf("%v", params["prompt"])) == "" {
+								if q, ok := params["query"]; ok && strings.TrimSpace(fmt.Sprintf("%v", q)) != "" {
+									params["prompt"] = q
+								} else if d, ok := params["description"]; ok && strings.TrimSpace(fmt.Sprintf("%v", d)) != "" {
+									params["prompt"] = d
+								} else if t, ok := params["task"]; ok && strings.TrimSpace(fmt.Sprintf("%v", t)) != "" {
+									params["prompt"] = t
+								} else {
+									params["prompt"] = input
+								}
+								log.Printf("🖼️ [FLEXIBLE-LLM] tool_generate_image fallback prompt set: %v", params["prompt"])
+							}
 						log.Printf("🔗 [FLEXIBLE-LLM] Resolved well-known site URL=%s for forced mcp_smart_scrape call", resolved)
 					}
 				} else if actualToolID == "mcp_research_agent" || strings.TrimPrefix(actualToolID, "mcp_") == "research_agent" {
