@@ -731,6 +731,25 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 			// Use configurable tool keyword matching instead of hardcoded email checks
 			if toolID := interpreter.MatchesConfiguredToolKeywords(originalMessage); toolID != "" {
 				log.Printf("🔧 [CONVERSATIONAL] Detected configured tool request (%s) - preserving original message: %s", toolID, originalMessage)
+
+				// SPECIAL CASE: If it's an image generation request, we want to skip the "core query" extraction
+				// which sometimes strips useful words.
+				if toolID == "tool_generate_image" {
+					log.Printf("🖼️ [CONVERSATIONAL] Image generation detected - bypassing core query extraction")
+					interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, originalMessage, hdnContext)
+					if err != nil {
+						return nil, fmt.Errorf("image tool interpretation failed: %w", err)
+					}
+					return &ActionResult{
+						Type:    "conversation_result",
+						Success: true,
+						Data: map[string]interface{}{
+							"result": interpretResult,
+							"source": "hdn_natural_language",
+						},
+					}, nil
+				}
+
 				// Pass original message directly to preserve keywords for tool detection
 				interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, originalMessage, hdnContext)
 				if err != nil {
@@ -843,6 +862,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				"summarize": true, "summarise": true, "summary": true, "latest": true,
 				"current": true, "recent": true, "update": true, "updated": true,
 				"situation": true, "news": true, "info": true, "information": true,
+				"create": true, "generate": true, "make": true,
 			}
 
 			var filtered []string
@@ -899,7 +919,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 				"tell": true, "me": true, "about": true, "current": true, "latest": true, "situation": true,
 				"update": true, "summary": true, "search": true, "for": true, "news": true, "find": true,
 				"get": true, "show": true, "give": true, "summarize": true, "summarise": true,
-				"recent": true, "info": true, "information": true,
+				"recent": true, "info": true, "information": true, "create": true, "generate": true, "make": true,
 			}
 			startIdx := 0
 			for i, word := range words {

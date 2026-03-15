@@ -2463,7 +2463,10 @@ def main():
 
         # 1. Call API to generate image
         # This runs on the RPi via SSH, so we call the local API
-        conn = http.client.HTTPConnection("192.168.1.60", 8806)
+        gen_host = os.getenv("WHISPLAY_GEN_HOST", "192.168.1.60")
+        gen_port = int(os.getenv("WHISPLAY_GEN_PORT", "8806"))
+        
+        conn = http.client.HTTPConnection(gen_host, gen_port)
         payload = json.dumps({"prompt": prompt, "return_base64": True})
         headers = {"Content-Type": "application/json"}
         conn.request("POST", "/generate", payload, headers)
@@ -2528,16 +2531,25 @@ if __name__ == "__main__":
 	}
 	rpiUser := os.Getenv("RPI_USER")
 	if rpiUser == "" {
-		rpiUser = os.Getenv("RPI_USER")
-		if rpiUser == "" {
-			rpiUser = "user"
-		}
+		rpiUser = "user"
+	}
+
+	// Get image generator API details from environment
+	genHost := os.Getenv("WHISPLAY_GEN_HOST")
+	if genHost == "" {
+		genHost = "192.168.1.60"
+	}
+	genPort := os.Getenv("WHISPLAY_GEN_PORT")
+	if genPort == "" {
+		genPort = "8806"
 	}
 
 	res, err := s.fallbackSSHExecution(pyCode, "python", "", map[string]string{
-		"PROMPT":   prompt,
-		"RPI_HOST": rpiHost,
-		"RPI_USER": rpiUser,
+		"PROMPT":            prompt,
+		"RPI_HOST":          rpiHost,
+		"RPI_USER":          rpiUser,
+		"WHISPLAY_GEN_HOST": genHost,
+		"WHISPLAY_GEN_PORT": genPort,
 	})
 	if err != nil {
 		return nil, err

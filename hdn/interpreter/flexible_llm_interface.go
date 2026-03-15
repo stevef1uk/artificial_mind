@@ -83,6 +83,17 @@ func resolveWellKnownURL(input string) string {
 func init() {
 	Set_mcp_smart_scrape_hints()
 	Set_mcp_research_agent_hints()
+	Set_tool_generate_image_hints()
+}
+
+func Set_tool_generate_image_hints() {
+	SetPromptHints("tool_generate_image", &PromptHintsConfig{
+		Keywords:      []string{"image", "create image", "generate image", "make image", "picture", "drawing", "illustration", "visual"},
+		PromptText:    "🖼️ FOR IMAGE GENERATION: Use tool_generate_image with a descriptive 'prompt' parameter. Important: ONLY use this tool if the user explicitly asks to CREATE or GENERATE a new image, not for describing existing ones.",
+		ForceToolCall: true,
+		AlwaysInclude: []string{"create image", "generate image"},
+		RejectText:    true,
+	})
 }
 
 func Set_mcp_smart_scrape_hints() {

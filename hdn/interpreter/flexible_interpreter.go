@@ -103,31 +103,42 @@ func (f *FlexibleInterpreter) InterpretWithPriority(ctx context.Context, req *Na
 	}
 
 	if isScrape {
-		for _, t := range tools {
-			if strings.Contains(strings.ToLower(t.ID), "smart_scrape") {
-				log.Printf("🦾 [FLEXIBLE-INTERPRETER] Prioritizing smart_scrape tool: %s", t.ID)
+		// Only proactively trigger smart_scrape if there's a real URL or well-known site
+		// AND it's not a complex instruction (to avoid hijacking "Flexible knowledge query" which mentions tools)
+		isInstruction := strings.Contains(inputLower, "you can use") || strings.Contains(inputLower, "use mcp_")
+		wellKnown := resolveWellKnownURL(inputLower)
+		hasURL := urlRe.MatchString(inputLower) || wellKnown != ""
 
-				// Try to resolve URL if it's a well-known site
-				targetURL := req.Input
-				extracted := resolveWellKnownURL(inputLower)
-				if extracted != "" {
-					targetURL = extracted
-				}
+		if hasURL && !isInstruction {
+			for _, t := range tools {
+				if strings.Contains(strings.ToLower(t.ID), "smart_scrape") {
+					log.Printf("🦾 [FLEXIBLE-INTERPRETER] Prioritizing smart_scrape tool: %s", t.ID)
 
-				toolCall := &ToolCall{
-					ToolID:     t.ID,
-					Parameters: map[string]interface{}{"url": targetURL, "goal": req.Input},
+					// Try to resolve URL if it's a well-known site
+					targetURL := req.Input
+					if wellKnown != "" {
+						targetURL = wellKnown
+					} else if urlMatch := urlRe.FindString(req.Input); urlMatch != "" {
+						targetURL = urlMatch
+					}
+
+					toolCall := &ToolCall{
+						ToolID:     t.ID,
+						Parameters: map[string]interface{}{"url": targetURL, "goal": req.Input},
+					}
+					result := &FlexibleInterpretationResult{
+						Success:       true,
+						ResponseType:  ResponseTypeToolCall,
+						Message:       "Detected scrape intent with valid URL, routing directly to mcp_smart_scrape.",
+						SessionID:     req.SessionID,
+						InterpretedAt: time.Now(),
+						ToolCall:      toolCall,
+					}
+					return result, nil
 				}
-				result := &FlexibleInterpretationResult{
-					Success:       true,
-					ResponseType:  ResponseTypeToolCall,
-					Message:       "Detected scrape intent, routing directly to mcp_smart_scrape.",
-					SessionID:     req.SessionID,
-					InterpretedAt: time.Now(),
-					ToolCall:      toolCall,
-				}
-				return result, nil
 			}
+		} else if isScrape && isInstruction {
+			log.Printf("ℹ️ [FLEXIBLE-INTERPRETER] Scrape keywords detected in instruction - letting LLM decide instead of proactive hijacking")
 		}
 	}
 
