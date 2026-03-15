@@ -420,18 +420,52 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 	})
 
 	// Step 6: Save conversation context
+
+	// Detect if an image was generated to persist its context for "change that" follow-ups
+	if result != nil && result.Success {
+		var toolOutput map[string]interface{}
+		if tr, ok := result.Data["result"].(map[string]interface{}); ok {
+			toolOutput = tr
+		} else if ir, ok := result.Data["result"].(*InterpretResult); ok && ir != nil {
+			if ts, ok := ir.Metadata["tool_success"].(bool); ok && ts {
+				if tr, ok := ir.Metadata["tool_result"].(map[string]interface{}); ok {
+					toolOutput = tr
+				}
+			}
+		}
+
+		if toolOutput != nil {
+			if imgPath, ok := toolOutput["image"].(string); ok && imgPath != "" {
+				desc := "A generated image depicting: " + req.Message
+				log.Printf("🖼️ [CONVERSATIONAL] Persistence: Successfully generated image, updating context with: %s", desc)
+				conversationContext["last_vision_description"] = desc
+				conversationContext["last_vision_path"] = imgPath
+			}
+		}
+	}
+
 	// CRITICAL: Strip the result before saving to history to prevent massive context bloat.
 	// We want to keep the metadata and success status, but not 10MB of raw research data.
 	strippedResult := cl.stripActionResultForHistory(result)
 
-	err = cl.conversationMemory.SaveContext(ctx, req.SessionID, map[string]interface{}{
+	saveMap := map[string]interface{}{
 		"last_user_message": req.Message,
 		"last_ai_response":  response.Text,
 		"last_intent":       intent,
 		"last_action":       action,
 		"last_result":       strippedResult,
 		"timestamp":         time.Now(),
-	})
+	}
+
+	// Also include any updated context keys (like last_vision_description)
+	if vd, ok := conversationContext["last_vision_description"].(string); ok {
+		saveMap["last_vision_description"] = vd
+	}
+	if vp, ok := conversationContext["last_vision_path"].(string); ok {
+		saveMap["last_vision_path"] = vp
+	}
+
+	err = cl.conversationMemory.SaveContext(ctx, req.SessionID, saveMap)
 	if err != nil {
 		log.Printf("⚠️ [CONVERSATIONAL] Failed to save conversation context: %v", err)
 	}

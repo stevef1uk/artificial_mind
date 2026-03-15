@@ -253,6 +253,12 @@ func (ip *IntentParser) ruleBasedClassification(message string) string {
 		`can you extract`,
 		`can you fetch`,
 		`can you get`,
+		`update the image`,
+		`modify the capture`,
+		`change what I showed you`,
+		`change that image`,
+		`update that photo`,
+		`modify that picture`,
 	}
 	for _, pattern := range taskPatterns {
 		if matched, _ := regexp.MatchString(pattern, message); matched {
