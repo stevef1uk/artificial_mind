@@ -73,7 +73,7 @@ const (
 	StateAnswering
 )
 
-const cameraHoldThreshold = 10 * time.Second
+const cameraHoldThreshold = 4 * time.Second
 
 func isRemoteCameraAvailable(url string) bool {
 	if url == "" {
@@ -342,7 +342,8 @@ func main() {
 
 	switchModelAsync("image_gen")
 
-	var vActive bool
+	var vActiveAtPress bool
+
 	for ev := range disp.EventChan {
 		// Global event handlers (regardless of current chatbot state)
 		if ev == "camera_capture" {
@@ -473,6 +474,11 @@ func main() {
 			stabMu.Lock()
 			isStabilizing = false
 			stabMu.Unlock()
+
+			if state == StateListening {
+				fmt.Println("[Vision] UI exit event received while listening – returning to Idle")
+				state = StateIdle
+			}
 			continue
 		}
 
@@ -496,13 +502,13 @@ func main() {
 				lastButtonPressTime = now
 
 				cameraMu.Lock()
-				vActive = cameraIsActive
+				vActiveAtPress = cameraIsActive
 				cameraMu.Unlock()
 
 				state = StateListening
 				buttonPressTime = time.Now()
 
-				if !vActive {
+				if !vActiveAtPress {
 					audioPath = filepath.Join(os.TempDir(), fmt.Sprintf("rec_%d.wav", time.Now().Unix()))
 					fmt.Println("Recording to", audioPath)
 					cmd, err := audio.RecordAudio(audioPath)
@@ -570,15 +576,10 @@ func main() {
 				}
 				cameraTimerMu.Unlock()
 
-				// Check current camera status
-				cameraMu.Lock()
-				vActive = cameraIsActive
-				cameraMu.Unlock()
-
-				// If camera is active, release should not proceed to STT processing
-				// because the button is used for capture in vision mode.
-				if vActive {
-					fmt.Println("[System] Release handled while in Vision mode. Recording skipped.")
+				// If vision was active at press time, this button interaction
+				// was either for capture or for exit. Never proceed to ASR.
+				if vActiveAtPress {
+					fmt.Println("[System] Release handled for Vision mode interaction. Returning to Idle.")
 					state = StateIdle
 					if audioPath != "" {
 						os.Remove(audioPath)
@@ -637,13 +638,13 @@ func main() {
 					Emoji:  "🤔",
 					Text:   text,
 				})
-
 				// Check for camera/vision keywords to trigger live feed
 				lowerText := strings.ToLower(text)
 				intentHandled := false
 				if strings.Contains(lowerText, "camera") || strings.Contains(lowerText, "vision mode") {
 					cameraMu.Lock()
-					if !cameraIsActive {
+					activeNow := cameraIsActive
+					if !activeNow {
 						stopPlayback()
 						if !isRemoteCameraAvailable(remoteCameraURL) {
 							fmt.Println("[Vision] Keyword trigger rejected: Remote camera unavailable")
@@ -682,13 +683,13 @@ func main() {
 				// Let the user know we are thinking about it out loud
 				// Don't start this if we just activated the camera or if we are stabilizing
 				cameraMu.Lock()
-				vActive = cameraIsActive
+				vCurrentlyActive := cameraIsActive
 				cameraMu.Unlock()
 				stabMu.Lock()
 				stabilizing := isStabilizing
 				stabMu.Unlock()
 
-				if !vActive && !stabilizing {
+				if !vCurrentlyActive && !stabilizing {
 					go speakText("I am thinking about " + cleanForSpeech(text))
 				}
 

@@ -341,7 +341,7 @@ def on_button_pressed():
         camera_mode_button_press_time = time.time()
         # check after 5 seconds, exit camera mode if not released (Long press to exit)
         import threading
-        threading.Timer(5.0, check_is_released).start()
+        threading.Timer(4.0, check_is_released).start()
         # forward event to Node so it can record audio!
     
     """Function executed when button is pressed"""
