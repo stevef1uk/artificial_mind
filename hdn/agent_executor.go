@@ -863,17 +863,22 @@ Synthesized Response:`, input, string(resultsJSON))
 					}
 
 					if telegramAdapter != nil && chatID != "" {
-						log.Printf("📱 [AGENT-EXECUTOR] Sending synthesized summary to Telegram (%s)...", chatID)
-						telParams := map[string]interface{}{
-							"message":    strings.TrimSpace(summary),
-							"chat_id":    chatID,
-							"parse_mode": "Markdown",
-						}
-						_, err := telegramAdapter.Execute(ctx, telParams)
-						if err != nil {
-							log.Printf("⚠️ [AGENT-EXECUTOR] Automatic Telegram notification failed: %v", err)
+						// Special case: Mute automatic summaries for website monitor if everything is UP
+						if agentID == "website_status_monitor" && (strings.Contains(strings.ToLower(summary), "operational") || strings.Contains(strings.ToLower(summary), "all websites are up")) {
+							log.Printf("📱 [AGENT-EXECUTOR] Muting automatic Telegram summary for website_status_monitor (status: OK)")
 						} else {
-							log.Printf("✅ [AGENT-EXECUTOR] Automatic Telegram notification sent")
+							log.Printf("📱 [AGENT-EXECUTOR] Sending synthesized summary to Telegram (%s)...", chatID)
+							telParams := map[string]interface{}{
+								"message":    strings.TrimSpace(summary),
+								"chat_id":    chatID,
+								"parse_mode": "Markdown",
+							}
+							_, err := telegramAdapter.Execute(ctx, telParams)
+							if err != nil {
+								log.Printf("⚠️ [AGENT-EXECUTOR] Automatic Telegram notification failed: %v", err)
+							} else {
+								log.Printf("✅ [AGENT-EXECUTOR] Automatic Telegram notification sent")
+							}
 						}
 					}
 				}
