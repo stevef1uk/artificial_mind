@@ -866,42 +866,64 @@ Synthesized Response:`, input, string(resultsJSON))
 						// Configurable muting of automatic summaries on success.
 						isMuted := false
 						if agentInstance.Config.Behavior != nil && agentInstance.Config.Behavior.MuteSuccessNotifications {
-							// For website_status_monitor, we check if all sites are UP
-							if agentID == "website_status_monitor" {
-								allUp := true
-								for _, res := range results {
-									if m, ok := res.(map[string]interface{}); ok {
-										if websites, ok := m["websites"].([]map[string]interface{}); ok {
-											for _, s := range websites {
-												if st, ok := s["status_text"].(string); ok && st != "up" {
-													allUp = false
-													break
-												}
-											}
-										} else if websites, ok := m["websites"].([]interface{}); ok {
-											for _, s := range websites {
-												if sm, ok := s.(map[string]interface{}); ok {
-													if st, ok := sm["status_text"].(string); ok && st != "up" {
-														allUp = false
-														break
-													}
-												}
-											}
+							// Default to muted, then scan results for any indication of issues
+							isMuted = true
+
+							// Helper function to recursively search for "unhealthy" indicators
+							var hasAnyIssues func(interface{}) bool
+							hasAnyIssues = func(v interface{}) bool {
+								switch val := v.(type) {
+								case string:
+									s := strings.ToLower(val)
+									// Indicators that something is NOT okay
+									if strings.Contains(s, "down") || strings.Contains(s, "error") ||
+										strings.Contains(s, "fail") || strings.Contains(s, "warn") ||
+										strings.Contains(s, "issue") || strings.Contains(s, "unhealthy") ||
+										strings.Contains(s, "critical") {
+										return true
+									}
+								case int:
+									// HTTP error codes or generic error counts
+									if val >= 400 {
+										return true
+									}
+								case float64:
+									if val >= 400 {
+										return true
+									}
+								case map[string]interface{}:
+									for _, mv := range val {
+										if hasAnyIssues(mv) {
+											return true
+										}
+									}
+								case []interface{}:
+									for _, iv := range val {
+										if hasAnyIssues(iv) {
+											return true
+										}
+									}
+								case []map[string]interface{}:
+									for _, mv := range val {
+										if hasAnyIssues(mv) {
+											return true
 										}
 									}
 								}
-								if allUp {
-									isMuted = true
+								return false
+							}
+
+							// If we find ANY issue in the results, we UNMUTE to ensure the user is notified
+							for _, res := range results {
+								if hasAnyIssues(res) {
+									isMuted = false
+									break
 								}
-							} else {
-								// For other agents, MuteSuccessNotifications just mutes the successful summary
-								// (Rarely used but available if desired)
-								isMuted = true
 							}
 						}
 
 						if isMuted {
-							log.Printf("📱 [AGENT-EXECUTOR] Muting automatic Telegram summary for %s (behavior: mute_success_notifications)", agentID)
+							log.Printf("📱 [AGENT-EXECUTOR] Muting automatic Telegram summary for %s (behavior: mute_success_notifications, status: ALL OK)", agentID)
 						} else {
 							log.Printf("📱 [AGENT-EXECUTOR] Sending synthesized summary to Telegram (%s)...", chatID)
 							telParams := map[string]interface{}{
