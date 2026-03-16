@@ -189,7 +189,7 @@ agents:
         verbose: true
       triggers:
         schedule:
-            - cron: '0 7 * * *'
+            - cron: '0 6 * * *'
               action: "execute"
       behavior:
         thinking_mode: true
