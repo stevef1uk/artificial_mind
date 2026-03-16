@@ -160,7 +160,7 @@ type ToolExecSpec struct {
 func (s *APIServer) toolKey(id string) string { return "tool:" + id }
 func (s *APIServer) toolsRegistryKey() string { return "tools:registry" }
 func (s *APIServer) toolsUsageKey(agentID string) string {
-	return fmt.Sprintf("tools:%s:usage_history", agentID)
+	return "tools:usage_history"
 }
 
 // deleteTool removes a tool from registry
@@ -2594,7 +2594,7 @@ if __name__ == "__main__":
 	// Step 2: If we generated locally, we need to send it to RPI for display
 	log.Printf("🖼️ [HDN] Sending locally generated image to RPI for display")
 
-	displayScript := fmt.Sprintf(`
+	displayScript := `
 import os, json, base64, socket
 def main():
     try:
@@ -2622,7 +2622,7 @@ def main():
 
 if __name__ == "__main__":
     main()
-`)
+`
 
 	res, err := s.fallbackSSHExecution(displayScript, "python", "", map[string]string{
 		"IMG_BASE64": imgBase64,

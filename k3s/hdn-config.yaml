@@ -211,7 +211,6 @@ data:
           - tool_http_get
           - mcp_smart_scrape
           - tool_telegram_send
-          - mcp_execute_code
         capabilities:
           max_iterations: 15
           verbose: true
@@ -225,118 +224,14 @@ data:
           use_memory: true
           prefer_tools: true
         tasks:
-          - id: bbc_morning_trigger
-            description: Trigger the intelligent code generator to scrape and summarize BBC news.
+          - id: scrape_bbc_news
+            description: "Scrape the top 10 news headlines from BBC News (https://www.bbc.com/news)."
             tools:
-              - mcp_execute_code
+              - mcp_smart_scrape
             parameters:
-              language: python
-              code: |
-                import os, requests, json
-
-                def get_hdn_url():
-                    candidates = [
-                        "http://hdn-server:8080",
-                        "http://hdn-server.default.svc.cluster.local:8080",
-                        "http://hdn-server-rpi58:8080",
-                        "http://127.0.0.1:30257",
-                        "http://localhost:30257"
-                    ]
-                    for c in candidates:
-                        try:
-                            r = requests.get(f"{c}/api/v1/tools", timeout=300)
-                            if r.status_code == 200 and "tools" in r.text:
-                                return c
-                        except: continue
-                    return "http://localhost:8081"
-
-                hdn_url = get_hdn_url()
-                chat_id = "8271300679"
-
-                print(f"📡 Scraper starting via {hdn_url}")
-
-                headlines = []
-                try:
-                    s_url = f"{hdn_url}/api/v1/tools/mcp_smart_scrape/invoke"
-                    print(f"📥 Calling scraper at {s_url}")
-                    s_resp = requests.post(s_url,
-                                           json={"url": "https://www.bbc.com/news", "goal": "Extract the top 10 news headlines including their page links if available."},
-                                           timeout=300)
-                    s_resp.raise_for_status()
-                    res = s_resp.json()
-                    raw = res.get("result", res)
-
-                    if isinstance(raw, dict) and raw.get("error"):
-                        headlines = [f"Scraper reported error: {raw['error']}"]
-                        raw = []
-
-                    def extract_list(data):
-                        if data is None: return []
-                        if isinstance(data, str):
-                            s = data.strip()
-                            if (s.startswith("{") and s.endswith("}")) or (s.startswith("[") and s.endswith("]")):
-                                try:
-                                    import json
-                                    parsed = json.loads(s.replace("'", '"'))
-                                    return extract_list(parsed)
-                                except: pass
-                        if isinstance(data, list):
-                            res = []
-                            for i in data:
-                                inner = extract_list(i)
-                                if isinstance(inner, list): res.extend(inner)
-                                else: res.append(str(inner))
-                            return res
-                        if isinstance(data, dict):
-                            for k in ["result", "results", "extracted_content", "headlines", "items", "content", "summary", "text", "message"]:
-                                if k in data and data[k]:
-                                    return extract_list(data[k])
-                            title = data.get("title") or data.get("headline") or data.get("text")
-                            url = data.get("url") or data.get("link") or data.get("page_url")
-                            if title:
-                                if url and str(url).startswith("http"):
-                                    return [f"{title}\n<{url}>"]
-                                return [str(title)]
-                            if len(data) == 1:
-                                return extract_list(list(data.values())[0])
-                            return [str(data)]
-                        if isinstance(data, str):
-                            s = data.replace("\\n", "\n").strip()
-                            if "\n" in s:
-                                lines = [l.strip() for l in s.split("\n") if l.strip()]
-                                import re
-                                return [re.sub(r'^(\d+\.|\*|-|•)\s*', '', l) for l in lines]
-                            import re
-                            parts = re.split(r'\s*\d+\.\s+', s)
-                            cleaned = [p.strip() for p in parts if p.strip()]
-                            if len(cleaned) > 1: return cleaned
-                            return [s]
-                        return [str(data)]
-
-                    headlines = extract_list(raw)
-                except Exception as e:
-                    headlines = [f"Scrape Error: {e}"]
-
-                msg = "🗞️ *BBC Morning News Update*\n\n"
-                unique_headlines = []
-                seen = set()
-                for h in headlines:
-                    if h.lower() not in seen and len(h) > 5:
-                        unique_headlines.append(h)
-                        seen.add(h.lower())
-
-                for h in unique_headlines[:12]:
-                    msg += f"• {h}\n\n"
-
-                msg += "_Generated via HDN Agent_"
-
-                try:
-                    requests.post(f"{hdn_url}/api/v1/tools/tool_telegram_send/invoke",
-                                  json={"chat_id": chat_id, "message": msg, "parse_mode": "Markdown"},
-                                  timeout=300)
-                    print(f"✅ Sent to {chat_id}")
-                except Exception as e:
-                    print(f"❌ Send Failed: {e}")
+              url: "https://www.bbc.com/news"
+              goal: "Extract the top 10 news headlines including their page links if available."
+              chat_id: "8271300679"
 
   config.json: |
     {

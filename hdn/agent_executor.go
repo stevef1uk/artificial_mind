@@ -836,6 +836,48 @@ Synthesized Response:`, input, string(resultsJSON))
 		} else if summary != "" {
 			log.Printf("✅ [AGENT-EXECUTOR] Response synthesized successfully")
 			result["summary"] = strings.TrimSpace(summary)
+
+			// Automatically send summary to Telegram if agent has the tool and chat_id in config
+			if e.registry != nil {
+				agentInstance, ok := e.registry.GetAgent(agentID)
+				if ok {
+					var telegramAdapter *ToolAdapter
+					for i := range agentInstance.Tools {
+						if agentInstance.Tools[i].ToolID == "tool_telegram_send" {
+							telegramAdapter = &agentInstance.Tools[i]
+							break
+						}
+					}
+
+					var chatID string
+					// Try to find chat_id in any task parameters first
+					for _, t := range agentInstance.Config.Tasks {
+						if cid, ok := t.Parameters["chat_id"].(string); ok && cid != "" {
+							chatID = cid
+							break
+						}
+					}
+					// Fallback to env
+					if chatID == "" {
+						chatID = os.Getenv("TELEGRAM_CHAT_ID")
+					}
+
+					if telegramAdapter != nil && chatID != "" {
+						log.Printf("📱 [AGENT-EXECUTOR] Sending synthesized summary to Telegram (%s)...", chatID)
+						telParams := map[string]interface{}{
+							"message":    strings.TrimSpace(summary),
+							"chat_id":    chatID,
+							"parse_mode": "Markdown",
+						}
+						_, err := telegramAdapter.Execute(ctx, telParams)
+						if err != nil {
+							log.Printf("⚠️ [AGENT-EXECUTOR] Automatic Telegram notification failed: %v", err)
+						} else {
+							log.Printf("✅ [AGENT-EXECUTOR] Automatic Telegram notification sent")
+						}
+					}
+				}
+			}
 		}
 
 		// Prune or truncate the main results field to stay focused on the answer.
