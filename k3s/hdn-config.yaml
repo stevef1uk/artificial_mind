@@ -85,6 +85,7 @@ data:
           memory_window: 24h
           prefer_tools: true
           tool_timeout: 300
+          mute_success_notifications: true
         tasks:
           - id: monitor_task
             description: Monitor and check status of websites

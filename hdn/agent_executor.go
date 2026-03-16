@@ -863,9 +863,45 @@ Synthesized Response:`, input, string(resultsJSON))
 					}
 
 					if telegramAdapter != nil && chatID != "" {
-						// Special case: Mute automatic summaries for website monitor if everything is UP
-						if agentID == "website_status_monitor" && (strings.Contains(strings.ToLower(summary), "operational") || strings.Contains(strings.ToLower(summary), "all websites are up")) {
-							log.Printf("📱 [AGENT-EXECUTOR] Muting automatic Telegram summary for website_status_monitor (status: OK)")
+						// Configurable muting of automatic summaries on success.
+						isMuted := false
+						if agentInstance.Config.Behavior != nil && agentInstance.Config.Behavior.MuteSuccessNotifications {
+							// For website_status_monitor, we check if all sites are UP
+							if agentID == "website_status_monitor" {
+								allUp := true
+								for _, res := range results {
+									if m, ok := res.(map[string]interface{}); ok {
+										if websites, ok := m["websites"].([]map[string]interface{}); ok {
+											for _, s := range websites {
+												if st, ok := s["status_text"].(string); ok && st != "up" {
+													allUp = false
+													break
+												}
+											}
+										} else if websites, ok := m["websites"].([]interface{}); ok {
+											for _, s := range websites {
+												if sm, ok := s.(map[string]interface{}); ok {
+													if st, ok := sm["status_text"].(string); ok && st != "up" {
+														allUp = false
+														break
+													}
+												}
+											}
+										}
+									}
+								}
+								if allUp {
+									isMuted = true
+								}
+							} else {
+								// For other agents, MuteSuccessNotifications just mutes the successful summary
+								// (Rarely used but available if desired)
+								isMuted = true
+							}
+						}
+
+						if isMuted {
+							log.Printf("📱 [AGENT-EXECUTOR] Muting automatic Telegram summary for %s (behavior: mute_success_notifications)", agentID)
 						} else {
 							log.Printf("📱 [AGENT-EXECUTOR] Sending synthesized summary to Telegram (%s)...", chatID)
 							telParams := map[string]interface{}{

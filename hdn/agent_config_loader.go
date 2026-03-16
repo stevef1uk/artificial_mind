@@ -54,13 +54,14 @@ type EventTrigger struct {
 
 // AgentBehavior defines agent behavior configuration
 type AgentBehavior struct {
-	ThinkingMode   bool   `yaml:"thinking_mode,omitempty" json:"thinking_mode,omitempty"`
-	MaxRetries     int    `yaml:"max_retries,omitempty" json:"max_retries,omitempty"`
-	ResponseFormat string `yaml:"response_format,omitempty" json:"response_format,omitempty"`
-	UseMemory      bool   `yaml:"use_memory,omitempty" json:"use_memory,omitempty"`
-	MemoryWindow   string `yaml:"memory_window,omitempty" json:"memory_window,omitempty"` // e.g., "24h"
-	PreferTools    bool   `yaml:"prefer_tools,omitempty" json:"prefer_tools,omitempty"`
-	ToolTimeout    string `yaml:"tool_timeout,omitempty" json:"tool_timeout,omitempty"` // e.g., "60s"
+	ThinkingMode             bool   `yaml:"thinking_mode,omitempty" json:"thinking_mode,omitempty"`
+	MaxRetries               int    `yaml:"max_retries,omitempty" json:"max_retries,omitempty"`
+	ResponseFormat           string `yaml:"response_format,omitempty" json:"response_format,omitempty"`
+	UseMemory                bool   `yaml:"use_memory,omitempty" json:"use_memory,omitempty"`
+	MemoryWindow             string `yaml:"memory_window,omitempty" json:"memory_window,omitempty"` // e.g., "24h"
+	PreferTools              bool   `yaml:"prefer_tools,omitempty" json:"prefer_tools,omitempty"`
+	ToolTimeout              string `yaml:"tool_timeout,omitempty" json:"tool_timeout,omitempty"` // e.g., "60s"
+	MuteSuccessNotifications bool   `yaml:"mute_success_notifications,omitempty" json:"mute_success_notifications,omitempty"`
 }
 
 // AgentTask defines a task an agent can perform
