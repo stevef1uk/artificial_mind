@@ -875,9 +875,10 @@ Synthesized Response:`, input, string(resultsJSON))
 							// Helper function to recursively search for "unhealthy" indicators
 							var hasAnyIssues func(interface{}, string) bool
 							hasAnyIssues = func(v interface{}, key string) bool {
-								// Skip common raw content fields that might have false positives
 								k := strings.ToLower(key)
-								if k == "content" || k == "body" || k == "html" || k == "text" || k == "raw" || k == "payload" {
+								// Skip common raw content or meta fields that might have false positives (like body length or timestamps)
+								if k == "content" || k == "body" || k == "html" || k == "text" || k == "raw" || k == "payload" ||
+									k == "body_length" || k == "duration" || k == "id" || k == "timestamp" || k == "duration_ms" {
 									return false
 								}
 
@@ -901,13 +902,20 @@ Synthesized Response:`, input, string(resultsJSON))
 										return true
 									}
 								case int:
-									// HTTP error codes or generic error counts
-									if val >= 400 {
-										log.Printf("📱 [AGENT-EXECUTOR] Unmute trigger found in key '%s': HTTP %d", key, val)
+									// Only check if it looks like a status code or error count
+									isStatusKey := strings.Contains(k, "status") || strings.Contains(k, "code")
+									isErrorKey := strings.Contains(k, "error") || strings.Contains(k, "fail")
+
+									if (isStatusKey && val >= 400 && val < 600) || (isErrorKey && val > 0) {
+										log.Printf("📱 [AGENT-EXECUTOR] Unmute trigger found in key '%s': %d", key, val)
 										return true
 									}
 								case float64:
-									if val >= 400 {
+									// Only check if it looks like a status code or error count
+									isStatusKey := strings.Contains(k, "status") || strings.Contains(k, "code")
+									isErrorKey := strings.Contains(k, "error") || strings.Contains(k, "fail")
+
+									if (isStatusKey && val >= 400 && val < 600) || (isErrorKey && val > 0) {
 										log.Printf("📱 [AGENT-EXECUTOR] Unmute trigger found in key '%s': %f", key, val)
 										return true
 									}
