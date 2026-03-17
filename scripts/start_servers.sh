@@ -205,7 +205,7 @@ if [ "$SKIP_INFRA" = "true" ]; then
 else
     echo "🏗️  Starting Infrastructure Services (Neo4j + Weaviate + Redis + NATS)..."
     cd "$AGI_PROJECT_ROOT"
-    docker-compose up -d neo4j weaviate redis nats codegen
+    docker-compose up -d neo4j weaviate redis nats
 
     # Ensure data directory has correct permissions (Docker often creates them as root)
     if [ -d "$AGI_PROJECT_ROOT/data" ]; then

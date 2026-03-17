@@ -23,7 +23,7 @@ spec:
         - name: hdn-server
           image: stevef1uk/hdn-server:secure
           imagePullPolicy: Always
-          args: ["--domain", "/config/domain.json", "--config", "/config/config.json", "--port", "8080", "--mode", "server"]
+          args: ["--domain", "/app/config/domain.json", "--config", "/app/config/config.json", "--port", "8080", "--mode", "server"]
           ports:
             - containerPort: 8080
               name: http
@@ -223,7 +223,7 @@ spec:
               mountPath: /keys
               readOnly: true
             - name: hdn-config
-              mountPath: /config
+              mountPath: /app/config
               readOnly: true
             - name: ssh-keys
               mountPath: /root/.ssh
@@ -244,6 +244,8 @@ spec:
                 path: agents.yaml
               - key: n8n_mcp_skills.yaml
                 path: n8n_mcp_skills.yaml
+              - key: tools_bootstrap.json
+                path: tools_bootstrap.json
         - name: ssh-keys
           secret:
             secretName: ssh-keys

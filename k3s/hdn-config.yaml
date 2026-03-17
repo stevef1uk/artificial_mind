@@ -9,6 +9,139 @@ data:
   RPI_HOST: "192.168.1.60"
   WHISPLAY_GEN_HOST: "192.168.1.60"
   WHISPLAY_GEN_PORT: "8806"
+  tools_bootstrap.json: |
+    [
+      {
+        "id": "tool_html_scraper",
+        "name": "HTML Scraper",
+        "description": "Parse HTML and extract title/headings/paragraphs/links",
+        "input_schema": { "url": "string" },
+        "output_schema": { "items": "array" },
+        "permissions": ["net:read"],
+        "safety_level": "low",
+        "created_by": "system"
+      },
+      {
+        "id": "tool_http_get",
+        "name": "HTTP GET",
+        "description": "Fetches a URL and returns response body",
+        "input_schema": { "url": "string" },
+        "output_schema": { "status": "int", "body": "string" },
+        "permissions": ["net:read"],
+        "safety_level": "low",
+        "created_by": "system"
+      },
+      {
+        "id": "tool_json_parse",
+        "name": "JSON Parse",
+        "description": "Parse and pretty-print JSON from stdin or file",
+        "input_schema": { "file": "string?", "stdin": "string?" },
+        "output_schema": { "object": "json" },
+        "permissions": [],
+        "safety_level": "low",
+        "created_by": "system"
+      },
+      {
+        "id": "tool_text_search",
+        "name": "Text Search",
+        "description": "Regex search over stdin text",
+        "input_schema": { "pattern": "string", "stdin": "string" },
+        "output_schema": { "matches": "string[]" },
+        "permissions": [],
+        "safety_level": "low",
+        "created_by": "system"
+      },
+      {
+        "id": "tool_file_read",
+        "name": "File Reader",
+        "description": "Read file contents",
+        "input_schema": { "path": "string" },
+        "output_schema": { "content": "string" },
+        "permissions": ["fs:read"],
+        "safety_level": "medium",
+        "created_by": "system"
+      },
+      {
+        "id": "tool_file_write",
+        "name": "File Writer",
+        "description": "Write string to file",
+        "input_schema": { "path": "string", "content": "string" },
+        "output_schema": { "written": "int" },
+        "permissions": ["fs:write"],
+        "safety_level": "high",
+        "created_by": "system"
+      },
+      {
+        "id": "tool_exec",
+        "name": "Shell Exec",
+        "description": "Run a shell command in sandbox",
+        "input_schema": { "cmd": "string" },
+        "output_schema": { "stdout": "string", "stderr": "string", "exit_code": "int" },
+        "permissions": ["proc:exec"],
+        "safety_level": "high",
+        "created_by": "system"
+      },
+      {
+        "id": "tool_docker_list",
+        "name": "Docker List",
+        "description": "List containers or images",
+        "input_schema": { "type": "string" },
+        "output_schema": { "items": "string[]" },
+        "permissions": ["docker"],
+        "safety_level": "medium",
+        "created_by": "system"
+      },
+      {
+        "id": "tool_codegen",
+        "name": "Codegen",
+        "description": "Generate code snippet from spec",
+        "input_schema": { "spec": "string" },
+        "output_schema": { "code": "string" },
+        "permissions": ["llm"],
+        "safety_level": "medium",
+        "created_by": "system"
+      },
+      {
+        "id": "tool_weather",
+        "name": "Weather Fetcher",
+        "description": "Fetch weather for Europe using Open-Meteo. Defaults to Col de Corbier area.",
+        "input_schema": { "lat": "float", "lon": "float", "tz": "string" },
+        "output_schema": { "location": "json", "current": "json", "daily_stats": "json", "hourly_range": "json" },
+        "permissions": ["net:read"],
+        "safety_level": "low",
+        "created_by": "system"
+      },
+      {
+        "id": "tool_telegram_send",
+        "name": "Telegram Send",
+        "description": "Send message via Telegram Bot API",
+        "input_schema": { "message": "string", "chat_id": "string", "parse_mode": "string" },
+        "output_schema": { "success": "bool", "message_id": "int" },
+        "permissions": ["net:read"],
+        "safety_level": "low",
+        "created_by": "system"
+      },
+       {
+        "id": "tool_generate_image",
+        "name": "Generate Image",
+        "description": "Generate an image via AI and display it on the Whisplay screen.",
+        "input_schema": { "prompt": "string", "source_image": "string" },
+        "output_schema": { "success": "bool", "image": "string" },
+        "permissions": ["net:read", "net:write"],
+        "safety_level": "medium",
+        "created_by": "system"
+      },
+      {
+        "id": "mcp_research_agent",
+        "name": "research_agent",
+        "description": "[chat-only] Perform research using the external MCP research server.",
+        "input_schema": { "query": "string", "depth": "int" },
+        "output_schema": { "result": "string" },
+        "permissions": ["net:read"],
+        "safety_level": "medium",
+        "created_by": "system"
+      }
+    ]
   agents.yaml: |
     agents:
       - id: email_monitor_agent
@@ -244,7 +377,7 @@ data:
           for the Thonon-les-Bains area. You focus on current conditions and the day's outlook, 
           ensuring the user is prepared for the day.
         instructions:
-          - "Use tool_weather to get the latest conditions (lat: 46.2623, lon: 6.6313, tz: Berlin by default)"
+          - "Use tool_weather to get the latest conditions (lat: 46.2836, lon: 6.6444, tz: Berlin by default for Col de Corbier)"
           - "Format the output into a concise, readable Telegram message (e.g. use emojis, bold headers)"
           - "Send with tool_telegram_send"
         tools:

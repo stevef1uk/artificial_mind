@@ -215,3 +215,4 @@ tools/html_scraper/html_scraper
 hdn/config/
 
 monitor/monitor_bin
+bin/tools/weather

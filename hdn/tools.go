@@ -648,6 +648,25 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 				Args: []string{},
 			},
 		},
+		{
+			ID:          "tool_weather",
+			Name:        "Weather Fetcher",
+			Description: "Fetch weather for anywhere in Europe using Open-Meteo. Defaults to Col de Corbier (Le Biot) area.",
+			InputSchema: map[string]string{
+				"lat": "float",
+				"lon": "float",
+				"tz":  "string",
+			},
+			OutputSchema: map[string]string{
+				"location":     "json",
+				"current":      "json",
+				"daily_stats":  "json",
+				"hourly_range": "json",
+			},
+			Permissions: []string{"net:read"},
+			SafetyLevel: "low",
+			CreatedBy:   "system",
+		},
 	}
 
 	// Add SSH executor only when explicitly enabled or on ARM64

@@ -217,7 +217,7 @@ agents:
         for the Thonon-les-Bains area. You focus on current conditions and the day's outlook, 
         ensuring the user is prepared for the day.
       instructions:
-        - "Use tool_weather to get the latest conditions (lat: 46.2623, lon: 6.6313, tz: Berlin by default)"
+        - "Use tool_weather to get the latest conditions (lat: 46.2836, lon: 6.6444, tz: Berlin by default for Col de Corbier)"
         - "Format the output into a concise, readable Telegram message (e.g. use emojis, bold headers)"
         - "Send with tool_telegram_send"
       tools:
