@@ -266,8 +266,8 @@ func FetchWeather(latitude, longitude float64, timezone string) (*WeatherSummary
 // ─────────────────────────────────────────────
 
 func main() {
-	lat := flag.Float64("lat", 46.2623, "Latitude")
-	lon := flag.Float64("lon", 6.6313, "Longitude")
+	lat := flag.Float64("lat", 46.2836, "Latitude")
+	lon := flag.Float64("lon", 6.6444, "Longitude")
 	tz := flag.String("tz", "Berlin", "Timezone (Europe/ prepend automatically)")
 	flag.Parse()
 

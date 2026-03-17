@@ -120,7 +120,7 @@ func Set_mcp_research_agent_hints() {
 func Set_tool_weather_hints() {
 	SetPromptHints("tool_weather", &PromptHintsConfig{
 		Keywords:      []string{"weather", "temperature", "forecast", "forecasts", "rain", "snow", "sun", "sunny", "cloudy", "wind", "windy"},
-		PromptText:    "☁️ FOR WEATHER TASKS: Use 'tool_weather'. Provide 'lat', 'lon', and 'tz' (timezone) if known, or use the default (Thonon-les-Bains) if not specified.",
+		PromptText:    "☁️ FOR WEATHER TASKS: Use 'tool_weather'. Provide 'lat', 'lon' (default 46.2836, 6.6444 for Col de Corbier), and 'tz' (timezone, default Berlin) if known.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"weather", "forecast"},
 		RejectText:    true,
