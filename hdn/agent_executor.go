@@ -870,8 +870,14 @@ Synthesized Response:`, input, string(resultsJSON))
 							isMuted = true
 
 							// Helper function to recursively search for "unhealthy" indicators
-							var hasAnyIssues func(interface{}) bool
-							hasAnyIssues = func(v interface{}) bool {
+							var hasAnyIssues func(interface{}, string) bool
+							hasAnyIssues = func(v interface{}, key string) bool {
+								// Skip common raw content fields that might have false positives
+								k := strings.ToLower(key)
+								if k == "content" || k == "body" || k == "html" || k == "text" || k == "raw" || k == "payload" {
+									return false
+								}
+
 								switch val := v.(type) {
 								case string:
 									s := strings.ToLower(val)
@@ -892,21 +898,23 @@ Synthesized Response:`, input, string(resultsJSON))
 										return true
 									}
 								case map[string]interface{}:
-									for _, mv := range val {
-										if hasAnyIssues(mv) {
+									for mk, mv := range val {
+										if hasAnyIssues(mv, mk) {
 											return true
 										}
 									}
 								case []interface{}:
 									for _, iv := range val {
-										if hasAnyIssues(iv) {
+										if hasAnyIssues(iv, "") {
 											return true
 										}
 									}
 								case []map[string]interface{}:
 									for _, mv := range val {
-										if hasAnyIssues(mv) {
-											return true
+										for mk, vval := range mv {
+											if hasAnyIssues(vval, mk) {
+												return true
+											}
 										}
 									}
 								}
@@ -915,7 +923,7 @@ Synthesized Response:`, input, string(resultsJSON))
 
 							// If we find ANY issue in the results, we UNMUTE to ensure the user is notified
 							for _, res := range results {
-								if hasAnyIssues(res) {
+								if hasAnyIssues(res, "") {
 									isMuted = false
 									break
 								}
