@@ -152,6 +152,12 @@ Headers (optional):
   - Outputs: `{ matches: string[] }`
   - Binary: `tools/text_search`
 
+- `tool_weather`
+  - Inputs: `{ lat: float, lon: float, tz: string }`
+  - Outputs: `{ current: json, daily_stats: json, hourly_range: json, location: json }`
+  - Perms: `net:read`
+  - Binary: `tools/weather` (Fetch weather for anywhere in Europe)
+
 ### Action / System
 
 - `tool_file_read`

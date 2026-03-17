@@ -66,6 +66,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - **Explanation-Grounded Learning Feedback** - Post-hoc evaluation system that evaluates hypothesis accuracy, explanation quality, and reasoning alignment after each goal completion, then updates inference weighting, confidence scaling, and exploration heuristics to continuously improve reasoning quality
 - **Active Learning Loops** - Query-driven learning system that identifies high-uncertainty concepts, generates targeted data acquisition plans, and prioritizes experiments that reduce uncertainty fastest, transforming curiosity from opportunistic scanning into structured inquiry (**runs even when a domain has no Neo4j concepts yet**, by using beliefs/hypotheses/goals already in Redis)
 - **Whisplay Image Generation & Display** - Generate images via AI and project them to physical Raspberry Pi SPI displays (ST7789) with real-time button feedback.
+- **Autonomous Weather Reporting** - Scheduled and on-demand weather updates for European locations with automated Telegram notifications.
 
 ---
 

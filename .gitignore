@@ -30,6 +30,7 @@ fsm/fsm-server
 monitor/monitor-ui
 self/goal-manager
 telegram-bot/telegram-bot
+tools/weather/weather
 
 # Test binaries
 test_fsm

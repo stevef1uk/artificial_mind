@@ -70,7 +70,7 @@ agents:
 Agents can use any of these tools:
 - MCP tools: `mcp_read_google_data`, `mcp_query_neo4j`, `mcp_search_weaviate`, etc.
 - n8n webhooks: Any configured skill from `n8n_mcp_skills.yaml`
-- HDN tools: `tool_http_get`, `tool_html_scraper`, etc.
+- HDN tools: `tool_http_get`, `tool_html_scraper`, `tool_weather`, etc.
 
 ## Running Agents
 

@@ -797,7 +797,7 @@ curl http://localhost:8082/api/reflect | jq '.summary'
 
 ## Available Tools
 
-The system includes 12 built-in tools:
+The system includes 16 built-in tools:
 
 1. **HTTP GET** (`tool_http_get`) - Fetch URLs
 2. **HTML Scraper** (`tool_html_scraper`) - Parse HTML and extract content
@@ -811,6 +811,10 @@ The system includes 12 built-in tools:
 10. **Register Tool** (`tool_register`) - Register tool metadata
 11. **JSON Parse** (`tool_json_parse`) - Parse JSON
 12. **Text Search** (`tool_text_search`) - Search text
+13. **Weather Fetcher** (`tool_weather`) - Fetch weather for Europe
+14. **Telegram Sender** (`tool_telegram_send`) - Send Telegram messages
+15. **Generate Image** (`tool_generate_image`) - Generate images via AI
+16. **Research Agent** (`mcp_research_agent`) - Perform deep research via MCP
 
 ## Response Formats
 
