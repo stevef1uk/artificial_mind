@@ -206,3 +206,43 @@ agents:
             url: "https://www.bbc.com/news"
             goal: "Extract the top 10 news headlines including their page links if available."
             chat_id: "8271300679"
+
+    - id: weather_report_agent
+      name: Weather Report Agent
+      description: Provides weather updates for Thonon-les-Bains at scheduled times and upon request.
+      role: Weather Forecaster
+      goal: "Fetch weather data using 'tool_weather', format it into a concise and readable summary, and send it to Telegram (8271300679)."
+      backstory: |
+        You are a reliable weather reporter. You provide accurate, concise weather updates 
+        for the Thonon-les-Bains area. You focus on current conditions and the day's outlook, 
+        ensuring the user is prepared for the day.
+      instructions:
+        - "Use tool_weather to get the latest conditions (lat: 46.2623, lon: 6.6313, tz: Berlin by default)"
+        - "Format the output into a concise, readable Telegram message (e.g. use emojis, bold headers)"
+        - "Send with tool_telegram_send"
+      tools:
+        - tool_weather
+        - tool_telegram_send
+      capabilities:
+        max_iterations: 5
+        verbose: true
+      triggers:
+        schedule:
+            - cron: '0 6 * * *'   # 7am (adjusting for UTC+1)
+              action: "execute"
+            - cron: '0 11 * * *'  # 12pm
+              action: "execute"
+            - cron: '0 17 * * *'  # 6pm
+              action: "execute"
+        events:
+          - type: user_request
+            keywords:
+              - weather
+              - forecast
+              - "what's the weather"
+              - "how is the weather"
+      behavior:
+        thinking_mode: true
+        max_retries: 3
+        use_memory: true
+        prefer_tools: true

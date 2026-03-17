@@ -157,6 +157,51 @@ func (s *APIServer) executeToolDirect(ctx context.Context, toolID string, params
 		sourceImage, _ := getString(params, "source_image")
 		return s.generateImageInternal(ctx, prompt, sourceImage)
 
+	case "tool_weather":
+		lat := fmt.Sprintf("%v", params["lat"])
+		lon := fmt.Sprintf("%v", params["lon"])
+		tz, _ := getString(params, "tz")
+		if tz == "" {
+			tz = "Berlin"
+		}
+
+		// Find binary
+		projectRoot := strings.TrimSpace(os.Getenv("AGI_PROJECT_ROOT"))
+		binPath := ""
+		if projectRoot != "" {
+			binPath = filepath.Join(projectRoot, "bin", "tools", "weather")
+		}
+		if binPath == "" || !fileExists(binPath) {
+			// Fallbacks
+			candidates := []string{
+				filepath.Join("bin", "tools", "weather"),
+				filepath.Join("..", "bin", "tools", "weather"),
+			}
+			for _, c := range candidates {
+				if fileExists(c) {
+					binPath = c
+					break
+				}
+			}
+		}
+
+		if binPath == "" || !fileExists(binPath) {
+			return nil, fmt.Errorf("weather tool binary not found")
+		}
+
+		args := []string{"-lat", lat, "-lon", lon, "-tz", tz}
+		log.Printf("🌦️ [HDN] Executing weather tool: %s %v", binPath, args)
+		out, err := runHostCommand(ctx, binPath, args, nil)
+		if err != nil {
+			return nil, fmt.Errorf("weather tool failed: %w (output: %s)", err, string(out))
+		}
+
+		var result interface{}
+		if err := json.Unmarshal(out, &result); err != nil {
+			return map[string]interface{}{"output": string(out)}, nil
+		}
+		return result, nil
+
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolID)
 	}

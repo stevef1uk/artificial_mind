@@ -33,6 +33,7 @@ if [ -f ../.env ]; then
 fi
 
 # Start in background
+export AGENTS_CONFIG=$AGI_PROJECT_ROOT/config/agents.yaml
 nohup go run . -mode=server -port=8081 -config=../hdn/config.json > /tmp/hdn_server.log 2>&1 &
 HDN_PID=$!
 echo $HDN_PID > /tmp/hdn_server.pid

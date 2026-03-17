@@ -241,6 +241,39 @@
     }
   },
   {
+    "id": "tool_weather",
+    "name": "Weather Fetcher",
+    "description": "Fetch weather for anywhere in Europe using Open-Meteo. Defaults to Thonon-les-Bains area.",
+    "input_schema": {
+      "lat": "float",
+      "lon": "float",
+      "tz": "string"
+    },
+    "output_schema": {
+      "location": "json",
+      "current": "json",
+      "daily_stats": "json",
+      "hourly_range": "json"
+    },
+    "permissions": [
+      "net:read"
+    ],
+    "safety_level": "low",
+    "created_by": "system",
+    "exec": {
+      "type": "cmd",
+      "cmd": "/app/tools/weather",
+      "args": [
+        "-lat",
+        "{lat}",
+        "-lon",
+        "{lon}",
+        "-tz",
+        "{tz}"
+      ]
+    }
+  },
+  {
     "id": "mcp_research_agent",
     "name": "research_agent",
     "description": "USE THIS for complex, multi-step research or deep analysis tasks that require browsing multiple sources. NOT for simple facts. Input 'query' should be a detailed research goal. 'depth' ranges from 1 (fast/broad) to 3 (comprehensive/deep). Pass 'max_tokens' if you only need a concise overview (e.g., for speech).",

@@ -84,6 +84,7 @@ func init() {
 	Set_mcp_smart_scrape_hints()
 	Set_mcp_research_agent_hints()
 	Set_tool_generate_image_hints()
+	Set_tool_weather_hints()
 }
 
 func Set_tool_generate_image_hints() {
@@ -113,6 +114,16 @@ func Set_mcp_research_agent_hints() {
 		ForceToolCall: true,
 		AlwaysInclude: []string{"research", "deep research", "analysis"},
 		RejectText:    true, // Force research tool usage
+	})
+}
+
+func Set_tool_weather_hints() {
+	SetPromptHints("tool_weather", &PromptHintsConfig{
+		Keywords:      []string{"weather", "temperature", "forecast", "forecasts", "rain", "snow", "sun", "sunny", "cloudy", "wind", "windy"},
+		PromptText:    "☁️ FOR WEATHER TASKS: Use 'tool_weather'. Provide 'lat', 'lon', and 'tz' (timezone) if known, or use the default (Thonon-les-Bains) if not specified.",
+		ForceToolCall: true,
+		AlwaysInclude: []string{"weather", "forecast"},
+		RejectText:    true,
 	})
 }
 

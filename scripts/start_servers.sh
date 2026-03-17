@@ -145,6 +145,7 @@ fi
 # Resolve project root from env or current dir
 AGI_PROJECT_ROOT=${AGI_PROJECT_ROOT:-$(pwd)}
 export AGI_PROJECT_ROOT
+export AGENTS_CONFIG=$AGI_PROJECT_ROOT/config/agents.yaml
 
 # Load environment from project .env if present
 if [ -f "$AGI_PROJECT_ROOT/.env" ]; then
