@@ -168,7 +168,7 @@ func (s *APIServer) executeToolDirect(ctx context.Context, toolID string, params
 		}
 		tz, _ := getString(params, "tz")
 		if tz == "" {
-			tz = "Berlin"
+			tz = "auto"
 		}
 
 		// Find binary

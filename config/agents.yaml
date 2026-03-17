@@ -157,17 +157,7 @@ agents:
               field_1771953582615: "div#tp-tool-tip-price-block > div > div"
             typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/gp/product/B0G1CC2949');\n  await page.click('#sp-cc-accept');\n  await page.waitForSelector('div#tp-tool-tip-price-block > div > div');\n});"
             get_html: false
-        - id: price_monitor_mac_mini_m4_pro
-          description: "Check the price of the Apple Mac Mini M4 Pro on Amazon.fr"
-          tools:
-            - mcp_smart_scrape
-          parameters:
-            url: "https://www.amazon.fr/-/en/dp/B0DLBY53D5"
-            goal: "extract the price"
-            extractions:
-              price_info: ".a-price.aok-align-center .a-offscreen"
-            typescript_config: "import { test, expect } from '@playwright/test';\ntest('test', async ({ page }) => {\n  await page.goto('https://www.amazon.fr/-/en/dp/B0DLBY53D5');\n  await page.click('#sp-cc-accept');\n  await page.waitForSelector('.a-price.aok-align-center .a-offscreen');\n});"
-            get_html: false
+
     - id: bbc_morning_news_agent
       name: BBC Morning News Agent
       description: Scrapes top 10 stories from BBC News at 7 AM, summarizes them, and sends to Telegram.
@@ -217,7 +207,7 @@ agents:
         for the Thonon-les-Bains area. You focus on current conditions and the day's outlook, 
         ensuring the user is prepared for the day.
       instructions:
-        - "Use tool_weather to get the latest conditions (lat: 46.2836, lon: 6.6444, tz: Berlin)"
+        - "Use tool_weather to get the latest conditions (lat: 46.2836, lon: 6.6444, tz: Berlin/Europe)"
         - "🚨 FORMATTING: Create a premium, visually stunning Telegram message. Use bold headers for sections, emojis for weather types (☀️, ☁️, 🌧️), and clear bullet points for stats. Include a daily high/low summary."
         - "Send with tool_telegram_send"
       tools:

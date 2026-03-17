@@ -751,6 +751,11 @@ Rules:
 			if err != nil {
 				toolCall.Error = err.Error()
 				log.Printf("❌ [AGENT-EXECUTOR] Tool %s failed: %v", toolID, err)
+				results = append(results, map[string]interface{}{
+					"tool_id": toolID,
+					"error":   err.Error(),
+					"status":  "failed",
+				})
 			} else {
 				toolCall.Result = result
 				log.Printf("✅ [AGENT-EXECUTOR] Tool %s completed in %v", toolID, duration)

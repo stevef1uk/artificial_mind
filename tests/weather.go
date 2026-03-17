@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -15,12 +16,12 @@ import (
 // ─────────────────────────────────────────────
 
 type CurrentUnits struct {
-	Temperature2m  string `json:"temperature_2m"`
-	WindSpeed10m   string `json:"wind_speed_10m"`
-	Precipitation  string `json:"precipitation"`
-	Rain           string `json:"rain"`
-	Snowfall       string `json:"snowfall"`
-	WeatherCode    string `json:"weather_code"`
+	Temperature2m string `json:"temperature_2m"`
+	WindSpeed10m  string `json:"wind_speed_10m"`
+	Precipitation string `json:"precipitation"`
+	Rain          string `json:"rain"`
+	Snowfall      string `json:"snowfall"`
+	WeatherCode   string `json:"weather_code"`
 }
 
 type Current struct {
@@ -95,13 +96,13 @@ type WeatherSummary struct {
 	} `json:"current"`
 
 	DailyStats struct {
-		Date              string        `json:"date"`
-		TemperatureMinC   float64       `json:"temperature_min_c"`
-		TemperatureMaxC   float64       `json:"temperature_max_c"`
-		WindSpeedMaxKmh   float64       `json:"wind_speed_max_kmh"`
-		Precipitation     PrecipSummary `json:"precipitation"`
-		WeatherCode       int           `json:"weather_code"`
-		WeatherDesc       string        `json:"weather_description"`
+		Date            string        `json:"date"`
+		TemperatureMinC float64       `json:"temperature_min_c"`
+		TemperatureMaxC float64       `json:"temperature_max_c"`
+		WindSpeedMaxKmh float64       `json:"wind_speed_max_kmh"`
+		Precipitation   PrecipSummary `json:"precipitation"`
+		WeatherCode     int           `json:"weather_code"`
+		WeatherDesc     string        `json:"weather_description"`
 	} `json:"daily_stats"`
 
 	HourlyRange struct {
@@ -117,34 +118,34 @@ type WeatherSummary struct {
 
 func wmoDescription(code int) string {
 	descriptions := map[int]string{
-		0:   "Clear sky",
-		1:   "Mainly clear",
-		2:   "Partly cloudy",
-		3:   "Overcast",
-		45:  "Fog",
-		48:  "Depositing rime fog",
-		51:  "Light drizzle",
-		53:  "Moderate drizzle",
-		55:  "Dense drizzle",
-		56:  "Light freezing drizzle",
-		57:  "Heavy freezing drizzle",
-		61:  "Slight rain",
-		63:  "Moderate rain",
-		65:  "Heavy rain",
-		66:  "Light freezing rain",
-		67:  "Heavy freezing rain",
-		71:  "Slight snowfall",
-		73:  "Moderate snowfall",
-		75:  "Heavy snowfall",
-		77:  "Snow grains",
-		80:  "Slight rain showers",
-		81:  "Moderate rain showers",
-		82:  "Violent rain showers",
-		85:  "Slight snow showers",
-		86:  "Heavy snow showers",
-		95:  "Thunderstorm",
-		96:  "Thunderstorm with slight hail",
-		99:  "Thunderstorm with heavy hail",
+		0:  "Clear sky",
+		1:  "Mainly clear",
+		2:  "Partly cloudy",
+		3:  "Overcast",
+		45: "Fog",
+		48: "Depositing rime fog",
+		51: "Light drizzle",
+		53: "Moderate drizzle",
+		55: "Dense drizzle",
+		56: "Light freezing drizzle",
+		57: "Heavy freezing drizzle",
+		61: "Slight rain",
+		63: "Moderate rain",
+		65: "Heavy rain",
+		66: "Light freezing rain",
+		67: "Heavy freezing rain",
+		71: "Slight snowfall",
+		73: "Moderate snowfall",
+		75: "Heavy snowfall",
+		77: "Snow grains",
+		80: "Slight rain showers",
+		81: "Moderate rain showers",
+		82: "Violent rain showers",
+		85: "Slight snow showers",
+		86: "Heavy snow showers",
+		95: "Thunderstorm",
+		96: "Thunderstorm with slight hail",
+		99: "Thunderstorm with heavy hail",
 	}
 	if desc, ok := descriptions[code]; ok {
 		return desc
@@ -188,7 +189,13 @@ func maxFloat(vals []float64) float64 {
 
 // Timezone should be "Berlin" or "London" (we prepend "Europe/")
 func FetchWeather(latitude, longitude float64, timezone string) (*WeatherSummary, error) {
-	tz := "Europe/" + timezone
+	tz := timezone
+	if strings.EqualFold(tz, "Berlin/Europe") {
+		tz = "Europe/Berlin"
+	}
+	if !strings.Contains(tz, "/") && strings.ToUpper(tz) != "UTC" && strings.ToLower(tz) != "auto" {
+		tz = "Europe/" + tz
+	}
 
 	params := url.Values{}
 	params.Set("latitude", fmt.Sprintf("%f", latitude))

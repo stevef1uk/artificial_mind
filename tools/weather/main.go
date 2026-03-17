@@ -198,8 +198,12 @@ func FetchWeather(latitude, longitude float64, timezone string) (*WeatherSummary
 	// 4. Otherwise, assume it's a city and prepend "Europe/" for backward compatibility
 	if tz == "" || strings.ToLower(tz) == "auto" {
 		tz = "auto"
+	} else if strings.EqualFold(tz, "Berlin/Europe") {
+		tz = "Europe/Berlin"
 	} else if strings.Contains(tz, "/") || strings.ToUpper(tz) == "UTC" {
 		// Keep as is
+	} else if strings.EqualFold(tz, "Europe") {
+		tz = "auto" // Default to auto-detect if only "Europe" is specified
 	} else {
 		tz = "Europe/" + tz
 	}
