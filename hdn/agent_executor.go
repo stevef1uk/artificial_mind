@@ -865,6 +865,9 @@ Synthesized Response:`, input, string(resultsJSON))
 					if telegramAdapter != nil && chatID != "" {
 						// Configurable muting of automatic summaries on success.
 						isMuted := false
+						if agentInstance.Config.Behavior != nil {
+							log.Printf("📱 [AGENT-EXECUTOR] MuteSuccessNotifications for %s: %v", agentID, agentInstance.Config.Behavior.MuteSuccessNotifications)
+						}
 						if agentInstance.Config.Behavior != nil && agentInstance.Config.Behavior.MuteSuccessNotifications {
 							// Default to muted, then scan results for any indication of issues
 							isMuted = true
@@ -886,15 +889,18 @@ Synthesized Response:`, input, string(resultsJSON))
 										strings.Contains(s, "fail") || strings.Contains(s, "warn") ||
 										strings.Contains(s, "issue") || strings.Contains(s, "unhealthy") ||
 										strings.Contains(s, "critical") {
+										log.Printf("📱 [AGENT-EXECUTOR] Unmute trigger found in key '%s': '%s'", key, val)
 										return true
 									}
 								case int:
 									// HTTP error codes or generic error counts
 									if val >= 400 {
+										log.Printf("📱 [AGENT-EXECUTOR] Unmute trigger found in key '%s': HTTP %d", key, val)
 										return true
 									}
 								case float64:
 									if val >= 400 {
+										log.Printf("📱 [AGENT-EXECUTOR] Unmute trigger found in key '%s': %f", key, val)
 										return true
 									}
 								case map[string]interface{}:
@@ -922,8 +928,9 @@ Synthesized Response:`, input, string(resultsJSON))
 							}
 
 							// If we find ANY issue in the results, we UNMUTE to ensure the user is notified
-							for _, res := range results {
-								if hasAnyIssues(res, "") {
+							log.Printf("📱 [AGENT-EXECUTOR] Scanning %d result(s) for issues...", len(results))
+							for i, res := range results {
+								if hasAnyIssues(res, fmt.Sprintf("result[%d]", i)) {
 									isMuted = false
 									break
 								}

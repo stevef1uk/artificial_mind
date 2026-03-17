@@ -46,7 +46,7 @@ data:
           use_memory: true
           memory_window: 24h
           prefer_tools: true
-          tool_timeout: 300
+          tool_timeout: "300s"
         tasks:
           - id: check_unread_emails
             description: Check for unread emails and categorize them
@@ -84,7 +84,7 @@ data:
           use_memory: true
           memory_window: 24h
           prefer_tools: true
-          tool_timeout: 300
+          tool_timeout: "300s"
           mute_success_notifications: true
         tasks:
           - id: monitor_task
@@ -126,7 +126,7 @@ data:
           max_retries: 5
           use_memory: true
           prefer_tools: true
-          tool_timeout: 300
+          tool_timeout: "300s"
 
       - id: price_monitor_agent
         name: Price Monitor Agent
