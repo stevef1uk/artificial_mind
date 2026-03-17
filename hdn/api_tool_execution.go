@@ -158,8 +158,14 @@ func (s *APIServer) executeToolDirect(ctx context.Context, toolID string, params
 		return s.generateImageInternal(ctx, prompt, sourceImage)
 
 	case "tool_weather":
-		lat := fmt.Sprintf("%v", params["lat"])
-		lon := fmt.Sprintf("%v", params["lon"])
+		lat := ""
+		if v, ok := params["lat"]; ok {
+			lat = fmt.Sprintf("%v", v)
+		}
+		lon := ""
+		if v, ok := params["lon"]; ok {
+			lon = fmt.Sprintf("%v", v)
+		}
 		tz, _ := getString(params, "tz")
 		if tz == "" {
 			tz = "Berlin"

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -189,7 +190,19 @@ func maxFloat(vals []float64) float64 {
 
 // Timezone should be "Berlin" or "London" (we prepend "Europe/")
 func FetchWeather(latitude, longitude float64, timezone string) (*WeatherSummary, error) {
-	tz := "Europe/" + timezone
+	tz := timezone
+	// Robust timezone handling:
+	// 1. If empty, default to Europe/Berlin
+	// 2. If it contains '/', assume it's already a full IANA name (e.g. Europe/London)
+	// 3. If it's "UTC", use as is
+	// 4. Otherwise, assume it's a city and prepend "Europe/" for backward compatibility
+	if tz == "" || strings.ToLower(tz) == "auto" {
+		tz = "auto"
+	} else if strings.Contains(tz, "/") || strings.ToUpper(tz) == "UTC" {
+		// Keep as is
+	} else {
+		tz = "Europe/" + tz
+	}
 
 	params := url.Values{}
 	params.Set("latitude", fmt.Sprintf("%f", latitude))
@@ -268,7 +281,7 @@ func FetchWeather(latitude, longitude float64, timezone string) (*WeatherSummary
 func main() {
 	lat := flag.Float64("lat", 46.2836, "Latitude")
 	lon := flag.Float64("lon", 6.6444, "Longitude")
-	tz := flag.String("tz", "Berlin", "Timezone (Europe/ prepend automatically)")
+	tz := flag.String("tz", "Berlin", "Timezone (e.g. Berlin, or 'auto')")
 	flag.Parse()
 
 	summary, err := FetchWeather(*lat, *lon, *tz)

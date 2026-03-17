@@ -885,10 +885,18 @@ Synthesized Response:`, input, string(resultsJSON))
 								case string:
 									s := strings.ToLower(val)
 									// Indicators that something is NOT okay
-									if strings.Contains(s, "down") || strings.Contains(s, "error") ||
+									hasIssue := strings.Contains(s, "down") || strings.Contains(s, "error") ||
 										strings.Contains(s, "fail") || strings.Contains(s, "warn") ||
 										strings.Contains(s, "issue") || strings.Contains(s, "unhealthy") ||
-										strings.Contains(s, "critical") {
+										strings.Contains(s, "critical")
+
+									if hasIssue {
+										// Check if it's actually a "No [issue]" message
+										if strings.Contains(s, "no issue") || strings.Contains(s, "no error") ||
+											strings.Contains(s, "no down") || strings.Contains(s, "zero issues") ||
+											strings.Contains(s, "zero errors") {
+											return false
+										}
 										log.Printf("📱 [AGENT-EXECUTOR] Unmute trigger found in key '%s': '%s'", key, val)
 										return true
 									}

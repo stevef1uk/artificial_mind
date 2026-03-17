@@ -847,8 +847,8 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "body": content})
 		return
-	case "tool_telegram_send":
-		// Use executeToolDirect for Telegram send
+	case "tool_telegram_send", "tool_weather":
+		// Use executeToolDirect for these tools
 		result, err := s.executeToolDirect(ctx, id, params)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
