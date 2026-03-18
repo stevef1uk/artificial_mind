@@ -220,16 +220,37 @@ func FetchWeather(latitude, longitude float64, timezone string) (*WeatherSummary
 	apiURL := "https://api.open-meteo.com/v1/forecast?" + params.Encode()
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(apiURL)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed: %w", err)
+	var resp *http.Response
+	var err error
+	var body []byte
+
+	// Retry loop for API reliability
+	for i := 0; i < 3; i++ {
+		resp, err = client.Get(apiURL)
+		if err == nil {
+			if resp.StatusCode == http.StatusOK {
+				break
+			}
+			// If we got a 5xx error, we might want to retry
+			if resp.StatusCode >= 500 && i < 2 {
+				resp.Body.Close()
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			// Other errors (4xx) usually shouldn't be retried
+			body, _ = io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		}
+
+		// Request failed (e.g. network)
+		if i < 2 {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		return nil, fmt.Errorf("HTTP request failed after 3 attempts: %w", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
-	}
 
 	var raw APIResponse
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {

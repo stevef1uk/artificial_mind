@@ -817,8 +817,12 @@ func (nlg *NLGGenerator) formatToolResultRecursive(result interface{}, depth int
 		}
 		if v.Interpreted != nil {
 			nlg.formatToolResultRecursive(v.Interpreted, depth+1, sb, budget)
-		} else if v.Metadata != nil {
+		}
+		if v.Metadata != nil {
 			if tr, ok := v.Metadata["tool_result"]; ok {
+				if v.Interpreted != nil {
+					writeSafe("\n\nResult:\n")
+				}
 				nlg.formatToolResultRecursive(tr, depth+1, sb, budget)
 			}
 		}
@@ -826,8 +830,54 @@ func (nlg *NLGGenerator) formatToolResultRecursive(result interface{}, depth int
 	case InterpretResult:
 		if v.Interpreted != nil {
 			nlg.formatToolResultRecursive(v.Interpreted, depth+1, sb, budget)
-		} else if v.Metadata != nil {
+		}
+		if v.Metadata != nil {
 			if tr, ok := v.Metadata["tool_result"]; ok {
+				if v.Interpreted != nil {
+					writeSafe("\n\nResult:\n")
+				}
+				nlg.formatToolResultRecursive(tr, depth+1, sb, budget)
+			}
+		}
+
+	case *TaskResult:
+		if v == nil {
+			return
+		}
+		if v.Result != nil {
+			nlg.formatToolResultRecursive(v.Result, depth+1, sb, budget)
+		}
+		if v.Metadata != nil {
+			if tr, ok := v.Metadata["tool_result"]; ok {
+				writeSafe("\n\n")
+				nlg.formatToolResultRecursive(tr, depth+1, sb, budget)
+			}
+		}
+
+	case *PlanResult:
+		if v == nil {
+			return
+		}
+		if v.Plan != nil {
+			nlg.formatToolResultRecursive(v.Plan, depth+1, sb, budget)
+		}
+		if v.Metadata != nil {
+			if tr, ok := v.Metadata["tool_result"]; ok {
+				writeSafe("\n\n")
+				nlg.formatToolResultRecursive(tr, depth+1, sb, budget)
+			}
+		}
+
+	case *LearnResult:
+		if v == nil {
+			return
+		}
+		if v.Learned != nil {
+			nlg.formatToolResultRecursive(v.Learned, depth+1, sb, budget)
+		}
+		if v.Metadata != nil {
+			if tr, ok := v.Metadata["tool_result"]; ok {
+				writeSafe("\n\n")
 				nlg.formatToolResultRecursive(tr, depth+1, sb, budget)
 			}
 		}
@@ -856,18 +906,40 @@ func (nlg *NLGGenerator) formatResultData(data map[string]interface{}) string {
 	if val, ok := data["result"]; ok {
 		var interpreted interface{}
 		if ir, ok := val.(*InterpretResult); ok {
-			interpreted = ir.Interpreted
+			res := ""
+			if ir.Interpreted != nil {
+				res = nlg.formatToolResult(ir.Interpreted)
+			}
 			if ir.Metadata != nil {
 				if tr, ok := ir.Metadata["tool_result"]; ok {
-					return nlg.formatToolResult(tr)
+					trFormatted := nlg.formatToolResult(tr)
+					if res != "" {
+						res += "\n\nResult:\n" + trFormatted
+					} else {
+						res = trFormatted
+					}
 				}
 			}
+			if res != "" {
+				return res
+			}
 		} else if ir, ok := val.(InterpretResult); ok {
-			interpreted = ir.Interpreted
+			res := ""
+			if ir.Interpreted != nil {
+				res = nlg.formatToolResult(ir.Interpreted)
+			}
 			if ir.Metadata != nil {
 				if tr, ok := ir.Metadata["tool_result"]; ok {
-					return nlg.formatToolResult(tr)
+					trFormatted := nlg.formatToolResult(tr)
+					if res != "" {
+						res += "\n\nResult:\n" + trFormatted
+					} else {
+						res = trFormatted
+					}
 				}
+			}
+			if res != "" {
+				return res
 			}
 		} else {
 			interpreted = val
