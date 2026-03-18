@@ -120,7 +120,7 @@ func Set_mcp_research_agent_hints() {
 func Set_tool_weather_hints() {
 	SetPromptHints("tool_weather", &PromptHintsConfig{
 		Keywords:      []string{"weather", "temperature", "forecast", "forecasts", "rain", "snow", "sun", "sunny", "cloudy", "wind", "windy"},
-		PromptText:    "☁️ FOR WEATHER TASKS: Use 'tool_weather'. Provide 'lat', 'lon' (e.g. 46.2836, 6.6444 for Col de Corbier, or 46.3735, 6.4849 for Thonon-les-Bains), and 'tz' (default Berlin). 🚨 CRITICAL: DO NOT use weather information from past conversation history or summaries. Always use the fresh data from the tool result. Format the final response with bold headers, emojis, and clear bullet points to be highly readable on Telegram.",
+		PromptText:    "☁️ FOR WEATHER TASKS: Use 'tool_weather'. You MUST provide accurate 'lat' and 'lon' parameters for the specific location requested (e.g., Thonon-les-Bains is at 46.37, 6.48). 🚨 CRITICAL: DO NOT use weather information from past conversation history or summaries. Always use the fresh data from the tool result. Format the response for Telegram with bold headers and emojis.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"weather", "forecast"},
 		RejectText:    true,
@@ -668,19 +668,23 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		"mcp_find_related_concepts": {"related", "related concepts", "find related", "connections"},
 		"mcp_search_weaviate":       {"weaviate", "search", "vector", "semantic", "similar", "episodes", "memories", "wikipedia", "wiki", "news"},
 		// Note: mcp_read_google_data keywords are now loaded from configuration
-		"tool_http_get":       {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
-		"tool_html_scraper":   {"scrape", "html", "web", "website", "article", "news", "page", "parse html"},
-		"tool_file_read":      {"read", "file", "load", "open", "readfile", "read file", "content", "text"},
-		"tool_file_write":     {"write", "file", "save", "store", "output", "write file", "save file", "create file"},
-		"tool_ls":             {"list", "directory", "dir", "files", "ls", "list files", "directory listing"},
-		"tool_exec":           {"exec", "execute", "command", "shell", "run", "cmd", "system", "bash", "sh"},
-		"tool_codegen":        {"generate", "code", "create", "write code", "generate code", "program", "script"},
-		"tool_json_parse":     {"json", "parse", "parse json", "decode", "unmarshal"},
-		"tool_text_search":    {"search", "find", "text", "pattern", "match", "grep", "filter"},
-		"tool_docker_list":    {"docker", "container", "image", "list docker", "docker list"},
-		"tool_docker_build":   {"docker build", "build image", "dockerfile", "container build"},
-		"tool_docker_exec":    {"docker exec", "run docker", "execute docker", "container exec"},
-		"tool_generate_image": {"image", "generate image", "draw", "picture", "create image", "photo", "modify image", "change image", "background"},
+		"tool_http_get":          {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
+		"tool_html_scraper":      {"scrape", "html", "web", "website", "article", "news", "page", "parse html"},
+		"tool_file_read":         {"read", "file", "load", "open", "readfile", "read file", "content", "text"},
+		"tool_file_write":        {"write", "file", "save", "store", "output", "write file", "save file", "create file"},
+		"tool_ls":                {"list", "directory", "dir", "files", "ls", "list files", "directory listing"},
+		"tool_exec":              {"exec", "execute", "command", "shell", "run", "cmd", "system", "bash", "sh"},
+		"tool_codegen":           {"generate", "code", "create", "write code", "generate code", "program", "script"},
+		"tool_json_parse":        {"json", "parse", "parse json", "decode", "unmarshal"},
+		"tool_text_search":       {"search", "find", "text", "pattern", "match", "grep", "filter"},
+		"tool_docker_list":       {"docker", "container", "image", "list docker", "docker list"},
+		"tool_docker_build":      {"docker build", "build image", "dockerfile", "container build"},
+		"tool_docker_exec":       {"docker exec", "run docker", "execute docker", "container exec"},
+		"tool_generate_image":    {"image", "generate image", "draw", "picture", "create image", "photo", "modify image", "change image", "background"},
+		"tool_weather":           {"weather", "forecast", "temperature", "temp", "rain", "snow", "sunny", "cloudy"},
+		"tool_telegram_send":     {"telegram", "message", "send telegram", "notify"},
+		"tool_ssh_executor":      {"ssh", "remote", "server", "ssh command"},
+		"tool_wiki_bootstrapper": {"wiki", "bootstrap", "knowledge base"},
 	}
 
 	// First pass: include tools that match keywords
@@ -702,6 +706,20 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 				}
 				if matched {
 					break
+				}
+			}
+		}
+
+		// Also check against prompt hint keywords (dynamic matching based on configuration)
+		if !matched {
+			if hints := GetPromptHints(tool.ID); hints != nil {
+				for _, kw := range hints.Keywords {
+					if strings.Contains(inputLower, strings.ToLower(kw)) {
+						relevant = append(relevant, tool)
+						seen[tool.ID] = true
+						matched = true
+						break
+					}
 				}
 			}
 		}
