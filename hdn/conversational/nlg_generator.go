@@ -438,6 +438,10 @@ func (nlg *NLGGenerator) buildKnowledgePrompt(req *NLGRequest) string {
 		}
 
 		prompt += "\n\nKnowledge/Intelligence Results:\n" + formattedData + "\n\n"
+	} else if req.Result != nil && !req.Result.Success {
+		prompt += "\n\n⚠️ DIAGNOSTIC: The requested tool or knowledge query FAILED.\n"
+		prompt += "Error: " + req.Result.Error + "\n"
+		prompt += "Do NOT assume you have the information. Explain the error to the user and suggest they check again later.\n\n"
 	}
 
 	// Final aggressive rules at the VERY END to overcome long context
@@ -1092,7 +1096,13 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 	hasPersonalContext := false
 
 	// 1. Add conversation summaries for long-term memory
-	if summariesValue, ok := req.Context["conversation_summaries"]; ok {
+	// ANTI-STALE: Skip conversation summaries for rapid-changing data like weather
+	isWeatherQuery := strings.Contains(lowerMsg, "weather") || strings.Contains(lowerMsg, "forecast") ||
+		strings.Contains(lowerMsg, "temp") || strings.Contains(lowerMsg, "temperature") ||
+		strings.Contains(lowerMsg, "rain") || strings.Contains(lowerMsg, "snow") ||
+		strings.Contains(lowerMsg, "sunny")
+
+	if summariesValue, ok := req.Context["conversation_summaries"]; ok && !isWeatherQuery {
 		var summaries []string
 		if s, ok := summariesValue.([]string); ok {
 			summaries = s
