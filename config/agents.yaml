@@ -207,7 +207,7 @@ agents:
         for the Thonon-les-Bains area. You focus on current conditions and the day's outlook, 
         ensuring the user is prepared for the day.
       instructions:
-        - "Use tool_weather to get the latest conditions (lat: 46.2600, lon: 6.6200, tz: Berlin/Europe)"
+        - "Use tool_weather to get the latest conditions (lat: 46.2836, lon: 6.6444, tz: Berlin/Europe)"
         - "🚨 FORMATTING: Create a premium, visually stunning Telegram message. Use bold headers for sections, emojis for weather types (☀️, ☁️, 🌧️), and clear bullet points for stats. Include a daily high/low summary."
         - "Send with tool_telegram_send"
       tools:

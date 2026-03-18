@@ -120,7 +120,7 @@ func Set_mcp_research_agent_hints() {
 func Set_tool_weather_hints() {
 	SetPromptHints("tool_weather", &PromptHintsConfig{
 		Keywords:      []string{"weather", "temperature", "forecast", "forecasts", "rain", "snow", "sun", "sunny", "cloudy", "wind", "windy"},
-		PromptText:    "☁️ FOR WEATHER TASKS: Use 'tool_weather'. You MUST provide accurate 'lat' and 'lon' parameters for the specific location requested (e.g., Thonon-les-Bains is at 46.37, 6.48). 🚨 CRITICAL: DO NOT use weather information from past conversation history or summaries. Always use the fresh data from the tool result. Format the response for Telegram with bold headers and emojis.",
+		PromptText:    "☁️ FOR WEATHER TASKS: Use 'tool_weather'. Provide accurate 'lat' and 'lon' (default 46.2836, 6.6444 for Col de Corbier, or 46.37, 6.48 for Thonon-les-Bains). 🚨 CRITICAL: DO NOT use weather information from past conversation history or summaries. Always use the fresh data from the tool result. Format the final response with bold headers and emojis.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"weather", "forecast"},
 		RejectText:    true,
