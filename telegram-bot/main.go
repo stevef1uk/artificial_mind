@@ -33,13 +33,13 @@ type Message struct {
 }
 
 type User struct {
-	ID        int    `json:"id"`
+	ID        int64  `json:"id"`
 	FirstName string `json:"first_name"`
 	Username  string `json:"username"`
 }
 
 type Chat struct {
-	ID int `json:"id"`
+	ID int64 `json:"id"`
 }
 
 type TelegramResponse struct {
@@ -94,7 +94,7 @@ type TelegramBot struct {
 	mcpURL          string
 	chatURL         string
 	lastUpdate      int
-	thinkingEnabled map[int]bool
+	thinkingEnabled map[int64]bool
 	allowedUsers    map[string]bool
 	redis           *redis.Client
 }
@@ -110,7 +110,7 @@ func NewTelegramBot(token, mcpURL, chatURL string, allowed []string, rdb *redis.
 		mcpURL:          mcpURL,
 		chatURL:         chatURL,
 		lastUpdate:      0,
-		thinkingEnabled: make(map[int]bool),
+		thinkingEnabled: make(map[int64]bool),
 		allowedUsers:    allowedMap,
 		redis:           rdb,
 	}
@@ -137,7 +137,7 @@ func (bot *TelegramBot) getUpdates() ([]Update, error) {
 	return telegramResp.Result, nil
 }
 
-func (bot *TelegramBot) sendMessage(chatID int, text string) error {
+func (bot *TelegramBot) sendMessage(chatID int64, text string) error {
 	// Standard Telegram maxLength is 4096, using 4000 for safety
 	const maxLength = 4000
 
@@ -157,7 +157,7 @@ func (bot *TelegramBot) sendMessage(chatID int, text string) error {
 	return bot.sendSingleMessage(chatID, infoMsg)
 }
 
-func (bot *TelegramBot) sendSingleMessage(chatID int, text string) error {
+func (bot *TelegramBot) sendSingleMessage(chatID int64, text string) error {
 	url := fmt.Sprintf("%s%s/sendMessage", telegramAPIBase, bot.token)
 
 	payload := map[string]interface{}{
@@ -205,7 +205,7 @@ func (bot *TelegramBot) sendSingleMessage(chatID int, text string) error {
 	return fmt.Errorf("telegram API error: %d %s", resp.StatusCode, string(body))
 }
 
-func (bot *TelegramBot) callChatAPI(chatID int, message string) (string, error) {
+func (bot *TelegramBot) callChatAPI(chatID int64, message string) (string, error) {
 	sessionID := fmt.Sprintf("tg_chat_%d", chatID)
 	req := ConversationRequest{
 		Message:      message,
@@ -364,10 +364,12 @@ func (bot *TelegramBot) handleMessage(msg Message) {
 	}
 	log.Printf("📩 Message from %s (@%s, UserID: %d): %s", msg.From.FirstName, msg.From.Username, msg.From.ID, msg.Text)
 
-	// NEMOCLAW BRIDGE: Check if this is a response from the NemoClaw bot
-	if strings.Contains(strings.ToLower(msg.From.Username), "nemoclaw") || strings.Contains(strings.ToLower(msg.From.FirstName), "nemoclaw") {
+	// NEMOCLAW BRIDGE: Check if this is a response from the NemoClaw bot account
+	fromName := strings.ToLower(msg.From.FirstName + " " + msg.From.Username)
+	if strings.Contains(fromName, "nemoclaw") {
 		if bot.redis != nil {
-			log.Printf("🤖 [NEMOCLAW] Storing response in Redis for chat %d", msg.Chat.ID)
+			log.Printf("🤖 [NEMOCLAW] Captured response for chat %d from %s", msg.Chat.ID, fromName)
+			// Redis key uses the raw chat ID for consistency with HDN server stripping 'tg_chat_'
 			key := fmt.Sprintf("hdn:nemoclaw:response:%d", msg.Chat.ID)
 			err := bot.redis.Set(context.Background(), key, msg.Text, 5*time.Minute).Err()
 			if err != nil {

@@ -5592,7 +5592,9 @@ func (s *MCPKnowledgeServer) nemoclawQuery(ctx context.Context, arguments map[st
 	}
 
 	// Wait for response in Redis
-	key := fmt.Sprintf("hdn:nemoclaw:response:%s", chatID)
+	// ENSURE CONSISTENCY: Strip any 'tg_chat_' prefix because the telegram-bot uses raw numeric IDs in Redis keys
+	redisChatID := strings.TrimPrefix(chatID, "tg_chat_")
+	key := fmt.Sprintf("hdn:nemoclaw:response:%s", redisChatID)
 	log.Printf("⏳ [NEMOCLAW] Waiting for response in Redis: %s", key)
 
 	// Poll Redis for up to 300 seconds (5 minutes)

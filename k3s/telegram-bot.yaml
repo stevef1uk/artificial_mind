@@ -24,7 +24,7 @@ spec:
             name: telegram-bot-secret
         env:
         - name: DISABLE_TELEGRAM_POLLING
-          value: "false"
+          value: "true"
         - name: REDIS_URL
           value: "redis://redis.agi.svc.cluster.local:6379"
         resources:
