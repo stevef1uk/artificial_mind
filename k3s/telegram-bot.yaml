@@ -25,6 +25,8 @@ spec:
         env:
         - name: DISABLE_TELEGRAM_POLLING
           value: "true"
+        - name: REDIS_URL
+          value: "redis://redis.agi.svc.cluster.local:6379"
         resources:
           requests:
             memory: "64Mi"
