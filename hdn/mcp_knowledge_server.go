@@ -463,6 +463,25 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 				"required": []string{"prompt"},
 			},
 		},
+		{
+			Name:        "research_agent",
+			Description: "[chat-only] Perform research using the external MCP research server. This tool is restricted to chat access only and will be skipped by the planner.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"topic": map[string]interface{}{
+						"type":        "string",
+						"description": "The research topic or question",
+					},
+					"depth": map[string]interface{}{
+						"type":        "integer",
+						"description": "Depth of research (1-3)",
+						"default":     1,
+					},
+				},
+				"required": []string{"topic"},
+			},
+		},
 	}
 
 	// Add standard HDN tools
@@ -611,9 +630,65 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 	}, nil
 }
 
+// wrapMCPResponse ensures the tool result complies with the MCP specification (requires a 'content' array)
+func (s *MCPKnowledgeServer) wrapMCPResponse(result interface{}) interface{} {
+	if result == nil {
+		return map[string]interface{}{
+			"content": []map[string]interface{}{
+				{"type": "text", "text": "Success (no data returned)"},
+			},
+		}
+	}
+
+	// Check if already in MCP format
+	if resMap, ok := result.(map[string]interface{}); ok {
+		if _, hasContent := resMap["content"]; hasContent {
+			return result
+		}
+	}
+
+	// If it's a string, wrap it simply
+	if str, ok := result.(string); ok {
+		return map[string]interface{}{
+			"content": []map[string]interface{}{
+				{"type": "text", "text": str},
+			},
+		}
+	}
+
+	// Otherwise, serialize to JSON and wrap
+	jsonData, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return map[string]interface{}{
+			"content": []map[string]interface{}{
+				{"type": "text", "text": fmt.Sprintf("Error serializing result: %v", err)},
+			},
+			"isError": true,
+		}
+	}
+
+	return map[string]interface{}{
+		"content": []map[string]interface{}{
+			{"type": "text", "text": string(jsonData)},
+		},
+	}
+}
+
 // callTool executes an MCP tool
 func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, arguments map[string]interface{}) (interface{}, error) {
 	startTime := time.Now()
+
+	// Robustness: Strip common prefixes that some MCP clients might add
+	toolName = strings.TrimPrefix(toolName, "mcp_")
+
+	// Robustness: Unwrap nested arguments from n8n MCP nodes
+	if arguments != nil {
+		if inner, ok := arguments["arguments"].(map[string]interface{}); ok {
+			arguments = inner
+			log.Printf("📥 [MCP-KNOWLEDGE] Unwrapped nested arguments for tool: %s", toolName)
+		}
+	}
+
 	var result interface{}
 	var err error
 
@@ -679,12 +754,7 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 	case "nemoclaw_query":
 		result, err = s.nemoclawQuery(ctx, arguments)
 	case "get_scrape_status":
-		// Handle nested arguments from n8n
-		args := arguments
-		if inner, ok := arguments["arguments"].(map[string]interface{}); ok {
-			args = inner
-		}
-		jobID, _ := args["job_id"].(string)
+		jobID, _ := arguments["job_id"].(string)
 		if jobID == "" {
 			err = fmt.Errorf("job_id parameter required")
 		} else {
@@ -694,7 +764,12 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		err = fmt.Errorf("unknown tool: %s", toolName)
 	}
 
-	return result, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Final step: wrap result for MCP protocol compatibility
+	return s.wrapMCPResponse(result), nil
 }
 
 // queryNeo4j executes a Cypher query against Neo4j
