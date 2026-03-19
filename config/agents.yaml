@@ -236,3 +236,23 @@ agents:
         max_retries: 3
         use_memory: true
         prefer_tools: true
+
+    - id: nemoclaw_cortex_agent
+      name: NemoClaw Cortex Agent
+      description: High-level reasoning and strategic planning agent powered by NVIDIA NemoClaw.
+      role: Strategic Intelligence Specialist
+      goal: Solve extremely complex problems, synthesize research data, and provide high-fidelity reasoning.
+      backstory: |
+        You are the cortical layer of the Artificial Mind. You use the specialized NVIDIA NemoClaw
+        model via Telegram to handle tasks that require deep strategic thinking, complex planning,
+        or high-accuracy information synthesis.
+      tools:
+        - mcp_nemoclaw_query
+        - mcp_deep_research
+      capabilities:
+        max_iterations: 10
+        verbose: true
+      behavior:
+        thinking_mode: true
+        use_memory: true
+        prefer_tools: true

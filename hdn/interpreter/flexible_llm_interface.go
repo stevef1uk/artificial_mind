@@ -85,6 +85,7 @@ func init() {
 	Set_mcp_research_agent_hints()
 	Set_tool_generate_image_hints()
 	Set_tool_weather_hints()
+	Set_mcp_nemoclaw_query_hints()
 }
 
 func Set_tool_generate_image_hints() {
@@ -123,6 +124,16 @@ func Set_tool_weather_hints() {
 		PromptText:    "☁️ FOR WEATHER TASKS: Use 'tool_weather'. Provide accurate 'lat' and 'lon' (default 46.2836, 6.6444 for Col de Corbier, or 46.37, 6.48 for Thonon-les-Bains). 🚨 CRITICAL: DO NOT use weather information from past conversation history or summaries. Always use the fresh data from the tool result. Format the final response with bold headers and emojis.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"weather", "forecast"},
+		RejectText:    true,
+	})
+}
+
+func Set_mcp_nemoclaw_query_hints() {
+	SetPromptHints("mcp_nemoclaw_query", &PromptHintsConfig{
+		Keywords:      []string{"nemoclaw", "nemo claw", "advanced reasoning", "strategic planning", "high-fidelity synthesis", "complex reasoning", "think deep", "strategy"},
+		PromptText:    "⚠️ FOR COMPLEX REASONING: Use mcp_nemoclaw_query for strategic planning or tasks requiring high reasoning depth. It queries a powerful reasoning agent. Responses can take up to 3 minutes.",
+		ForceToolCall: true,
+		AlwaysInclude: []string{"nemoclaw", "strategic planning", "complex reasoning"},
 		RejectText:    true,
 	})
 }

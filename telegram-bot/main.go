@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -93,9 +96,10 @@ type TelegramBot struct {
 	lastUpdate      int
 	thinkingEnabled map[int]bool
 	allowedUsers    map[string]bool
+	redis           *redis.Client
 }
 
-func NewTelegramBot(token, mcpURL, chatURL string, allowed []string) *TelegramBot {
+func NewTelegramBot(token, mcpURL, chatURL string, allowed []string, rdb *redis.Client) *TelegramBot {
 	allowedMap := make(map[string]bool)
 	for _, u := range allowed {
 		allowedMap[strings.ToLower(strings.TrimPrefix(u, "@"))] = true
@@ -108,6 +112,7 @@ func NewTelegramBot(token, mcpURL, chatURL string, allowed []string) *TelegramBo
 		lastUpdate:      0,
 		thinkingEnabled: make(map[int]bool),
 		allowedUsers:    allowedMap,
+		redis:           rdb,
 	}
 }
 
@@ -359,6 +364,18 @@ func (bot *TelegramBot) handleMessage(msg Message) {
 	}
 	log.Printf("📩 Message from %s (@%s, UserID: %d): %s", msg.From.FirstName, msg.From.Username, msg.From.ID, msg.Text)
 
+	// NEMOCLAW BRIDGE: Check if this is a response from the NemoClaw bot
+	if strings.Contains(strings.ToLower(msg.From.Username), "nemoclaw") || strings.Contains(strings.ToLower(msg.From.FirstName), "nemoclaw") {
+		if bot.redis != nil {
+			log.Printf("🤖 [NEMOCLAW] Storing response in Redis for chat %d", msg.Chat.ID)
+			key := fmt.Sprintf("hdn:nemoclaw:response:%d", msg.Chat.ID)
+			err := bot.redis.Set(context.Background(), key, msg.Text, 5*time.Minute).Err()
+			if err != nil {
+				log.Printf("⚠️ [NEMOCLAW] Failed to store response in Redis: %v", err)
+			}
+		}
+	}
+
 	text := strings.TrimSpace(msg.Text)
 
 	var response string
@@ -528,6 +545,37 @@ func main() {
 		log.Printf("⚠️ WARNING: No ALLOWED_TELEGRAM_USERS set. Bot is open to everyone!")
 	}
 
-	bot := NewTelegramBot(token, mcpURL, chatURL, allowedUsers)
+	redisAddr := os.Getenv("REDIS_URL")
+	if redisAddr == "" {
+		redisAddr = "localhost:6379"
+	} else {
+		// Clean redis:// prefix if present
+		redisAddr = strings.TrimPrefix(redisAddr, "redis://")
+	}
+
+	log.Printf("🔗 Connecting to Redis at %s...", redisAddr)
+	rdb := redis.NewClient(&redis.Options{
+		Addr: redisAddr,
+	})
+
+	// Test Redis connection
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		log.Printf("⚠️ [REDIS] Failed to connect to Redis: %v. NemoClaw bridge will be disabled.", err)
+		rdb = nil
+	} else {
+		log.Printf("✅ [REDIS] Connected successfully")
+	}
+
+	if os.Getenv("DISABLE_TELEGRAM_POLLING") == "true" {
+		log.Println("🛑 Telegram polling is DISABLED (n8n is likely handling messages). Bot will stay idle.")
+		// Stay alive without deadlocking
+		for {
+			time.Sleep(1 * time.Hour)
+		}
+	}
+
+	bot := NewTelegramBot(token, mcpURL, chatURL, allowedUsers, rdb)
 	bot.start()
 }

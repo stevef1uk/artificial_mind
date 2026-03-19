@@ -13,6 +13,7 @@ This is a Hierarchical Task Network (HTN) planner that has been enhanced with:
 - **LLM Integration**: Use Large Language Models to generate new methods
 - **MCP Integration**: Use Model Context Protocol to discover and use tools
 - **REST API**: External control via HTTP endpoints
+- **NemoClaw Integration**: Advanced reasoning and strategic planning via NVIDIA NemoClaw
 - **Multiple Task Types**: Support for primitive actions, LLM tasks, MCP tools, and composite methods
 
 ## Quick Start
@@ -200,6 +201,12 @@ GET /api/v1/hierarchical/workflow/{id}/status
 ```
 Check workflow execution status.
 
+### NemoClaw Integration
+```
+POST /api/v1/nemoclaw/response
+```
+NemoClaw response capture endpoint. Used by external agents (e.g. n8n) to send back reasoning results.
+
 ### Tools & Utilities
 ```
 GET /api/v1/tools
@@ -372,7 +379,17 @@ curl -X POST http://localhost:8081/api/v1/learn/mcp \
       "analysis_type": "statistical"
     }
   }'
+
+### Using NemoClaw (Advanced Reasoning)
+```bash
+# Ask for complex strategy using natural language
+curl -X POST http://localhost:8081/api/v1/interpret/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "Use NemoClaw to develop a strategy for our new agentic framework"
+  }'
 ```
+NemoClaw is a highly complex reasoning engine accessed via Telegram. Responses typically take 30-180 seconds and are asynchronously pushed back to the server.
 
 ## Development
 

@@ -1436,6 +1436,37 @@ func (s *APIServer) setupRoutes() {
 	s.router.HandleFunc("/api/v1/knowledge/search", s.handleSearchConcepts).Methods("GET")
 	// Cypher query proxy (used by FSM ReasoningEngine)
 	s.router.HandleFunc("/api/v1/knowledge/query", s.handleKnowledgeQuery).Methods("POST")
+
+	// NemoClaw Response Capture (Used by n8n to send back results)
+	s.router.HandleFunc("/api/v1/nemoclaw/response", s.handleNemoClawResponse).Methods("POST")
+}
+
+func (s *APIServer) handleNemoClawResponse(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ChatID   string `json:"chat_id"`
+		Response string `json:"response"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.ChatID == "" || req.Response == "" {
+		http.Error(w, "chat_id and response are required", http.StatusBadRequest)
+		return
+	}
+
+	key := fmt.Sprintf("hdn:nemoclaw:response:%s", req.ChatID)
+	log.Printf("📥 [API] Received NemoClaw response for chat %s, saving to Redis key: %s", req.ChatID, key)
+
+	err := s.redis.Set(r.Context(), key, req.Response, 10*time.Minute).Err()
+	if err != nil {
+		log.Printf("❌ [API] Failed to save NemoClaw response to Redis: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
 func (s *APIServer) loadDomain() error {
