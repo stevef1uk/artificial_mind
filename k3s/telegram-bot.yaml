@@ -18,6 +18,7 @@ spec:
       containers:
       - name: telegram-bot
         image: stevef1uk/telegram-agi-bot:secure
+        imagePullPolicy: Always
         envFrom:
         - secretRef:
             name: telegram-bot-secret
