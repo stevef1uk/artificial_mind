@@ -134,12 +134,16 @@ data:
       {
         "id": "mcp_research_agent",
         "name": "research_agent",
-        "description": "[chat-only] Perform research using the external MCP research server.",
-        "input_schema": { "query": "string", "depth": "int" },
+        "description": "[chat-only] Perform research using the external MCP research server. This tool is restricted to chat access only and will be skipped by the planner.",
+        "input_schema": { "topic": "string", "depth": "int" },
         "output_schema": { "result": "string" },
         "permissions": ["net:read"],
         "safety_level": "medium",
-        "created_by": "system"
+        "created_by": "agent",
+        "exec": {
+          "type": "mcp_proxy",
+          "cmd": "${RESEARCH_WEBHOOK_URL}"
+        }
       }
     ]
   agents.yaml: |
