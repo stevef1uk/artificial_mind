@@ -310,7 +310,7 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 	tools := []MCPKnowledgeTool{
 		{
 			Name:        "query_neo4j",
-			Description: "Query the Neo4j knowledge graph using Cypher. Use this to find concepts, relationships, and facts stored in the knowledge graph.",
+			Description: "[chat-only] Query the Neo4j knowledge graph using Cypher. Use this to find concepts, relationships, and facts stored in the knowledge graph.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -328,7 +328,7 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 		},
 		{
 			Name:        "search_weaviate",
-			Description: "Search the Weaviate vector database for semantically similar content. Use this to find episodes, memories, or documents by meaning.",
+			Description: "[chat-only] Search the Weaviate vector database for semantically similar content. Use this to find episodes, memories, or documents by meaning.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -351,7 +351,8 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 			},
 		},
 		{
-			Name: "get_concept",
+			Name:        "get_concept",
+			Description: "[chat-only] Get a specific concept from the knowledge graph.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -368,7 +369,7 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 		},
 		{
 			Name:        "find_related_concepts",
-			Description: "Find concepts related to a given concept in the Neo4j knowledge graph.",
+			Description: "[chat-only] Find concepts related to a given concept in the Neo4j knowledge graph.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -387,7 +388,7 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 		},
 		{
 			Name:        "search_avatar_context",
-			Description: "Search personal information about Steven Fisher (the user). Use this for questions about his work history, education, skills, projects, or any personal background. Examples: 'Did I work for Accenture?', 'What companies have I worked for?', 'What are my skills?'",
+			Description: "[chat-only] Search personal information about Steven Fisher (the user). Use this for questions about his work history, education, skills, projects, or any personal background.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -406,7 +407,7 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 		},
 		{
 			Name:        "save_avatar_context",
-			Description: "Save personal information, preferences, or facts about Steven Fisher (the user) to long-term memory. Use this when the user shares something they want remembered. Example: 'I prefer to be called Steve', 'I worked at Google in 2020'.",
+			Description: "[chat-only] Save personal information, preferences, or facts about Steven Fisher (the user) to long-term memory. Use this when the user shares something they want remembered.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -424,7 +425,7 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 		},
 		{
 			Name:        "deep_research",
-			Description: "Perform a multi-step autonomous deep research on a topic. It will search the web, visit multiple sources, capture screenshots, and synthesize a comprehensive report with visual evidence.",
+			Description: "[chat-only] Perform a multi-step autonomous deep research on a topic. It will search the web, visit multiple sources, capture screenshots, and synthesize a comprehensive report with visual evidence.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -484,7 +485,7 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 		},
 		{
 			Name:        "weather",
-			Description: "Fetch weather for anywhere in Europe using Open-Meteo. Defaults to Thonon-les-Bains area.",
+			Description: "[chat-only] Fetch weather for anywhere in Europe using Open-Meteo. Defaults to Thonon-les-Bains area.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
