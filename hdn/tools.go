@@ -583,6 +583,15 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 		var seeds []Tool
 		if err := json.NewDecoder(f).Decode(&seeds); err == nil {
 			for _, t := range seeds {
+				// Expand environment variables in tool fields (especially exec.cmd)
+				t.Description = os.ExpandEnv(t.Description)
+				if t.Exec != nil {
+					t.Exec.Cmd = os.ExpandEnv(t.Exec.Cmd)
+					for i, arg := range t.Exec.Args {
+						t.Exec.Args[i] = os.ExpandEnv(arg)
+					}
+				}
+
 				// Principles gate: check tool by name with minimal context
 				ctxMap := map[string]interface{}{"category": "tool_bootstrap", "safety_level": t.SafetyLevel}
 				allowed, _, _ := CheckActionWithPrinciples("register_tool:"+t.ID, ctxMap)
