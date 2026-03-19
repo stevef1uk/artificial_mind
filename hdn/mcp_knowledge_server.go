@@ -37,6 +37,7 @@ type MCPKnowledgeServer struct {
 	fileStorage      *FileStorage          // For storing artifacts (screenshots, etc) in Redis
 	latestScreenshot []byte                // In-memory latest screenshot for k3s (no shared volume)
 	screenshotMu     sync.RWMutex          // Protects latestScreenshot
+	toolMetrics      *ToolMetricsManager   // For logging tool usage
 }
 
 // MCPKnowledgeRequest represents an MCP JSON-RPC request for knowledge server
@@ -69,7 +70,7 @@ type MCPKnowledgeTool struct {
 }
 
 // NewMCPKnowledgeServer creates a new MCP knowledge server
-func NewMCPKnowledgeServer(domainKnowledge mempkg.DomainKnowledgeClient, vectorDB mempkg.VectorDBAdapter, redis *redis.Client, hdnURL string, llmClient *LLMClient, fileStorage *FileStorage) *MCPKnowledgeServer {
+func NewMCPKnowledgeServer(domainKnowledge mempkg.DomainKnowledgeClient, vectorDB mempkg.VectorDBAdapter, redis *redis.Client, hdnURL string, llmClient *LLMClient, fileStorage *FileStorage, toolMetrics *ToolMetricsManager) *MCPKnowledgeServer {
 	server := &MCPKnowledgeServer{
 		domainKnowledge: domainKnowledge,
 		vectorDB:        vectorDB,
@@ -78,6 +79,7 @@ func NewMCPKnowledgeServer(domainKnowledge mempkg.DomainKnowledgeClient, vectorD
 		skillRegistry:   NewDynamicSkillRegistry(),
 		llmClient:       llmClient,
 		fileStorage:     fileStorage,
+		toolMetrics:     toolMetrics,
 	}
 
 	// Load skills from configuration
@@ -593,33 +595,67 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 
 // callTool executes an MCP tool
 func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, arguments map[string]interface{}) (interface{}, error) {
+	startTime := time.Now()
+	var result interface{}
+	var err error
+
+	// Wrap execution to log metrics
+	defer func() {
+		if s.toolMetrics != nil {
+			status := "success"
+			errorMsg := ""
+			if err != nil {
+				status = "failure"
+				errorMsg = err.Error()
+			}
+
+			// Prepend mcp_ prefix for tool metrics consistency
+			toolID := toolName
+			if !strings.HasPrefix(toolID, "mcp_") && toolID != "tool_weather" {
+				toolID = "mcp_" + toolID
+			}
+
+			metric := &ToolCallLog{
+				ToolID:     toolID,
+				Parameters: arguments,
+				Response:   result,
+				Status:     status,
+				Error:      errorMsg,
+				Duration:   time.Since(startTime).Milliseconds(),
+				Timestamp:  time.Now(),
+			}
+			s.toolMetrics.LogToolCall(ctx, metric)
+		}
+	}()
+
 	// First check if this is a configured skill
 	if s.skillRegistry != nil && s.skillRegistry.HasSkill(toolName) {
 		log.Printf("🔧 [MCP-KNOWLEDGE] Executing configured skill: %s", toolName)
-		return s.skillRegistry.ExecuteSkill(ctx, toolName, arguments)
+		result, err = s.skillRegistry.ExecuteSkill(ctx, toolName, arguments)
+		return result, err
 	}
 
-	// Fall back to hardcoded tools
+	// Fallback to hardcoded tools
 	switch toolName {
 	case "query_neo4j":
-		return s.queryNeo4j(ctx, arguments)
+		result, err = s.queryNeo4j(ctx, arguments)
 	case "search_weaviate":
-		return s.searchWeaviate(ctx, arguments)
+		result, err = s.searchWeaviate(ctx, arguments)
 	case "get_concept":
-		return s.getConcept(ctx, arguments)
+		result, err = s.getConcept(ctx, arguments)
 	case "find_related_concepts":
-		return s.findRelatedConcepts(ctx, arguments)
+		result, err = s.findRelatedConcepts(ctx, arguments)
 	case "search_avatar_context":
-		return s.searchAvatarContext(ctx, arguments)
+		result, err = s.searchAvatarContext(ctx, arguments)
 	case "save_avatar_context":
-		return s.saveAvatarContext(ctx, arguments)
+		result, err = s.saveAvatarContext(ctx, arguments)
 	case "save_episode":
-		return s.saveEpisode(ctx, arguments)
+		result, err = s.saveEpisode(ctx, arguments)
 	case "scrape_url", "execute_code", "read_file", "smart_scrape":
 		// Route to the new wrapper
-		return s.executeToolWrapper(ctx, toolName, arguments)
+		result, err = s.executeToolWrapper(ctx, toolName, arguments)
 	case "deep_research":
-		return s.deepResearch(ctx, arguments)
+		result, err = s.deepResearch(ctx, arguments)
 	case "get_scrape_status":
 		// Handle nested arguments from n8n
 		args := arguments
@@ -628,12 +664,15 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		}
 		jobID, _ := args["job_id"].(string)
 		if jobID == "" {
-			return nil, fmt.Errorf("job_id parameter required")
+			err = fmt.Errorf("job_id parameter required")
+		} else {
+			result, err = s.getScrapeStatus(ctx, jobID)
 		}
-		return s.getScrapeStatus(ctx, jobID)
 	default:
-		return nil, fmt.Errorf("unknown tool: %s", toolName)
+		err = fmt.Errorf("unknown tool: %s", toolName)
 	}
+
+	return result, err
 }
 
 // queryNeo4j executes a Cypher query against Neo4j
@@ -3434,6 +3473,7 @@ func (s *APIServer) RegisterMCPKnowledgeServerRoutes() {
 			hdnURL,
 			s.llmClient, // Pass LLM client for prompt-driven browser automation
 			s.fileStorage,
+			s.toolMetrics,
 		)
 
 		// Register prompt hints from configured skills with interpreter
