@@ -24,9 +24,13 @@ spec:
             name: telegram-bot-secret
         env:
         - name: DISABLE_TELEGRAM_POLLING
-          value: "true"
+          value: "false"
         - name: REDIS_URL
           value: "redis://redis.agi.svc.cluster.local:6379"
+        - name: CHAT_SERVER_URL
+          value: "http://hdn-server-rpi58.agi.svc.cluster.local:8080/api/v1/chat"
+        - name: MCP_SERVER_URL
+          value: "http://hdn-server-rpi58.agi.svc.cluster.local:8080/mcp"
         resources:
           requests:
             memory: "64Mi"
