@@ -482,6 +482,27 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 				"required": []string{"topic"},
 			},
 		},
+		{
+			Name:        "weather",
+			Description: "Fetch weather for anywhere in Europe using Open-Meteo. Defaults to Thonon-les-Bains area.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"lat": map[string]interface{}{
+						"type":        "number",
+						"description": "Latitude (default: 46.2836)",
+					},
+					"lon": map[string]interface{}{
+						"type":        "number",
+						"description": "Longitude (default: 6.6444)",
+					},
+					"tz": map[string]interface{}{
+						"type":        "string",
+						"description": "Timezone (e.g. 'Europe/Berlin')",
+					},
+				},
+			},
+		},
 	}
 
 	// Add standard HDN tools
@@ -744,7 +765,7 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		result, err = s.saveAvatarContext(ctx, arguments)
 	case "save_episode":
 		result, err = s.saveEpisode(ctx, arguments)
-	case "scrape_url", "execute_code", "read_file", "smart_scrape":
+	case "scrape_url", "execute_code", "read_file", "smart_scrape", "weather":
 		// Route to the new wrapper
 		result, err = s.executeToolWrapper(ctx, toolName, arguments)
 	case "deep_research":
@@ -1768,6 +1789,9 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 			return nil, fmt.Errorf("failed to read file: %v", err)
 		}
 		return string(content), nil
+
+	case "weather":
+		return s.callExternalHDNTool(ctx, "tool_weather", args)
 
 	default:
 		return nil, fmt.Errorf("unknown internal tool: %s", toolName)
