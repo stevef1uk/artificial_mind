@@ -1708,7 +1708,20 @@ func (s *MCPKnowledgeServer) deepResearch(ctx context.Context, args map[string]i
 	}
 	queries := strings.Split(queriesStr, "\n")
 	var activeQueries []string
+	// Numbering regex: "1. ", "1)", etc.
+	numberRe := regexp.MustCompile(`^(\d+[\.\)]\s*|-\s*)`)
 	for _, q := range queries {
+		q = strings.TrimSpace(q)
+		if q == "" {
+			continue
+		}
+		// Skip conversational intro/outro if they don't look like queries
+		if strings.HasSuffix(q, ":") || strings.Contains(strings.ToLower(q), "here are") || strings.Contains(strings.ToLower(q), "search queries") {
+			continue
+		}
+		// Clean numbering
+		q = numberRe.ReplaceAllString(q, "")
+		q = strings.Trim(q, `"'`) // Remove potential quotes
 		q = strings.TrimSpace(q)
 		if q != "" {
 			activeQueries = append(activeQueries, q)

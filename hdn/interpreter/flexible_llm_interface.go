@@ -389,11 +389,10 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 		matchesKeywords := false
 		for _, keyword := range hints.Keywords {
 			if strings.Contains(inputLower, strings.ToLower(keyword)) {
-				log.Printf("🎯 [FLEXIBLE-LLM] Found match for hint '%s' using keyword '%s'", toolID, keyword)
-				// PRIORITIZATION: If this is a "research" request, favor mcp_research_agent over search_weaviate
-				if toolID == "mcp_search_weaviate" || toolID == "search_weaviate" {
+				// PRIORITIZATION: If this is a "research" request, favor mcp_research_agent over search_weaviate and deep_research
+				if toolID == "mcp_search_weaviate" || toolID == "search_weaviate" || toolID == "mcp_deep_research" || toolID == "deep_research" {
 					if strings.Contains(inputLower, "research") {
-						log.Printf("🧪 [FLEXIBLE-LLM] Research intent detected - favoring research_agent over search_weaviate in loop")
+						log.Printf("🧪 [FLEXIBLE-LLM] Research intent detected - favoring research_agent over %s in loop", toolID)
 						continue
 					}
 				}
@@ -594,10 +593,18 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 						strings.Contains(responseLower, "html_scraper") ||
 						strings.Contains(responseLower, "http_get")
 					isImageTool := strings.Contains(responseLower, "image") || strings.Contains(responseLower, "picture") || strings.Contains(responseLower, "drawing") || strings.Contains(responseLower, "visual") || strings.Contains(responseLower, "photo") || strings.Contains(responseLower, "artwork")
+					isResearchTool := strings.Contains(responseLower, "research")
+					isActualResearchTool := strings.Contains(strings.ToLower(actualToolID), "research")
+
 					if isScrapeOrBrowseTool {
 						log.Printf("✅ [FLEXIBLE-LLM] Allowing LLM's tool choice '%s' (scrape/browse tool takes priority over %s)", responseToolID, actualToolID)
+						return parsedResponse, nil
 					} else if isImageTool || actualToolID == "tool_generate_image" {
 						log.Printf("✅ [FLEXIBLE-LLM] Allowing image tool invocation for '%s' (using tool_generate_image)", responseToolID)
+						return parsedResponse, nil
+					} else if isResearchTool && isActualResearchTool {
+						log.Printf("✅ [FLEXIBLE-LLM] Allowing research tool choice '%s' (matches research intent of %s)", responseToolID, actualToolID)
+						return parsedResponse, nil
 					} else {
 						// For mcp_smart_scrape, try to extract URL before forcing
 						forceParams := map[string]interface{}{}
