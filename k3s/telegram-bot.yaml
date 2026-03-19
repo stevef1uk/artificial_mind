@@ -21,6 +21,9 @@ spec:
         envFrom:
         - secretRef:
             name: telegram-bot-secret
+        env:
+        - name: DISABLE_TELEGRAM_POLLING
+          value: "true"
         resources:
           requests:
             memory: "64Mi"
