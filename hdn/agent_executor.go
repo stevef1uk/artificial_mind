@@ -95,7 +95,17 @@ func (e *AgentExecutor) ExecuteAgent(ctx context.Context, agentID string, input 
 		// 1. Prepare tool descriptions for the LLM
 		var toolsInfo []string
 		for _, tool := range agentInstance.Tools {
-			toolsInfo = append(toolsInfo, fmt.Sprintf("- %s: %s", tool.ToolID, tool.ToolID)) // We don't have descriptions here, but ToolID is usually descriptive
+			desc := tool.Description
+			if desc == "" {
+				desc = tool.ToolID // Fallback
+			}
+			schemaStr := "{}"
+			if tool.InputSchema != nil {
+				if b, err := json.Marshal(tool.InputSchema); err == nil {
+					schemaStr = string(b)
+				}
+			}
+			toolsInfo = append(toolsInfo, fmt.Sprintf("- %s: %s (Input Schema: %s)", tool.ToolID, desc, schemaStr))
 		}
 
 		systemPrompt := fmt.Sprintf(`You are an autonomous AI agent: %s.

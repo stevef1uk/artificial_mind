@@ -110,7 +110,7 @@ func Set_mcp_smart_scrape_hints() {
 func Set_mcp_research_agent_hints() {
 	SetPromptHints("mcp_research_agent", &PromptHintsConfig{
 		Keywords:      []string{"research", "deep research", "comprehensive", "analysis", "latest developments", "multi-step research"},
-		PromptText:    "⚠️ FOR COMPLEX RESEARCH: Use mcp_research_agent for multi-step research or deep analysis tasks. Set 'query' to a detailed research goal and 'depth' (1-3).",
+		PromptText:    "⚠️ FOR COMPLEX RESEARCH: Use mcp_research_agent for multi-step research or deep analysis tasks. Set 'topic' to a detailed research goal and 'depth' (1-3).",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"research", "deep research", "analysis"},
 		RejectText:    true, // Force research tool usage
@@ -459,10 +459,10 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 						}
 					}
 					log.Printf("🖼️ [FLEXIBLE-LLM] tool_generate_image call with prompt: %v", params["prompt"])
-				} else if actualToolID == "mcp_research_agent" || strings.TrimPrefix(actualToolID, "mcp_") == "research_agent" {
-					params["query"] = input
+				} else if strings.Contains(actualToolID, "research") {
+					params["topic"] = input
 					params["depth"] = 2
-					log.Printf("🧪 [FLEXIBLE-LLM] Extracted query for forced mcp_research_agent call")
+					log.Printf("🧪 [FLEXIBLE-LLM] Extracted topic for forced %s call", actualToolID)
 				} else if strings.Contains(actualToolID, "weaviate") || strings.Contains(actualToolID, "neo4j") || strings.Contains(actualToolID, "knowledge") || strings.Contains(actualToolID, "search") {
 					// General fallback for search/knowledge tools: default to passing the whole input as "query"
 					params["query"] = input
@@ -473,9 +473,9 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 					log.Printf("⚠️ [FLEXIBLE-LLM] Skipping forced %s — no URL could be extracted from input", actualToolID)
 					return parsedResponse, nil
 				}
-				if actualToolID == "mcp_research_agent" {
+				if strings.Contains(actualToolID, "research") {
 					params := map[string]interface{}{
-						"query": input,
+						"topic": input,
 						"depth": 2, // Default depth
 					}
 					return &FlexibleLLMResponse{
@@ -516,7 +516,10 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 					}, nil
 				}
 				// General fallback for search/knowledge tools: default to passing the whole input as "query"
-				if strings.Contains(actualToolID, "weaviate") || strings.Contains(actualToolID, "neo4j") || strings.Contains(actualToolID, "knowledge") || strings.Contains(actualToolID, "search") {
+				if strings.Contains(actualToolID, "research") {
+					params["topic"] = input
+					log.Printf("🧪 [FLEXIBLE-LLM] Extracted topic for forced %s call", actualToolID)
+				} else if strings.Contains(actualToolID, "weaviate") || strings.Contains(actualToolID, "neo4j") || strings.Contains(actualToolID, "knowledge") || strings.Contains(actualToolID, "search") {
 					params["query"] = input
 					log.Printf("🔍 [FLEXIBLE-LLM] Extracted query for forced %s call (fallback)", actualToolID)
 				}
@@ -609,8 +612,8 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 								log.Printf("⚠️ [FLEXIBLE-LLM] Skipping forced %s (wrong tool '%s') — no URL could be extracted", actualToolID, responseToolID)
 								return parsedResponse, nil
 							}
-						} else if actualToolID == "mcp_research_agent" || strings.TrimPrefix(actualToolID, "mcp_") == "research_agent" {
-							forceParams["query"] = input
+						} else if strings.Contains(actualToolID, "research") {
+							forceParams["topic"] = input
 							forceParams["depth"] = 2
 						} else if strings.Contains(actualToolID, "weaviate") || strings.Contains(actualToolID, "neo4j") || strings.Contains(actualToolID, "knowledge") || strings.Contains(actualToolID, "search") {
 							forceParams["query"] = input

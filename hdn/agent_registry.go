@@ -42,8 +42,10 @@ type CrewInstance struct {
 
 // ToolAdapter adapts our tools (MCP, n8n) to ADK's tool interface
 type ToolAdapter struct {
-	ToolID  string
-	Execute func(ctx context.Context, params map[string]interface{}) (interface{}, error)
+	ToolID      string
+	Description string
+	InputSchema interface{} // Can be map[string]string or map[string]interface{}
+	Execute     func(ctx context.Context, params map[string]interface{}) (interface{}, error)
 }
 
 // NewAgentRegistry creates a new agent registry
@@ -302,12 +304,29 @@ func (r *AgentRegistry) createMCPToolAdapter(toolID string) (ToolAdapter, error)
 	// Strip mcp_ prefix to get the actual tool name
 	toolName := strings.TrimPrefix(toolID, "mcp_")
 
-	// Check if this is a configured skill (n8n webhook) - these should be handled via skill registry
-	// But callTool already checks the skill registry, so we can just pass it through
-	// However, we need to ensure the tool name matches the skill ID
+	// Pre-load tool metadata (description and schema)
+	var description string
+	var schema interface{}
+
+	// Call listTools to find the tool metadata
+	if toolsResult, err := r.mcpKnowledgeServer.listTools(); err == nil {
+		if m, ok := toolsResult.(map[string]interface{}); ok {
+			if tools, ok := m["tools"].([]MCPKnowledgeTool); ok {
+				for _, t := range tools {
+					if t.Name == toolName {
+						description = t.Description
+						schema = t.InputSchema
+						break
+					}
+				}
+			}
+		}
+	}
 
 	return ToolAdapter{
-		ToolID: toolID,
+		ToolID:      toolID,
+		Description: description,
+		InputSchema: schema,
 		Execute: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
 			log.Printf("🔧 [AGENT-TOOL] Calling MCP tool: %s (from agent tool ID: %s)", toolName, toolID)
 
@@ -327,8 +346,6 @@ func (r *AgentRegistry) createMCPToolAdapter(toolID string) (ToolAdapter, error)
 }
 
 // createN8NToolAdapter creates an adapter for n8n webhook tools
-// toolID: The original tool ID (e.g., "mcp_read_google_data") - used for matching
-// skillID: The skill ID in the registry (e.g., "read_google_data") - used for execution
 func (r *AgentRegistry) createN8NToolAdapter(toolID string, skillID string) (ToolAdapter, error) {
 	if r.skillRegistry == nil {
 		return ToolAdapter{
@@ -339,7 +356,8 @@ func (r *AgentRegistry) createN8NToolAdapter(toolID string, skillID string) (Too
 		}, nil
 	}
 
-	if !r.skillRegistry.HasSkill(skillID) {
+	skill, exists := r.skillRegistry.GetSkill(skillID)
+	if !exists {
 		return ToolAdapter{
 			ToolID: toolID, // Preserve original toolID
 			Execute: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
@@ -349,7 +367,9 @@ func (r *AgentRegistry) createN8NToolAdapter(toolID string, skillID string) (Too
 	}
 
 	return ToolAdapter{
-		ToolID: toolID, // Preserve original toolID for matching
+		ToolID:      toolID,
+		Description: skill.Description,
+		InputSchema: skill.InputSchema,
 		Execute: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
 			log.Printf("🔧 [AGENT-TOOL] Calling n8n skill: %s (skill ID: %s)", toolID, skillID)
 			return r.skillRegistry.ExecuteSkill(ctx, skillID, params) // Use skillID for execution
@@ -368,8 +388,27 @@ func (r *AgentRegistry) createHDNToolAdapter(toolID string) (ToolAdapter, error)
 		}, nil
 	}
 
+	// Pre-load tool metadata
+	var description string
+	var schema interface{}
+
+	// APIServer should have a way to get tool metadata
+	// If we can't get it easily, we'll just have to hope the toolID is enough,
+	// but let's try to find it in the registry
+	if tools, err := r.apiServer.listTools(context.Background()); err == nil {
+		for _, t := range tools {
+			if t.ID == toolID {
+				description = t.Description
+				schema = t.InputSchema
+				break
+			}
+		}
+	}
+
 	return ToolAdapter{
-		ToolID: toolID,
+		ToolID:      toolID,
+		Description: description,
+		InputSchema: schema,
 		Execute: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
 			log.Printf("🔧 [AGENT-TOOL] Calling HDN tool: %s", toolID)
 			// Use the API server's tool execution
