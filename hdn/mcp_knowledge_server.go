@@ -5540,9 +5540,9 @@ func (s *MCPKnowledgeServer) nemoclawQuery(ctx context.Context, arguments map[st
 		return nil, fmt.Errorf("prompt or topic required")
 	}
 
-	// Use hardcoded chat ID if not provided, for user's specific case
+	// Filter out UI session IDs (e.g., chat_17739...) so we always use the real Telegram ID
 	chatID, _ := arguments["chat_id"].(string)
-	if chatID == "" {
+	if chatID == "" || strings.HasPrefix(chatID, "chat_") {
 		chatID = os.Getenv("TELEGRAM_CHAT_ID")
 	}
 	if chatID == "" {
