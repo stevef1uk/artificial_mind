@@ -529,6 +529,9 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 				if strings.Contains(actualToolID, "research") {
 					params["topic"] = input
 					log.Printf("🧪 [FLEXIBLE-LLM] Extracted topic for forced %s call", actualToolID)
+				} else if strings.Contains(actualToolID, "nemoclaw") {
+					params["prompt"] = input
+					log.Printf("🤖 [FLEXIBLE-LLM] Extracted prompt for forced %s call", actualToolID)
 				} else if strings.Contains(actualToolID, "weaviate") || strings.Contains(actualToolID, "neo4j") || strings.Contains(actualToolID, "knowledge") || strings.Contains(actualToolID, "search") {
 					params["query"] = input
 					log.Printf("🔍 [FLEXIBLE-LLM] Extracted query for forced %s call (fallback)", actualToolID)
