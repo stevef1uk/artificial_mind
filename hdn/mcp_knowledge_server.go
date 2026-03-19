@@ -445,6 +445,24 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 				"required": []string{"topic"},
 			},
 		},
+		{
+			Name:        "nemoclaw_query",
+			Description: "[chat-only] Query the powerful NVIDIA NemoClaw agentic AI via Telegram. Use this for extremely complex reasoning, strategic planning, or high-fidelity synthesis. This tool sends your prompt to the NemoClaw bot and waits for its high-quality reply (can take 30-180 seconds).",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"prompt": map[string]interface{}{
+						"type":        "string",
+						"description": "The complex strategic prompt or question for the NemoClaw agent",
+					},
+					"chat_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional: override the target Telegram chat/channel ID (default is the system-configured channel)",
+					},
+				},
+				"required": []string{"prompt"},
+			},
+		},
 	}
 
 	// Add standard HDN tools
@@ -656,6 +674,10 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		result, err = s.executeToolWrapper(ctx, toolName, arguments)
 	case "deep_research":
 		result, err = s.deepResearch(ctx, arguments)
+	case "research_agent":
+		result, err = s.researchAgentQuery(ctx, arguments)
+	case "nemoclaw_query":
+		result, err = s.nemoclawQuery(ctx, arguments)
 	case "get_scrape_status":
 		// Handle nested arguments from n8n
 		args := arguments
@@ -3733,7 +3755,12 @@ func (s *MCPKnowledgeServer) readGoogleWorkspace(ctx context.Context, args map[s
 
 	// Add authentication header if secret is configured
 	if secret := os.Getenv("N8N_WEBHOOK_SECRET"); secret != "" {
-		req.Header.Set("X-Webhook-Secret", secret)
+		secret = strings.TrimSpace(secret)
+		secretToSend := secret
+		if !isBase64Like(secret) {
+			secretToSend = base64.StdEncoding.EncodeToString([]byte(secret))
+		}
+		req.Header.Set("X-Webhook-Secret", secretToSend)
 	}
 
 	// Execute with increased timeout for n8n webhooks (can take 10-30 seconds)
@@ -5400,4 +5427,165 @@ func (s *MCPKnowledgeServer) buildExtractionSnapshot(html string, goal string) s
 		snippet = snippet[:20000] + "...(truncated)"
 	}
 	return snippet
+}
+
+// nemoclawQuery handles strategic queries to the NemoClaw agentic AI via n8n webhook and waits for a response in Redis
+func (s *MCPKnowledgeServer) nemoclawQuery(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
+	prompt, _ := arguments["prompt"].(string)
+	if prompt == "" {
+		topic, _ := arguments["topic"].(string) // fallback to topic
+		prompt = topic
+	}
+	if prompt == "" {
+		return nil, fmt.Errorf("prompt or topic required")
+	}
+
+	// Use hardcoded chat ID if not provided, for user's specific case
+	chatID, _ := arguments["chat_id"].(string)
+	if chatID == "" {
+		chatID = os.Getenv("TELEGRAM_CHAT_ID")
+	}
+	if chatID == "" {
+		chatID = "8271300679" // Fallback to user's known ID
+	}
+
+	// Webhook URL from environment or fallback
+	webhookURL := os.Getenv("NEMOCLAW_WEBHOOK_URL")
+	if webhookURL == "" {
+		webhookURL = "https://k3s.sjfisher.com/webhook/6f632b61-6b01-4910-991d-3a378b1e653a"
+	}
+
+	log.Printf("🤖 [NEMOCLAW] Triggering n8n webhook for chat %s: %s", chatID, prompt)
+
+	// Call the n8n webhook
+	body, _ := json.Marshal(map[string]string{
+		"prompt":  prompt,
+		"chat_id": chatID,
+	})
+
+	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create webhook request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Add Webhook Secret if available, with consistent base64 encoding if it's plain text
+	if secret := os.Getenv("N8N_WEBHOOK_SECRET"); secret != "" {
+		secret = strings.TrimSpace(secret)
+		secretToSend := secret
+		// Use the same logic as N8NWebhookHandler for consistency
+		if !isBase64Like(secret) {
+			secretToSend = base64.StdEncoding.EncodeToString([]byte(secret))
+			log.Printf("🔐 [NEMOCLAW] Base64 encoding plain text secret for n8n webhook")
+		}
+		req.Header.Set("X-Webhook-Secret", secretToSend)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call n8n webhook: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("n8n webhook returned error status: %d", resp.StatusCode)
+	}
+
+	// Wait for response in Redis
+	key := fmt.Sprintf("hdn:nemoclaw:response:%s", chatID)
+	log.Printf("⏳ [NEMOCLAW] Waiting for response in Redis: %s", key)
+
+	// Poll Redis for up to 300 seconds (5 minutes)
+	timeout := 300 * time.Second
+	pollInterval := 2 * time.Second
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		val, err := s.redis.Get(ctx, key).Result()
+		if err == nil && val != "" {
+			log.Printf("✅ [NEMOCLAW] Received response for chat %s (%d chars)", chatID, len(val))
+			// Clear the key after retrieval
+			s.redis.Del(ctx, key)
+			return map[string]interface{}{
+				"response": val,
+				"status":   "completed",
+				"chat_id":  chatID,
+			}, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(pollInterval):
+			// continue polling
+		}
+	}
+
+	return nil, fmt.Errorf("timeout waiting for NemoClaw response after %v", timeout)
+}
+
+// researchAgentQuery handles autonomous research queries via n8n webhook
+func (s *MCPKnowledgeServer) researchAgentQuery(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
+	topic, _ := arguments["topic"].(string)
+	if topic == "" {
+		query, _ := arguments["query"].(string) // fallback to query
+		topic = query
+	}
+	if topic == "" {
+		return nil, fmt.Errorf("topic or query required")
+	}
+
+	depthVal, _ := arguments["depth"].(float64)
+	depth := int(depthVal)
+	if depth <= 0 {
+		depth = 1
+	}
+
+	// Webhook URL from environment or fallback (matching tools_bootstrap.json)
+	webhookURL := os.Getenv("RESEARCH_WEBHOOK_URL")
+	if webhookURL == "" {
+		webhookURL = "https://k3s.sjfisher.com/webhook/40a534f4-2041-4eed-b317-738ad99b5cb0"
+	}
+
+	log.Printf("🔍 [RESEARCH-AGENT] Triggering research webhook for topic: %s (depth: %d)", topic, depth)
+
+	// Call the n8n webhook
+	body, _ := json.Marshal(map[string]interface{}{
+		"topic": topic,
+		"depth": depth,
+	})
+
+	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create webhook request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Add Webhook Secret if available, with consistent base64 encoding
+	if secret := os.Getenv("N8N_WEBHOOK_SECRET"); secret != "" {
+		secret = strings.TrimSpace(secret)
+		secretToSend := secret
+		if !isBase64Like(secret) {
+			secretToSend = base64.StdEncoding.EncodeToString([]byte(secret))
+			log.Printf("🔐 [RESEARCH-AGENT] Base64 encoding plain text secret for n8n webhook")
+		}
+		req.Header.Set("X-Webhook-Secret", secretToSend)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call research webhook: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("research n8n webhook returned error status: %d", resp.StatusCode)
+	}
+
+	var result interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode research response: %v", err)
+	}
+
+	return result, nil
 }
