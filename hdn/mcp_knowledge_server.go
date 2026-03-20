@@ -447,7 +447,7 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 			},
 		},
 		{
-			Name:        "nemoclaw_query",
+			Name:        "nmoclaw_query",
 			Description: "[chat-only] Query the powerful NVIDIA NemoClaw agentic AI via Telegram. Use this for extremely complex reasoning, strategic planning, or high-fidelity synthesis. This tool sends your prompt to the NemoClaw bot and waits for its high-quality reply (can take 30-180 seconds).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
@@ -781,8 +781,8 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		result, err = s.deepResearch(ctx, arguments)
 	case "research_agent":
 		result, err = s.researchAgentQuery(ctx, arguments)
-	case "nemoclaw_query":
-		result, err = s.nemoclawQuery(ctx, arguments)
+	case "nmoclaw_query":
+		result, err = s.nmoclawQuery(ctx, arguments)
 	case "get_scrape_status":
 		jobID, _ := arguments["job_id"].(string)
 		if jobID == "" {
@@ -5537,8 +5537,8 @@ func (s *MCPKnowledgeServer) buildExtractionSnapshot(html string, goal string) s
 	return snippet
 }
 
-// nemoclawQuery handles strategic queries to the NemoClaw agentic AI via n8n webhook and waits for a response in Redis
-func (s *MCPKnowledgeServer) nemoclawQuery(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
+// nmoclawQuery handles strategic queries to the Nmoclaw agentic AI via n8n webhook and waits for a response in Redis
+func (s *MCPKnowledgeServer) nmoclawQuery(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
 	// Try multiple potential parameter names for the prompt/topic
 	prompt, _ := arguments["prompt"].(string)
 	if prompt == "" {
@@ -5602,7 +5602,7 @@ func (s *MCPKnowledgeServer) nemoclawQuery(ctx context.Context, arguments map[st
 		webhookURL = "https://k3s.sjfisher.com/webhook/a76df558-b755-4302-a274-92310d03ba7d"
 	}
 
-	log.Printf("🤖 [NEMOCLAW] Triggering n8n webhook for chat %s: %s", chatID, prompt)
+	log.Printf("🤖 [NMOCLAW] Triggering n8n webhook for chat %s: %s", chatID, prompt)
 
 	// Call the n8n webhook
 	body, _ := json.Marshal(map[string]string{
@@ -5623,7 +5623,7 @@ func (s *MCPKnowledgeServer) nemoclawQuery(ctx context.Context, arguments map[st
 		// Use the same logic as N8NWebhookHandler for consistency
 		if !isBase64Like(secret) {
 			secretToSend = base64.StdEncoding.EncodeToString([]byte(secret))
-			log.Printf("🔐 [NEMOCLAW] Base64 encoding plain text secret for n8n webhook")
+			log.Printf("🔐 [NMOCLAW] Base64 encoding plain text secret for n8n webhook")
 		}
 		req.Header.Set("X-Webhook-Secret", secretToSend)
 	}
@@ -5642,7 +5642,7 @@ func (s *MCPKnowledgeServer) nemoclawQuery(ctx context.Context, arguments map[st
 	// ENSURE CONSISTENCY: Strip any 'tg_chat_' prefix because the telegram-bot uses raw numeric IDs in Redis keys
 	redisChatID := strings.TrimPrefix(chatID, "tg_chat_")
 	key := fmt.Sprintf("hdn:nemoclaw:response:%s", redisChatID)
-	log.Printf("⏳ [NEMOCLAW] Waiting for response in Redis: %s", key)
+	log.Printf("⏳ [NMOCLAW] Waiting for response in Redis: %s", key)
 
 	// Poll Redis for up to 300 seconds (5 minutes)
 	timeout := 300 * time.Second
