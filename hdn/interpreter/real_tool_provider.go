@@ -21,7 +21,7 @@ type RealToolProvider struct {
 
 // NewRealToolProvider creates a new real tool provider
 func NewRealToolProvider(hdnBaseURL string) *RealToolProvider {
-	timeoutSec := 60 // Original default
+	timeoutSec := 300 // Increased default to allow for NemoClaw responses
 	if val := os.Getenv("HDN_TOOL_TIMEOUT"); val != "" {
 		if s, err := strconv.Atoi(val); err == nil && s > 0 {
 			timeoutSec = s

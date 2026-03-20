@@ -5540,14 +5540,24 @@ func (s *MCPKnowledgeServer) nemoclawQuery(ctx context.Context, arguments map[st
 		return nil, fmt.Errorf("prompt or topic required")
 	}
 
-	// Filter out UI session IDs (e.g., chat_17739...) so we always use the real Telegram ID
+	// Detect and filter out placeholders like "your_chat_id_here" or "YOUR_CHAT_ID"
 	chatID, _ := arguments["chat_id"].(string)
-	if chatID == "" || strings.HasPrefix(chatID, "chat_") {
+	isPlaceholder := strings.Contains(strings.ToLower(chatID), "your_") || 
+	                 strings.Contains(strings.ToLower(chatID), "placeholder") ||
+	                 chatID == "YOUR_CHAT_ID"
+
+	if chatID == "" || strings.HasPrefix(chatID, "chat_") || isPlaceholder {
+		log.Printf("🛡️ [NEMOCLAW] Filtering out invalid/placeholder chat_id: '%s', defaulting to user's real ID", chatID)
 		chatID = os.Getenv("TELEGRAM_CHAT_ID")
 	}
-	if chatID == "" {
+	if chatID == "" || strings.Contains(strings.ToLower(chatID), "your_") {
 		chatID = "8271300679" // Fallback to user's known ID
 	}
+
+	// Final safety: strip any mention of placeholders from the prompt itself to prevent LLM loops
+	prompt = strings.ReplaceAll(prompt, "your_chat_id_here", "")
+	prompt = strings.ReplaceAll(prompt, "YOUR_CHAT_ID", "")
+	prompt = strings.TrimSpace(prompt)
 
 	// Webhook URL from environment or fallback
 	webhookURL := os.Getenv("NEMOCLAW_WEBHOOK_URL")
