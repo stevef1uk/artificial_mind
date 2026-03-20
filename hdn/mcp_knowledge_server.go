@@ -454,14 +454,22 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 				"properties": map[string]interface{}{
 					"prompt": map[string]interface{}{
 						"type":        "string",
-						"description": "The complex strategic prompt or question for the NemoClaw agent",
+						"description": "The complex strategic prompt or question for the NemoClaw agent (also accepts 'query' or 'message')",
+					},
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "Alternative to 'prompt' for natural language questions",
+					},
+					"message": map[string]interface{}{
+						"type":        "string",
+						"description": "Alternative to 'prompt' for conversational greetings",
 					},
 					"chat_id": map[string]interface{}{
 						"type":        "string",
 						"description": "Optional: override the target Telegram chat/channel ID (default is the system-configured channel)",
 					},
 				},
-				"required": []string{"prompt"},
+				"required": []string{}, // No longer strictly required to allow for flexible param mapping
 			},
 		},
 		{
@@ -5531,13 +5539,42 @@ func (s *MCPKnowledgeServer) buildExtractionSnapshot(html string, goal string) s
 
 // nemoclawQuery handles strategic queries to the NemoClaw agentic AI via n8n webhook and waits for a response in Redis
 func (s *MCPKnowledgeServer) nemoclawQuery(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
+	// Try multiple potential parameter names for the prompt/topic
 	prompt, _ := arguments["prompt"].(string)
 	if prompt == "" {
-		topic, _ := arguments["topic"].(string) // fallback to topic
+		topic, _ := arguments["topic"].(string)
 		prompt = topic
 	}
 	if prompt == "" {
-		return nil, fmt.Errorf("prompt or topic required")
+		query, _ := arguments["query"].(string)
+		prompt = query
+	}
+	if prompt == "" {
+		text, _ := arguments["text"].(string)
+		prompt = text
+	}
+	if prompt == "" {
+		msg, _ := arguments["message"].(string)
+		prompt = msg
+	}
+	if prompt == "" {
+		input, _ := arguments["input"].(string)
+		prompt = input
+	}
+
+	if prompt == "" {
+		// Final fallback for "Hello" style queries where the LLM might have used odd parameters
+		for k, v := range arguments {
+			if s, ok := v.(string); ok && s != "" && k != "chat_id" {
+				prompt = s
+				log.Printf("📥 [NEMOCLAW] Auto-detected '%s' as prompt from unknown param: %s", prompt, k)
+				break
+			}
+		}
+	}
+
+	if prompt == "" {
+		return nil, fmt.Errorf("prompt, topic, query, or message required (found: %v)", arguments)
 	}
 
 	// Detect and filter out placeholders like "your_chat_id_here" or "YOUR_CHAT_ID"
