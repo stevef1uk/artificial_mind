@@ -551,11 +551,17 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		Timestamp:  time.Now(),
 		Confidence: response.Confidence,
 		Metadata: map[string]interface{}{
-			"intent_type":    intent.Type,
-			"action_type":    action.Type,
-			"fsm_state":      cl.fsmEngine.GetCurrentState(),
-			"execution_time": time.Since(reasoningTrace.StartTime),
+			"intent_type": intent.Type,
+			"action_type": action.Type,
+			"fsm_state":   cl.fsmEngine.GetCurrentState(),
 		},
+	}
+
+	// Add execution time if trace is available
+	if reasoningTrace != nil {
+		conversationResponse.Metadata["execution_time"] = time.Since(reasoningTrace.StartTime)
+	} else {
+		conversationResponse.Metadata["execution_time"] = time.Duration(0)
 	}
 
 	thoughtExpression, err := cl.thoughtExpression.ExpressThoughts(ctx, thoughtReq)
