@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -104,6 +105,9 @@ func (api *ConversationalAPI) handleChat(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Set defaults
+	if req.ChatID != "" {
+		req.ChatID = strings.TrimLeft(req.ChatID, "=")
+	}
 	if req.SessionID == "" {
 		req.SessionID = fmt.Sprintf("session_%d", time.Now().UnixNano())
 	}
