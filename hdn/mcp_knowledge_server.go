@@ -5580,13 +5580,10 @@ func (s *MCPKnowledgeServer) nemoclawQuery(ctx context.Context, arguments map[st
 	// Detect and filter out placeholders like "your_chat_id_here", "YOUR_CHAT_ID", or "None"
 	chatID, _ := arguments["chat_id"].(string)
 	lowerID := strings.ToLower(chatID)
-	isPlaceholder := strings.Contains(lowerID, "your_") || 
-	                 strings.Contains(lowerID, "placeholder") ||
-	                 lowerID == "none" || lowerID == "null" || lowerID == "undefined" ||
-	                 chatID == "YOUR_CHAT_ID"
-
-	if chatID == "" || strings.HasPrefix(chatID, "chat_") || isPlaceholder {
-		log.Printf("🛡️ [NEMOCLAW] Filtering out invalid/placeholder chat_id: '%s', defaulting to user's real ID", chatID)
+	if chatID == "" || strings.Contains(strings.ToLower(chatID), "your_chat_id") ||
+		strings.Contains(strings.ToUpper(chatID), "YOUR_CHAT_ID") ||
+		lowerID == "none" || lowerID == "null" || lowerID == "undefined" ||
+		lowerID == "nomeclaw_bot" || lowerID == "nemoclaw_bot" {
 		chatID = os.Getenv("TELEGRAM_CHAT_ID")
 	}
 	if chatID == "" || strings.Contains(strings.ToLower(chatID), "your_") || strings.ToLower(chatID) == "none" {
