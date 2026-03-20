@@ -5552,7 +5552,7 @@ func (s *MCPKnowledgeServer) nemoclawQuery(ctx context.Context, arguments map[st
 	// Webhook URL from environment or fallback
 	webhookURL := os.Getenv("NEMOCLAW_WEBHOOK_URL")
 	if webhookURL == "" {
-		webhookURL = "https://k3s.sjfisher.com/webhook/6f632b61-6b01-4910-991d-3a378b1e653a"
+		webhookURL = "https://k3s.sjfisher.com/webhook/a76df558-b755-4302-a274-92310d03ba7d"
 	}
 
 	log.Printf("🤖 [NEMOCLAW] Triggering n8n webhook for chat %s: %s", chatID, prompt)

@@ -146,6 +146,11 @@ spec:
                 secretKeyRef:
                   name: telegram-bot-secret
                   key: TELEGRAM_CHAT_ID
+            - name: NEMOCLAW_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: telegram-bot-secret
+                  key: TELEGRAM_OUTBOUND_WEBHOOK
             - name: UNPACK_WORK_DIR
               value: "/tmp/unpack"
             # Docker resource limits for Raspberry Pi (increased for code validation)
