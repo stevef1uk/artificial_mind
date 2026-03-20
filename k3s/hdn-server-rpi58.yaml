@@ -130,6 +130,12 @@ spec:
                   key: RESEARCH_WEBHOOK_SECRET
                   optional: true
             # Telegram configuration for agent notifications
+            - name: TELEGRAM_OUTBOUND_WEBHOOK
+              valueFrom:
+                secretKeyRef:
+                  name: telegram-bot-secret
+                  key: TELEGRAM_OUTBOUND_WEBHOOK
+                  optional: true
             - name: TELEGRAM_BOT_TOKEN
               valueFrom:
                 secretKeyRef:

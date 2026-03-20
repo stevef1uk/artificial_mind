@@ -213,25 +213,61 @@ func (s *APIServer) executeToolDirect(ctx context.Context, toolID string, params
 	}
 }
 
-// sendTelegramMessage sends a message via Telegram Bot API
+// sendTelegramMessage sends a message via Telegram Bot API or a Gateway Webhook
 func (s *APIServer) sendTelegramMessage(ctx context.Context, params map[string]interface{}) (interface{}, error) {
-	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
-	if botToken == "" {
-		return nil, fmt.Errorf("TELEGRAM_BOT_TOKEN environment variable not set")
-	}
-
+	webhookURL := os.Getenv("TELEGRAM_OUTBOUND_WEBHOOK")
 	chatID, _ := getString(params, "chat_id")
 	if chatID == "" {
-		// Try to get from environment as fallback
 		chatID = os.Getenv("TELEGRAM_CHAT_ID")
-		if chatID == "" {
-			return nil, fmt.Errorf("chat_id parameter or TELEGRAM_CHAT_ID environment variable required")
-		}
 	}
 
 	message, _ := getString(params, "message")
 	if message == "" {
 		return nil, fmt.Errorf("message parameter required")
+	}
+
+	// Use Gateway Webhook if configured
+	if webhookURL != "" {
+		log.Printf("📱 [TELEGRAM] Sending message via gateway webhook: %s", webhookURL)
+		payload := map[string]interface{}{
+			"chat_id": chatID,
+			"message": message,
+		}
+		jsonData, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal gateway payload: %w", err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(jsonData))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create gateway request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to call Telegram gateway: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			log.Printf("✅ [TELEGRAM] Successfully sent message via gateway")
+			return map[string]interface{}{"success": true, "gateway": true}, nil
+		}
+		
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("⚠️ [TELEGRAM] Gateway failed (status %d): %s. Falling back to direct API...", resp.StatusCode, string(body))
+	}
+
+	// Fallback to Direct Telegram API
+	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
+	if botToken == "" {
+		return nil, fmt.Errorf("TELEGRAM_BOT_TOKEN environment variable not set (and no gateway configured)")
+	}
+
+	if chatID == "" {
+		return nil, fmt.Errorf("chat_id parameter or TELEGRAM_CHAT_ID environment variable required")
 	}
 
 	// Parse mode (Markdown, HTML, or plain text)
