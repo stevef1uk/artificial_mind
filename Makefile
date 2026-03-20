@@ -28,7 +28,6 @@ HDN_DIR := hdn
 MONITOR_DIR := monitor
 FSM_DIR := fsm
 GOAL_DIR := cmd/goal-manager
-TELEGRAM_BOT_DIR := telegram-bot
 SCRAPER_DIR := services/playwright_scraper
 BIN_DIR := bin
 PRINCIPLES_BIN := $(BIN_DIR)/principles-server
@@ -36,7 +35,6 @@ HDN_BIN := $(BIN_DIR)/hdn-server
 MONITOR_BIN := $(BIN_DIR)/monitor-ui
 FSM_BIN := $(BIN_DIR)/fsm-server
 GOAL_BIN := $(BIN_DIR)/goal-manager
-TELEGRAM_BOT_BIN := $(BIN_DIR)/telegram-bot
 SCRAPER_BIN := $(BIN_DIR)/playwright-scraper
 CHATBOT_DIR := chatbot
 CHATBOT_BIN := $(BIN_DIR)/chatbot
@@ -126,7 +124,7 @@ help-cross:
 
 # Build all components
 .PHONY: build
-build: build-principles build-hdn build-monitor build-fsm build-goal build-telegram-bot build-chatbot build-tools build-scraper-binary build-wiki-bootstrapper build-wiki-summarizer build-news-ingestor build-nats-demos build-nats-test validate-safety
+build: build-principles build-hdn build-monitor build-fsm build-goal build-chatbot build-tools build-scraper-binary build-wiki-bootstrapper build-wiki-summarizer build-news-ingestor build-nats-demos build-nats-test validate-safety
 
 # Build NATS demos
 .PHONY: build-nats-demos
@@ -275,13 +273,7 @@ build-goal:
 	@cd $(GOAL_DIR) && $(GO_ENV) GOFLAGS="-mod=mod" GO111MODULE=on go get github.com/gorilla/mux@v1.8.1 && go build $(GO_BUILD_FLAGS) ../../$(GOAL_BIN) .
 	@echo "✅ Goal Manager built: $(GOAL_BIN)"
 
-# Build Telegram Bot
-.PHONY: build-telegram-bot
-build-telegram-bot:
-	@echo "🔨 Building Telegram Bot..."
-	@mkdir -p $(BIN_DIR)
-	@cd $(TELEGRAM_BOT_DIR) && $(GO_ENV) GO111MODULE=on go build $(GO_BUILD_FLAGS) ../$(TELEGRAM_BOT_BIN) .
-	@echo "✅ Telegram Bot built: $(TELEGRAM_BOT_BIN)"
+
 	
 
 # Build Chatbot

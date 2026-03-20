@@ -127,7 +127,6 @@ kill_port 8081 "HDN Server"
 kill_port 8082 "Monitor UI"
 kill_port 8083 "FSM Server"
 kill_port 8090 "Goal Manager"
-kill_by_name "telegram-bot" "Telegram Bot"
 kill_port 8085 "Playwright Scraper"
 # Also ensure no docker container is hogging the port
 docker stop playwright-scraper 2>/dev/null || true
@@ -529,21 +528,6 @@ GOAL_PID=$(run_service "goal_manager" \
 # (Optional) Wait a moment for Goal Manager to warm up
 sleep 1
 
-# Start Telegram Bot if token is available
-if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
-    echo "🔨 Building Telegram Bot..."
-    cd "$AGI_PROJECT_ROOT"
-    make build-telegram-bot >/dev/null 2>&1 || { echo "❌ Failed to build Telegram Bot"; TELEGRAM_BOT_PID=""; }
-    
-    if [ -f "$AGI_PROJECT_ROOT/bin/telegram-bot" ]; then
-        export MCP_SERVER_URL="http://localhost:8081/mcp"
-        export CHAT_SERVER_URL="http://localhost:8081/api/v1/chat"
-        TELEGRAM_BOT_PID=$(run_service "telegram_bot" \
-            "$AGI_PROJECT_ROOT/telegram-bot" \
-            "$AGI_PROJECT_ROOT/bin/telegram-bot") || {
-            echo "⚠️  Telegram Bot failed to start, but continuing"; TELEGRAM_BOT_PID=""; }
-    fi
-else
     echo "⏭️  TELEGRAM_BOT_TOKEN not set, skipping Telegram Bot startup"
 fi
 
@@ -581,9 +565,6 @@ if [ ! -z "$FSM_PID" ]; then
 fi
 if [ ! -z "$GOAL_PID" ]; then
     echo "$GOAL_PID" > /tmp/goal_manager.pid
-fi
-if [ ! -z "$TELEGRAM_BOT_PID" ]; then
-    echo "$TELEGRAM_BOT_PID" > /tmp/telegram_bot.pid
 fi
 if [ ! -z "$SCRAPER_PID" ]; then
     echo "$SCRAPER_PID" > /tmp/playwright_scraper.pid

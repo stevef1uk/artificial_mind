@@ -62,7 +62,6 @@ required_files=(
     "Dockerfile.wiki-bootstrapper.secure"
     "Dockerfile.wiki-summarizer.secure"
     "Dockerfile.news-ingestor.secure"
-    "Dockerfile.telegram-bot.secure"
     "Dockerfile.playwright-scraper.secure"
 )
 
@@ -147,7 +146,6 @@ build_and_push "Dockerfile.goal-manager.secure" "goal-manager" "Goal Manager"
 build_and_push "Dockerfile.wiki-bootstrapper.secure" "knowledge-builder" "Knowledge Builder"
 build_and_push "Dockerfile.wiki-summarizer.secure" "wiki-summarizer" "Wiki Summarizer"
 build_and_push "Dockerfile.news-ingestor.secure" "data-processor" "Data Processor"
-build_and_push "Dockerfile.telegram-bot.secure" "telegram-agi-bot" "Telegram AGI Bot"
 build_and_push "Dockerfile.playwright-scraper.secure" "playwright-scraper" "Playwright Scraper"
 
 
@@ -163,7 +161,6 @@ echo "  - $DOCKER_USERNAME/goal-manager:secure"
 echo "  - $DOCKER_USERNAME/knowledge-builder:secure"
 echo "  - $DOCKER_USERNAME/wiki-summarizer:secure"
 echo "  - $DOCKER_USERNAME/data-processor:secure"
-echo "  - $DOCKER_USERNAME/telegram-agi-bot:secure"
 echo "  - $DOCKER_USERNAME/playwright-scraper:secure"
 
 print_status "You can now deploy these images to your Kubernetes cluster."
