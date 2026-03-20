@@ -129,9 +129,18 @@ func (api *ConversationalAPI) handleChat(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Write response
+	// Inject the original ChatID into the response so n8n doesn't lose track of it
+	finalResponse := struct {
+		*ConversationResponse
+		ChatID string `json:"chat_id,omitempty"`
+	}{
+		ConversationResponse: response,
+		ChatID:               req.ChatID,
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	json.NewEncoder(w).Encode(finalResponse)
 }
 
 // handleChatStream handles streaming chat requests

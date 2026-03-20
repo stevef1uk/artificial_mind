@@ -131,6 +131,7 @@ type HDNClientInterface interface {
 // ConversationRequest represents a user's conversational input
 type ConversationRequest struct {
 	Message      string            `json:"message"`
+	ChatID       string            `json:"chat_id,omitempty"`
 	SessionID    string            `json:"session_id,omitempty"`
 	Context      map[string]string `json:"context,omitempty"`
 	StreamMode   bool              `json:"stream_mode,omitempty"`
