@@ -1455,8 +1455,10 @@ func (s *APIServer) handleNemoClawResponse(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	key := fmt.Sprintf("hdn:nemoclaw:response:%s", req.ChatID)
-	log.Printf("📥 [API] Received NemoClaw response for chat %s, saving to Redis key: %s", req.ChatID, key)
+	// Strip any 'tg_chat_' prefix for consistency with tools
+	cleanChatID := strings.TrimPrefix(req.ChatID, "tg_chat_")
+	key := fmt.Sprintf("hdn:nemoclaw:response:%s", cleanChatID)
+	log.Printf("📥 [API] Received NemoClaw response for chat %s (clean: %s), saving to Redis key: %s", req.ChatID, cleanChatID, key)
 
 	err := s.redis.Set(r.Context(), key, req.Response, 10*time.Minute).Err()
 	if err != nil {
