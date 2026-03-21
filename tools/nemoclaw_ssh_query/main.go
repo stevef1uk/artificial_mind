@@ -27,8 +27,8 @@ func main() {
 	escapedPrompt := strings.ReplaceAll(*prompt, "'", "'\\''")
 	
 	// Command to execute inside the connect shell
-	// We use the exact command structure the user verified
-	innerCmd := fmt.Sprintf("openclaw agent --agent main --local -m '%s' --session-id hdn-session", escapedPrompt)
+	// We use the exact command structure the user verified, now with session-id test1
+	innerCmd := fmt.Sprintf("openclaw agent --agent main --local -m '%s' --session-id test1", escapedPrompt)
 	
 	// Full shell command to run on the target host
 	sshCmdStr := fmt.Sprintf("echo \"%s\" | nemoclaw my-assistant connect", innerCmd)
