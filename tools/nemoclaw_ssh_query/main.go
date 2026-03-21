@@ -31,7 +31,7 @@ func main() {
 	innerCmd := fmt.Sprintf("openclaw agent --agent main --local -m '%s' --session-id test1", escapedPrompt)
 	
 	// Full shell command to run on the target host
-	sshCmdStr := fmt.Sprintf("echo \"%s\" | nemoclaw my-assistant connect", innerCmd)
+	sshCmdStr := fmt.Sprintf("echo \"%s\" | /home/stevef/.npm-global/bin/nemoclaw my-assistant connect", innerCmd)
 	
 	// Execute via SSH to the Omen machine (192.168.1.53)
 	// We use -T to disable pseudo-terminal allocation for piping
