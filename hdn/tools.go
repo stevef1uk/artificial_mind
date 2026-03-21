@@ -658,6 +658,31 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 			},
 		},
 		{
+			ID:          "nemoclaw_query",
+			Name:        "NemoClaw Strategic Analysis",
+			Description: "Query the powerful NVIDIA Nemoclaw agentic AI for extremely complex reasoning, strategic planning, or high-fidelity synthesis via SSH sandbox.",
+			InputSchema: map[string]string{
+				"prompt": "string",
+			},
+			OutputSchema: map[string]string{
+				"response": "string",
+			},
+			Permissions: []string{
+				"proc:exec",
+				"net:ssh",
+			},
+			SafetyLevel: "medium",
+			CreatedBy:   "system",
+			Exec: &ToolExecSpec{
+				Type: "cmd",
+				Cmd:  "/app/bin/tools/nemoclaw_ssh_query",
+				Args: []string{
+					"-prompt",
+					"{prompt}",
+				},
+			},
+		},
+		{
 			ID:          "tool_weather",
 			Name:        "Weather Fetcher",
 			Description: "Fetch weather for anywhere in Europe using Open-Meteo. Defaults to Col de Corbier (Le Biot) area.",

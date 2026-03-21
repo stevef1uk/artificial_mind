@@ -5618,11 +5618,18 @@ func (s *MCPKnowledgeServer) nemoclawQuery(ctx context.Context, arguments map[st
 		return nil, fmt.Errorf("nemoclaw SSH query tool failed: %v, output: %s", err, string(out))
 	}
 
-	var result interface{}
+	var result map[string]interface{}
 	if err := json.Unmarshal(out, &result); err != nil {
 		// If output is not JSON, return as plain text
 		return map[string]interface{}{"response": string(out)}, nil
 	}
+
+	// If the tool returned an internal error field, return it as a real error
+	// to prevent the LLM from hallucinating/ignoring the failure.
+	if toolErr, ok := result["error"].(string); ok && toolErr != "" {
+		return nil, fmt.Errorf("nemoclaw strategic agent error: %s", toolErr)
+	}
+
 	return result, nil
 }
 
