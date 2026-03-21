@@ -85,6 +85,25 @@ func (ip *IntentParser) ParseIntent(ctx context.Context, message string, context
 		}
 	}
 
+	// Step 0d: Check for strategic/weather patterns (high priority for specific tools)
+	strategicPatterns := []string{
+		`weather`, `temperature`, `forecast`,
+		`nemoclaw`, `nemo claw`, `ask nemoclaw`, `message nemoclaw`,
+	}
+	messageLower := strings.ToLower(strings.TrimSpace(message))
+	for _, p := range strategicPatterns {
+		if strings.Contains(messageLower, p) {
+			log.Printf("🎯 [INTENT-PARSER] Detected strategic keyword '%s' - forcing task intent", p)
+			return &Intent{
+				Type:            "task",
+				Confidence:      0.99,
+				Goal:            "Execute tool for: " + message,
+				OriginalMessage: message,
+				Entities:        map[string]string{"task": message},
+			}, nil
+		}
+	}
+
 	// Step 0b: Check for hardcoded Query Overrides (high priority for questions)
 	queryOverridePatterns := []string{
 		`^what is `, `^what are `, `^what's `, `^what was `, `^what were `,

@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 type Result struct {
@@ -31,13 +33,16 @@ func main() {
 	innerCmd := fmt.Sprintf("openclaw agent --agent main --local -m '%s' --session-id test1", escapedPrompt)
 	
 	// Full shell command to run on the target host
-	sshCmdStr := fmt.Sprintf("echo \"%s\" | /home/stevef/.npm-global/bin/nemoclaw my-assistant connect", innerCmd)
+	// Using printf and an explicit exit to ensure the session closes after the command
+	sshCmdStr := fmt.Sprintf("printf \"%%s\\nexit\\n\" \"%s\" | /home/stevef/.npm-global/bin/nemoclaw my-assistant connect", innerCmd)
 	
-	// Execute via SSH to the Omen machine (192.168.1.53)
-	// We use -T to disable pseudo-terminal allocation for piping
-	cmd := exec.Command("ssh", "-o", "StrictHostKeyChecking=no", "-T", "stevef@192.168.1.53", sshCmdStr)
+	// Execute via SSH to the Omen machine (192.168.1.53) with a 2-minute timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 120 * time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ssh", "-o", "StrictHostKeyChecking=no", "-T", "stevef@192.168.1.53", sshCmdStr)
 	
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	
 	result := Result{}
 	if err != nil {

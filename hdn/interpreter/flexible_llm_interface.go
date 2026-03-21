@@ -89,9 +89,9 @@ func init() {
 }
 
 func Set_tool_generate_image_hints() {
-	SetPromptHints("tool_generate_image", &PromptHintsConfig{
+	SetPromptHints("mcp_generate_image", &PromptHintsConfig{
 		Keywords:      []string{"image", "create image", "generate image", "make image", "picture", "drawing", "illustration", "visual", "photo", "artwork", "change", "modify", "update", "edit", "background", "foreground", "style"},
-		PromptText:    "🖼️ FOR IMAGE TASKS: Use 'tool_generate_image'. 🚨 CRITICAL: If the user asks to 'change', 'modify', or 'update' an image, you MUST look for 'last_vision_path' in the context and provide it as the 'source_image' parameter. Do NOT try to use web search or other tools to modify images.",
+		PromptText:    "🖼️ FOR IMAGE TASKS: Use 'mcp_generate_image'. 🚨 CRITICAL: If the user asks to 'change', 'modify', or 'update' an image, you MUST look for 'last_vision_path' in the context and provide it as the 'source_image' parameter. Do NOT try to use web search or other tools to modify images.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"create image", "generate image", "modify image", "change image", "update image"},
 		RejectText:    true,
@@ -119,9 +119,9 @@ func Set_mcp_research_agent_hints() {
 }
 
 func Set_tool_weather_hints() {
-	SetPromptHints("tool_weather", &PromptHintsConfig{
+	SetPromptHints("mcp_weather", &PromptHintsConfig{
 		Keywords:      []string{"weather", "temperature", "forecast", "forecasts", "rain", "snow", "sun", "sunny", "cloudy", "wind", "windy"},
-		PromptText:    "☁️ FOR WEATHER TASKS: Use 'tool_weather'. Provide accurate 'lat' and 'lon' (default 46.2836, 6.6444 for Col de Corbier, or 46.37, 6.48 for Thonon-les-Bains). 🚨 CRITICAL: DO NOT use weather information from past conversation history or summaries. Always use the fresh data from the tool result. Format the final response with bold headers and emojis.",
+		PromptText:    "☁️ FOR WEATHER TASKS: Use 'mcp_weather'. Provide accurate 'lat' and 'lon' (default 46.2836, 6.6444 for Col de Corbier, or 46.37, 6.48 for Thonon-les-Bains). 🚨 CRITICAL: DO NOT use weather information from past conversation history or summaries. Always use the fresh data from the tool result. Format the final response with bold headers and emojis.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"weather", "forecast"},
 		RejectText:    true,
@@ -704,8 +704,9 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		"tool_docker_list":       {"docker", "container", "image", "list docker", "docker list"},
 		"tool_docker_build":      {"docker build", "build image", "dockerfile", "container build"},
 		"tool_docker_exec":       {"docker exec", "run docker", "execute docker", "container exec"},
-		"tool_generate_image":    {"image", "generate image", "draw", "picture", "create image", "photo", "modify image", "change image", "background"},
-		"tool_weather":           {"weather", "forecast", "temperature", "temp", "rain", "snow", "sunny", "cloudy"},
+		"mcp_generate_image":    {"image", "generate image", "draw", "picture", "create image", "photo", "modify image", "change image", "background"},
+		"mcp_weather":           {"weather", "forecast", "temperature", "temp", "rain", "snow", "sunny", "cloudy"},
+		"mcp_nemoclaw_query":    {"nemoclaw", "nemo claw", "strategy", "reasoning", "complex", "think deep"},
 		"tool_telegram_send":     {"telegram", "message", "send telegram", "notify"},
 		"tool_ssh_executor":      {"ssh", "remote", "server", "ssh command"},
 		"tool_wiki_bootstrapper": {"wiki", "bootstrap", "knowledge base"},

@@ -180,6 +180,12 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 	// Start reasoning trace
 	cl.reasoningTrace.StartTrace(req.SessionID)
 
+	// Detect and log if the message contains an unexpanded n8n expression
+	if strings.Contains(req.Message, "{{ $json.") || strings.Contains(req.Message, "$json.message") {
+		log.Printf("⚠️ [CONVERSATIONAL] WARNING: Detected unexpanded n8n expression in message! Integration layer bug: %s", req.Message)
+		// No early return, let it proceed for diagnostic logs but the user should fix n8n
+	}
+
 	// Step 1: Load conversation context (moved before intent parsing for better context-aware analysis)
 	conversationContext, err := cl.conversationMemory.GetContext(ctx, req.SessionID)
 	if err != nil {
@@ -784,30 +790,27 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		hdnContext["last_vision_description"] = visionDesc
 	}
 
-	// Add original message if available in context for knowledge query extraction
+	// Add original message if available in context for tool extraction
+	originalMessage := ""
 	if origMsg, ok := context["original_message"].(string); ok {
-		hdnContext["original_message"] = origMsg
+		originalMessage = origMsg
+	} else if origMsg, ok := hdnContext["original_message"]; ok {
+		originalMessage = origMsg
 	} else if origMsg, ok := context["message"].(string); ok {
-		hdnContext["original_message"] = origMsg
+		originalMessage = origMsg
+	}
+
+	// CRITICAL: Check for configured tool keywords for ANY intent (early prioritization)
+	if originalMessage != "" {
+		if toolID := interpreter.MatchesConfiguredToolKeywords(originalMessage); toolID != "" {
+			log.Printf("🔧 [CONVERSATIONAL] Detected configured tool request (%s) before intent processing", toolID)
+			return cl.executeConfiguredToolIntent(ctx, toolID, originalMessage, hdnContext, context)
+		}
 	}
 
 	switch action.Type {
 	case "knowledge_query":
-		// CRITICAL: Check if this is an email/calendar request BEFORE rewriting
-		// If so, pass the original message directly to preserve email keywords
-		originalMessage := ""
-		if origMsg, ok := context["original_message"].(string); ok {
-			originalMessage = origMsg
-		} else if origMsg, ok := hdnContext["original_message"]; ok {
-			originalMessage = origMsg
-		}
-
-		// Check if original message matches configured tool keywords
-		if originalMessage != "" {
-			if toolID := interpreter.MatchesConfiguredToolKeywords(originalMessage); toolID != "" {
-				return cl.executeConfiguredToolIntent(ctx, toolID, originalMessage, hdnContext, context)
-			}
-		}
+		// Already checked for tool keywords above, proceeding with knowledge extraction
 
 		if forceKnowledgeQuery {
 			log.Printf("🧠 [CONVERSATIONAL] Force knowledge query enabled (sources=%s) - running combined Neo4j + RAG flow", knowledgeSources)
@@ -1200,22 +1203,7 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		}, nil
 
 	case "task_execution":
-		// CRITICAL: Check if this is an email/calendar request BEFORE executing task
-		// If so, pass the original message directly to preserve email keywords
-		originalMessage := ""
-		if origMsg, ok := context["original_message"].(string); ok {
-			originalMessage = origMsg
-		} else if origMsg, ok := hdnContext["original_message"]; ok {
-			originalMessage = origMsg
-		}
-
-		// Check if original message matches configured tool keywords
-		if originalMessage != "" {
-			if toolID := interpreter.MatchesConfiguredToolKeywords(originalMessage); toolID != "" {
-				log.Printf("🔧 [CONVERSATIONAL] Detected configured tool request (%s) in task_execution", toolID)
-				return cl.executeConfiguredToolIntent(ctx, toolID, originalMessage, hdnContext, context)
-			}
-		}
+		// Already checked for tool keywords above, proceeding with task execution
 
 		// Use HDN's task execution for non-email tasks
 		result, err := cl.hdnClient.ExecuteTask(ctx, action.Goal, hdnContext)
