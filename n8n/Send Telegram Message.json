@@ -1,0 +1,168 @@
+{
+  "name": "Send Telegram Message",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "e0047e0a-f876-4971-a8aa-cdc85eab5b3c",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "374d643f-1d86-4bae-a118-a588080475ff",
+      "name": "Webhook",
+      "webhookId": "e0047e0a-f876-4971-a8aa-cdc85eab5b3c"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.body.chat_id }}",
+        "text": "={{ $json.body.message }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        -128
+      ],
+      "id": "f92d4bc2-48be-4c8f-b33b-c7b5726646d6",
+      "name": "Send a text message",
+      "webhookId": "35baef65-7db1-4574-bfa9-3132b914abbe"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        624,
+        0
+      ],
+      "id": "12487509-95d5-4f70-91a5-2aed74ec939a",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "3b0b59f8-7b25-40b9-9787-83682a016026",
+              "leftValue": "={{ $json.body.prompt }} ",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        208,
+        0
+      ],
+      "id": "0909f5f4-e300-4e2e-805e-c84deaf7674b",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.body.chat_id }}",
+        "text": "= {{ $json.body.message }})",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        432,
+        112
+      ],
+      "id": "e77d1bbd-1f2a-444f-97ed-e76a06cbbf55",
+      "name": "Send a text message1",
+      "webhookId": "35baef65-7db1-4574-bfa9-3132b914abbe"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a text message": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send a text message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a text message1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "a19677a1-0772-48a5-bc42-b69ee9fa0dea",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9be2b924607c6f8a618f5ff6a9d6870856c7e57c3c08d3e81bbf70906a76a754"
+  },
+  "id": "ozed5NvPdY2yacWp",
+  "tags": []
+}

@@ -1,0 +1,146 @@
+{
+  "name": "Inbound email WebHook",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Extract query, type, and limit from webhook body\nconst body = $input.first().json.body || $input.first().json;\nconst query = body.query || '';\nconst dataType = body.type || 'email';\nconst limit = Math.min(Math.max(parseInt(body.limit) || 10, 1), 50); // Clamp between 1-50\n\n// Build filters based on query\nconst filters = {};\nif (query.toLowerCase() === 'unread') {\n  filters.readStatus = 'unread';\n} else if (query.toLowerCase() === 'read') {\n  filters.readStatus = 'read';\n}\n\nreturn {\n  json: {\n    query: query,\n    type: dataType,\n    limit: limit,\n    filters: filters\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        784,
+        -112
+      ],
+      "id": "8318c943-09f9-4be6-b78e-7825d18298bb",
+      "name": "Parse Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Standard format: Return {\"results\": [...]} for all n8n webhooks\nconst allItems = $input.all();\n\nif (!allItems || allItems.length === 0) {\n  return [{ json: { results: [] } }];\n}\n\nconst emails = [];\n\nfunction isValidEmailObject(obj) {\n  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {\n    return false;\n  }\n  if (obj === null || obj === undefined) {\n    return false;\n  }\n  return true;\n}\n\nfunction addEmail(emailObj) {\n  if (isValidEmailObject(emailObj)) {\n    const cleanEmail = {};\n    for (const key in emailObj) {\n      if (emailObj.hasOwnProperty(key)) {\n        const value = emailObj[key];\n        if (value !== null && value !== undefined) {\n          cleanEmail[key] = value;\n        }\n      }\n    }\n    if (Object.keys(cleanEmail).length > 0) {\n      emails.push(cleanEmail);\n    }\n  }\n}\n\nfor (let i = 0; i < allItems.length; i++) {\n  const item = allItems[i];\n  \n  if (!item || typeof item !== 'object' || !item.json) {\n    continue;\n  }\n  \n  const itemData = item.json;\n  \n  if (Array.isArray(itemData)) {\n    for (const email of itemData) {\n      addEmail(email);\n    }\n  } else if (isValidEmailObject(itemData)) {\n    if (itemData.id || itemData.subject || itemData.Subject || itemData.from || itemData.From) {\n      addEmail(itemData);\n    } else if (itemData.json) {\n      if (Array.isArray(itemData.json)) {\n        for (const email of itemData.json) {\n          addEmail(email);\n        }\n      } else if (isValidEmailObject(itemData.json)) {\n        addEmail(itemData.json);\n      }\n    }\n  }\n}\n\n// Return in standard format: {\"results\": [...]}\nreturn [{ json: { results: emails } }];\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1232,
+        -112
+      ],
+      "id": "028f4f96-2eff-4510-a756-3533eb569b3d",
+      "name": "Format as Array"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "6f632b61-6b01-4910-991d-3a378b1e653a",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        560,
+        -112
+      ],
+      "id": "6121aea0-9332-4c03-bebe-9fd9a461de73",
+      "name": "Webhook1",
+      "webhookId": "6f632b61-6b01-4910-991d-3a378b1e653a"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "simple": false,
+        "filters": {
+          "readStatus": "={{ $json.filters.readStatus || 'unread' }}"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1008,
+        -112
+      ],
+      "id": "44fc82c3-6e86-4d12-8546-5c27396dced6",
+      "name": "Get many messages1",
+      "webhookId": "742144ad-3f9e-4f22-a9c5-80f954ce3e44",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1456,
+        -112
+      ],
+      "id": "9a765873-d7cd-42e3-acee-76db9b6200cb",
+      "name": "Respond to Webhook1",
+      "alwaysOutputData": true
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Parse Request": {
+      "main": [
+        [
+          {
+            "node": "Get many messages1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format as Array": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook1": {
+      "main": [
+        [
+          {
+            "node": "Parse Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many messages1": {
+      "main": [
+        [
+          {
+            "node": "Format as Array",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "b9703ba7-8955-4dcd-8e17-6a5a00e1d60d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9be2b924607c6f8a618f5ff6a9d6870856c7e57c3c08d3e81bbf70906a76a754"
+  },
+  "id": "u_pAyuIWwPDc3ahW-RF_y",
+  "tags": []
+}

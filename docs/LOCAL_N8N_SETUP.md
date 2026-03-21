@@ -2,6 +2,16 @@
 
 For local testing of agents that use n8n webhooks, you need to set the `N8N_WEBHOOK_URL` environment variable.
 
+## Importing Exported Workflows
+
+If you have a fresh local n8n instance, you can easily load the pre-configured workflows included in this project:
+
+1. Locate the `.json` workspace files inside the `n8n/` directory (e.g., `KnowledgeAgent.json`, `WebHookKnowledgeAgent.json`).
+2. In your local n8n UI, click on the **...** menu in the top-right corner.
+3. Select **Import from File** and upload the JSON files to load the integrations.
+4. Remember to replace configuration nodes such as credentials with your local setup.
+
+
 ## Option 1: Port-forward from Kubernetes (Recommended)
 
 If you have n8n running in Kubernetes:

@@ -152,12 +152,27 @@ skills:
 3. Phase 3: Add support for more skill types
 4. Phase 4: Migrate remaining hardcoded tools (optional)
 
+## Exported n8n Workflows
+
+Pre-configured n8n workflows are available in the `n8n/` directory of this repository for easier setup. These JSON files can be imported into your n8n workspace to rapidly configure intelligent integrations:
+
+- `AI to My Telegram Channel.json`: Workflow for AI to post messages to a Telegram channel.
+- `Inbound email WebHook.json`: Webhook workflow to capture inbound emails.
+- `KnowledgeAgent.json`: Core workflow for the Knowledge Agent implementation.
+- `Send Telegram Message.json`: Workflow enabling standard message dispatch to a Telegram user.
+- `Telegram Inbound Gateway.json`: Gateway for receiving and processing inbound Telegram messages.
+- `WebHookKnowledgeAgent.json`: Webhook-triggered Knowledge Agent workflow.
+
+### Importing Workflows
+
+1. Open your n8n workspace UI.
+2. In the top-right corner of the workflow canvas, click on the **...** (options) menu.
+3. Select **Import from File**.
+4. Choose the desired `.json` workflow file from the `n8n/` directory.
+5. Review the required credentials and configure variable assignments (such as API keys or webhook secrets) before activating the workflow.
+
 ## Next Steps
 
-1. Create configuration file structure
-2. Implement generic n8n webhook handler
-3. Create dynamic skill registry
-4. Update MCP knowledge server to use registry
-5. Add configuration validation
-6. Add documentation and examples
+1. Add configuration validation
+2. Add more documentation and examples covering additional skill types and workflow parameters
 

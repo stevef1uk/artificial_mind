@@ -1,0 +1,88 @@
+{
+  "name": "AI to My Telegram Channel",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "154932fd-9fbb-4eec-94a1-4324ccde5e4c",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "41c22aea-efa2-440c-8995-88abce36786a",
+      "name": "Webhook",
+      "webhookId": "154932fd-9fbb-4eec-94a1-4324ccde5e4c"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.body.chat_id }}",
+        "text": "={{ $json.body.message }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "511922e9-229a-4e8b-937e-8e3ae67d5522",
+      "name": "Send a text message",
+      "webhookId": "37074552-1eca-4930-bfb1-1d69b68ef75d"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        416,
+        0
+      ],
+      "id": "c53d41a1-40cc-4dbb-972a-116385deca88",
+      "name": "Respond to Webhook"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a text message": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "6c23cb1a-cee9-4861-9b5f-7a4adfc21445",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9be2b924607c6f8a618f5ff6a9d6870856c7e57c3c08d3e81bbf70906a76a754"
+  },
+  "id": "r41hs10Vv0WuVq23",
+  "tags": []
+}

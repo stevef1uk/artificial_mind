@@ -1,0 +1,122 @@
+{
+  "name": "WebHookKnowledgeAgent",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "u1iMzuai0rAiUCcS",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/u1iMzuai0rAiUCcS",
+          "cachedResultName": "KnowledgeAgent"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "chatInput": "={{ $json.body.topic  }}"
+          },
+          "matchingColumns": [
+            "chatInput"
+          ],
+          "schema": [
+            {
+              "id": "chatInput",
+              "displayName": "chatInput",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        80,
+        208
+      ],
+      "id": "5e8b051b-1644-46bd-a1bd-7436ef163a32",
+      "name": "Call 'KnowledgeAgent'"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "40a534f4-2041-4eed-b317-738ad99b5cb0",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -144,
+        176
+      ],
+      "id": "5acc3d06-297d-4258-99a9-183d37c49a49",
+      "name": "Webhook",
+      "webhookId": "40a534f4-2041-4eed-b317-738ad99b5cb0"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        288,
+        208
+      ],
+      "id": "7809e1ab-2896-4fa9-98b7-867f6c061368",
+      "name": "Respond to Webhook",
+      "alwaysOutputData": true
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Call 'KnowledgeAgent'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'KnowledgeAgent'": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "5c5afdfe-5094-40ef-a96e-0c8b716f60cf",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9be2b924607c6f8a618f5ff6a9d6870856c7e57c3c08d3e81bbf70906a76a754"
+  },
+  "id": "VSBR2ayMHrfk4Sus",
+  "tags": []
+}
