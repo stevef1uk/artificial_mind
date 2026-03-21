@@ -5577,99 +5577,53 @@ func (s *MCPKnowledgeServer) nemoclawQuery(ctx context.Context, arguments map[st
 		return nil, fmt.Errorf("prompt, topic, query, or message required (found: %v)", arguments)
 	}
 
-	// Detect and filter out placeholders like "your_chat_id_here", "YOUR_CHAT_ID", or "None"
-	chatID, _ := arguments["chat_id"].(string)
-	lowerID := strings.ToLower(chatID)
-	if chatID == "" || strings.Contains(strings.ToLower(chatID), "your_chat_id") ||
-		strings.Contains(strings.ToUpper(chatID), "YOUR_CHAT_ID") ||
-		lowerID == "none" || lowerID == "null" || lowerID == "undefined" ||
-		lowerID == "nomeclaw_bot" || lowerID == "nemoclaw_bot" {
-		chatID = os.Getenv("TELEGRAM_CHAT_ID")
-	}
-	if chatID == "" || strings.Contains(strings.ToLower(chatID), "your_") || strings.ToLower(chatID) == "none" {
-		chatID = "8271300679" // Fallback to user's known ID
-	}
-
 	// Final safety: strip any mention of placeholders from the prompt itself to prevent LLM loops
 	prompt = strings.ReplaceAll(prompt, "your_chat_id_here", "")
 	prompt = strings.ReplaceAll(prompt, "YOUR_CHAT_ID", "")
 	prompt = strings.TrimSpace(prompt)
 
-	// Webhook URL from environment or fallback
-	webhookURL := os.Getenv("NEMOCLAW_WEBHOOK_URL")
-	if webhookURL == "" {
-		webhookURL = "https://k3s.sjfisher.com/webhook/a76df558-b755-4302-a274-92310d03ba7d"
+	// Call the local binary tool via SSH
+	projectRoot := os.Getenv("AGI_PROJECT_ROOT")
+	if projectRoot == "" {
+		if wd, err := os.Getwd(); err == nil {
+			projectRoot = wd
+		}
 	}
 
-	log.Printf("🤖 [NEMOCLAW] Triggering n8n webhook for chat %s: %s", chatID, prompt)
+	binPath := ""
+	candidates := []string{
+		"/app/bin/tools/nemoclaw_ssh_query",
+		filepath.Join(projectRoot, "bin", "tools", "nemoclaw_ssh_query"),
+		"bin/tools/nemoclaw_ssh_query",
+	}
 
-	// Call the n8n webhook
-	body, _ := json.Marshal(map[string]string{
-		"prompt":  prompt,
-		"chat_id": chatID,
-	})
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			binPath = c
+			break
+		}
+	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(body))
+	// Fallback path specifically for the cluster deployment
+	if binPath == "" {
+		binPath = "/app/bin/tools/nemoclaw_ssh_query"
+	}
+
+	log.Printf("🤖 [NEMOCLAW] Proxying strategic query to NemoClaw via SSH: %s", prompt)
+
+	// Execute the tool and wait for response (can take up to 2-3 minutes)
+	cmd := exec.CommandContext(ctx, binPath, "-prompt", prompt)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create webhook request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	// Add Webhook Secret if available, with consistent base64 encoding if it's plain text
-	if secret := os.Getenv("N8N_WEBHOOK_SECRET"); secret != "" {
-		secret = strings.TrimSpace(secret)
-		secretToSend := secret
-		// Use the same logic as N8NWebhookHandler for consistency
-		if !isBase64Like(secret) {
-			secretToSend = base64.StdEncoding.EncodeToString([]byte(secret))
-			log.Printf("🔐 [NEMOCLAW] Base64 encoding plain text secret for n8n webhook")
-		}
-		req.Header.Set("X-Webhook-Secret", secretToSend)
+		return nil, fmt.Errorf("nemoclaw SSH query tool failed: %v, output: %s", err, string(out))
 	}
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to call n8n webhook: %v", err)
+	var result interface{}
+	if err := json.Unmarshal(out, &result); err != nil {
+		// If output is not JSON, return as plain text
+		return map[string]interface{}{"response": string(out)}, nil
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("n8n webhook returned error status: %d", resp.StatusCode)
-	}
-
-	// Wait for response in Redis
-	// ENSURE CONSISTENCY: Strip any 'tg_chat_' prefix because the telegram-bot uses raw numeric IDs in Redis keys
-	redisChatID := strings.TrimPrefix(chatID, "tg_chat_")
-	key := fmt.Sprintf("hdn:nemoclaw:response:%s", redisChatID)
-	log.Printf("⏳ [NEMOCLAW] Waiting for response in Redis: %s", key)
-
-	// Poll Redis for up to 300 seconds (5 minutes)
-	timeout := 300 * time.Second
-	pollInterval := 2 * time.Second
-	deadline := time.Now().Add(timeout)
-
-	for time.Now().Before(deadline) {
-		val, err := s.redis.Get(ctx, key).Result()
-		if err == nil && val != "" {
-			log.Printf("✅ [NEMOCLAW] Received response for chat %s (%d chars)", chatID, len(val))
-			// Clear the key after retrieval
-			s.redis.Del(ctx, key)
-			return map[string]interface{}{
-				"response": val,
-				"status":   "completed",
-				"chat_id":  chatID,
-			}, nil
-		}
-
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(pollInterval):
-			// continue polling
-		}
-	}
-
-	return nil, fmt.Errorf("timeout waiting for NemoClaw response after %v", timeout)
+	return result, nil
 }
 
 // researchAgentQuery handles autonomous research queries via n8n webhook

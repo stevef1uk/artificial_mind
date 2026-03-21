@@ -296,4 +296,30 @@
       "cmd": "${RESEARCH_WEBHOOK_URL}"
     }
   }
+  ,
+  {
+    "id": "nemoclaw_query",
+    "name": "NemoClaw Strategic Analysis",
+    "description": "Query the powerful NVIDIA Nemoclaw agentic AI for extremely complex reasoning, strategic planning, or high-fidelity synthesis via SSH sandbox.",
+    "input_schema": {
+      "prompt": "string"
+    },
+    "output_schema": {
+      "response": "string"
+    },
+    "permissions": [
+      "proc:exec",
+      "net:ssh"
+    ],
+    "safety_level": "medium",
+    "created_by": "system",
+    "exec": {
+      "type": "cmd",
+      "cmd": "/app/bin/tools/nemoclaw_ssh_query",
+      "args": [
+        "-prompt",
+        "{prompt}"
+      ]
+    }
+  }
 ]
