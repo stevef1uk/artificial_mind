@@ -1909,6 +1909,11 @@ func (s *APIServer) submitToDroneCI(code, language, image string) (map[string]in
 
 // fallbackSSHExecution executes code on RPI host via SSH
 func (s *APIServer) fallbackSSHExecution(code, language, image string, env map[string]string) (map[string]interface{}, error) {
+	return s.fallbackSSHExecutionWithAuth(code, language, image, "", "", env)
+}
+
+// fallbackSSHExecutionWithAuth executes code on RPI host via SSH with optional host/user override
+func (s *APIServer) fallbackSSHExecutionWithAuth(code, language, image, host, user string, env map[string]string) (map[string]interface{}, error) {
 	log.Printf("🔧 [SSH-FALLBACK] Starting SSH fallback execution")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second) // 10 minutes for code validation
@@ -1917,12 +1922,18 @@ func (s *APIServer) fallbackSSHExecution(code, language, image string, env map[s
 	// Respect quiet mode to suppress noisy environment dumps produced by 'set' in some scripts
 	quietMode := strings.TrimSpace(os.Getenv("QUIET")) == "1"
 
-	// Get RPI host and user from environment or use default
-	rpiHost := os.Getenv("RPI_HOST")
+	// Get RPI host and user from environment or use override
+	rpiHost := host
+	if rpiHost == "" {
+		rpiHost = os.Getenv("RPI_HOST")
+	}
 	if rpiHost == "" {
 		rpiHost = "192.168.1.60"
 	}
-	rpiUser := os.Getenv("RPI_USER")
+	rpiUser := user
+	if rpiUser == "" {
+		rpiUser = os.Getenv("RPI_USER")
+	}
 	if rpiUser == "" {
 		rpiUser = "user"
 	}
@@ -2632,13 +2643,22 @@ if __name__ == "__main__":
     main()
 `, strings.ReplaceAll(prompt, "\"", "\\\""), strings.ReplaceAll(sourceImage, "\"", "\\\""), genHost, genPort)
 
-		res, err := s.fallbackSSHExecution(pyCode, "python", "", nil)
+		res, err := s.fallbackSSHExecutionWithAuth(pyCode, "python", "", os.Getenv("IMAGING_HOST"), os.Getenv("IMAGING_USER"), nil)
 		if err != nil {
 			return nil, err
 		}
 		outStr, _ := res["output"].(string)
 		var scriptRes map[string]interface{}
-		if err := json.Unmarshal([]byte(strings.TrimSpace(outStr)), &scriptRes); err != nil {
+
+		// Robust JSON extraction: Find the first '{' and last '}' to ignore terminal/environment noise
+		jsonStart := strings.Index(outStr, "{")
+		jsonEnd := strings.LastIndex(outStr, "}")
+		parseStr := outStr
+		if jsonStart >= 0 && jsonEnd > jsonStart {
+			parseStr = outStr[jsonStart : jsonEnd+1]
+		}
+
+		if err := json.Unmarshal([]byte(strings.TrimSpace(parseStr)), &scriptRes); err != nil {
 			return nil, fmt.Errorf("failed to parse RPI response: %s", outStr)
 		}
 		return scriptRes, nil
@@ -2677,7 +2697,7 @@ if __name__ == "__main__":
     main()
 `
 
-	res, err := s.fallbackSSHExecution(displayScript, "python", "", map[string]string{
+	res, err := s.fallbackSSHExecutionWithAuth(displayScript, "python", "", os.Getenv("IMAGING_HOST"), os.Getenv("IMAGING_USER"), map[string]string{
 		"IMG_BASE64": imgBase64,
 	})
 	if err != nil {
@@ -2686,9 +2706,23 @@ if __name__ == "__main__":
 
 	outStr, _ := res["output"].(string)
 	var displayRes map[string]interface{}
-	json.Unmarshal([]byte(strings.TrimSpace(outStr)), &displayRes)
+	
+	// Robust JSON extraction
+	jsonStart := strings.Index(outStr, "{")
+	jsonEnd := strings.LastIndex(outStr, "}")
+	parseStr := outStr
+	if jsonStart >= 0 && jsonEnd > jsonStart {
+		parseStr = outStr[jsonStart : jsonEnd+1]
+	}
+
+	if err := json.Unmarshal([]byte(strings.TrimSpace(parseStr)), &displayRes); err != nil {
+		log.Printf("⚠️ [HDN] Failed to parse display RPI response: %s", outStr)
+	}
 
 	// Add seed back to response
+	if displayRes == nil {
+		displayRes = make(map[string]interface{})
+	}
 	displayRes["seed"] = seed
 	return displayRes, nil
 }

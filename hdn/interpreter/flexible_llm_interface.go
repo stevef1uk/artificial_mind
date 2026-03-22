@@ -451,8 +451,8 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 		}
 
 		if hasTool && hints.ForceToolCall {
-			// Reject text responses if configured
-			if hints.RejectText && parsedResponse.Type == ResponseTypeText {
+			// Reject text AND code responses if configured for a specific tool
+			if hints.RejectText && (parsedResponse.Type == ResponseTypeText || parsedResponse.Type == ResponseTypeCodeArtifact) {
 				// Force tool call — extract parameters from input where possible
 				params := map[string]interface{}{}
 				if actualToolID == "tool_generate_image" {
@@ -726,7 +726,7 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 
 		matched := false
 		for toolID, keywords := range toolKeywords {
-			if tool.ID == toolID {
+			if MatchToolIDs(tool.ID, toolID) {
 				for _, keyword := range keywords {
 					if strings.Contains(inputLower, keyword) {
 						relevant = append(relevant, tool)
