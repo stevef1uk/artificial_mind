@@ -447,6 +447,32 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 			},
 		},
 		{
+			Name:        "picoclaw_query",
+			Description: "[chat-only] Query the PicoClaw agentic AI (@picoclaw_alps_bot) via the Telegram channel Gateway. This tool uses bi-directional Telegram communication to send your prompt and wait for a response (can take 30-180 seconds).",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"prompt": map[string]interface{}{
+						"type":        "string",
+						"description": "The complex strategic prompt or question for the PicoClaw agent (also accepts 'query' or 'message')",
+					},
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "Alternative to 'prompt' for natural language questions",
+					},
+					"message": map[string]interface{}{
+						"type":        "string",
+						"description": "Alternative to 'prompt' for conversational greetings",
+					},
+					"chat_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional: override the target Telegram chat/channel ID (default is the system-configured channel)",
+					},
+				},
+				"required": []string{},
+			},
+		},
+		{
 			Name:        "nemoclaw_query",
 			Description: "[chat-only] Query the powerful NVIDIA Nemoclaw agentic AI (@nemoclaw_alps2_bot) via Telegram. Use this for extremely complex reasoning, strategic planning, or high-fidelity synthesis. This tool sends your prompt to the Nemoclaw bot and waits for its high-quality reply (can take 30-180 seconds).",
 			InputSchema: map[string]interface{}{
@@ -781,6 +807,8 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		result, err = s.deepResearch(ctx, arguments)
 	case "research_agent":
 		result, err = s.researchAgentQuery(ctx, arguments)
+	case "picoclaw_query":
+		result, err = s.picoclawQuery(ctx, arguments)
 	case "nemoclaw_query":
 		result, err = s.nemoclawQuery(ctx, arguments)
 	case "get_scrape_status":
@@ -5535,6 +5563,70 @@ func (s *MCPKnowledgeServer) buildExtractionSnapshot(html string, goal string) s
 		snippet = snippet[:20000] + "...(truncated)"
 	}
 	return snippet
+}
+
+// picoclawQuery handles reasoning queries to the PicoClaw agentic AI via direct HTTP API.
+// It POSTs the prompt to the PicoClaw gateway at 192.168.1.60:18790/chat and returns the response.
+func (s *MCPKnowledgeServer) picoclawQuery(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
+	// Try multiple potential parameter names for the prompt
+	prompt, _ := arguments["prompt"].(string)
+	if prompt == "" {
+		topic, _ := arguments["topic"].(string)
+		prompt = topic
+	}
+	if prompt == "" {
+		query, _ := arguments["query"].(string)
+		prompt = query
+	}
+
+	if prompt == "" {
+		return nil, fmt.Errorf("prompt or query required")
+	}
+
+	// 1. Prepare Request
+	// The PicoClaw gateway URL should be reachable at 192.168.1.60:18790/chat
+	chatURL := "http://192.168.1.60:18790/chat"
+	
+	payload, _ := json.Marshal(map[string]string{
+		"message": prompt,
+	})
+
+	log.Printf("🤖 [PICOCLAW] Sending direct HTTP chat request to 1.60:18790")
+
+	// 2. Execute POST with generous timeout
+	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", chatURL, bytes.NewBuffer(payload))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("direct HTTP call failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("picoclaw HTTP API returned error status: %d", resp.StatusCode)
+	}
+
+	// 3. Decode Response
+	var result struct {
+		Response string `json:"response"`
+		Error    string `json:"error,omitempty"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	if result.Error != "" {
+		return nil, fmt.Errorf("picoclaw agent error: %s", result.Error)
+	}
+
+	return map[string]interface{}{"response": result.Response}, nil
 }
 
 // nemoclawQuery handles strategic queries to the Nemoclaw agentic AI via n8n webhook and waits for a response in Redis

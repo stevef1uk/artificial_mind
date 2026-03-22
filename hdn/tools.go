@@ -658,6 +658,31 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 			},
 		},
 		{
+			ID:          "picoclaw_query",
+			Name:        "PicoClaw Telegram Query",
+			Description: "Query the PicoClaw agentic AI (@picoclaw_alps_bot) via the Telegram Gateway for autonomous reasoning and multi-step tasks.",
+			InputSchema: map[string]string{
+				"prompt": "string",
+			},
+			OutputSchema: map[string]string{
+				"response": "string",
+			},
+			Permissions: []string{
+				"proc:exec",
+				"net:telegram",
+			},
+			SafetyLevel: "medium",
+			CreatedBy:   "system",
+			Exec: &ToolExecSpec{
+				Type: "cmd",
+				Cmd:  "/app/bin/tools/picoclaw_telegram_query",
+				Args: []string{
+					"-prompt",
+					"{prompt}",
+				},
+			},
+		},
+		{
 			ID:          "nemoclaw_query",
 			Name:        "NemoClaw Strategic Analysis",
 			Description: "Query the powerful NVIDIA Nemoclaw agentic AI for extremely complex reasoning, strategic planning, or high-fidelity synthesis via SSH sandbox.",

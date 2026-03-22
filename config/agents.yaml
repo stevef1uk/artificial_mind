@@ -256,3 +256,23 @@ agents:
         thinking_mode: true
         use_memory: true
         prefer_tools: true
+
+    - id: picoclaw_reasoning_agent
+      name: PicoClaw Reasoning Agent
+      description: Autonomous reasoning and tool-execution agent powered by PicoClaw.
+      role: Autonomous Reasoning Specialist
+      goal: Execute local tasks, perform autonomous reasoning, and solve problems using specialized local tools via PicoClaw.
+      backstory: |
+        You are the autonomous reasoning layer of the Artificial Mind. You use the specialized PicoClaw
+        agent via Telegram to handle tasks that require local environment interaction, complex tool use,
+        and multi-step reasoning.
+      tools:
+        - mcp_picoclaw_query
+        - mcp_deep_research
+      capabilities:
+        max_iterations: 10
+        verbose: true
+      behavior:
+        thinking_mode: true
+        use_memory: true
+        prefer_tools: true
