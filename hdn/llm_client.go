@@ -540,7 +540,7 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 			"stream": false,
 			"options": map[string]interface{}{
 				"num_predict": 4000,  // Max tokens to generate
-				"num_ctx":     32768, // Increase context window from default 4096
+				"num_ctx":     8192,  // Reduced for 14B model to fit in 12GB VRAM
 			},
 		}
 		jsonData, err = json.Marshal(ollamaRequest)
