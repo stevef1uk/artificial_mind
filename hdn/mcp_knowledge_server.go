@@ -447,23 +447,29 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 			},
 		},
 		{
-			Name: "picoclaw_query",
-			Description: "[chat-only] Reasoning query to the PicoClaw agentic AI on Raspberry Pi (192.168.1.60). " +
-				"Use this for ANY tasks requiring RPI hardware access: CPU temperature, internal sensors, " +
-				"local GPIO, or hardware monitoring. DO NOT use weather tools for this.",
+			Name:        "picoclaw_query",
+			Description: "[chat-only] Query the PicoClaw agentic AI (@picoclaw_alps_bot) via the Telegram channel Gateway. This tool uses bi-directional Telegram communication to send your prompt and wait for a response (can take 30-180 seconds).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"prompt": map[string]interface{}{
 						"type":        "string",
-						"description": "Specific task for PicoClaw (e.g. 'check cpu temp on rpi')",
+						"description": "The complex strategic prompt or question for the PicoClaw agent (also accepts 'query' or 'message')",
+					},
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "Alternative to 'prompt' for natural language questions",
+					},
+					"message": map[string]interface{}{
+						"type":        "string",
+						"description": "Alternative to 'prompt' for conversational greetings",
 					},
 					"chat_id": map[string]interface{}{
 						"type":        "string",
-						"description": "Optional Telegram chat ID (e.g. -5274005272)",
+						"description": "Optional: override the target Telegram chat/channel ID (default is the system-configured channel)",
 					},
 				},
-				"required": []string{"prompt"},
+				"required": []string{},
 			},
 		},
 		{
@@ -5559,10 +5565,9 @@ func (s *MCPKnowledgeServer) buildExtractionSnapshot(html string, goal string) s
 	return snippet
 }
 
-// picoclawQuery handles reasoning queries to the PicoClaw agentic AI via direct HTTP API.
-// It POSTs the prompt to the PicoClaw gateway at 192.168.1.60:18790/chat and returns the response.
+// picoclawQuery handles reasoning queries to the PicoClaw agentic AI via Telegram
 func (s *MCPKnowledgeServer) picoclawQuery(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
-	// Try multiple potential parameter names for the prompt
+	// Try multiple potential parameter names for the prompt/topic
 	prompt, _ := arguments["prompt"].(string)
 	if prompt == "" {
 		topic, _ := arguments["topic"].(string)
@@ -5572,55 +5577,90 @@ func (s *MCPKnowledgeServer) picoclawQuery(ctx context.Context, arguments map[st
 		query, _ := arguments["query"].(string)
 		prompt = query
 	}
-
 	if prompt == "" {
-		return nil, fmt.Errorf("prompt or query required")
+		text, _ := arguments["text"].(string)
+		prompt = text
+	}
+	if prompt == "" {
+		msg, _ := arguments["message"].(string)
+		prompt = msg
 	}
 
-	// 1. Prepare Request
-	// The PicoClaw gateway URL should be reachable at 192.168.1.60:18790/chat
-	chatURL := "http://192.168.1.60:18790/chat"
-	
-	payload, _ := json.Marshal(map[string]string{
-		"message": prompt,
-	})
+	if prompt == "" {
+		// Final fallback for unknown parameters
+		for k, v := range arguments {
+			if s, ok := v.(string); ok && s != "" && k != "chat_id" {
+				prompt = s
+				log.Printf("📥 [PICOCLAW] Auto-detected '%s' as prompt from unknown param: %s", prompt, k)
+				break
+			}
+		}
+	}
 
-	log.Printf("🤖 [PICOCLAW] Sending direct HTTP chat request to 1.60:18790")
+	if prompt == "" {
+		return nil, fmt.Errorf("prompt, topic, query, or message required (found: %v)", arguments)
+	}
 
-	// 2. Execute POST with generous timeout
-	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
-	defer cancel()
+	// Safety: strip any mention of placeholders
+	prompt = strings.ReplaceAll(prompt, "your_chat_id_here", "")
+	prompt = strings.ReplaceAll(prompt, "YOUR_CHAT_ID", "")
+	prompt = strings.TrimSpace(prompt)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", chatURL, bytes.NewBuffer(payload))
+	// Optional override for the target Telegram chat/channel
+	chatID, _ := arguments["chat_id"].(string)
+
+	// Webhook URL from environment, with hardcoded fallback
+	webhookURL := os.Getenv("PICOCLAW_WEBHOOK_URL")
+	if webhookURL == "" {
+		webhookURL = "https://k3s.sjfisher.com/webhook/a76df558-b755-4302-a274-92310d03ba7d"
+	}
+
+	log.Printf("🤖 [PICOCLAW] Sending query to PicoClaw via n8n Telegram gateway: %s", prompt)
+
+	payload := map[string]interface{}{
+		"prompt": prompt,
+	}
+	if chatID != "" {
+		payload["chat_id"] = chatID
+	}
+
+	body, _ := json.Marshal(payload)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(body))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %v", err)
+		return nil, fmt.Errorf("failed to create picoclaw webhook request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	// Add Webhook Secret if available
+	if secret := os.Getenv("N8N_WEBHOOK_SECRET"); secret != "" {
+		secret = strings.TrimSpace(secret)
+		secretToSend := secret
+		if !isBase64Like(secret) {
+			secretToSend = base64.StdEncoding.EncodeToString([]byte(secret))
+			log.Printf("🔐 [PICOCLAW] Base64 encoding plain text secret for n8n webhook")
+		}
+		req.Header.Set("X-Webhook-Secret", secretToSend)
+	}
+
+	// Use a long-lived HTTP client — PicoClaw can take several minutes to reason and reply via Telegram
+	client := &http.Client{Timeout: 240 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("direct HTTP call failed: %v", err)
+		return nil, fmt.Errorf("failed to call picoclaw webhook: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("picoclaw HTTP API returned error status: %d", resp.StatusCode)
+		return nil, fmt.Errorf("picoclaw n8n webhook returned error status: %d", resp.StatusCode)
 	}
 
-	// 3. Decode Response
-	var result struct {
-		Response string `json:"response"`
-		Error    string `json:"error,omitempty"`
-	}
+	var result interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %v", err)
+		return nil, fmt.Errorf("failed to decode picoclaw response: %v", err)
 	}
 
-	if result.Error != "" {
-		return nil, fmt.Errorf("picoclaw agent error: %s", result.Error)
-	}
-
-	return map[string]interface{}{"response": result.Response}, nil
+	return result, nil
 }
 
 // nemoclawQuery handles strategic queries to the Nemoclaw agentic AI via n8n webhook and waits for a response in Redis

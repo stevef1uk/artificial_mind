@@ -120,7 +120,7 @@ func Set_mcp_research_agent_hints() {
 
 func Set_tool_weather_hints() {
 	SetPromptHints("mcp_weather", &PromptHintsConfig{
-		Keywords:      []string{"weather", "temperature", "forecast", "forecasts", "rain", "snow", "sun", "sunny", "cloudy", "wind", "windy"},
+		Keywords:      []string{"weather", "forecast", "forecasts", "rain", "snow", "sun", "sunny", "cloudy", "wind", "windy"},
 		PromptText:    "☁️ FOR WEATHER TASKS: Use 'mcp_weather'. Provide accurate 'lat' and 'lon' (default 46.2836, 6.6444 for Col de Corbier, or 46.37, 6.48 for Thonon-les-Bains). 🚨 CRITICAL: DO NOT use weather information from past conversation history or summaries. Always use the fresh data from the tool result. Format the final response with bold headers and emojis.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"weather", "forecast"},
@@ -711,7 +711,7 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		"tool_docker_build":      {"docker build", "build image", "dockerfile", "container build"},
 		"tool_docker_exec":       {"docker exec", "run docker", "execute docker", "container exec"},
 		"mcp_generate_image":    {"image", "generate image", "draw", "picture", "create image", "photo", "modify image", "change image", "background"},
-		"mcp_weather":           {"weather", "forecast", "temperature", "temp", "rain", "snow", "sunny", "cloudy"},
+		"mcp_weather":           {"weather", "forecast", "rain", "snow", "sunny", "cloudy"},
 		"mcp_nemoclaw_query":    {"nemoclaw", "nemo claw", "strategy", "reasoning", "complex", "think deep"},
 		"tool_telegram_send":     {"telegram", "message", "send telegram", "notify"},
 		"tool_ssh_executor":      {"ssh", "remote", "server", "ssh command"},
