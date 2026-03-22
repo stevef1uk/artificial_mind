@@ -169,6 +169,20 @@ func (nlg *NLGGenerator) generateKnowledgeResponse(ctx context.Context, req *NLG
 
 // generateTaskResponse generates a response for task execution
 func (nlg *NLGGenerator) generateTaskResponse(ctx context.Context, req *NLGRequest) (*NLGResponse, error) {
+	// For image generation, skip LLM summarization entirely — just confirm briefly.
+	// The image is already displayed on-screen; we don't want a verbose description replacing it.
+	if req.Action != nil && isImageGenerationAction(req.Action.Goal, req.UserMessage) {
+		return &NLGResponse{
+			Text:       "✅ Image generated.",
+			Confidence: 0.95,
+			Metadata: map[string]interface{}{
+				"response_type": "task",
+				"intent_type":   req.Intent.Type,
+				"image_skip":    true,
+			},
+		}, nil
+	}
+
 	// For scrape results with extracted content, present directly without LLM summarization
 	if extractedContent := nlg.getExtractedScrapeContent(req); extractedContent != "" {
 		log.Printf("📤 [NLG] Returning extracted scrape content directly (%d chars), skipping LLM summarization", len(extractedContent))
@@ -195,6 +209,18 @@ func (nlg *NLGGenerator) generateTaskResponse(ctx context.Context, req *NLGReque
 	}
 
 	return nlg.validateAndWrapResponse(response, "task", req.Intent.Type, 0.7), nil
+}
+
+// isImageGenerationAction returns true when the action goal / user message relates to image generation.
+func isImageGenerationAction(goal, userMessage string) bool {
+	lower := strings.ToLower(goal + " " + userMessage)
+	keywords := []string{"generate_image", "generate image", "create image", "create an image", "make image", "draw image", "image generation"}
+	for _, kw := range keywords {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 // getExtractedScrapeContent checks if this task result is a scrape result with extracted_content
