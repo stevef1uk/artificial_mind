@@ -401,9 +401,18 @@ func fetchSummary(ctx context.Context, httpClient *http.Client, title string) (*
 }
 
 func fetchRelated(ctx context.Context, httpClient *http.Client, title string) ([]string, error) {
-	url := fmt.Sprintf("https://en.wikipedia.org/api/rest_v1/page/related/%s", escapeTitle(title))
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	// Use a more compliant User-Agent - Wikipedia requires a valid contact email
+	apiURL, _ := url.Parse("https://en.wikipedia.org/w/api.php")
+	query := url.Values{
+		"action":        {"query"},
+		"format":        {"json"},
+		"formatversion": {"2"},
+		"list":          {"search"},
+		"srsearch":      {"morelike:" + title},
+		"srlimit":       {"10"},
+	}
+	apiURL.RawQuery = query.Encode()
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, apiURL.String(), nil)
 	contactEmail := getenvDefault("WIKI_CONTACT_EMAIL", "stevef@example.com")
 	req.Header.Set("User-Agent", fmt.Sprintf("agi-wiki-bootstrapper/1.0 (https://github.com/your-org/artificial_mind; +mailto:%s)", contactEmail))
 	resp, err := httpClient.Do(req)
@@ -414,18 +423,21 @@ func fetchRelated(ctx context.Context, httpClient *http.Client, title string) ([
 	if resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("http %s", resp.Status)
 	}
+
 	var data struct {
-		Pages []struct {
-			Title string `json:"title"`
-		} `json:"pages"`
+		Query struct {
+			Search []struct {
+				Title string `json:"title"`
+			} `json:"search"`
+		} `json:"query"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, err
 	}
-	out := make([]string, 0, len(data.Pages))
-	for _, p := range data.Pages {
-		if strings.TrimSpace(p.Title) != "" {
-			out = append(out, p.Title)
+	out := make([]string, 0, len(data.Query.Search))
+	for _, s := range data.Query.Search {
+		if strings.TrimSpace(s.Title) != "" {
+			out = append(out, s.Title)
 		}
 	}
 	return out, nil
@@ -517,7 +529,7 @@ func fetchLinks(ctx context.Context, httpClient *http.Client, title string, limi
 func escapeTitle(t string) string {
 	t = strings.TrimSpace(t)
 	t = strings.ReplaceAll(t, " ", "_")
-	return t
+	return url.PathEscape(t)
 }
 
 // Very lightweight heuristic: find "is a" pattern and return parent noun phrase tail
