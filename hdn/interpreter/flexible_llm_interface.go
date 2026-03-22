@@ -142,7 +142,7 @@ func Set_mcp_nemoclaw_query_hints() {
 
 func Set_tool_codegen_hints() {
 	SetPromptHints("tool_codegen", &PromptHintsConfig{
-		Keywords:      []string{"codegen", "generate code", "write code", "implement", "design and implement", "create tool", "build tool", "program", "monitor", "monitoring"},
+		Keywords:      []string{"codegen", "generate code", "write code", "implement", "design and implement", "create tool", "build tool", "program"},
 		PromptText:    "⚠️ FOR CODING/IMPLEMENTATION TASKS: Use 'tool_codegen' to generate the implementation. Do NOT just describe it in text. Set 'goal' to the full task description. If you need to deploy or run it, use 'tool_exec' afterwards.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"implement", "design and implement", "create tool", "build tool"},
@@ -637,6 +637,7 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 					isImageTool := strings.Contains(responseLower, "image") || strings.Contains(responseLower, "picture") || strings.Contains(responseLower, "drawing") || strings.Contains(responseLower, "visual") || strings.Contains(responseLower, "photo") || strings.Contains(responseLower, "artwork")
 					isResearchTool := strings.Contains(responseLower, "research")
 					isActualResearchTool := strings.Contains(strings.ToLower(actualToolID), "research")
+					isCodegenOrExec := strings.Contains(responseLower, "codegen") || strings.Contains(responseLower, "exec")
 
 					if isScrapeOrBrowseTool {
 						log.Printf("✅ [FLEXIBLE-LLM] Allowing LLM's tool choice '%s' (scrape/browse tool takes priority over %s)", responseToolID, actualToolID)
@@ -646,6 +647,9 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 						return parsedResponse, nil
 					} else if isResearchTool && isActualResearchTool {
 						log.Printf("✅ [FLEXIBLE-LLM] Allowing research tool choice '%s' (matches research intent of %s)", responseToolID, actualToolID)
+						return parsedResponse, nil
+					} else if isCodegenOrExec {
+						log.Printf("✅ [FLEXIBLE-LLM] Allowing LLM's tool choice '%s' (codegen/exec tools are trusted over %s hijack)", responseToolID, actualToolID)
 						return parsedResponse, nil
 					} else {
 						// For mcp_smart_scrape, try to extract URL before forcing
@@ -664,6 +668,10 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 						} else if strings.Contains(actualToolID, "research") {
 							forceParams["topic"] = input
 							forceParams["depth"] = 2
+						} else if strings.Contains(actualToolID, "exec") {
+							forceParams["cmd"] = input
+						} else if strings.Contains(actualToolID, "codegen") {
+							forceParams["goal"] = input
 						} else if strings.Contains(actualToolID, "weaviate") || strings.Contains(actualToolID, "neo4j") || strings.Contains(actualToolID, "knowledge") || strings.Contains(actualToolID, "search") {
 							forceParams["query"] = input
 						}
