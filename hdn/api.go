@@ -869,9 +869,15 @@ func (h *SimpleChatHDN) ExecuteTask(ctx context.Context, task string, context ma
 	// Execute the task using the real HDN system
 	result := h.server.planTask(state, task)
 
+	success := len(result) > 0
+	msg := fmt.Sprintf("Task executed successfully: %v", result)
+	if !success {
+		msg = "Task could not be executed - no plan found for the requested task."
+	}
+
 	return &conversational.TaskResult{
-		Success: true,
-		Result:  fmt.Sprintf("Task executed successfully: %v", result),
+		Success: success,
+		Result:  msg,
 		Metadata: map[string]interface{}{
 			"executed_at": time.Now(),
 			"task":        task,
