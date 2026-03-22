@@ -528,9 +528,6 @@ GOAL_PID=$(run_service "goal_manager" \
 # (Optional) Wait a moment for Goal Manager to warm up
 sleep 1
 
-    echo "⏭️  TELEGRAM_BOT_TOKEN not set, skipping Telegram Bot startup"
-fi
-
 # Start Playwright Scraper
 echo "🔨 Building Playwright Scraper..."
 cd "$AGI_PROJECT_ROOT"

@@ -48,6 +48,18 @@ spec:
                 secretKeyRef:
                   name: llm-config
                   key: LLM_MODEL
+            - name: LLM_NUM_CTX
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_NUM_CTX
+                  optional: true
+            - name: LLM_NUM_PREDICT
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_NUM_PREDICT
+                  optional: true
             # Use OPENAI_BASE_URL for OpenAI-compatible servers (llama.cpp)
             - name: OPENAI_BASE_URL
               valueFrom:

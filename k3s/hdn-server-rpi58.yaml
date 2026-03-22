@@ -65,6 +65,18 @@ spec:
                 secretKeyRef:
                   name: llm-config
                   key: LLM_MODEL
+            - name: LLM_NUM_CTX
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_NUM_CTX
+                  optional: true
+            - name: LLM_NUM_PREDICT
+              valueFrom:
+                secretKeyRef:
+                  name: llm-config
+                  key: LLM_NUM_PREDICT
+                  optional: true
             - name: LLM_TIMEOUT_SECONDS
               valueFrom:
                 secretKeyRef:

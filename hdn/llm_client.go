@@ -539,8 +539,8 @@ func (aqm *AsyncLLMQueueManager) makeLLMHTTPCall(ctx context.Context, prompt str
 			},
 			"stream": false,
 			"options": map[string]interface{}{
-				"num_predict": 4000,  // Max tokens to generate
-				"num_ctx":     8192,  // Reduced for 14B model to fit in 12GB VRAM
+				"num_predict": getEnvInt("LLM_NUM_PREDICT", 4000), // Max tokens to generate
+				"num_ctx":     getEnvInt("LLM_NUM_CTX", 8192),   // Context window (default 8192 for 14B models)
 			},
 		}
 		jsonData, err = json.Marshal(ollamaRequest)
@@ -1874,4 +1874,14 @@ func stripReasoning(s string) string {
 	}
 
 	return strings.TrimSpace(s)
+}
+
+// getEnvInt helper to read environment variables as integers
+func getEnvInt(key string, defaultValue int) int {
+	if val := os.Getenv(key); val != "" {
+		if i, err := strconv.Atoi(val); err == nil {
+			return i
+		}
+	}
+	return defaultValue
 }
