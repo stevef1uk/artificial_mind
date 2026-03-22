@@ -447,29 +447,23 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 			},
 		},
 		{
-			Name:        "picoclaw_query",
-			Description: "[chat-only] Query the PicoClaw agentic AI (@picoclaw_alps_bot) via the Telegram channel Gateway. This tool uses bi-directional Telegram communication to send your prompt and wait for a response (can take 30-180 seconds).",
+			Name: "picoclaw_query",
+			Description: "Reasoning query to the PicoClaw agentic AI on Raspberry Pi (192.168.1.60). " +
+				"Use this for ANY tasks requiring RPI hardware access: CPU temperature, internal sensors, " +
+				"local GPIO, or hardware monitoring. DO NOT use weather tools for this.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"prompt": map[string]interface{}{
 						"type":        "string",
-						"description": "The complex strategic prompt or question for the PicoClaw agent (also accepts 'query' or 'message')",
-					},
-					"query": map[string]interface{}{
-						"type":        "string",
-						"description": "Alternative to 'prompt' for natural language questions",
-					},
-					"message": map[string]interface{}{
-						"type":        "string",
-						"description": "Alternative to 'prompt' for conversational greetings",
+						"description": "Specific task for PicoClaw (e.g. 'check cpu temp on rpi')",
 					},
 					"chat_id": map[string]interface{}{
 						"type":        "string",
-						"description": "Optional: override the target Telegram chat/channel ID (default is the system-configured channel)",
+						"description": "Optional Telegram chat ID (e.g. -5274005272)",
 					},
 				},
-				"required": []string{},
+				"required": []string{"prompt"},
 			},
 		},
 		{
