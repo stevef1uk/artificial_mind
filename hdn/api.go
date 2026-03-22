@@ -869,15 +869,26 @@ func (h *SimpleChatHDN) ExecuteTask(ctx context.Context, task string, context ma
 	// Execute the task using the real HDN system
 	result := h.server.planTask(state, task)
 
-	success := len(result) > 0
-	msg := fmt.Sprintf("Task executed successfully: %v", result)
-	if !success {
-		msg = "Task could not be executed - no plan found for the requested task."
+	// FALLBACK: If the HTN planner cannot find a plan for a natural language task,
+	// use the Flexible Interpreter to attempt achieving the goal.
+	if len(result) == 0 {
+		log.Printf("⚠️ [SIMPLE-CHAT-HDN] No symbolic plan found for task, falling back to flexible interpretation: %s", task)
+		ir, err := h.InterpretNaturalLanguage(ctx, task, context)
+		if err != nil {
+			return nil, err
+		}
+
+		// Map InterpretResult to TaskResult
+		return &conversational.TaskResult{
+			Success:  ir.Success,
+			Result:   ir.Interpreted,
+			Metadata: ir.Metadata,
+		}, nil
 	}
 
 	return &conversational.TaskResult{
-		Success: success,
-		Result:  msg,
+		Success: true,
+		Result:  fmt.Sprintf("Task executed successfully: %v", result),
 		Metadata: map[string]interface{}{
 			"executed_at": time.Now(),
 			"task":        task,
