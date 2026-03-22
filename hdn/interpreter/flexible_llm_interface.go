@@ -86,6 +86,8 @@ func init() {
 	Set_tool_generate_image_hints()
 	Set_tool_weather_hints()
 	Set_mcp_nemoclaw_query_hints()
+	Set_tool_codegen_hints()
+	Set_tool_exec_hints()
 }
 
 func Set_tool_generate_image_hints() {
@@ -134,6 +136,26 @@ func Set_mcp_nemoclaw_query_hints() {
 		PromptText:    "⚠️ FOR COMPLEX REASONING: Use mcp_nemoclaw_query for strategic planning or tasks requiring high reasoning depth. It queries a powerful reasoning agent. Responses can take up to 3 minutes.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"nemoclaw", "strategic planning", "complex reasoning"},
+		RejectText:    true,
+	})
+}
+
+func Set_tool_codegen_hints() {
+	SetPromptHints("tool_codegen", &PromptHintsConfig{
+		Keywords:      []string{"codegen", "generate code", "write code", "implement", "design and implement", "create tool", "build tool", "program", "monitor", "monitoring"},
+		PromptText:    "⚠️ FOR CODING/IMPLEMENTATION TASKS: Use 'tool_codegen' to generate the implementation. Do NOT just describe it in text. Set 'goal' to the full task description. If you need to deploy or run it, use 'tool_exec' afterwards.",
+		ForceToolCall: true,
+		AlwaysInclude: []string{"implement", "design and implement", "create tool", "build tool"},
+		RejectText:    true,
+	})
+}
+
+func Set_tool_exec_hints() {
+	SetPromptHints("tool_exec", &PromptHintsConfig{
+		Keywords:      []string{"exec", "execute", "run", "command", "shell", "bash", "kubectl", "cluster", "deploy", "monitor", "monitoring"},
+		PromptText:    "⚠️ FOR SYSTEM OPERATIONS: Use 'tool_exec' for shell commands, kubectl operations, or running scripts. If the user asks to 'monitor' something on the cluster, consider using kubectl to check pod/node status.",
+		ForceToolCall: true,
+		AlwaysInclude: []string{"kubectl", "cluster", "deploy command"},
 		RejectText:    true,
 	})
 }
@@ -703,8 +725,8 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		"tool_file_read":         {"read", "file", "load", "open", "readfile", "read file", "content", "text"},
 		"tool_file_write":        {"write", "file", "save", "store", "output", "write file", "save file", "create file"},
 		"tool_ls":                {"list", "directory", "dir", "files", "ls", "list files", "directory listing"},
-		"tool_exec":              {"exec", "execute", "command", "shell", "run", "cmd", "system", "bash", "sh"},
-		"tool_codegen":           {"generate", "code", "create", "write code", "generate code", "program", "script"},
+		"tool_exec":              {"exec", "execute", "command", "shell", "run", "cmd", "system", "bash", "sh", "kubectl", "cluster", "monitor", "monitoring"},
+		"tool_codegen":           {"generate", "code", "create", "write code", "generate code", "program", "script", "implement", "design", "build"},
 		"tool_json_parse":        {"json", "parse", "parse json", "decode", "unmarshal"},
 		"tool_text_search":       {"search", "find", "text", "pattern", "match", "grep", "filter"},
 		"tool_docker_list":       {"docker", "container", "image", "list docker", "docker list"},
