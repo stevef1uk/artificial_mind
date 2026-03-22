@@ -448,7 +448,7 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 		},
 		{
 			Name: "picoclaw_query",
-			Description: "Reasoning query to the PicoClaw agentic AI on Raspberry Pi (192.168.1.60). " +
+			Description: "[chat-only] Reasoning query to the PicoClaw agentic AI on Raspberry Pi (192.168.1.60). " +
 				"Use this for ANY tasks requiring RPI hardware access: CPU temperature, internal sensors, " +
 				"local GPIO, or hardware monitoring. DO NOT use weather tools for this.",
 			InputSchema: map[string]interface{}{
