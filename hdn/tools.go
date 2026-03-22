@@ -973,8 +973,16 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 	case "tool_exec":
 		cmd, _ := getString(params, "cmd")
 		if strings.TrimSpace(cmd) == "" {
+			// Fallback: use text or goal if provided (useful for forced calls)
+			if v, ok := getString(params, "text"); ok && v != "" {
+				cmd = v
+			} else if v, ok := getString(params, "goal"); ok && v != "" {
+				cmd = v
+			}
+		}
+		if strings.TrimSpace(cmd) == "" {
 			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "cmd required"})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "cmd, text or goal required"})
 			return
 		}
 
@@ -1126,6 +1134,93 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(res)
+		return
+	case "tool_codegen":
+		spec, _ := getString(params, "spec")
+		if spec == "" {
+			spec, _ = getString(params, "goal")
+		}
+		if spec == "" {
+			spec, _ = getString(params, "task")
+		}
+		if spec == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "spec, goal or task required"})
+			return
+		}
+		if s.llmClient == nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "LLM client not available for codegen"})
+			return
+		}
+		language, _ := getString(params, "language")
+		if language == "" {
+			language = "python"
+		}
+		// Convert params to map[string]string for LLM context
+		codegenCtx := make(map[string]string)
+		for k, v := range params {
+			codegenCtx[k] = fmt.Sprintf("%v", v)
+		}
+		// Generate code using LLM
+		log.Printf("🛠️ [HDN] Tool Codegen: generating code for spec: %s", spec)
+		code, err := s.llmClient.GenerateExecutableCode("codegen", spec, language, codegenCtx)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"code": code})
+		return
+	case "tool_register":
+		toolRaw, ok := params["tool"]
+		if !ok {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "tool required"})
+			return
+		}
+		var t Tool
+		b, _ := json.Marshal(toolRaw)
+		if err := json.Unmarshal(b, &t); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "invalid tool format"})
+			return
+		}
+		log.Printf("🛠️ [HDN] Tool Register: registering new tool: %s", t.ID)
+		if err := s.registerTool(ctx, t); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+		return
+	case "tool_json_parse":
+		text, _ := getString(params, "text")
+		if text == "" {
+			text, _ = getString(params, "stdin")
+		}
+		var obj interface{}
+		if err := json.Unmarshal([]byte(text), &obj); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"object": obj})
+		return
+	case "tool_text_search":
+		pattern, _ := getString(params, "pattern")
+		text, _ := getString(params, "text")
+		if text == "" {
+			text, _ = getString(params, "stdin")
+		}
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+			return
+		}
+		matches := re.FindAllString(text, -1)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"matches": matches})
 		return
 	default:
 		// Handle wiki bootstrapper by running host binary if present
