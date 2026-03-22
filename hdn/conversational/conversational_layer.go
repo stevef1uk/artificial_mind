@@ -1393,7 +1393,7 @@ func (cl *ConversationalLayer) executeConfiguredToolIntent(ctx context.Context, 
 
 	// SPECIAL CASE: If it's an image generation request, we want to skip the "core query" extraction
 	// which sometimes strips useful words.
-	if toolID == "tool_generate_image" {
+	if toolID == "tool_generate_image" || toolID == "generate_image" || toolID == "mcp_generate_image" {
 		log.Printf("🖼️ [CONVERSATIONAL] Image generation detected in helper - preparing parameters")
 		modInstruction := originalMessage
 		strDesc := hdnContext["last_vision_description"]

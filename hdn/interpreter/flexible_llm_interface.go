@@ -153,8 +153,9 @@ func SetPromptHints(toolID string, hints *PromptHintsConfig) {
 	defer promptHintsMutex.Unlock()
 	if hints != nil {
 		promptHintsRegistry[toolID] = hints
-		// Also store without mcp_ prefix
+		// Also store without mcp_ or tool_ prefix for more robust lookup
 		cleanID := strings.TrimPrefix(toolID, "mcp_")
+		cleanID = strings.TrimPrefix(cleanID, "tool_") // Also handle 'tool_' prefix
 		if cleanID != toolID {
 			promptHintsRegistry[cleanID] = hints
 		}
@@ -172,8 +173,13 @@ func GetPromptHints(toolID string) *PromptHintsConfig {
 	if hints, ok := promptHintsRegistry["mcp_"+toolID]; ok {
 		return hints
 	}
+	// Try with tool_ prefix
+	if hints, ok := promptHintsRegistry["tool_"+toolID]; ok {
+		return hints
+	}
 	// Try without prefix
 	cleanID := strings.TrimPrefix(toolID, "mcp_")
+	cleanID = strings.TrimPrefix(cleanID, "tool_")
 	if hints, ok := promptHintsRegistry[cleanID]; ok {
 		return hints
 	}
@@ -437,7 +443,7 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 		hasTool := false
 		actualToolID := toolID
 		for _, tool := range filteredTools {
-			if tool.ID == toolID || tool.ID == "mcp_"+toolID || strings.TrimPrefix(tool.ID, "mcp_") == toolID {
+			if MatchToolIDs(tool.ID, toolID) {
 				hasTool = true
 				actualToolID = tool.ID // Use the actual tool ID from the tool list
 				break
@@ -549,7 +555,7 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 
 			// EVEN IF it is already a tool_call, if it's tool_generate_image, we must ensure it has a prompt
 			if parsedResponse.Type == ResponseTypeToolCall && parsedResponse.ToolCall != nil &&
-				(parsedResponse.ToolCall.ToolID == actualToolID || strings.TrimPrefix(parsedResponse.ToolCall.ToolID, "mcp_") == actualToolID) {
+				MatchToolIDs(parsedResponse.ToolCall.ToolID, actualToolID) {
 				if actualToolID == "tool_generate_image" {
 					parsedResponse.Content = "" // Clear refusal text to avoid mixed messages
 					if parsedResponse.ToolCall.Parameters == nil {
@@ -600,7 +606,7 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 			// appropriate for URL-based requests than search_weaviate
 			if parsedResponse.Type == ResponseTypeToolCall && parsedResponse.ToolCall != nil {
 				responseToolID := parsedResponse.ToolCall.ToolID
-				if responseToolID != actualToolID && strings.TrimPrefix(responseToolID, "mcp_") != strings.TrimPrefix(actualToolID, "mcp_") {
+				if !MatchToolIDs(responseToolID, actualToolID) {
 					responseLower := strings.ToLower(responseToolID)
 					isScrapeOrBrowseTool := strings.Contains(responseLower, "scrape") ||
 						strings.Contains(responseLower, "browse") ||
@@ -1398,6 +1404,19 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// MatchToolIDs compares two tool IDs for equality, ignoring mcp_ and tool_ prefixes
+func MatchToolIDs(id1, id2 string) bool {
+	id1 = strings.TrimSpace(strings.ToLower(id1))
+	id2 = strings.TrimSpace(strings.ToLower(id2))
+	if id1 == id2 {
+		return true
+	}
+
+	clean1 := strings.TrimPrefix(strings.TrimPrefix(id1, "mcp_"), "tool_")
+	clean2 := strings.TrimPrefix(strings.TrimPrefix(id2, "mcp_"), "tool_")
+	return clean1 == clean2
 }
 
 // ToolExecSpec represents how a tool should be executed

@@ -231,7 +231,7 @@ func (cs *CodeStorage) ListAllCode() ([]*GeneratedCode, error) {
 		return nil, fmt.Errorf("failed to get code keys: %v", err)
 	}
 
-	var codes []*GeneratedCode
+	codes := make([]*GeneratedCode, 0)
 	for _, key := range keys {
 		data, err := cs.client.Get(ctx, key).Result()
 		if err != nil {

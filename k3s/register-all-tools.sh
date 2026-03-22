@@ -86,6 +86,10 @@ TOOLS=(
 '{"id":"tool_register","name":"Register Tool","description":"Register tool metadata","input_schema":{"tool":"json"},"output_schema":{"ok":"bool"},"permissions":["registry:write"],"safety_level":"low","created_by":"system"}'
 '{"id":"tool_json_parse","name":"JSON Parse","description":"Parse JSON","input_schema":{"text":"string"},"output_schema":{"object":"json"},"permissions":[],"safety_level":"low","created_by":"system"}'
 '{"id":"tool_text_search","name":"Text Search","description":"Search text","input_schema":{"pattern":"string","text":"string"},"output_schema":{"matches":"string[]"},"permissions":[],"safety_level":"low","created_by":"system"}'
+'{"id":"tool_http_get","name":"HTTP GET","description":"Fetches a URL and returns response body","input_schema":{"url":"string","user_agent":"string","headers":"json"},"output_schema":{"status":"int","body":"string"},"permissions":["net:read"],"safety_level":"low","created_by":"system"}'
+'{"id":"tool_telegram_send","name":"Telegram Send","description":"Send message via Telegram Bot API","input_schema":{"message":"string","chat_id":"string","parse_mode":"string"},"output_schema":{"success":"bool","message_id":"int"},"permissions":["net:read"],"safety_level":"low","created_by":"system"}'
+'{"id":"tool_ssh_executor","name":"SSH Executor","description":"Execute command via SSH","input_schema":{"host":"string","user":"string","command":"string"},"output_schema":{"output":"string","error":"string"},"permissions":["net:read"],"safety_level":"high","created_by":"system"}'
+'{"id":"tool_weather","name":"Weather","description":"Get current weather summary","input_schema":{"lat":"string","lon":"string","tz":"string"},"output_schema":{"summary":"string"},"permissions":["net:read"],"safety_level":"low","created_by":"system"}'
 )
 
 REGISTERED=0
