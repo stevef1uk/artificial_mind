@@ -206,6 +206,8 @@ spec:
               value: "300"
             - name: HDN_INTERPRET_TIMEOUT
               value: "180"
+            - name: ALLOW_REQUESTS
+              value: "1"
           livenessProbe:
             httpGet:
               path: /health
