@@ -501,8 +501,10 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 					params["topic"] = input
 					params["depth"] = 2
 					log.Printf("🧪 [FLEXIBLE-LLM] Extracted topic for forced %s call", actualToolID)
+				} else if strings.Contains(actualToolID, "picoclaw") || strings.Contains(actualToolID, "nemoclaw") {
+					params["prompt"] = input
+					log.Printf("🤖 [FLEXIBLE-LLM] Extracted prompt for forced %s call", actualToolID)
 				} else if strings.Contains(actualToolID, "weaviate") || strings.Contains(actualToolID, "neo4j") || strings.Contains(actualToolID, "knowledge") || strings.Contains(actualToolID, "search") {
-					// General fallback for search/knowledge tools: default to passing the whole input as "query"
 					params["query"] = input
 					log.Printf("🔍 [FLEXIBLE-LLM] Extracted query for forced %s call (fallback)", actualToolID)
 				}
@@ -557,7 +559,7 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 				if strings.Contains(actualToolID, "research") {
 					params["topic"] = input
 					log.Printf("🧪 [FLEXIBLE-LLM] Extracted topic for forced %s call", actualToolID)
-				} else if strings.Contains(actualToolID, "nemoclaw") {
+				} else if strings.Contains(actualToolID, "picoclaw") || strings.Contains(actualToolID, "nemoclaw") {
 					params["prompt"] = input
 					log.Printf("🤖 [FLEXIBLE-LLM] Extracted prompt for forced %s call", actualToolID)
 				} else if strings.Contains(actualToolID, "weaviate") || strings.Contains(actualToolID, "neo4j") || strings.Contains(actualToolID, "knowledge") || strings.Contains(actualToolID, "search") {
@@ -743,6 +745,7 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		"mcp_generate_image":    {"image", "generate image", "draw", "picture", "create image", "photo", "modify image", "change image", "background"},
 		"mcp_weather":           {"weather", "forecast", "rain", "snow", "sunny", "cloudy"},
 		"mcp_nemoclaw_query":    {"nemoclaw", "nemo claw", "strategy", "reasoning", "complex", "think deep"},
+		"mcp_picoclaw_query":    {"picoclaw", "pico claw", "reasoning", "strategic", "local agent", "pico"},
 		"tool_telegram_send":     {"telegram", "message", "send telegram", "notify"},
 		"tool_ssh_executor":      {"ssh", "remote", "server", "ssh command"},
 		"tool_wiki_bootstrapper": {"wiki", "bootstrap", "knowledge base"},
