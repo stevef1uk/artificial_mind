@@ -545,4 +545,4 @@ data:
             - inbox
             - gmail
             - check my
-          reject_text_response: trues
+          reject_text_response: true
