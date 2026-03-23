@@ -5626,7 +5626,7 @@ func (s *MCPKnowledgeServer) picoclawQuery(ctx context.Context, arguments map[st
 	sessionID := "hdn-" + uuid.New().String()[:8]
 	wsURL := fmt.Sprintf("ws://%s:%s/pico/ws?token=%s&session_id=%s", wsHost, wsPort, wsToken, sessionID)
 
-	log.Printf("🤖 [PICOCLAW] Redirecting query to PicoClaw via WebSocket: %s", wsURL)
+	log.Printf("🤖 [PICOCLAW] Redirecting query to PicoClaw via WebSocket: %s | Prompt: %s", wsURL, prompt)
 
 	// Dial the WebSocket with a timeout
 	dialer := websocket.Dialer{
@@ -5669,7 +5669,7 @@ func (s *MCPKnowledgeServer) picoclawQuery(ctx context.Context, arguments map[st
 		if respType == "message.create" {
 			payload, _ := respData["payload"].(map[string]interface{})
 			content, _ := payload["content"].(string)
-			log.Printf("✅ [PICOCLAW] Received response (%d bytes)", len(content))
+			log.Printf("✅ [PICOCLAW] Received response (%d bytes): %s", len(content), content)
 			return map[string]interface{}{
 				"response": content,
 				"status":   "success",
