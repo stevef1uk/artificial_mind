@@ -24,6 +24,8 @@ import (
 	mempkg "hdn/memory"
 	"hdn/playwright"
 
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -448,7 +450,7 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 		},
 		{
 			Name:        "picoclaw_query",
-			Description: "[chat-only] Query the PicoClaw agentic AI (@picoclaw_alps_bot) via the Telegram channel Gateway. This tool uses bi-directional Telegram communication to send your prompt and wait for a response (can take 30-180 seconds).",
+			Description: "[chat-only] Query the PicoClaw local agentic AI via WebSocket using the Native Pico Protocol. This tool offers real-time bidirectional communication for complex strategic tasks and autonomous reasoning.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -5606,61 +5608,83 @@ func (s *MCPKnowledgeServer) picoclawQuery(ctx context.Context, arguments map[st
 	prompt = strings.ReplaceAll(prompt, "YOUR_CHAT_ID", "")
 	prompt = strings.TrimSpace(prompt)
 
-	// Optional override for the target Telegram chat/channel
-	chatID, _ := arguments["chat_id"].(string)
+	// WebSocket configuration from environment or defaults (matching user's successful test)
+	wsHost := os.Getenv("PICOCLAW_WS_HOST")
+	if wsHost == "" {
+		wsHost = "192.168.1.60"
+	}
+	wsPort := os.Getenv("PICOCLAW_WS_PORT")
+	if wsPort == "" {
+		wsPort = "18790"
+	}
+	wsToken := os.Getenv("PICOCLAW_WS_TOKEN")
+	if wsToken == "" {
+		wsToken = "test-token"
+	}
+	
+	// Create a unique session ID for this request
+	sessionID := "hdn-" + uuid.New().String()[:8]
+	wsURL := fmt.Sprintf("ws://%s:%s/pico/ws?token=%s&session_id=%s", wsHost, wsPort, wsToken, sessionID)
 
-	// Webhook URL from environment, with hardcoded fallback
-	webhookURL := os.Getenv("PICOCLAW_WEBHOOK_URL")
-	if webhookURL == "" {
-		webhookURL = "https://k3s.sjfisher.com/webhook/a76df558-b755-4302-a274-92310d03ba7d"
+	log.Printf("🤖 [PICOCLAW] Redirecting query to PicoClaw via WebSocket: %s", wsURL)
+
+	// Dial the WebSocket with a timeout
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
 	}
 
-	log.Printf("🤖 [PICOCLAW] Sending query to PicoClaw via n8n Telegram gateway: %s", prompt)
-
-	payload := map[string]interface{}{
-		"prompt": prompt,
-	}
-	if chatID != "" {
-		payload["chat_id"] = chatID
-	}
-
-	body, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(body))
+	conn, _, err := dialer.DialContext(ctx, wsURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create picoclaw webhook request: %v", err)
+		return nil, fmt.Errorf("failed to connect to picoclaw websocket at %s: %v", wsURL, err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	defer conn.Close()
 
-	// Add Webhook Secret if available
-	if secret := os.Getenv("N8N_WEBHOOK_SECRET"); secret != "" {
-		secret = strings.TrimSpace(secret)
-		secretToSend := secret
-		if !isBase64Like(secret) {
-			secretToSend = base64.StdEncoding.EncodeToString([]byte(secret))
-			log.Printf("🔐 [PICOCLAW] Base64 encoding plain text secret for n8n webhook")
+	// Send message using Native Pico Protocol
+	messageID := uuid.New().String()
+	sendMsg := map[string]interface{}{
+		"type": "message.send",
+		"id":   messageID,
+		"payload": map[string]interface{}{
+			"content": prompt,
+		},
+	}
+
+	if err := conn.WriteJSON(sendMsg); err != nil {
+		return nil, fmt.Errorf("failed to send websocket message: %v", err)
+	}
+
+	log.Printf("🤖 [PICOCLAW] Message sent (ID: %s), waiting for response...", messageID)
+
+	// Read responses until message.create or error
+	// Set an overall timeout for the query (PicoClaw can take 30-180s)
+	// If ctx already has a deadline, we respect it.
+	for {
+		var respData map[string]interface{}
+		if err := conn.ReadJSON(&respData); err != nil {
+			return nil, fmt.Errorf("websocket read error: %v", err)
 		}
-		req.Header.Set("X-Webhook-Secret", secretToSend)
-	}
 
-	// Use a long-lived HTTP client — PicoClaw can take several minutes to reason and reply via Telegram
-	client := &http.Client{Timeout: 240 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to call picoclaw webhook: %v", err)
-	}
-	defer resp.Body.Close()
+		respType, _ := respData["type"].(string)
 
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("picoclaw n8n webhook returned error status: %d", resp.StatusCode)
+		if respType == "message.create" {
+			payload, _ := respData["payload"].(map[string]interface{})
+			content, _ := payload["content"].(string)
+			log.Printf("✅ [PICOCLAW] Received response (%d bytes)", len(content))
+			return map[string]interface{}{
+				"response": content,
+				"status":   "success",
+			}, nil
+		} else if respType == "error" {
+			payload, _ := respData["payload"].(map[string]interface{})
+			msg, _ := payload["message"].(string)
+			log.Printf("❌ [PICOCLAW] Server returned error: %s", msg)
+			return nil, fmt.Errorf("picoclaw error: %s", msg)
+		} else if respType == "typing.start" {
+			log.Printf("⏳ [PICOCLAW] Agent is typing...")
+		} else {
+			log.Printf("📥 [PICOCLAW] Received non-terminal message type: %s", respType)
+		}
 	}
-
-	var result interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode picoclaw response: %v", err)
-	}
-
-	return result, nil
 }
 
 // nemoclawQuery handles strategic queries to the Nemoclaw agentic AI via n8n webhook and waits for a response in Redis

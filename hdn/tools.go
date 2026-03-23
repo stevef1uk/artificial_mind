@@ -659,8 +659,8 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 		},
 		{
 			ID:          "picoclaw_query",
-			Name:        "PicoClaw Telegram Query",
-			Description: "Query the PicoClaw agentic AI (@picoclaw_alps_bot) via the Telegram Gateway for autonomous reasoning and multi-step tasks.",
+			Name:        "PicoClaw WebSocket Query",
+			Description: "Query the PicoClaw local agentic AI via WebSocket for autonomous reasoning and multi-step tasks using Native Pico Protocol. Fast bidirectional communication with real-time feedback.",
 			InputSchema: map[string]string{
 				"prompt": "string",
 			},
@@ -668,19 +668,10 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 				"response": "string",
 			},
 			Permissions: []string{
-				"proc:exec",
-				"net:telegram",
+				"net:websocket",
 			},
 			SafetyLevel: "medium",
 			CreatedBy:   "system",
-			Exec: &ToolExecSpec{
-				Type: "cmd",
-				Cmd:  "/app/bin/tools/picoclaw_telegram_query",
-				Args: []string{
-					"-prompt",
-					"{prompt}",
-				},
-			},
 		},
 		{
 			ID:          "nemoclaw_query",
@@ -906,8 +897,23 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": 200, "body": content})
 		return
-	case "tool_telegram_send", "tool_weather":
-		// Use executeToolDirect for these tools
+	case "tool_telegram_send", "tool_weather", "picoclaw_query":
+		// Use executeToolDirect or MCP redirect
+		if id == "picoclaw_query" {
+			if s.mcpKnowledgeServer == nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "MCP knowledge server not available"})
+				return
+			}
+			result, err := s.mcpKnowledgeServer.callTool(ctx, id, params)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(result)
+			return
+		}
 		result, err := s.executeToolDirect(ctx, id, params)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
