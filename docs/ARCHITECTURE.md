@@ -165,6 +165,7 @@ graph TB
 - **Cross-System Consistency Checking**: Global coherence monitor that detects inconsistencies across FSM, HDN, and Self-Model systems, generating self-reflection tasks to resolve contradictions, policy conflicts, goal drift, and behavior loops (see Coherence Monitor section below).
 - **Agentic AI System** (Feb 2026): YAML-configured autonomous agents with scheduled execution, tool integration (MCP, n8n, HDN tools), execution history tracking, and Telegram notifications. Agents can monitor services, check websites, and perform automated tasks autonomously (see Agentic AI section below).
 - **Whisplay Hardware Integration** (Mar 2026): Real-time image generation and display on physical Raspberry Pi hardware. Integrates with existing RPi Go chatbot services via network sockets and SSH, supporting SPI display output and physical button interrupts.
+- **🔌 PicoClaw RPI Agent Integration** (Mar 2026): High-speed bidirectional bridge via WebSockets using the Native Pico Protocol. Connects to the PicoClaw agentic AI on external Raspberry Pi hardware (192.168.1.60) for long-reasoning delegation and local tool execution.
 
 ## 🧩 Core Components
 
