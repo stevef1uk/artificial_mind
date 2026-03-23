@@ -159,10 +159,25 @@ func (s *MCPKnowledgeServer) GetAllPromptHints() map[string]*PromptHintsConfig {
 		Keywords:      []string{"scrape", "browse", "crawl", "fetch", "visit"},
 		PromptText:    "⚠️ FOR WEB SCRAPING: You MUST use smart_scrape with the 'url' and 'goal' parameters. Do NOT return a text description of how to scrape.",
 		ForceToolCall: true,
-		AlwaysInclude: []string{"scrape", "browse", "crawl"},
+		AlwaysInclude: []string{"scrape"},
 		RejectText:    true,
 	}
 
+	// Add hints for picoclaw_query (Hardcoded)
+	hints["picoclaw_query"] = &PromptHintsConfig{
+		Keywords:      []string{"picoclaw", "pico", "reasoning", "strategic", "local agent"},
+		PromptText:    "⚠️ FOR STRATEGIC/REASONING REQUESTS: Use mcp_picoclaw_query for autonomous planning and multi-step reasoning via the local RPi agent.",
+		ForceToolCall: true,
+		AlwaysInclude: []string{"picoclaw"},
+	}
+
+	// Add hints for nemoclaw_query (Hardcoded)
+	hints["nemoclaw_query"] = &PromptHintsConfig{
+		Keywords:      []string{"nemoclaw", "nemo", "complex reasoning", "strategic planning"},
+		PromptText:    "⚠️ FOR COMPLEX REASONING: Use mcp_nemoclaw_query for strategic planning or tasks requiring high reasoning depth. It queries a powerful remote reasoning agent. Responses can take up to 3 minutes.",
+		ForceToolCall: true,
+		AlwaysInclude: []string{"nemoclaw"},
+	}
 	return hints
 }
 
