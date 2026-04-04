@@ -4,6 +4,9 @@ FROM golang:1.25.8-bookworm AS builder
 # Set the working directory
 WORKDIR /app
 
+# Enable CGO for gosseract
+ENV CGO_ENABLED=1
+
 # Install system dependencies (needed for OCR library headers)
 RUN apt-get update && apt-get install -y \
     libtesseract-dev \
