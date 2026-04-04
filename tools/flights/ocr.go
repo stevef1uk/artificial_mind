@@ -24,7 +24,11 @@ func ExtractFlightsFromImage(imagePath string) ([]FlightInfo, error) {
 		return nil, fmt.Errorf("could not perform OCR: %v", err)
 	}
 	
-	log.Printf("Extracted text (first 500 chars): %s", text[:500])
+	preview := text
+	if len(preview) > 500 {
+		preview = preview[:500]
+	}
+	log.Printf("Extracted text (length %d, preview): %s", len(text), preview)
 	
 	return ParseFlightText(text), nil
 }

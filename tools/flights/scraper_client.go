@@ -35,51 +35,53 @@ func SearchFlightsWithScraper(scraperURL, departure, destination, startDate, end
 	log.Printf("Using scraper service at: %s", scraperURL)
 
 	// Build the Playwright script
-	// Note: The scraper parses this with regex, so it must follow the expected patterns literally.
-	script := fmt.Sprintf(`
+	// Build the script - allow override via environment variable for easier tweaking
+	defaultScript := fmt.Sprintf(`
 		await page.goto("https://www.google.com/travel/flights?hl=en&gl=FR&curr=EUR");
-		await page.getByRole("button", { name: "Accept all" }).click();
+		await page.waitForTimeout(2000);
+		await page.bypassConsent();
 		await page.waitForTimeout(2000);
 		
-		// Set Cabin if needed
-		// (Skipping complex cabin selection for now to ensure stability, default is Economy)
-		
 		// Departure
-		await page.locator("input[aria-label='Where from?']").click();
-		await page.keyboard.press("Control+A");
-		await page.keyboard.press("Backspace");
-		await page.keyboard.type("%s");
+		await page.locator("input[placeholder*='Where from'], input[aria-label*='Where from']").first().fill("%s");
+		await page.waitForTimeout(1000);
 		await page.keyboard.press("Enter");
 		await page.waitForTimeout(1000);
 		
 		// Destination
-		await page.locator("input[aria-label='Where to?']").click();
-		await page.keyboard.press("Control+A");
-		await page.keyboard.press("Backspace");
-		await page.keyboard.type("%s");
+		await page.locator("input[placeholder*='Where to'], input[aria-label*='Where to']").first().fill("%s");
+		await page.waitForTimeout(1000);
 		await page.keyboard.press("Enter");
 		await page.waitForTimeout(1000);
 		
 		// Dates
-		await page.locator("input[placeholder='Departure']").click();
-		await page.waitForTimeout(1000);
-		await page.keyboard.press("Control+A");
-		await page.keyboard.press("Backspace");
+		await page.locator("input[placeholder='Departure']").first().click();
+		await page.waitForTimeout(2000);
 		await page.keyboard.type("%s");
-		await page.waitForTimeout(500);
+		await page.waitForTimeout(1000);
 		await page.keyboard.press("Tab");
-		await page.waitForTimeout(500);
-		await page.keyboard.press("Control+A");
-		await page.keyboard.press("Backspace");
-		await page.keyboard.type("%s");
-		await page.waitForTimeout(500);
-		await page.keyboard.press("Enter");
 		await page.waitForTimeout(1000);
-		
-		// Search
+		await page.keyboard.type("%s");
+		await page.waitForTimeout(1000);
 		await page.keyboard.press("Enter");
-		await page.waitForTimeout(5000);
+		await page.waitForTimeout(2000);
+		
+		// Search - focus out first to close any open dropdowns
+		// await page.mouse.click(0, 0);
+		// await page.waitForTimeout(1000);
+		
+		// Try multiple ways to trigger search
+		await page.locator("button:has-text('Search')").first().click();
+		await page.waitForTimeout(10000);
 	`, departure, destination, startDate, endDate)
+
+	script := os.Getenv("FLIGHT_SCRAPER_SCRIPT")
+	if script == "" {
+		script = defaultScript
+	} else {
+		// Replace placeholders in provided script too
+		script = fmt.Sprintf(script, departure, destination, startDate, endDate)
+	}
 
 	reqBody := ScrapeRequest{
 		URL:              "https://www.google.com/travel/flights",
