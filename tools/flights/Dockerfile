@@ -1,5 +1,5 @@
 # Stage 1: Build the Go binary
-FROM golang:1.25-bookworm AS builder
+FROM golang:1.25.8-bookworm AS builder
 
 # Set the working directory
 WORKDIR /app
@@ -10,12 +10,12 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy go mod and sum files
-COPY go.mod go.sum ./
+# Copy go mod and sum files specifically from the flights tool directory
+COPY tools/flights/go.mod tools/flights/go.sum ./
 RUN go mod download
 
-# Copy source code
-COPY . .
+# Copy the entire flights tool source code
+COPY tools/flights/ .
 
 # Build the application
 RUN go build -o flight_mcp .
