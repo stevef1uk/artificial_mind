@@ -49,47 +49,66 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	log.Printf("Construction Search URL: %s", searchURL)
 
 	// Build the script - allow override via environment variable for easier tweaking
-	defaultScript := fmt.Sprintf(`
+	defaultScript := `
 		await page.goto("%s");
-		await page.waitForTimeout(2000);
-		await page.bypassConsent();
+		await page.waitForTimeout(3000);
+		try { await page.bypassConsent(); } catch(e) {}
 		await page.waitForTimeout(2000);
 		
-		// Departure
-		await page.locator("input[placeholder*='Where from'], input[aria-label*='Where from']").first().fill("%%s");
-		await page.waitForTimeout(1000);
+		// 1. Departure
+		const fromInput = page.locator("input[placeholder*='Where from'], input[aria-label*='Where from'], input[value*='Current']").first();
+		await fromInput.click();
+		await page.waitForTimeout(500);
+		await page.keyboard.press("Control+A");
+		await page.keyboard.press("Backspace");
+		await page.keyboard.type("%s");
+		await page.waitForTimeout(2000);
 		await page.keyboard.press("Enter");
 		await page.waitForTimeout(1000);
 		
-		// Destination
-		await page.locator("input[placeholder*='Where to'], input[aria-label*='Where to']").first().fill("%%s");
-		await page.waitForTimeout(1000);
+		// 2. Destination
+		const toInput = page.locator("input[placeholder*='Where to'], input[aria-label*='Where to']").first();
+		await toInput.click();
+		await page.waitForTimeout(500);
+		await page.keyboard.press("Control+A");
+		await page.keyboard.press("Backspace");
+		await page.keyboard.type("%s");
+		await page.waitForTimeout(2000);
 		await page.keyboard.press("Enter");
 		await page.waitForTimeout(1000);
 		
-		// Dates
-		await page.locator("input[placeholder='Departure']").first().click();
+		// 3. Dates
+		const dateInput = page.locator("input[placeholder*='Departure'], input[aria-label*='Departure']").first();
+		await dateInput.click();
 		await page.waitForTimeout(2000);
-		await page.keyboard.type("%%s");
+		await page.keyboard.press("Control+A");
+		await page.keyboard.press("Backspace");
+		await page.keyboard.type("%s");
 		await page.waitForTimeout(1000);
 		await page.keyboard.press("Tab");
-		await page.waitForTimeout(1000);
-		await page.keyboard.type("%%s");
+		await page.keyboard.press("Control+A");
+		await page.keyboard.press("Backspace");
+		await page.keyboard.type("%s");
 		await page.waitForTimeout(1000);
 		await page.keyboard.press("Enter");
 		await page.waitForTimeout(2000);
 		
-		// Try multiple ways to trigger search
-		await page.locator("button:has-text('Search')").first().click();
-		await page.waitForTimeout(10000);
-	`, searchURL)
+		// 4. Search
+		const searchBtn = page.locator("button:has-text('Search'), button[aria-label*='Search']").first();
+		if (await searchBtn.isVisible()) {
+			await searchBtn.click();
+		} else {
+			await page.keyboard.press("Enter");
+		}
+		await page.waitForTimeout(15000);
+	`
 
 	script := os.Getenv("FLIGHT_SCRAPER_SCRIPT")
 	if script == "" {
-		script = fmt.Sprintf(defaultScript, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
+		script = fmt.Sprintf(defaultScript, searchURL, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
 	} else {
 		// Replace placeholders in provided script too
-		script = fmt.Sprintf(script, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
+		script = fmt.Sprintf(script, searchURL, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
 	}
 
 	reqBody := ScrapeRequest{
