@@ -211,7 +211,7 @@ func NewPlannerIntegration(
 	if apiServer != nil {
 		go func() {
 			// Give the server a moment to start up and register its own tools
-			time.Sleep(2 * time.Second)
+			time.Sleep(10 * time.Second)
 			if err := integration.LoadMCPToolsAsCapabilities(); err != nil {
 				log.Printf("⚠️ [PLANNER-INTEGRATION] Failed to load tools from registry: %v", err)
 			}
