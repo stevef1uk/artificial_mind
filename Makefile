@@ -291,7 +291,7 @@ build-chatbot:
 build-flights:
 	@echo "🔨 Building Flight MCP server..."
 	@mkdir -p $(BIN_DIR)
-	@cd $(FLIGHTS_DIR) && $(GO_ENV) GO111MODULE=on go build $(GO_BUILD_FLAGS) ../../$(FLIGHTS_BIN) .
+	@cd $(FLIGHTS_DIR) && CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) GO111MODULE=on go build $(GO_BUILD_FLAGS) ../../$(FLIGHTS_BIN) .
 	@echo "✅ Flight MCP built: $(FLIGHTS_BIN)"
 
 # Deploy Chatbot
