@@ -175,6 +175,11 @@ func (c *MCPClient) sendRequest(endpoint string, request MCPRequest) (*MCPRespon
 		return nil, err
 	}
 
+	// Handle mock protocol
+	if strings.HasPrefix(endpoint, "mock://") {
+		return c.handleMockRequest(request)
+	}
+
 	// Create HTTP request
 	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -211,6 +216,42 @@ func (c *MCPClient) sendRequest(endpoint string, request MCPRequest) (*MCPRespon
 	return &response, nil
 }
 
+func (c *MCPClient) handleMockRequest(request MCPRequest) (*MCPResponse, error) {
+	var result interface{}
+	switch request.Method {
+	case "tools/list":
+		result = MCPToolList{Tools: c.getMockTools()}
+	case "tools/call":
+		params, ok := request.Params.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("invalid mock params")
+		}
+		name, _ := params["name"].(string)
+		args, _ := params["arguments"].(map[string]interface{})
+		var err error
+		result, err = c.mockToolExecution(name, args)
+		if err != nil {
+			return &MCPResponse{
+				JSONRPC: "2.0",
+				ID:      request.ID,
+				Error:   &MCPError{Code: -32000, Message: err.Error()},
+			}, nil
+		}
+	default:
+		return &MCPResponse{
+			JSONRPC: "2.0",
+			ID:      request.ID,
+			Error:   &MCPError{Code: -32601, Message: "Method not found"},
+		}, nil
+	}
+
+	return &MCPResponse{
+		JSONRPC: "2.0",
+		ID:      request.ID,
+		Result:  result,
+	}, nil
+}
+
 // --------- Mock MCP Client for Testing ---------
 
 type MockMCPClient struct {
@@ -230,12 +271,6 @@ func NewMockMCPClient() *MCPClient {
 }
 
 func (c *MCPClient) listTools() ([]MCPTool, error) {
-	// Mock tools for testing
-	if len(c.endpoints) > 0 && c.endpoints[0] == "mock://localhost:3000/mcp" {
-		return c.getMockTools(), nil
-	}
-
-	// For real MCP endpoints, use the actual implementation
 	return c.listToolsReal()
 }
 

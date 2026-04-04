@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -14,8 +15,8 @@ import (
 )
 
 func main() {
-	transportType := flag.String("transport", "stdio", "Transport type (stdio or sse)")
-	port := flag.Int("port", 8080, "Port for SSE transport")
+	transportType := flag.String("transport", "sse", "Transport type (stdio, sse, or http)")
+	port := flag.Int("port", 8080, "Port for network transport")
 	flag.Parse()
 
 	// Create MCP server
@@ -27,7 +28,7 @@ func main() {
 
 	// Add search_flights tool
 	s.AddTool(mcp.NewTool("search_flights",
-		mcp.WithDescription("Search for flights on Google Flights using Playwright and OCR"),
+		mcp.WithDescription("Search for flights on Google Flights using Playwright and OCR [chat-only]"),
 		mcp.WithString("departure", mcp.Required(), mcp.Description("Departure airport code (e.g., JFK, LAX)")),
 		mcp.WithString("destination", mcp.Required(), mcp.Description("Destination airport code (e.g., CDG, LHR)")),
 		mcp.WithString("start_date", mcp.Required(), mcp.Description("Departure date (YYYY-MM-DD)")),
@@ -36,20 +37,33 @@ func main() {
 	), searchFlightsHandler)
 
 	if *transportType == "sse" {
-		// NewSSEServer creates a new SSE server instance.
-		// server.WithBaseURL is used to inform the client where to send messages.
 		sseServer := server.NewSSEServer(s, server.WithBaseURL(fmt.Sprintf("http://localhost:%d", *port)))
-
 		log.Printf("Starting SSE server on :%d", *port)
-		log.Printf("SSE endpoint: http://localhost:%d/sse", *port)
-		log.Printf("Message endpoint: http://localhost:%d/message", *port)
-
-		// SSEServer implements http.Handler, so we can pass it directly to ListenAndServe
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", *port), sseServer); err != nil {
 			log.Fatalf("Server error: %v", err)
 		}
+	} else if *transportType == "http" {
+		// Simple HTTP handler for basic clients like HDN's current MCPClient
+		log.Printf("Starting Simple HTTP server on :%d", *port)
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			var rawMessage json.RawMessage
+			if err := json.NewDecoder(r.Body).Decode(&rawMessage); err != nil {
+				http.Error(w, "Parse error", http.StatusBadRequest)
+				return
+			}
+			// Use the internal MCPServer to handle the message directly
+			resp := s.HandleMessage(r.Context(), rawMessage)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		})
+		if err := http.ListenAndServe(fmt.Sprintf(":%d", *port), nil); err != nil {
+			log.Fatalf("Server error: %v", err)
+		}
 	} else {
-		// Start the server using stdio transport (default)
 		if err := server.ServeStdio(s); err != nil {
 			fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
 			os.Exit(1)
@@ -58,7 +72,6 @@ func main() {
 }
 
 func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// Type assert arguments to map[string]interface{}
 	args, ok := request.Params.Arguments.(map[string]interface{})
 	if !ok {
 		return mcp.NewToolResultError("failed to parse arguments"), nil
@@ -85,7 +98,6 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		return mcp.NewToolResultText("No flights found."), nil
 	}
 
-	// Find cheapest
 	var cheapest *FlightInfo
 	minPrice := 999999
 	

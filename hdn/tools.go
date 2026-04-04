@@ -297,12 +297,19 @@ func (s *APIServer) listTools(ctx context.Context) ([]Tool, error) {
 					for _, item := range interfSlice {
 						if tool, ok := item.(MCPKnowledgeTool); ok {
 							mTools = append(mTools, tool)
+						} else if toolMap, ok := item.(map[string]interface{}); ok {
+							// Handle map conversion if needed
+							jt, _ := json.Marshal(toolMap)
+							var kt MCPKnowledgeTool
+							if json.Unmarshal(jt, &kt) == nil {
+								mTools = append(mTools, kt)
+							}
 						}
 					}
 				}
 
 				if len(mTools) > 0 {
-					log.Printf("🔧 [LIST-TOOLS] Found %d MCP tools to register", len(mTools))
+					log.Printf("🔧 [LIST-TOOLS] Found %d MCP knowledge tools", len(mTools))
 					for _, mt := range mTools {
 						// Convert MCP tool to HDN tool
 						t := Tool{
@@ -323,14 +330,56 @@ func (s *APIServer) listTools(ctx context.Context) ([]Tool, error) {
 							}
 						}
 						tools = append(tools, t)
-						log.Printf("✅ [LIST-TOOLS] Successfully loaded MCP tool: %s", t.ID)
+						log.Printf("✅ [LIST-TOOLS] Successfully loaded MCP knowledge tool: %s", t.ID)
 					}
-				} else {
-					log.Printf("⚠️ [LIST-TOOLS] MCP tools list was empty or couldn't be parsed")
 				}
 			}
 		} else {
-			log.Printf("❌ [LIST-TOOLS] Failed to list MCP tools: %v", err)
+			log.Printf("❌ [LIST-TOOLS] Failed to list MCP knowledge tools: %v", err)
+		}
+	}
+
+	// Add tools from dynamic MCP endpoints (MCP_ENDPOINTS)
+	if s.mcpClient != nil {
+		mcpTools, err := s.mcpClient.listTools()
+		if err == nil && len(mcpTools) > 0 {
+			log.Printf("🔧 [LIST-TOOLS] Found %d tools from MCP endpoints", len(mcpTools))
+			for _, mt := range mcpTools {
+				// Avoid duplicates if already added by knowledge server
+				exists := false
+				for _, et := range tools {
+					if et.ID == "mcp_"+mt.Name {
+						exists = true
+						break
+					}
+				}
+				if exists {
+					continue
+				}
+
+				// Convert MCP tool to HDN tool
+				t := Tool{
+					ID:          "mcp_" + mt.Name,
+					Name:        mt.Name,
+					Description: mt.Description,
+					CreatedBy:   "system",
+					InputSchema: make(map[string]string),
+				}
+				// Schema conversion
+				if props, ok := mt.InputSchema["properties"].(map[string]interface{}); ok {
+					for k, v := range props {
+						if prop, ok := v.(map[string]interface{}); ok {
+							if tStr, ok := prop["type"].(string); ok {
+								t.InputSchema[k] = tStr
+							}
+						}
+					}
+				}
+				tools = append(tools, t)
+				log.Printf("✅ [LIST-TOOLS] Successfully loaded MCP endpoint tool: %s", t.ID)
+			}
+		} else if err != nil {
+			log.Printf("❌ [LIST-TOOLS] Failed to list tools from MCP endpoints: %v", err)
 		}
 	}
 
