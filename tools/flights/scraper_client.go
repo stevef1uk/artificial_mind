@@ -31,25 +31,38 @@ type ScrapeResult struct {
 	Error         string `json:"error"`
 }
 
-func SearchFlightsWithScraper(scraperURL, departure, destination, startDate, endDate, cabinClass string) ([]FlightInfo, error) {
+func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightInfo, error) {
 	log.Printf("Using scraper service at: %s", scraperURL)
 
-	// Build the Playwright script
+	// Set defaults
+	if opts.Language == "" {
+		opts.Language = "en"
+	}
+	if opts.Region == "" {
+		opts.Region = "FR"
+	}
+	if opts.Currency == "" {
+		opts.Currency = "EUR"
+	}
+
+	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s", opts.Language, opts.Region, opts.Currency)
+	log.Printf("Construction Search URL: %s", searchURL)
+
 	// Build the script - allow override via environment variable for easier tweaking
 	defaultScript := fmt.Sprintf(`
-		await page.goto("https://www.google.com/travel/flights?hl=en&gl=FR&curr=EUR");
+		await page.goto("%s");
 		await page.waitForTimeout(2000);
 		await page.bypassConsent();
 		await page.waitForTimeout(2000);
 		
 		// Departure
-		await page.locator("input[placeholder*='Where from'], input[aria-label*='Where from']").first().fill("%s");
+		await page.locator("input[placeholder*='Where from'], input[aria-label*='Where from']").first().fill("%%s");
 		await page.waitForTimeout(1000);
 		await page.keyboard.press("Enter");
 		await page.waitForTimeout(1000);
 		
 		// Destination
-		await page.locator("input[placeholder*='Where to'], input[aria-label*='Where to']").first().fill("%s");
+		await page.locator("input[placeholder*='Where to'], input[aria-label*='Where to']").first().fill("%%s");
 		await page.waitForTimeout(1000);
 		await page.keyboard.press("Enter");
 		await page.waitForTimeout(1000);
@@ -57,30 +70,26 @@ func SearchFlightsWithScraper(scraperURL, departure, destination, startDate, end
 		// Dates
 		await page.locator("input[placeholder='Departure']").first().click();
 		await page.waitForTimeout(2000);
-		await page.keyboard.type("%s");
+		await page.keyboard.type("%%s");
 		await page.waitForTimeout(1000);
 		await page.keyboard.press("Tab");
 		await page.waitForTimeout(1000);
-		await page.keyboard.type("%s");
+		await page.keyboard.type("%%s");
 		await page.waitForTimeout(1000);
 		await page.keyboard.press("Enter");
 		await page.waitForTimeout(2000);
 		
-		// Search - focus out first to close any open dropdowns
-		// await page.mouse.click(0, 0);
-		// await page.waitForTimeout(1000);
-		
 		// Try multiple ways to trigger search
 		await page.locator("button:has-text('Search')").first().click();
 		await page.waitForTimeout(10000);
-	`, departure, destination, startDate, endDate)
+	`, searchURL)
 
 	script := os.Getenv("FLIGHT_SCRAPER_SCRIPT")
 	if script == "" {
-		script = defaultScript
+		script = fmt.Sprintf(defaultScript, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
 	} else {
 		// Replace placeholders in provided script too
-		script = fmt.Sprintf(script, departure, destination, startDate, endDate)
+		script = fmt.Sprintf(script, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
 	}
 
 	reqBody := ScrapeRequest{
@@ -136,7 +145,7 @@ func SearchFlightsWithScraper(scraperURL, departure, destination, startDate, end
 
 		if jobInfo.Status == "completed" {
 			log.Println("Scrape job completed!")
-			return processScraperResult(jobInfo.Result, departure, destination, startDate, endDate, cabinClass)
+			return processScraperResult(jobInfo.Result, opts)
 		}
 		
 		if jobInfo.Status == "failed" {
@@ -149,7 +158,7 @@ func SearchFlightsWithScraper(scraperURL, departure, destination, startDate, end
 	return nil, fmt.Errorf("scrape job timed out after %d seconds", maxAttempts*2)
 }
 
-func processScraperResult(result ScrapeResult, departure, destination, startDate, endDate, cabinClass string) ([]FlightInfo, error) {
+func processScraperResult(result ScrapeResult, opts SearchOptions) ([]FlightInfo, error) {
 	if result.ScreenshotB64 == "" {
 		return nil, fmt.Errorf("no screenshot in scraper result")
 	}
@@ -174,8 +183,7 @@ func processScraperResult(result ScrapeResult, departure, destination, startDate
 	}
 
 	for i := range flights {
-		flights[i].CabinClass = cabinClass
-		// We don't have the final URL here easily unless we add it to the scraper result
+		flights[i].CabinClass = opts.CabinClass
 	}
 
 	return flights, nil

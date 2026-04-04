@@ -20,14 +20,27 @@ type FlightInfo struct {
 	CabinClass    string `json:"cabin_class"`
 }
 
-func SearchFlights(departure, destination, startDate, endDate, cabinClass string) ([]FlightInfo, error) {
+type SearchOptions struct {
+	Departure   string
+	Destination string
+	StartDate   string
+	EndDate     string
+	CabinClass  string
+	Language    string
+	Region      string
+	Currency    string
+	Headless    bool
+	BrowserPath string
+}
+
+func SearchFlights(opts SearchOptions) ([]FlightInfo, error) {
 	// Check if Scraper Service is configured (best for stability in Kubernetes)
 	scraperURL := os.Getenv("SCRAPER_URL")
 	if scraperURL != "" {
-		return SearchFlightsWithScraper(scraperURL, departure, destination, startDate, endDate, cabinClass)
+		return SearchFlightsWithScraper(scraperURL, opts)
 	}
 
-	log.Printf("Starting %s flights from %s to %s from %s to %s...", cabinClass, departure, destination, startDate, endDate)
+	log.Printf("Starting %s flights from %s to %s from %s to %s...", opts.CabinClass, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
 	log.Println("Starting Playwright...")
 	pw, err := playwright.Run()
 	if err != nil {
@@ -36,9 +49,15 @@ func SearchFlights(departure, destination, startDate, endDate, cabinClass string
 	log.Println("Playwright started")
 	// Removed defer pw.Stop() to avoid potential hangs
 
+	// Set defaults
+	executablePath := opts.BrowserPath
+	if executablePath == "" {
+		executablePath = "/usr/bin/chromium"
+	}
+
 	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(true),
-		ExecutablePath: playwright.String("/usr/bin/chromium"),
+		Headless: playwright.Bool(opts.Headless),
+		ExecutablePath: playwright.String(executablePath),
 		Args: []string{
 			"--no-sandbox",
 			"--disable-setuid-sandbox",
@@ -90,8 +109,8 @@ func SearchFlights(departure, destination, startDate, endDate, cabinClass string
 	}
 
 	// 1. Set Cabin Class first (it's often the 3rd dropdown)
-	if cabinClass != "Economy" && cabinClass != "" {
-		log.Printf("Setting cabin class: %s", cabinClass)
+	if opts.CabinClass != "Economy" && opts.CabinClass != "" {
+		log.Printf("Setting cabin class: %s", opts.CabinClass)
 		// Find the dropdown that says "Economy"
 		cabinDropdown := page.Locator("div[aria-haspopup='listbox']").Filter(playwright.LocatorFilterOptions{
 			HasText: "Economy",
@@ -99,40 +118,40 @@ func SearchFlights(departure, destination, startDate, endDate, cabinClass string
 		if err := cabinDropdown.Click(); err == nil {
 			time.Sleep(1000 * time.Millisecond)
 			page.GetByRole("option", playwright.PageGetByRoleOptions{
-				Name: cabinClass,
+				Name: opts.CabinClass,
 			}).First().Click()
 			time.Sleep(1000 * time.Millisecond)
 		}
 	}
 
 	// 2. Set Departure
-	log.Printf("Entering departure: %s", departure)
+	log.Printf("Entering departure: %s", opts.Departure)
 	departureInput := page.Locator("input[aria-label='Where from?'], input[placeholder='Where from?']").First()
 	departureInput.Click()
 	time.Sleep(500 * time.Millisecond)
 	// Clear and type
 	page.Keyboard().Press("Control+A")
 	page.Keyboard().Press("Backspace")
-	page.Keyboard().Type(departure)
+	page.Keyboard().Type(opts.Departure)
 	time.Sleep(1500 * time.Millisecond)
 	page.Keyboard().Press("Enter")
 	time.Sleep(1000 * time.Millisecond)
 
 	// 3. Set Destination
-	log.Printf("Entering destination: %s", destination)
+	log.Printf("Entering destination: %s", opts.Destination)
 	destinationInput := page.Locator("input[aria-label='Where to?'], input[placeholder='Where to?']").First()
 	destinationInput.Click()
 	time.Sleep(500 * time.Millisecond)
 	// Clear and type
 	page.Keyboard().Press("Control+A")
 	page.Keyboard().Press("Backspace")
-	page.Keyboard().Type(destination)
+	page.Keyboard().Type(opts.Destination)
 	time.Sleep(1500 * time.Millisecond)
 	page.Keyboard().Press("Enter")
 	time.Sleep(1000 * time.Millisecond)
 
 	// 4. Set Dates
-	log.Printf("Entering dates: %s to %s", startDate, endDate)
+	log.Printf("Entering dates: %s to %s", opts.StartDate, opts.EndDate)
 	
 	// Click the departure input to open the picker
 	page.Locator("input[placeholder='Departure'], input[aria-label='Departure']").First().Click()
@@ -143,7 +162,7 @@ func SearchFlights(departure, destination, startDate, endDate, cabinClass string
 	log.Println("Typing dates sequence...")
 	page.Keyboard().Press("Control+A")
 	page.Keyboard().Press("Backspace")
-	page.Keyboard().Type(startDate)
+	page.Keyboard().Type(opts.StartDate)
 	time.Sleep(1000 * time.Millisecond)
 	
 	page.Keyboard().Press("Tab")
@@ -152,7 +171,7 @@ func SearchFlights(departure, destination, startDate, endDate, cabinClass string
 	// The Tab should move us to the Return field.
 	page.Keyboard().Press("Control+A")
 	page.Keyboard().Press("Backspace")
-	page.Keyboard().Type(endDate)
+	page.Keyboard().Type(opts.EndDate)
 	time.Sleep(1000 * time.Millisecond)
 	page.Keyboard().Press("Enter")
 	time.Sleep(1000 * time.Millisecond)
@@ -221,7 +240,7 @@ func SearchFlights(departure, destination, startDate, endDate, cabinClass string
 
 	for i := range flights {
 		flights[i].URL = page.URL()
-		flights[i].CabinClass = cabinClass
+		flights[i].CabinClass = opts.CabinClass
 	}
 
 	return flights, nil

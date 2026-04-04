@@ -39,7 +39,7 @@ spec:
       - name: mcp-server
         image: stevef1uk/flight-mcp:secure
         imagePullPolicy: Always
-        args: ["--transport", "http", "--port", "8080"]
+        args: ["--transport", "http", "--port", "8080", "-lang", "en", "-region", "FR"]
         ports:
         - containerPort: 8080
           name: http
@@ -63,6 +63,8 @@ spec:
           value: "/usr/bin/chromium"
         - name: DEBUG
           value: "pw:api"
+        - name: FLIGHT_SCRAPER_SCRIPT
+          value: "" # Optional: Override the default Playwright script here
         
         volumeMounts:
         - name: dshm

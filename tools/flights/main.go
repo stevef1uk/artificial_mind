@@ -14,10 +14,26 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+var globalOptions *SearchOptions
+
 func main() {
 	transportType := flag.String("transport", "sse", "Transport type (stdio, sse, or http)")
 	port := flag.Int("port", 8080, "Port for network transport")
+	lang := flag.String("lang", "en", "Google Flights language code (hl)")
+	region := flag.String("region", "FR", "Google Flights region code (gl)")
+	currency := flag.String("currency", "EUR", "Google Flights currency code (curr)")
+	headless := flag.Bool("headless", true, "Run browser in headless mode")
+	browser := flag.String("browser", "/usr/bin/chromium", "Path to chromium executable")
 	flag.Parse()
+
+	// Store global flags for use in handlers
+	globalOptions = &SearchOptions{
+		Language:    *lang,
+		Region:      *region,
+		Currency:    *currency,
+		Headless:    *headless,
+		BrowserPath: *browser,
+	}
 
 	// Create MCP server
 	s := server.NewMCPServer(
@@ -87,9 +103,20 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		cabin = "Economy"
 	}
 
-	log.Printf("Searching for %s flights from %s to %s from %s to %s...", cabin, departure, destination, startDate, endDate)
+	opts := SearchOptions{
+		Departure:   departure,
+		Destination: destination,
+		StartDate:   startDate,
+		EndDate:     endDate,
+		CabinClass:  cabin,
+		Language:    globalOptions.Language,
+		Region:      globalOptions.Region,
+		Currency:    globalOptions.Currency,
+	}
 
-	flights, err := SearchFlights(departure, destination, startDate, endDate, cabin)
+	log.Printf("Searching for %s flights from %s to %s from %s to %s...", opts.CabinClass, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
+
+	flights, err := SearchFlights(opts)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Error searching flights: %v", err)), nil
 	}
