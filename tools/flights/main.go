@@ -44,7 +44,7 @@ func main() {
 
 	// Add search_flights tool
 	s.AddTool(mcp.NewTool("search_flights",
-		mcp.WithDescription("Search for flights on Google Flights using Playwright and OCR [chat-only]"),
+		mcp.WithDescription("Search for flights on Google Flights using Playwright and OCR"),
 		mcp.WithString("departure", mcp.Required(), mcp.Description("Departure airport code (e.g., JFK, LAX)")),
 		mcp.WithString("destination", mcp.Required(), mcp.Description("Destination airport code (e.g., CDG, LHR)")),
 		mcp.WithString("start_date", mcp.Required(), mcp.Description("Departure date (YYYY-MM-DD)")),
