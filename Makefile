@@ -365,7 +365,7 @@ build-tools:
 	@echo "🔨 Building base tools..."
 	@mkdir -p $(BIN_DIR)/tools
 	@set -e; \
-	for d in $(shell find $(TOOLS_DIR) -maxdepth 1 -type d -not -path '$(TOOLS_DIR)'); do \
+	for d in $(shell find $(TOOLS_DIR) -maxdepth 1 -type d -not -path '$(TOOLS_DIR)' -not -path '$(TOOLS_DIR)/flights'); do \
 		name=$$(basename $$d); \
 		echo "  • $$name"; \
 		( cd $$d; \
