@@ -109,6 +109,8 @@ spec:
                   optional: true
             - name: HDN_URL
               value: "http://hdn-server-rpi58.agi.svc.cluster.local:8080"
+            - name: MCP_ENDPOINTS
+              value: "http://flight-mcp.agi.svc.cluster.local:8080"
             - name: HDN_NODEPORT
               value: "30257"
             - name: SECURE_CUSTOMER_PRIVATE_PATH
