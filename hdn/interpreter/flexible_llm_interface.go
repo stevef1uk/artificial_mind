@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Global registry for prompt hints from configured skills
@@ -88,6 +89,17 @@ func init() {
 	Set_mcp_nemoclaw_query_hints()
 	Set_tool_codegen_hints()
 	Set_tool_exec_hints()
+	Set_mcp_search_flights_hints()
+}
+
+func Set_mcp_search_flights_hints() {
+	SetPromptHints("mcp_search_flights", &PromptHintsConfig{
+		Keywords:      []string{"flight", "flights", "airline", "booking", "google flights", "travel"},
+		PromptText:    "✈️ FOR FLIGHT SEARCH: Use 'mcp_search_flights'. 🚨 CRITICAL: Use the CURRENT YEAR if the user doesn't specify one. Prefer airport codes (JFK, LHR) over city names for 'departure' and 'destination'. Output the final results in a clean table with bold headers.",
+		ForceToolCall: true,
+		AlwaysInclude: []string{"flight search", "find flights", "search flights"},
+		RejectText:    true,
+	})
 }
 
 func Set_tool_generate_image_hints() {
@@ -1036,6 +1048,7 @@ func (f *FlexibleLLMAdapter) buildToolAwarePrompt(input string, availableTools [
 	}
 
 	prompt.WriteString("🚨 CRITICAL INSTRUCTIONS - READ CAREFULLY:\n")
+	prompt.WriteString(fmt.Sprintf("Current Date and Time: %s\n", time.Now().Format("Monday, January 2, 2006, 15:04:05")))
 	prompt.WriteString("You MUST respond with ONLY a valid JSON object. NO markdown, NO code blocks, NO explanatory text.\n")
 	prompt.WriteString("Example of correct response format:\n")
 	prompt.WriteString(`{"type": "tool_call", "tool_call": {"tool_id": "mcp_get_concept", "parameters": {"name": "Science", "domain": "General"}, "description": "Retrieve information about Science"}}` + "\n\n")
