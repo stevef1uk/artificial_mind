@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/playwright-community/playwright-go"
@@ -20,11 +21,20 @@ type FlightInfo struct {
 }
 
 func SearchFlights(departure, destination, startDate, endDate, cabinClass string) ([]FlightInfo, error) {
+	// Check if Scraper Service is configured (best for stability in Kubernetes)
+	scraperURL := os.Getenv("SCRAPER_URL")
+	if scraperURL != "" {
+		return SearchFlightsWithScraper(scraperURL, departure, destination, startDate, endDate, cabinClass)
+	}
+
+	log.Printf("Starting %s flights from %s to %s from %s to %s...", cabinClass, departure, destination, startDate, endDate)
+	log.Println("Starting Playwright...")
 	pw, err := playwright.Run()
 	if err != nil {
 		return nil, fmt.Errorf("could not start playwright: %v", err)
 	}
-	defer pw.Stop()
+	log.Println("Playwright started")
+	// Removed defer pw.Stop() to avoid potential hangs
 
 	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
 		Headless: playwright.Bool(true),
