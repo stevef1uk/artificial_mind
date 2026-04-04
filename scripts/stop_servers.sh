@@ -126,6 +126,7 @@ stop_service "/tmp/principles_server.pid" "Principles Server" "8084" "principles
 stop_service "/tmp/fsm_server.pid" "FSM Server" "8083" "fsm-server"
 stop_service "/tmp/goal_manager.pid" "Goal Manager" "" "goal-manager"
 stop_service "/tmp/playwright_scraper.pid" "Playwright Scraper" "8085" "playwright-scraper"
+stop_service "/tmp/flight_mcp.pid" "Flight MCP" "8086" "flight_mcp"
 # Also stop docker version if it was left running
 docker stop playwright-scraper 2>/dev/null || true
 
@@ -157,6 +158,7 @@ kill_port 8082 "Monitor UI"
 kill_port 8083 "FSM Server"
 kill_port 8084 "Principles Server"
 kill_port 8085 "Playwright Scraper"
+kill_port 8086 "Flight MCP Server"
 
 # Clean up any remaining PID files
 rm -f /tmp/principles_server.pid
@@ -165,6 +167,7 @@ rm -f /tmp/monitor_ui.pid
 rm -f /tmp/fsm_server.pid
 rm -f /tmp/goal_manager.pid
 rm -f /tmp/playwright_scraper.pid
+rm -f /tmp/flight_mcp.pid
 
 echo ""
 echo "🎉 AGI System stopped successfully!"

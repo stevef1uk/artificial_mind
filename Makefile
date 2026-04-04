@@ -42,6 +42,8 @@ TOOLS_DIR := tools
 CHATBOT_HOST ?= 192.168.1.60
 CHATBOT_USER ?= $(USER)
 CHATBOT_REMOTE_PATH ?= ~/dev/chatbot/chatbot
+FLIGHTS_DIR := tools/flights
+FLIGHTS_BIN := $(BIN_DIR)/flight-mcp
 
 # Go build flags
 GO_BUILD_FLAGS := -ldflags="-s -w" -o
@@ -124,7 +126,7 @@ help-cross:
 
 # Build all components
 .PHONY: build
-build: build-principles build-hdn build-monitor build-fsm build-goal build-chatbot build-tools build-scraper-binary build-wiki-bootstrapper build-wiki-summarizer build-news-ingestor build-nats-demos build-nats-test validate-safety
+build: build-principles build-hdn build-monitor build-fsm build-goal build-chatbot build-tools build-flights build-scraper-binary build-wiki-bootstrapper build-wiki-summarizer build-news-ingestor build-nats-demos build-nats-test validate-safety
 
 # Build NATS demos
 .PHONY: build-nats-demos
@@ -283,6 +285,14 @@ build-chatbot:
 	@mkdir -p $(BIN_DIR)
 	@cd $(CHATBOT_DIR) && $(GO_ENV) GO111MODULE=on go build $(GO_BUILD_FLAGS) ../$(CHATBOT_BIN) .
 	@echo "✅ Chatbot built: $(CHATBOT_BIN)"
+
+# Build Flight MCP
+.PHONY: build-flights
+build-flights:
+	@echo "🔨 Building Flight MCP server..."
+	@mkdir -p $(BIN_DIR)
+	@cd $(FLIGHTS_DIR) && $(GO_ENV) GO111MODULE=on go build $(GO_BUILD_FLAGS) ../../$(FLIGHTS_BIN) .
+	@echo "✅ Flight MCP built: $(FLIGHTS_BIN)"
 
 # Deploy Chatbot
 .PHONY: deploy-chatbot

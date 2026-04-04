@@ -147,6 +147,7 @@ build_and_push "Dockerfile.wiki-bootstrapper.secure" "knowledge-builder" "Knowle
 build_and_push "Dockerfile.wiki-summarizer.secure" "wiki-summarizer" "Wiki Summarizer"
 build_and_push "Dockerfile.news-ingestor.secure" "data-processor" "Data Processor"
 build_and_push "Dockerfile.playwright-scraper.secure" "playwright-scraper" "Playwright Scraper"
+build_and_push "tools/flights/Dockerfile" "flight-mcp" "Flight MCP Server"
 
 
 print_success "All Docker images have been built and pushed successfully!"
@@ -162,5 +163,6 @@ echo "  - $DOCKER_USERNAME/knowledge-builder:secure"
 echo "  - $DOCKER_USERNAME/wiki-summarizer:secure"
 echo "  - $DOCKER_USERNAME/data-processor:secure"
 echo "  - $DOCKER_USERNAME/playwright-scraper:secure"
+echo "  - $DOCKER_USERNAME/flight-mcp:secure"
 
 print_status "You can now deploy these images to your Kubernetes cluster."

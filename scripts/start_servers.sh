@@ -128,6 +128,7 @@ kill_port 8082 "Monitor UI"
 kill_port 8083 "FSM Server"
 kill_port 8090 "Goal Manager"
 kill_port 8085 "Playwright Scraper"
+kill_port 8086 "Flight MCP Server"
 # Also ensure no docker container is hogging the port
 docker stop playwright-scraper 2>/dev/null || true
 docker rm playwright-scraper 2>/dev/null || true
@@ -550,6 +551,26 @@ if [ -f "$AGI_PROJECT_ROOT/bin/playwright-scraper" ]; then
     fi
 fi
 
+# Start Flight MCP Server
+echo "🔨 Building Flight MCP Server..."
+cd "$AGI_PROJECT_ROOT"
+make build-flights >/dev/null 2>&1 || { echo "❌ Failed to build Flight MCP"; FLIGHTS_PID=""; }
+
+if [ -f "$AGI_PROJECT_ROOT/bin/flight-mcp" ]; then
+    FLIGHTS_PID=$(run_service "flight_mcp" \
+        "$AGI_PROJECT_ROOT" \
+        "$AGI_PROJECT_ROOT/bin/flight-mcp" \
+        --transport sse --port 8086) || {
+        echo "⚠️  Flight MCP failed to start, but continuing"; FLIGHTS_PID=""; }
+    
+    # Wait for Flight MCP to be ready
+    if [ -n "$FLIGHTS_PID" ]; then
+        echo "⏳ Waiting for Flight MCP to be ready..."
+        if ! wait_for_service "http://localhost:8086/sse" "Flight MCP"; then
+            echo "⚠️  Flight MCP health check failed, but continuing"
+        fi
+    fi
+fi
 
 # Save PIDs for cleanup
 echo "$PRINCIPLES_PID" > /tmp/principles_server.pid
@@ -565,6 +586,9 @@ if [ ! -z "$GOAL_PID" ]; then
 fi
 if [ ! -z "$SCRAPER_PID" ]; then
     echo "$SCRAPER_PID" > /tmp/playwright_scraper.pid
+fi
+if [ ! -z "$FLIGHTS_PID" ]; then
+    echo "$FLIGHTS_PID" > /tmp/flight_mcp.pid
 fi
 
 echo ""
@@ -594,6 +618,9 @@ fi
 if [ ! -z "$SCRAPER_PID" ]; then
     echo "  🕷️  Playwright Scraper: http://localhost:8085"
 fi
+if [ ! -z "$FLIGHTS_PID" ]; then
+    echo "  ✈️  Flight MCP Server: http://localhost:8086"
+fi
 echo ""
 echo "📊 Service Status:"
 echo "  Neo4j: $(curl -s -o /dev/null -w "%{http_code}" http://localhost:7474)"
@@ -608,6 +635,7 @@ if [ ! -z "$FSM_PID" ]; then
     echo "  FSM: $(curl -s -o /dev/null -w "%{http_code}" http://localhost:8083/health)"
 fi
 echo "  Scraper: $(curl -s -o /dev/null -w "%{http_code}" http://localhost:8085/health)"
+echo "  Flight MCP: $(curl -s -o /dev/null -w "%{http_code}" http://localhost:8086/sse)"
 echo ""
 echo "🛑 To stop servers: ./stop_servers.sh"
 echo "📄 View logs: tail -f /tmp/principles_server.log /tmp/hdn_server.log"
@@ -622,6 +650,9 @@ if [ ! -z "$TELEGRAM_BOT_PID" ]; then
 fi
 if [ ! -z "$SCRAPER_PID" ]; then
     echo "📄 Playwright Scraper logs: tail -f /tmp/playwright_scraper.log"
+fi
+if [ ! -z "$FLIGHTS_PID" ]; then
+    echo "📄 Flight MCP logs: tail -f /tmp/flight_mcp.log"
 fi
 echo ""
 echo "✅ Ready to run demos!"
