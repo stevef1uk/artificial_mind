@@ -6,6 +6,7 @@ ENV TZ=Etc/UTC
 RUN apt-get update && apt-get install -y \
   tzdata \
   xvfb \
+  x11vnc \
   fluxbox \
   tigervnc-standalone-server \
   novnc \

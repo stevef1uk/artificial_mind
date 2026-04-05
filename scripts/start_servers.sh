@@ -107,7 +107,7 @@ wait_for_service() {
     
     echo "⏳ Waiting for $service_name to be ready..."
     while [ $attempt -lt $max_attempts ]; do
-        if curl -s "$url" >/dev/null 2>&1; then
+        if curl -s --max-time 1 "$url" >/dev/null 2>&1; then
             echo "✅ $service_name is ready!"
             return 0
         fi
@@ -203,9 +203,9 @@ echo ""
 if [ "$SKIP_INFRA" = "true" ]; then
     echo "⏭️  SKIP_INFRA=true: skipping docker-compose infra startup and health checks"
 else
-    echo "🏗️  Starting Infrastructure Services (Neo4j + Weaviate + Redis + NATS)..."
+    echo "🏗️  Starting Infrastructure Services (Neo4j + Weaviate + Redis + NATS + Codegen)..."
     cd "$AGI_PROJECT_ROOT"
-    docker-compose up -d neo4j weaviate redis nats
+    docker-compose up -d neo4j weaviate redis nats codegen
 
     # Ensure data directory has correct permissions (Docker often creates them as root)
     if [ -d "$AGI_PROJECT_ROOT/data" ]; then
@@ -566,8 +566,20 @@ if [ -f "$AGI_PROJECT_ROOT/bin/flight-mcp" ]; then
     # Wait for Flight MCP to be ready
     if [ -n "$FLIGHTS_PID" ]; then
         echo "⏳ Waiting for Flight MCP to be ready..."
-        if ! wait_for_service "http://localhost:8086/sse" "Flight MCP"; then
-            echo "⚠️  Flight MCP health check failed, but continuing"
+        # Flight MCP uses SSE which hangs standard curl health checks.
+        # Use a port check instead since we already saw it build successfully.
+        max_attempts=15
+        attempt=0
+        while [ $attempt -lt $max_attempts ]; do
+            if lsof -Pi :8086 -sTCP:LISTEN -t >/dev/null 2>&1; then
+                echo "✅ Flight MCP is ready (port 8086 listening)!"
+                break
+            fi
+            attempt=$((attempt + 1))
+            sleep 1
+        done
+        if [ $attempt -eq $max_attempts ]; then
+            echo "⚠️  Flight MCP check timed out, but continuing"
         fi
     fi
 fi

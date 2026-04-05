@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -30,7 +31,18 @@ type CodegenSession struct {
 var (
 	codegenMu       sync.Mutex
 	codegenSessions = make(map[string]*CodegenSession)
+	codegenOutputDir string
 )
+
+func init() {
+	codegenOutputDir = os.Getenv("CODEGEN_OUTPUT_DIR")
+	if codegenOutputDir == "" {
+		codegenOutputDir = filepath.Join(os.TempDir(), "agi_codegen")
+	}
+	if err := os.MkdirAll(codegenOutputDir, 0755); err != nil {
+		log.Printf("Warning: failed to create codegen output directory: %v", err)
+	}
+}
 
 type codegenStartRequest struct {
 	URL        string `json:"url"`
@@ -59,17 +71,18 @@ func handleCodegenStart(w http.ResponseWriter, r *http.Request) {
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("CODEGEN_MODE")))
 
 	id := uuid.New().String()
-	outputDir := filepath.Join(os.TempDir(), "agi_codegen")
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
+	
+	// Create output dir if it doesn't exist
+	if err := os.MkdirAll(codegenOutputDir, 0755); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create output dir: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	outputPath := req.OutputPath
 	if outputPath == "" {
-		outputPath = filepath.Join(outputDir, fmt.Sprintf("codegen_%s.ts", id))
+		outputPath = filepath.Join(codegenOutputDir, fmt.Sprintf("codegen_%s.ts", id))
 	}
-	logPath := filepath.Join(outputDir, fmt.Sprintf("codegen_%s.log", id))
+	logPath := filepath.Join(codegenOutputDir, fmt.Sprintf("codegen_%s.log", id))
 
 	var cmd *exec.Cmd
 	var novncURL string
@@ -154,28 +167,43 @@ func startCodegenInContainer(url, outputHostPath string) error {
 		return err
 	}
 
+	// NEW: Kill any existing playwright processes to ensure the display updates
+	log.Printf("🧹 Cleaning up existing playwright processes in %s...", containerName)
+	_ = exec.Command("docker", "exec", containerName, "pkill", "-f", "playwright").Run()
+	_ = exec.Command("docker", "exec", containerName, "pkill", "-f", "chrome").Run()
+	_ = exec.Command("docker", "exec", containerName, "pkill", "-f", "node").Run()
+	// Small delay to allow cleanup
+	time.Sleep(500 * time.Millisecond)
+
 	outputContainerPath := filepath.Join("/output", filepath.Base(outputHostPath))
-	chromiumFlags := []string{
-		"--no-sandbox",
-		"--disable-gpu",
-		"--disable-dev-shm-usage",
-		"--disable-software-rasterizer",
-		"--disable-setuid-sandbox",
-		"--disable-accelerated-2d-canvas",
-		"--disable-accelerated-video-decode",
-	}
 	args := []string{
 		"exec", "-e", "DISPLAY=:99", containerName,
-		"npx", "playwright", "codegen", "--output", outputContainerPath, url,
+		"npx", "playwright", "codegen",
 		"--browser=chromium",
-		"--",
+		"--output", outputContainerPath,
+		url, // URL must be the last positional argument
 	}
-	args = append(args, chromiumFlags...)
+	log.Printf("🐳 Executing: docker %s", strings.Join(args, " "))
 	cmd := exec.Command("docker", args...)
 
+	// Capture output to a log file so we can see why it fails
+	codegenLog := filepath.Join(os.TempDir(), "agi_codegen_exec.log")
+	logFile, err := os.Create(codegenLog)
+	if err == nil {
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+		log.Printf("📝 Codegen exec logs redirected to %s", codegenLog)
+	}
+
 	if err := cmd.Start(); err != nil {
+		if logFile != nil {
+			logFile.Close()
+		}
 		return err
 	}
+
+	// We don't close the logFile here because cmd.Start() is asynchronous
+	// and we want to capture output as it runs.
 	return nil
 }
 
@@ -273,16 +301,31 @@ func handleCodegenResult(w http.ResponseWriter, r *http.Request) {
 	codegenMu.Lock()
 	session, ok := codegenSessions[id]
 	codegenMu.Unlock()
-	if !ok {
-		http.Error(w, "Session not found", http.StatusNotFound)
-		return
+
+	var filePath string
+	if ok {
+		filePath = session.OutputPath
+	} else {
+		// FALLBACK: Look for the file on disk if session is missing (e.g. after restart)
+		// Check both codegenOutputDir and /tmp/agi_codegen
+		paths := []string{
+			filepath.Join(codegenOutputDir, fmt.Sprintf("codegen_%s.ts", id)),
+			filepath.Join("/tmp/agi_codegen", fmt.Sprintf("codegen_%s.ts", id)),
+		}
+		for _, p := range paths {
+			if _, err := os.Stat(p); err == nil {
+				filePath = p
+				break
+			}
+		}
 	}
-	if session.Status != "completed" {
-		http.Error(w, "Codegen not completed", http.StatusConflict)
+
+	if filePath == "" {
+		http.Error(w, "Result not found", http.StatusNotFound)
 		return
 	}
 
-	data, err := os.ReadFile(session.OutputPath)
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to read output: %v", err), http.StatusInternalServerError)
 		return
@@ -316,12 +359,73 @@ func handleCodegenLatest(w http.ResponseWriter, r *http.Request) {
 	}
 	codegenMu.Unlock()
 
-	if latest == nil {
+	var data []byte
+	var err error
+	var filename string
+	var modTime time.Time
+
+	if latest != nil {
+		data, err = os.ReadFile(latest.OutputPath)
+		filename = filepath.Base(latest.OutputPath)
+		if latest.CompletedAt != nil {
+			modTime = *latest.CompletedAt
+		}
+	} else {
+		// FALLBACK: Scan filesystem for the latest file
+		// Check codegenOutputDir
+		files, ferr := os.ReadDir(codegenOutputDir)
+		if ferr == nil {
+			var latestFile os.DirEntry
+			var latestTime time.Time
+			for _, f := range files {
+				if f.IsDir() || !strings.HasSuffix(f.Name(), ".ts") {
+					continue
+				}
+				info, ierr := f.Info()
+				if ierr == nil {
+					if info.ModTime().After(latestTime) {
+						latestTime = info.ModTime()
+						latestFile = f
+					}
+				}
+			}
+			if latestFile != nil {
+				filename = latestFile.Name()
+				data, err = os.ReadFile(filepath.Join(codegenOutputDir, filename))
+				modTime = latestTime
+			} else if codegenOutputDir != "/tmp/agi_codegen" {
+				// Also check /tmp/agi_codegen as a second fallback
+				files2, ferr2 := os.ReadDir("/tmp/agi_codegen")
+				if ferr2 == nil {
+					var latestFile2 os.DirEntry
+					var latestTime2 time.Time
+					for _, f := range files2 {
+						if f.IsDir() || !strings.HasSuffix(f.Name(), ".ts") {
+							continue
+						}
+						info, ierr := f.Info()
+						if ierr == nil {
+							if info.ModTime().After(latestTime2) {
+								latestTime2 = info.ModTime()
+								latestFile2 = f
+							}
+						}
+					}
+					if latestFile2 != nil {
+						filename = latestFile2.Name()
+						data, err = os.ReadFile(filepath.Join("/tmp/agi_codegen", filename))
+						modTime = latestTime2
+					}
+				}
+			}
+		}
+	}
+
+	if data == nil {
 		http.Error(w, "No completed codegen sessions", http.StatusNotFound)
 		return
 	}
 
-	data, err := os.ReadFile(latest.OutputPath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to read output: %v", err), http.StatusInternalServerError)
 		return
@@ -329,9 +433,9 @@ func handleCodegenLatest(w http.ResponseWriter, r *http.Request) {
 
 	setCORSHeaders(w)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("X-Script-File", filepath.Base(latest.OutputPath))
-	if latest.CompletedAt != nil {
-		w.Header().Set("X-Script-Modified", latest.CompletedAt.Format(time.RFC3339))
+	w.Header().Set("X-Script-File", filename)
+	if !modTime.IsZero() {
+		w.Header().Set("X-Script-Modified", modTime.Format(time.RFC3339))
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
