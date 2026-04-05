@@ -2,6 +2,7 @@
 FROM golang:1.25.8-bookworm AS builder
 
 # Set the working directory
+ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/
 WORKDIR /app
 
 # Enable CGO for gosseract
@@ -37,6 +38,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory
+ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/
 WORKDIR /app
 
 # Copy the built binary from the builder stage
