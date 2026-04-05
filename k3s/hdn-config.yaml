@@ -415,7 +415,7 @@ data:
     {
       "llm_provider": "openai",
       "llm_api_key": "",
-      "mcp_endpoint": "http://hdn-server-rpi58.agi.svc.cluster.local:8080/mcp",
+      "mcp_endpoint": "http://hdn-server-rpi58.agi.svc.cluster.local:8086/mcp",
       "settings": {
         "model": "gemma-3-1b-it-q4_k_m.gguf",
         "temperature": "0.7",
