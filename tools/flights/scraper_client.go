@@ -48,40 +48,68 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s", opts.Language, opts.Region, opts.Currency)
 	log.Printf("Construction Search URL: %s", searchURL)
 
-	// Build the script - allow override via environment variable for easier tweaking
+	// Build the script - using the robust version from K8s manifest
 	defaultScript := fmt.Sprintf(`
 		await page.goto("%s");
-		await page.waitForTimeout(2000);
-		await page.bypassConsent();
+		await page.waitForTimeout(5000);
+		try { await page.bypassConsent(); } catch(e) {}
 		await page.waitForTimeout(2000);
 		
-		// Departure
-		await page.locator("input[placeholder*='Where from'], input[aria-label*='Where from']").first().fill("%%s");
-		await page.waitForTimeout(1000);
+		// 1. Departure
+		const fromLoc = page.locator("input[placeholder*='Where from'], input[placeholder*='D\\'où'], input[aria-label*='Where from'], input[value*='Current']").first();
+		await fromLoc.click();
+		await page.waitForTimeout(500);
+		await fromLoc.fill("%%s");
+		await page.waitForTimeout(1500);
 		await page.keyboard.press("Enter");
 		await page.waitForTimeout(1000);
 		
-		// Destination
-		await page.locator("input[placeholder*='Where to'], input[aria-label*='Where to']").first().fill("%%s");
-		await page.waitForTimeout(1000);
+		// 2. Destination
+		const toLoc = page.locator("input[placeholder*='Where to'], input[placeholder*='Où allez-vous'], input[aria-label*='Where to']").first();
+		await toLoc.click();
+		await page.waitForTimeout(500);
+		await toLoc.fill("%%s");
+		await page.waitForTimeout(1500);
 		await page.keyboard.press("Enter");
 		await page.waitForTimeout(1000);
 		
-		// Dates
-		await page.locator("input[placeholder='Departure']").first().click();
+		// 3. Dates
+		const dateLoc = page.locator("input[placeholder*='Departure'], input[placeholder*='Départ'], input[aria-label*='Departure']").first();
+		await dateLoc.click();
 		await page.waitForTimeout(2000);
+		await page.keyboard.press("Control+A");
+		await page.keyboard.press("Backspace");
 		await page.keyboard.type("%%s");
 		await page.waitForTimeout(1000);
 		await page.keyboard.press("Tab");
-		await page.waitForTimeout(1000);
+		await page.keyboard.press("Control+A");
+		await page.keyboard.press("Backspace");
 		await page.keyboard.type("%%s");
 		await page.waitForTimeout(1000);
 		await page.keyboard.press("Enter");
 		await page.waitForTimeout(2000);
 		
-		// Try multiple ways to trigger search
-		await page.locator("button:has-text('Search')").first().click();
-		await page.waitForTimeout(10000);
+		// Close any overlays
+		await page.keyboard.press("Escape");
+		await page.waitForTimeout(1000);
+		
+		// 4. Search
+		const searchBtn = page.locator("button:has-text('Search'), button:has-text('Rechercher'), button[aria-label*='Search']").first();
+		if (await searchBtn.isVisible()) {
+			await searchBtn.click();
+		} else {
+			await page.keyboard.press("Enter");
+		}
+		
+		// Wait for results to actually render
+		try {
+			await page.waitForSelector("div[role='listitem'], li.pI9Vpc", { timeout: 30000 });
+		} catch (e) {
+			await page.mouse.wheel(0, 800);
+			await page.waitForTimeout(5000);
+		}
+		
+		await page.waitForTimeout(10000); // Final buffer for animations
 	`, searchURL)
 
 	script := os.Getenv("FLIGHT_SCRAPER_SCRIPT")

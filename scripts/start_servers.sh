@@ -328,6 +328,60 @@ if ! wait_for_service "http://localhost:8084/action" "Principles Server"; then
     exit 1
 fi
 
+# Start Playwright Scraper
+echo "🔨 Building Playwright Scraper..."
+cd "$AGI_PROJECT_ROOT"
+make build-scraper-binary >/dev/null 2>&1 || { echo "❌ Failed to build Playwright Scraper"; SCRAPER_PID=""; }
+
+if [ -f "$AGI_PROJECT_ROOT/bin/playwright-scraper" ]; then
+	export CODEGEN_MODE="container"
+	export CODEGEN_OUTPUT_DIR="$AGI_PROJECT_ROOT/data/codegen"
+    SCRAPER_PID=$(run_service "playwright_scraper" \
+        "$AGI_PROJECT_ROOT" \
+        "$AGI_PROJECT_ROOT/bin/playwright-scraper") || {
+        echo "⚠️  Playwright Scraper failed to start, but continuing"; SCRAPER_PID=""; }
+    
+    # Wait for Scraper to be ready
+    if [ -n "$SCRAPER_PID" ]; then
+        echo "⏳ Waiting for Playwright Scraper to be ready..."
+        if ! wait_for_service "http://localhost:8085/health" "Playwright Scraper"; then
+            echo "⚠️  Scraper health check failed, but continuing"
+        fi
+    fi
+fi
+
+# Start Flight MCP Server
+echo "🔨 Building Flight MCP Server..."
+cd "$AGI_PROJECT_ROOT"
+make build-flights >/dev/null 2>&1 || { echo "❌ Failed to build Flight MCP"; FLIGHTS_PID=""; }
+
+if [ -f "$AGI_PROJECT_ROOT/bin/flight-mcp" ]; then
+    FLIGHTS_PID=$(run_service "flight_mcp" \
+        "$AGI_PROJECT_ROOT" \
+        "$AGI_PROJECT_ROOT/bin/flight-mcp" \
+        --transport http --port 8086) || {
+        echo "⚠️  Flight MCP failed to start, but continuing"; FLIGHTS_PID=""; }
+    
+    # Wait for Flight MCP to be ready
+    if [ -n "$FLIGHTS_PID" ]; then
+        echo "⏳ Waiting for Flight MCP to be ready..."
+        # Port check for readiness
+        max_attempts=15
+        attempt=0
+        while [ $attempt -lt $max_attempts ]; do
+            if lsof -Pi :8086 -sTCP:LISTEN -t >/dev/null 2>&1; then
+                echo "✅ Flight MCP is ready (port 8086 listening)!"
+                break
+            fi
+            attempt=$((attempt + 1))
+            sleep 1
+        done
+        if [ $attempt -eq $max_attempts ]; then
+            echo "⚠️  Flight MCP check timed out, but continuing"
+        fi
+    fi
+fi
+
 # Start HDN Server
 # Ensure tools (including headless-browser) are built first, then HDN binary
 echo "🔨 Building tools (including headless-browser)..."
@@ -529,60 +583,7 @@ GOAL_PID=$(run_service "goal_manager" \
 # (Optional) Wait a moment for Goal Manager to warm up
 sleep 1
 
-# Start Playwright Scraper
-echo "🔨 Building Playwright Scraper..."
-cd "$AGI_PROJECT_ROOT"
-make build-scraper-binary >/dev/null 2>&1 || { echo "❌ Failed to build Playwright Scraper"; SCRAPER_PID=""; }
-
-if [ -f "$AGI_PROJECT_ROOT/bin/playwright-scraper" ]; then
-	export CODEGEN_MODE="container"
-	export CODEGEN_OUTPUT_DIR="$AGI_PROJECT_ROOT/data/codegen"
-    SCRAPER_PID=$(run_service "playwright_scraper" \
-        "$AGI_PROJECT_ROOT" \
-        "$AGI_PROJECT_ROOT/bin/playwright-scraper") || {
-        echo "⚠️  Playwright Scraper failed to start, but continuing"; SCRAPER_PID=""; }
-    
-    # Wait for Scraper to be ready
-    if [ -n "$SCRAPER_PID" ]; then
-        echo "⏳ Waiting for Playwright Scraper to be ready..."
-        if ! wait_for_service "http://localhost:8085/health" "Playwright Scraper"; then
-            echo "⚠️  Scraper health check failed, but continuing"
-        fi
-    fi
-fi
-
-# Start Flight MCP Server
-echo "🔨 Building Flight MCP Server..."
-cd "$AGI_PROJECT_ROOT"
-make build-flights >/dev/null 2>&1 || { echo "❌ Failed to build Flight MCP"; FLIGHTS_PID=""; }
-
-if [ -f "$AGI_PROJECT_ROOT/bin/flight-mcp" ]; then
-    FLIGHTS_PID=$(run_service "flight_mcp" \
-        "$AGI_PROJECT_ROOT" \
-        "$AGI_PROJECT_ROOT/bin/flight-mcp" \
-        --transport sse --port 8086) || {
-        echo "⚠️  Flight MCP failed to start, but continuing"; FLIGHTS_PID=""; }
-    
-    # Wait for Flight MCP to be ready
-    if [ -n "$FLIGHTS_PID" ]; then
-        echo "⏳ Waiting for Flight MCP to be ready..."
-        # Flight MCP uses SSE which hangs standard curl health checks.
-        # Use a port check instead since we already saw it build successfully.
-        max_attempts=15
-        attempt=0
-        while [ $attempt -lt $max_attempts ]; do
-            if lsof -Pi :8086 -sTCP:LISTEN -t >/dev/null 2>&1; then
-                echo "✅ Flight MCP is ready (port 8086 listening)!"
-                break
-            fi
-            attempt=$((attempt + 1))
-            sleep 1
-        done
-        if [ $attempt -eq $max_attempts ]; then
-            echo "⚠️  Flight MCP check timed out, but continuing"
-        fi
-    fi
-fi
+# PIDs are all captured above in variables
 
 # Save PIDs for cleanup
 echo "$PRINCIPLES_PID" > /tmp/principles_server.pid
@@ -647,7 +648,7 @@ if [ ! -z "$FSM_PID" ]; then
     echo "  FSM: $(curl -s -o /dev/null -w "%{http_code}" http://localhost:8083/health)"
 fi
 echo "  Scraper: $(curl -s -o /dev/null -w "%{http_code}" http://localhost:8085/health)"
-echo "  Flight MCP: $(curl -s -o /dev/null -w "%{http_code}" http://localhost:8086/sse)"
+echo "  Flight MCP: $(curl -s -o /dev/null -w "%%{http_code}" http://localhost:8086/)"
 echo ""
 echo "🛑 To stop servers: ./stop_servers.sh"
 echo "📄 View logs: tail -f /tmp/principles_server.log /tmp/hdn_server.log"
