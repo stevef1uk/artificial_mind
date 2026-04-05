@@ -94,10 +94,10 @@ func init() {
 
 func Set_mcp_search_flights_hints() {
 	SetPromptHints("mcp_search_flights", &PromptHintsConfig{
-		Keywords:      []string{"flight", "flights", "airline", "booking", "google flights", "travel"},
-		PromptText:    "✈️ FOR FLIGHT SEARCH: Use 'mcp_search_flights'. 🚨 CRITICAL: Use the CURRENT YEAR if the user doesn't specify one. Prefer airport codes (JFK, LHR) over city names for 'departure' and 'destination'. Output the final results in a clean table with bold headers.",
+		Keywords:      []string{"flight", "flights", "airline", "booking", "google flights", "travel", "plane", "ticket"},
+		PromptText:    "✈️ FOR FLIGHT SEARCH: You MUST use 'mcp_search_flights'. This is a specialized high-performance tool. 🚨 CRITICAL: Use the CURRENT YEAR if the user doesn't specify one. Prefer airport codes (JFK, LHR, CDG) over city names. Output the results in a clean markdown table.",
 		ForceToolCall: true,
-		AlwaysInclude: []string{"flight search", "find flights", "search flights"},
+		AlwaysInclude: []string{"flight search", "find flights", "search flights", "book flight"},
 		RejectText:    true,
 	})
 }
@@ -115,7 +115,7 @@ func Set_tool_generate_image_hints() {
 func Set_mcp_smart_scrape_hints() {
 	SetPromptHints("mcp_smart_scrape", &PromptHintsConfig{
 		Keywords:      []string{"scrape", "browse", "crawl", "fetch", "visit"},
-		PromptText:    "⚠️ FOR WEB SCRAPING: You MUST use mcp_smart_scrape with the 'url' and 'goal' parameters. Do NOT return a text description of how to scrape.",
+		PromptText:    "⚠️ FOR WEB SCRAPING: Use 'mcp_smart_scrape'. 🚨 CRITICAL: NEVER use this tool for flights, weather, or image generation. Use the specialized 'mcp_search_flights', 'mcp_weather', or 'mcp_generate_image' tools instead.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"scrape", "browse", "crawl"},
 		RejectText:    true,
