@@ -926,6 +926,50 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
 			return
 		}
+
+		// Detect and save screenshots for Wow dashboard
+		if resMap, ok := result.(map[string]interface{}); ok {
+			// Extract from top-level or result sub-field (depending on tool type)
+			var screenshotB64 string
+			if s, ok := resMap["screenshot"].(string); ok {
+				screenshotB64 = s
+			} else if res, ok := resMap["result"].(map[string]interface{}); ok {
+				if s, ok := res["screenshot"].(string); ok {
+					screenshotB64 = s
+				}
+			}
+
+			if screenshotB64 != "" {
+				go func(b64 string) {
+					raw := b64
+					if idx := strings.Index(raw, ","); idx >= 0 {
+						raw = raw[idx+1:]
+					}
+					if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil {
+						// Store in MCP knowledge server memory (where HandleScreenshot serves it from)
+						if s.mcpKnowledgeServer != nil {
+							s.mcpKnowledgeServer.screenshotMu.Lock()
+							s.mcpKnowledgeServer.latestScreenshot = decoded
+							s.mcpKnowledgeServer.screenshotMu.Unlock()
+							log.Printf("📸 [TOOLS] Screenshot captured from %s and stored in memory", id)
+						}
+
+						// Also save to disk for /api/artifacts/latest_screenshot.png
+						projectRoot := os.Getenv("AGI_PROJECT_ROOT")
+						if projectRoot == "" {
+							if wd, err := os.Getwd(); err == nil {
+								projectRoot = wd
+							}
+						}
+						artifactsDir := filepath.Join(projectRoot, "artifacts")
+						os.MkdirAll(artifactsDir, 0755)
+						path := filepath.Join(artifactsDir, "latest_screenshot.png")
+						_ = os.WriteFile(path, decoded, 0644)
+					}
+				}(screenshotB64)
+			}
+		}
+
 		_ = json.NewEncoder(w).Encode(result)
 		return
 	}
