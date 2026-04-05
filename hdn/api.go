@@ -3709,11 +3709,32 @@ func (s *APIServer) handleListCapabilities(w http.ResponseWriter, r *http.Reques
 		s.redisAddr,
 	)
 
-	// Get cached capabilities
+	// Get cached capabilities (learned skills)
 	capabilities, err := executor.ListCachedCapabilities()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to list capabilities: %v", err), http.StatusInternalServerError)
-		return
+		log.Printf("⚠️ [API] Failed to list cached capabilities: %v", err)
+		capabilities = []*GeneratedCode{}
+	}
+
+	// ALSO get core capabilities from planner (includes MCP tools like flights)
+	if s.plannerIntegration != nil {
+		coreCaps, err := s.plannerIntegration.ListCapabilities()
+		if err == nil {
+			for _, cap := range coreCaps {
+				// Convert to GeneratedCode format for the UI
+				// Prepend to list so core tools appear first
+				capabilities = append([]*GeneratedCode{{
+					ID:          cap.ID,
+					TaskName:    cap.TaskName,
+					Description: cap.Description,
+					Language:    cap.Language,
+					Code:        cap.Code,
+					Tags:        append(cap.Tags, "core"),
+					Executable:  true,
+					CreatedAt:   time.Now(), // Default
+				}}, capabilities...)
+			}
+		}
 	}
 
 	// Get execution stats
