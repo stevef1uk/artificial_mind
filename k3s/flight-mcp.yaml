@@ -64,7 +64,81 @@ spec:
         - name: DEBUG
           value: "pw:api"
         - name: FLIGHT_SCRAPER_SCRIPT
-          value: "" # Optional: Override the default Playwright script here
+          value: |
+            await page.goto("%s");
+            await page.waitForTimeout(5000);
+            try { await page.bypassConsent(); } catch(e) {}
+            await page.waitForTimeout(2000);
+            
+            // 1. Departure
+            const fromLoc = page.locator("input[placeholder*='Where from'], input[placeholder*='D\\'où'], input[aria-label*='Where from'], input[value*='Current']").first();
+            await fromLoc.click();
+            await page.waitForTimeout(500);
+            await fromLoc.fill("%s");
+            await page.waitForTimeout(1500);
+            await page.keyboard.press("Enter");
+            await page.waitForTimeout(1000);
+            
+            // 2. Destination
+            const toLoc = page.locator("input[placeholder*='Where to'], input[placeholder*='Où allez-vous'], input[aria-label*='Where to']").first();
+            await toLoc.click();
+            await page.waitForTimeout(500);
+            await toLoc.fill("%s");
+            await page.waitForTimeout(1500);
+            await page.keyboard.press("Enter");
+            await page.waitForTimeout(1000);
+            
+            // 3. Dates
+            const dateLoc = page.locator("input[placeholder*='Departure'], input[placeholder*='Départ'], input[aria-label*='Departure']").first();
+            await dateLoc.click();
+            await page.waitForTimeout(2000);
+            await page.keyboard.press("Control+A");
+            await page.keyboard.press("Backspace");
+            await page.keyboard.type("%s");
+            await page.waitForTimeout(1000);
+            await page.keyboard.press("Tab");
+            await page.keyboard.press("Control+A");
+            await page.keyboard.press("Backspace");
+            await page.keyboard.type("%s");
+            await page.waitForTimeout(1000);
+            await page.keyboard.press("Enter");
+            await page.waitForTimeout(2000);
+            
+            // Close any overlays
+            await page.keyboard.press("Escape");
+            await page.waitForTimeout(1000);
+            
+            // 4. Search
+            console.log("Executing Search...");
+            const searchBtn = page.locator("button:has-text('Search'), button:has-text('Rechercher'), button[aria-label*='Search']").first();
+            if (await searchBtn.isVisible()) {
+                await searchBtn.click();
+            } else {
+                await page.keyboard.press("Enter");
+            }
+            
+            // Wait for results and verify
+            console.log("Waiting for results to render...");
+            await page.waitForTimeout(5000);
+            
+            // Scroll to trigger lazy loading
+            await page.mouse.wheel(0, 500);
+            await page.waitForTimeout(10000);
+            
+            // LOG RESULTS FOR VERIFICATION
+            const resultCount = await page.locator("div[role='listitem']").count();
+            console.log("VERIFICATION: Found " + resultCount + " flight results.");
+            
+            if (resultCount === 0) {
+               const content = await page.textContent("body");
+               if (content.includes("No flights") || content.includes("aucun vol")) {
+                   console.log("VERIFICATION: Confirmed 'No flights found' state.");
+               } else {
+                   console.log("VERIFICATION: Still in loading/error state. Page length: " + content.length);
+               }
+            }
+            
+            await page.waitForTimeout(10000); // Final buffer
         
         volumeMounts:
         - name: dshm
