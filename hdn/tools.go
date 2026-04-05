@@ -364,6 +364,7 @@ func (s *APIServer) listTools(ctx context.Context) ([]Tool, error) {
 					Description: mt.Description,
 					CreatedBy:   "system",
 					InputSchema: make(map[string]string),
+					CreatedAt:   time.Now().UTC(),
 				}
 				// Schema conversion
 				if props, ok := mt.InputSchema["properties"].(map[string]interface{}); ok {
@@ -376,6 +377,16 @@ func (s *APIServer) listTools(ctx context.Context) ([]Tool, error) {
 					}
 				}
 				tools = append(tools, t)
+
+				// Lazy registration in Redis for UI visibility
+				go func(tool Tool, srv *APIServer) {
+					registerCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if err := srv.registerTool(registerCtx, tool); err != nil {
+						log.Printf("⚠️ [TOOLS] Failed lazy registration of MCP tool %s: %v", tool.ID, err)
+					}
+				}(t, s)
+
 				log.Printf("✅ [LIST-TOOLS] Successfully loaded MCP endpoint tool: %s", t.ID)
 			}
 		} else if err != nil {
