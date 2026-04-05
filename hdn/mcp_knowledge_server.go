@@ -843,6 +843,46 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 		return nil, err
 	}
 
+	// Detect and save screenshots for Wow dashboard / AI Sight
+	if resMap, ok := result.(map[string]interface{}); ok {
+		var screenshotB64 string
+		if s, ok := resMap["screenshot"].(string); ok {
+			screenshotB64 = s
+		} else if res, ok := resMap["result"].(map[string]interface{}); ok {
+			if s, ok := res["screenshot"].(string); ok {
+				screenshotB64 = s
+			}
+		}
+
+		if screenshotB64 != "" {
+			go func(b64 string) {
+				raw := b64
+				if idx := strings.Index(raw, ","); idx >= 0 {
+					raw = raw[idx+1:]
+				}
+				if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil {
+					// Store in memory for immediate API serving
+					s.screenshotMu.Lock()
+					s.latestScreenshot = decoded
+					s.screenshotMu.Unlock()
+
+					// Also save to disk for /api/artifacts/latest_screenshot.png
+					projectRoot := os.Getenv("AGI_PROJECT_ROOT")
+					if projectRoot == "" {
+						if wd, err := os.Getwd(); err == nil {
+							projectRoot = wd
+						}
+					}
+					artifactsDir := filepath.Join(projectRoot, "artifacts")
+					os.MkdirAll(artifactsDir, 0755)
+					path := filepath.Join(artifactsDir, "latest_screenshot.png")
+					_ = os.WriteFile(path, decoded, 0644)
+					log.Printf("📸 [MCP-KNOWLEDGE] Screenshot saved to %s for tool %s", path, toolName)
+				}
+			}(screenshotB64)
+		}
+	}
+
 	// Final step: wrap result for MCP protocol compatibility
 	return s.wrapMCPResponse(result), nil
 }
