@@ -118,23 +118,27 @@ spec:
             }
             
             // Wait for results and verify
-            console.log("Waiting for results to render...");
-            await page.waitForTimeout(5000);
-            
-            // Scroll to trigger lazy loading
-            await page.mouse.wheel(0, 500);
-            await page.waitForTimeout(10000);
+            // Wait for results to actually render
+            console.log("⏳ Waiting for result elements to appear...");
+            try {
+                await page.waitForSelector("div[role='listitem'], li.pI9Vpc", { timeout: 30000 });
+                console.log("✅ Results container detected.");
+            } catch (e) {
+                console.log("⚠️ Results elements not found yet, doing one last scroll and wait.");
+                await page.mouse.wheel(0, 800);
+                await page.waitForTimeout(5000);
+            }
             
             // LOG RESULTS FOR VERIFICATION
-            const resultCount = await page.locator("div[role='listitem']").count();
-            console.log("VERIFICATION: Found " + resultCount + " flight results.");
+            const resultCount = await page.locator("div[role='listitem'], li.pI9Vpc").count();
+            console.log("📊 VERIFICATION: Found " + resultCount + " flight results.");
             
             if (resultCount === 0) {
                const content = await page.textContent("body");
                if (content.includes("No flights") || content.includes("aucun vol")) {
-                   console.log("VERIFICATION: Confirmed 'No flights found' state.");
+                   console.log("✅ VERIFICATION: Confirmed 'No flights found' state.");
                } else {
-                   console.log("VERIFICATION: Still in loading/error state. Page length: " + content.length);
+                   console.log("❌ VERIFICATION: Still in loading/initial state. Result count is 0 but page text length is " + (content ? content.length : 0));
                }
             }
             
