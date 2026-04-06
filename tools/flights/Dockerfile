@@ -36,15 +36,19 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Ensure Tesseract data is in the expected location
+RUN mkdir -p /usr/share/tessdata && \
+    ln -sf /usr/share/tesseract-ocr/5/tessdata/eng.traineddata /usr/share/tessdata/eng.traineddata
+
 # Set the working directory
 WORKDIR /app
 
 # Copy the built binary from the builder stage
 COPY --from=builder /app/flight_mcp /app/flight_mcp
 
-# Expose the port (default 8086)
-EXPOSE 8086
+# Expose the port (default 8080)
+EXPOSE 8080
 
 # Run the MCP server
 ENTRYPOINT ["/app/flight_mcp"]
-CMD ["--transport", "http", "--port", "8086"]
+CMD ["--transport", "http", "--port", "8080"]

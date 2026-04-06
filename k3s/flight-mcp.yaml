@@ -152,13 +152,13 @@ spec:
           # Note: mcp-go doesn't have a built-in health check endpoint yet, 
           # so we'll just check if the port is open
           tcpSocket:
-            port: 8086
+            port: 8080
           initialDelaySeconds: 15
           periodSeconds: 20
         
         readinessProbe:
           tcpSocket:
-            port: 8086
+            port: 8080
           initialDelaySeconds: 5
           periodSeconds: 10
 
