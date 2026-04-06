@@ -39,8 +39,8 @@ func ParseFlightText(text string) []FlightInfo {
 
 	// Regex to match flight times (e.g., 10:15 AM - 1:45 PM)
 	timeRegex := regexp.MustCompile(`(\d{1,2}:\d{2}\s*[APap][Mm])\s*[-–~]\s*(\d{1,2}:\d{2}\s*[APap][Mm])`)
-	// Regex to match price (e.g., € 1,234)
-	priceRegex := regexp.MustCompile(`€\s*([\d,\.]+)`)
+	// Regex to match price (e.g., € 1,234, £ 567, $ 890)
+	priceRegex := regexp.MustCompile(`[€£$]\s*([\d,\.]+)`)
 	// Regex to match duration (e.g., 8 hr 30 min)
 	durationRegex := regexp.MustCompile(`(\d+)\s*hr\s*(\d+)?\s*min`)
 	// Regex to match stops
@@ -98,7 +98,13 @@ func ParseFlightText(text string) []FlightInfo {
 								pStr = pStr[:len(pStr)-1]
 							}
 						}
-						flight.Price = "€" + pStr
+						// Use the matched symbol
+						symbolMatch := regexp.MustCompile(`[€£$]`).FindString(l)
+						if symbolMatch == "" {
+							symbolMatch = "€" // Default fallback
+						}
+						flight.Price = symbolMatch + pStr
+						log.Printf("Detected price for %s: %s", flight.DepartureTime, flight.Price)
 					}
 				}
 

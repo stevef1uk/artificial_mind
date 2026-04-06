@@ -117,7 +117,8 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		script = fmt.Sprintf(defaultScript, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
 	} else {
 		// Replace placeholders in provided script too
-		script = fmt.Sprintf(script, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
+		// The YAML script expects: URL, From, To, StartDate, EndDate
+		script = fmt.Sprintf(script, searchURL, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
 	}
 
 	reqBody := ScrapeRequest{
