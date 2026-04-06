@@ -71,6 +71,7 @@ func main() {
 				http.Error(w, "Parse error", http.StatusBadRequest)
 				return
 			}
+			log.Printf("📩 Received MCP request: %s", string(rawMessage))
 			// Use the internal MCPServer to handle the message directly
 			resp := s.HandleMessage(r.Context(), rawMessage)
 			w.Header().Set("Content-Type", "application/json")

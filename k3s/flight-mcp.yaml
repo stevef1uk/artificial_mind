@@ -10,7 +10,7 @@ spec:
     app: flight-mcp
   ports:
     - name: http
-      port: 8086
+      port: 8080
       targetPort: 8080
   type: ClusterIP
 ---
