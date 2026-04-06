@@ -36,9 +36,9 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Ensure Tesseract data is in the expected location
-RUN mkdir -p /usr/share/tessdata && \
-    ln -sf /usr/share/tesseract-ocr/5/tessdata/eng.traineddata /usr/share/tessdata/eng.traineddata
+# Ensure Tesseract data is in the expected location (v5 uses /usr/share/tesseract-ocr/5/tessdata/)
+RUN ln -sf /usr/share/tesseract-ocr/5/tessdata /usr/share/tessdata
+ENV TESSDATA_PREFIX=/usr/share/tessdata
 
 # Set the working directory
 WORKDIR /app

@@ -56,6 +56,7 @@ func ParseFlightText(text string) []FlightInfo {
 		"Emissions", "Duration", "Departing", "Returning", "Filters", "Best", 
 		"Cheapest", "Options", "Search", "Google", "Travel", "Explore", "Hotels",
 		"Passenger", "Assistance", "Track", "History", "Date", "Grid", "Graph",
+		"Train", "Trains", "Eurostar", "Railway", "Coach", "Bus", "Station",
 	}
 
 	for i, line := range lines {
@@ -70,8 +71,8 @@ func ParseFlightText(text string) []FlightInfo {
 				Stops:         "Unknown",
 			}
 
-			// Look for airline, price, duration, stops in nearby lines (within 5 lines before, 15 lines after)
-			start := i - 5
+			// Look for airline, price, duration, stops in nearby lines (within 8 lines before, 15 lines after)
+			start := i - 8
 			if start < 0 {
 				start = 0
 			}
@@ -80,29 +81,32 @@ func ParseFlightText(text string) []FlightInfo {
 				end = len(lines)
 			}
 
+			isTrain := false
 			for j := start; j < end; j++ {
 				l := strings.TrimSpace(lines[j])
 				if l == "" {
 					continue
+				}
+
+				// DETECT TRAINS
+				lowL := strings.ToLower(l)
+				if strings.Contains(lowL, "train") || strings.Contains(lowL, "eurostar") || strings.Contains(lowL, "railway") {
+					isTrain = true
+					break
 				}
 				
 				// Price
 				if flight.Price == "Unknown" {
 					pm := priceRegex.FindStringSubmatch(l)
 					if len(pm) > 0 {
-						pStr := strings.ReplaceAll(pm[1], ",", "")
-						pStr = strings.ReplaceAll(pStr, ".", "")
-						if len(pStr) > 3 && strings.HasSuffix(pStr, "0") {
-							val, _ := strconv.Atoi(pStr)
-							if val > 2000 {
-								pStr = pStr[:len(pStr)-1]
-							}
-						}
-						// Use the matched symbol
+						// Clean currency string but keep symbol
 						symbolMatch := regexp.MustCompile(`[€£$]`).FindString(l)
 						if symbolMatch == "" {
-							symbolMatch = "€" // Default fallback
+							symbolMatch = "€" 
 						}
+						
+						// Just take the digits and comma/dot
+						pStr := pm[1]
 						flight.Price = symbolMatch + pStr
 						log.Printf("Detected price for %s: %s", flight.DepartureTime, flight.Price)
 					}
@@ -125,8 +129,8 @@ func ParseFlightText(text string) []FlightInfo {
 				}
 
 				// Dynamic Airline Detection
-				// The airline is usually the line immediately before or after the time match
-				if flight.Airline == "Unknown" && (j == i+1 || j == i-1 || j == i+2) {
+				// Scan a slightly wider range for the airline name
+				if flight.Airline == "Unknown" && (j >= i-3 && j <= i+3) {
 					cleanLine := cleanRegex.ReplaceAllString(l, "")
 					cleanLine = strings.TrimSpace(cleanLine)
 					
@@ -152,8 +156,8 @@ func ParseFlightText(text string) []FlightInfo {
 				}
 			}
 
-			// Only add if we found at least a price
-			if flight.Price != "Unknown" {
+			// Only add if we found at least a price and it's NOT a train
+			if !isTrain && flight.Price != "Unknown" {
 				flights = append(flights, flight)
 			}
 		}
