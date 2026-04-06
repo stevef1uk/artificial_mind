@@ -119,30 +119,51 @@ spec:
             
             // Wait for results and verify
             // Wait for results to actually render
-            console.log("⏳ Waiting for result elements to appear...");
+            console.log("⏳ Waiting for result elements to appear and loading to finish...");
             try {
+                // Wait for the results list and wait until "Loading results" is gone
                 await page.waitForSelector("div[role='listitem'], li.pI9Vpc", { timeout: 30000 });
-                console.log("✅ Results container detected.");
+                console.log("✅ Results container detected. Checking for loading state...");
+                
+                // Wait up to 15s more if "Loading results" is visible
+                let loading = true;
+                for (let i = 0; i < 15; i++) {
+                    const content = await page.textContent("body");
+                    if (!content.includes("Loading results") && !content.includes("Chargement")) {
+                        loading = false;
+                        console.log("✅ Results loaded successfully (no loading text).");
+                        break;
+                    }
+                    console.log("⏳ Still loading... (" + (i+1) + "/15)");
+                    await page.waitForTimeout(1000);
+                }
+                
+                // Final verify: does a price symbol exist?
+                const hasPrice = (await page.textContent("body")).match(/[€£$]/);
+                if (!hasPrice) {
+                    console.log("⚠️ Results elements exist but no currency symbol found yet. Waiting 5s more.");
+                    await page.waitForTimeout(5000);
+                }
             } catch (e) {
-                console.log("⚠️ Results elements not found yet, doing one last scroll and wait.");
+                console.log("⚠️ Results elements not found after 30s timeout, doing one last scroll and wait.");
                 await page.mouse.wheel(0, 800);
-                await page.waitForTimeout(5000);
+                await page.waitForTimeout(10000);
             }
             
             // LOG RESULTS FOR VERIFICATION
             const resultCount = await page.locator("div[role='listitem'], li.pI9Vpc").count();
-            console.log("📊 VERIFICATION: Found " + resultCount + " flight results.");
+            console.log("📊 VERIFICATION: Found " + resultCount + " result items.");
             
             if (resultCount === 0) {
                const content = await page.textContent("body");
                if (content.includes("No flights") || content.includes("aucun vol")) {
-                   console.log("✅ VERIFICATION: Confirmed 'No flights found' state.");
+                   console.log("✅ VERIFICATION: Confirmed 'No flights found' message.");
                } else {
-                   console.log("❌ VERIFICATION: Still in loading/initial state. Result count is 0 but page text length is " + (content ? content.length : 0));
+                   console.log("❌ VERIFICATION: Result count is 0 and no 'No flights' message. Page text length: " + (content ? content.length : 0));
                }
             }
             
-            await page.waitForTimeout(10000); // Final buffer
+            await page.waitForTimeout(5000); // Small final buffer for animations
         
         volumeMounts:
         - name: dshm
