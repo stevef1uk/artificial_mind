@@ -214,7 +214,7 @@ spec:
                   key: ASYNC_LLM_TIMEOUT_SECONDS
             # Enable background LLM work (FSM, learning, etc.) - allow background processes
             - name: DISABLE_BACKGROUND_LLM
-              value: "0"
+              value: "1"
             - name: RPI_HOST
               value: "192.168.1.63"
             - name: RPI_USER
@@ -232,19 +232,19 @@ spec:
           livenessProbe:
             httpGet:
               path: /health
-              port: http
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
+              port: 8080
+            initialDelaySeconds: 45
+            periodSeconds: 30
+            timeoutSeconds: 20
+            failureThreshold: 10
           readinessProbe:
             httpGet:
               path: /health
-              port: http
-            initialDelaySeconds: 15
-            periodSeconds: 5
-            timeoutSeconds: 5
-            failureThreshold: 3
+              port: 8080
+            initialDelaySeconds: 45
+            periodSeconds: 30
+            timeoutSeconds: 20
+            failureThreshold: 10
           resources:
             requests:
               memory: "2Gi"

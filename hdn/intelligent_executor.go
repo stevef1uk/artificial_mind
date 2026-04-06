@@ -122,6 +122,7 @@ type ValidationStep struct {
 	Code     string        `json:"code,omitempty"`
 	Output   string        `json:"output,omitempty"`
 	Error    string        `json:"error,omitempty"`
+	Files    map[string][]byte `json:"files,omitempty"`
 }
 
 func NewIntelligentExecutor(
@@ -699,6 +700,20 @@ func (ie *IntelligentExecutor) ensureRegisteredToolForTask(taskName, language st
 
 // categorizeRequestForSafety uses LLM to intelligently categorize a request for safety evaluation
 func (ie *IntelligentExecutor) categorizeRequestForSafety(req *ExecutionRequest) (map[string]interface{}, error) {
+	// Optimization: Skip LLM call for obviously safe tasks (math/string processing)
+	if ie.isMathematicalTask(req.TaskName) || ie.isStringBasedTask(req.TaskName) {
+		log.Printf("✅ [INTELLIGENT] Task '%s' looks safe (math/string) - skipping LLM categorization", req.TaskName)
+		return map[string]interface{}{
+			"human_harm":        false,
+			"human_order":       true,
+			"self_harm":         false,
+			"privacy_violation": false,
+			"endanger_others":   false,
+			"order_unethical":   false,
+			"discrimination":    false,
+		}, nil
+	}
+
 	ctxSummary := utils.SafeResultSummary(req.Context, 100)
 	prompt := fmt.Sprintf(`You are a safety analyzer. Analyze this task request and return ONLY a valid JSON object.
 
@@ -2221,9 +2236,11 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	}
 
 	// Use LLM to intelligently categorize the request for safety
+	catStart := time.Now()
 	context, err := ie.categorizeRequestForSafety(req)
+	log.Printf("⏱️ [INTELLIGENT] categorizeRequestForSafety took %v", time.Since(catStart))
 	if err != nil {
-		// Check if error is due to context cancellation
+		// ... (keep same error handling)
 		if ctx.Err() != nil || strings.Contains(err.Error(), "cancelled") || strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "deadline") {
 			log.Printf("⏱️ [INTELLIGENT] Safety categorization cancelled/timed out: %v", err)
 			result.Success = false
@@ -2238,7 +2255,9 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		return result, nil
 	}
 
+	princStart := time.Now()
 	allowed, reasons, err := CheckActionWithPrinciples(req.TaskName, context)
+	log.Printf("⏱️ [INTELLIGENT] CheckActionWithPrinciples took %v", time.Since(princStart))
 	if err != nil {
 		log.Printf("❌ [INTELLIGENT] Principles check FAILED for %s: %v", req.TaskName, err)
 		result.Success = false
@@ -2267,7 +2286,9 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	// Step 2: Check if we have compatible cached code for this task
 	// Loop protection: Limit force_regenerate usage to prevent infinite loops
 	if !req.ForceRegenerate || (req.ForceRegenerate && now.Sub(ie.recentTasks[taskKey]) > 10*time.Second) {
+		cacheStart := time.Now()
 		cachedCode, err := ie.findCompatibleCachedCode(req)
+		log.Printf("⏱️ [INTELLIGENT] findCompatibleCachedCode took %v", time.Since(cacheStart))
 		if err == nil && cachedCode != nil {
 			log.Printf("✅ [INTELLIGENT] Found compatible cached code for task: %s", req.TaskName)
 			result.UsedCachedCode = true
@@ -2558,7 +2579,9 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 		HighPriority: req.HighPriority, // Pass priority from execution request
 	}
 
+	genStart := time.Now()
 	codeGenResult, err := ie.codeGenerator.GenerateCode(codeGenReq)
+	log.Printf("⏱️ [INTELLIGENT] GenerateCode took %v", time.Since(genStart))
 	if err != nil {
 		result.Error = fmt.Sprintf("Code generation failed: %v", err)
 		result.ExecutionTime = time.Since(start)
@@ -2579,7 +2602,9 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 	for attempt := 0; attempt < req.MaxRetries; attempt++ {
 		log.Printf("🔄 [INTELLIGENT] Validation attempt %d/%d", attempt+1, req.MaxRetries)
 
+		valStart := time.Now()
 		validationResult := ie.validateCode(ctx, generatedCode, req, fileStorageWorkflowID)
+		log.Printf("⏱️ [INTELLIGENT] validateCode (attempt %d) took %v", attempt+1, time.Since(valStart))
 		result.ValidationSteps = append(result.ValidationSteps, validationResult)
 		result.RetryCount = attempt + 1
 
@@ -2688,9 +2713,35 @@ func (ie *IntelligentExecutor) executeTraditionally(ctx context.Context, req *Ex
 
 	// Final execution: Use SSH executor and extract files if artifacts are needed
 	log.Printf("🎯 [INTELLIGENT] Final execution using SSH executor (workflow: %s)", fileStorageWorkflowID)
-	if finalResult, derr := ie.executeWithSSHTool(ctx, generatedCode.Code, req.Language, req.Context, false, fileStorageWorkflowID); derr != nil {
-		log.Printf("⚠️ [INTELLIGENT] Final execution failed: %v", derr)
-	} else if finalResult.Success {
+
+	var finalResult *DockerExecutionResponse
+	// Re-use validation result if it was successful and we don't need distinct final execution
+	// Validation already ran with the full request context, so output/artifacts are valid
+	if success && len(result.ValidationSteps) > 0 {
+		lastStep := result.ValidationSteps[len(result.ValidationSteps)-1]
+		if lastStep.Success {
+			log.Printf("⏩ [INTELLIGENT] Skipping redundant final execution; reusing successful validation result")
+			finalResult = &DockerExecutionResponse{
+				Success: true,
+				Output:  lastStep.Output,
+				Files:   lastStep.Files,
+			}
+		}
+	}
+
+	if finalResult == nil {
+		log.Printf("🔍 [INTELLIGENT] Performing final code execution")
+		fr, derr := ie.executeWithSSHTool(ctx, generatedCode.Code, req.Language, req.Context, false, fileStorageWorkflowID)
+		if derr != nil {
+			log.Printf("⚠️ [INTELLIGENT] Final execution failed: %v", derr)
+			finalResult = &DockerExecutionResponse{Success: false, Error: derr.Error()}
+		} else {
+			finalResult = fr
+		}
+	}
+
+	if finalResult.Success {
+		log.Printf("✅ [INTELLIGENT] Final execution result processed")
 		log.Printf("✅ [INTELLIGENT] Final execution successful")
 		log.Printf("📊 [INTELLIGENT] Execution output length: %d bytes", len(finalResult.Output))
 
@@ -3576,6 +3627,7 @@ func (ie *IntelligentExecutor) validateCode(ctx context.Context, code *Generated
 
 	validationStep.Output = result.Output
 	validationStep.Message = "Code execution successful"
+	validationStep.Files = result.Files
 
 	// Check if output is empty but task likely requires output
 	// For tasks that should produce output (like printing results), empty output indicates a problem

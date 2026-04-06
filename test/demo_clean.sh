@@ -404,7 +404,7 @@ main() {
             "description": "Perform matrix addition operations",
             "context": {"operation": "add", "matrix1": "[[2,3],[4,5]]", "matrix2": "[[1,1],[1,1]]"},
             "language": "go",
-            "force_regenerate": true,
+            "force_regenerate": false,
             "priority": "high"
         }' \
         "Reusing Go matrix calculator for different matrices (should use cached code)" \

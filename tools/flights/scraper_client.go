@@ -96,12 +96,21 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		
 		// 4. Search
 		await page.keyboard.press("Enter");
-		await page.waitForTimeout(3000);
-		
-		// Wait for results to actually render
-		await page.waitForSelector("div[role='listitem'], li.pI9Vpc");
-		await page.waitForLoadState("networkidle");
 		await page.waitForTimeout(5000);
+		
+		// Wait for results to actually render - be more aggressive
+		await page.waitForSelector("div[role='listitem'], li.pI9Vpc");
+		
+		// Scroll down and up to trigger rendering of all results
+		await page.mouse.wheel(0, 500);
+		await page.waitForTimeout(2000);
+		await page.mouse.wheel(0, -500);
+		await page.waitForTimeout(2000);
+		
+		await page.waitForLoadState("networkidle");
+		
+		// Final long wait for "Loading results" to disappear and animations to finish
+		await page.waitForTimeout(10000);
 	`, searchURL)
 
 	script := os.Getenv("FLIGHT_SCRAPER_SCRIPT")

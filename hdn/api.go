@@ -2710,9 +2710,8 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
-	// Clean up stale workflows before checking
-	ctx := context.Background()
-	s.cleanupStaleActiveWorkflows(ctx)
+	// Clean up stale workflows asynchronously to avoid blocking
+	go s.cleanupStaleActiveWorkflows(context.Background())
 
 	// Acquire execution slot (UI gets priority)
 	release, acquired := s.acquireExecutionSlot(r)

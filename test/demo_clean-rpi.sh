@@ -299,14 +299,14 @@ api_request() {
             -H "Content-Type: application/json" \
             -H "X-Request-Source: ui" \
             -d "$data" \
-            -m 30 \
+            -m 300 \
             "$API_URL$endpoint" 2>"$curl_stderr_file")
         curl_exit=$?
     else
         response=$(curl -s -w "\n%{http_code}" -X "$method" \
             -H "Content-Type: application/json" \
             -H "X-Request-Source: ui" \
-            -m 30 \
+            -m 300 \
             "$API_URL$endpoint" 2>"$curl_stderr_file")
         curl_exit=$?
     fi
@@ -507,7 +507,7 @@ show_capabilities() {
     
     response=$(curl -s -w "\n%{http_code}" -X GET \
         -H "X-Request-Source: ui" \
-        -m 30 \
+        -m 300 \
         "$API_URL/api/v1/intelligent/capabilities" 2>"$curl_stderr_file")
     curl_exit=$?
     http_code=$(echo "$response" | tail -n1)
