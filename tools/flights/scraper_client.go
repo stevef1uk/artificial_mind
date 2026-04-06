@@ -103,13 +103,29 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		
 		// Wait for results to actually render
 		try {
+			// Wait for the results list and wait until "Loading results" is gone
 			await page.waitForSelector("div[role='listitem'], li.pI9Vpc", { timeout: 30000 });
+			
+			// Wait if "Loading results" is visible
+			for (let i = 0; i < 15; i++) {
+				const content = await page.textContent("body");
+				if (!content.includes("Loading results") && !content.includes("Chargement")) {
+					break;
+				}
+				await page.waitForTimeout(1000);
+			}
+			
+			// Final verify: does a price symbol exist?
+			const hasPrice = (await page.textContent("body")).match(/[€£$]/);
+			if (!hasPrice) {
+				await page.waitForTimeout(5000);
+			}
 		} catch (e) {
 			await page.mouse.wheel(0, 800);
-			await page.waitForTimeout(5000);
+			await page.waitForTimeout(10000);
 		}
 		
-		await page.waitForTimeout(10000); // Final buffer for animations
+		await page.waitForTimeout(5000); // Small final buffer for animations
 	`, searchURL)
 
 	script := os.Getenv("FLIGHT_SCRAPER_SCRIPT")
@@ -203,12 +219,20 @@ func processScraperResult(result ScrapeResult, opts SearchOptions) ([]FlightInfo
 	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
 		return nil, fmt.Errorf("failed to save temporary screenshot: %v", err)
 	}
-	defer os.Remove(tmpFile)
 
 	// Run OCR
 	flights, err := ExtractFlightsFromImage(tmpFile)
 	if err != nil {
 		return nil, err
+	}
+
+	// For debugging: keep the screenshot if no flights were found
+	if len(flights) == 0 {
+		permFile := "latest_failed_screenshot.png"
+		os.Rename(tmpFile, permFile)
+		log.Printf("DEBUG: No flights found. Preserving screenshot as %s", permFile)
+	} else {
+		os.Remove(tmpFile)
 	}
 
 	for i := range flights {
