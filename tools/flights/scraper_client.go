@@ -2,286 +2,196 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"os"
+	"regexp"
 	"strings"
 	"time"
+
+	"github.com/playwright-community/playwright-go"
 )
 
-type ScrapeRequest struct {
-	URL              string            `json:"url"`
-	Instructions     string            `json:"instructions"`
-	TypeScriptConfig string            `json:"typescript_config"`
-	GetHTML          bool              `json:"get_html"`
-}
-
-type ScrapeJobResponse struct {
-	JobID string `json:"job_id"`
-	Status string `json:"status"`
-}
-
-type ScrapeResult struct {
-	Status        string `json:"status"`
-	ScreenshotB64 string `json:"screenshot"`
-	Error         string `json:"error"`
-}
-
 func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightInfo, error) {
-	log.Printf("Using scraper service at: %s", scraperURL)
-
-	// Set defaults
-	if opts.Language == "" {
-		opts.Language = "en"
-	}
-	if opts.Region == "" {
-		opts.Region = "FR"
-	}
-	if opts.Currency == "" {
-		opts.Currency = "EUR"
-	}
-
-	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s", opts.Language, opts.Region, opts.Currency)
-	log.Printf("Construction Search URL: %s", searchURL)
-
-	// Build the script - using the robust version from K8s manifest
-	defaultScript := fmt.Sprintf(`
-		await page.goto("%s");
-		await page.waitForTimeout(5000);
-		await page.bypassConsent();
-		await page.waitForTimeout(2000);
-		
-		// 1. Departure
-		console.log("Locating Departure input...");
-		const fromLoc = page.locator("input[placeholder*='Where from'], input[placeholder*='D\\'où'], input[aria-label*='Where from'], input[value*='Current']").first();
-		await fromLoc.waitFor({ state: 'visible', timeout: 15000 });
-		await fromLoc.click();
-		await page.waitForTimeout(1000);
-		await page.keyboard.press("Control+A");
-		await page.keyboard.press("Backspace");
-		await fromLoc.fill("%%s");
-		await page.waitForTimeout(2000);
-		await page.keyboard.press("Enter");
-		await page.waitForTimeout(1000);
-		
-		// 2. Destination
-		console.log("Locating Destination input...");
-		const toLoc = page.locator("input[placeholder*='Where to'], input[placeholder*='Où allez-vous'], input[aria-label*='Where to']").first();
-		await toLoc.waitFor({ state: 'visible', timeout: 15000 });
-		await toLoc.click();
-		await page.waitForTimeout(1000);
-		await page.keyboard.press("Control+A");
-		await page.keyboard.press("Backspace");
-		await toLoc.fill("%%s");
-		await page.waitForTimeout(2000);
-		await page.keyboard.press("Enter");
-		await page.waitForTimeout(1000);
-		
-		// 3. Dates
-		console.log("Locating Date input...");
-		const dateLoc = page.locator("input[placeholder*='Departure'], input[placeholder*='Départ'], input[aria-label*='Departure']").first();
-		await dateLoc.waitFor({ state: 'visible', timeout: 15000 });
-		await dateLoc.click();
-		await page.waitForTimeout(2000);
-		await page.keyboard.press("Control+A");
-		await page.keyboard.press("Backspace");
-		await page.keyboard.type("%%s");
-		await page.waitForTimeout(1500);
-		await page.keyboard.press("Tab");
-		await page.keyboard.press("Control+A");
-		await page.keyboard.press("Backspace");
-		await page.keyboard.type("%%s");
-		await page.waitForTimeout(1500);
-		await page.keyboard.press("Enter");
-		await page.waitForTimeout(2000);
-		
-		// Close any overlays
-		await page.keyboard.press("Escape");
-		await page.waitForTimeout(1000);
-		
-		// 4. Search
-		console.log("Executing Search click...");
-		const searchBtn = page.locator("button:has-text('Search'), button:has-text('Rechercher'), button[aria-label*='Search']").first();
-		if (await searchBtn.isVisible()) {
-			await searchBtn.click();
-		} else {
-			await page.keyboard.press("Enter");
-		}
-		
-		// Wait for results to actually render - be more aggressive
-		console.log("⏳ Waiting for result elements to appear and loading to finish...");
-		try {
-			// Increase the initial wait for results container
-			await page.waitForSelector("div[role='listitem'], li.pI9Vpc", { timeout: 60000 });
-			console.log("✅ Results container detected. Checking for loading state...");
-			
-			// Wait up to 30s more if "Loading results" is visible
-			let loading = true;
-			for (let i = 0; i < 30; i++) {
-				const content = await page.textContent("body");
-				if (!content.includes("Loading results") && !content.includes("Chargement") && !content.includes("Loading...")) {
-					// Also check if we have at least one currency symbol which indicates real data
-					if (content.match(/[€£$¥]/)) {
-						loading = false;
-						console.log("✅ Results loaded successfully (no loading text + currency found).");
-						break;
-					}
-				}
-				console.log("⏳ Still loading or no data... (" + (i+1) + "/30)");
-				
-				// Periodically scroll to trigger lazy loading
-				if (i %% 5 === 0) {
-					await page.mouse.wheel(0, 500);
-					await page.waitForTimeout(500);
-					await page.mouse.wheel(0, -500);
-				}
-				
-				await page.waitForTimeout(1000);
-			}
-			
-			// Final verify: does a price symbol exist?
-			const hasPrice = (await page.textContent("body")).match(/[€£$¥]/);
-			if (!hasPrice) {
-				console.log("⚠️ Results elements exist but no currency symbol found yet. Waiting 15s more and scrolling.");
-				await page.mouse.wheel(0, 1000);
-				await page.waitForTimeout(15000);
-			}
-		} catch (e) {
-			console.log("⚠️ Results elements not found/timeout, doing one last scroll and wait.");
-			await page.mouse.wheel(0, 800);
-			await page.waitForTimeout(20000);
-		}
-		
-		// LOG RESULTS FOR VERIFICATION
-		const resultCount = await page.locator("div[role='listitem'], li.pI9Vpc").count();
-		console.log("📊 VERIFICATION: Found " + resultCount + " result items.");
-		
-		if (resultCount === 0) {
-		   const content = await page.textContent("body");
-		   if (content.includes("No flights") || content.includes("aucun vol") || content.includes("No practical flights")) {
-			   console.log("✅ VERIFICATION: Confirmed 'No flights found' message.");
-		   } else {
-			   console.log("❌ VERIFICATION: Result count is 0 and no 'No flights' message. Page text length: " + (content ? content.length : 0));
-		   }
-		}
-		
-		await page.waitForTimeout(5000); // Small final buffer for animations
-	`, searchURL)
-
-	script := os.Getenv("FLIGHT_SCRAPER_SCRIPT")
-	if script == "" {
-		script = fmt.Sprintf(defaultScript, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
-	} else {
-		// Replace placeholders in provided script too
-		// The YAML script expects: URL, From, To, StartDate, EndDate
-		script = fmt.Sprintf(script, searchURL, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
-	}
-
-	reqBody := ScrapeRequest{
-		URL:              "https://www.google.com/travel/flights",
-		Instructions:     "Search for flights",
-		TypeScriptConfig: script,
-		GetHTML:          false,
-	}
-
-	jsonBody, _ := json.Marshal(reqBody)
-	resp, err := http.Post(scraperURL+"/scrape/start", "application/json", bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to start scrape job: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("scraper returned error status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var jobResp ScrapeJobResponse
-	if err := json.NewDecoder(resp.Body).Decode(&jobResp); err != nil {
-		return nil, fmt.Errorf("failed to decode job response: %v", err)
-	}
-
-	log.Printf("Scrape job started: %s", jobResp.JobID)
-
-	// Poll for completion
-	maxAttempts := 60
-	for i := 0; i < maxAttempts; i++ {
-		time.Sleep(2 * time.Second)
-		
-		jobURL := fmt.Sprintf("%s/scrape/job?job_id=%s", scraperURL, jobResp.JobID)
-		resp, err := http.Get(jobURL)
-		if err != nil {
-			log.Printf("Warning: failed to poll job status: %v", err)
-			continue
-		}
-		
-		var jobInfo struct {
-			Status string       `json:"status"`
-			Result ScrapeResult `json:"result"`
-			Error  string       `json:"error"`
-		}
-		
-		err = json.NewDecoder(resp.Body).Decode(&jobInfo)
-		resp.Body.Close()
-		if err != nil {
-			log.Printf("Warning: failed to decode job status: %v", err)
-			continue
-		}
-
-		if jobInfo.Status == "completed" {
-			log.Println("Scrape job completed!")
-			return processScraperResult(jobInfo.Result, opts)
-		}
-		
-		if jobInfo.Status == "failed" {
-			return nil, fmt.Errorf("scrape job failed: %s", jobInfo.Error)
-		}
-		
-		log.Printf("Job status: %s (attempt %d/%d)", jobInfo.Status, i+1, maxAttempts)
-	}
-
-	return nil, fmt.Errorf("scrape job timed out after %d seconds", maxAttempts*2)
+	return SearchFlightsNative(opts)
 }
 
-func processScraperResult(result ScrapeResult, opts SearchOptions) ([]FlightInfo, error) {
-	if result.ScreenshotB64 == "" {
-		return nil, fmt.Errorf("no screenshot in scraper result")
-	}
+func SearchFlightsNative(opts SearchOptions) ([]FlightInfo, error) {
+	log.Printf("🚀 NATIVE VERSION 57 STARTING...")
+    
+	pw, err := playwright.Run()
+	if err != nil { return nil, err }
+	defer pw.Stop()
 
-	// Decode Base64 screenshot
-	data, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(result.ScreenshotB64, "data:image/png;base64,"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode screenshot: %v", err)
-	}
+	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
+		Headless:       playwright.Bool(true),
+		ExecutablePath: playwright.String("/usr/bin/chromium"),
+		Args: []string{
+			"--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
+			"--window-size=1600,1200", "--disable-blink-features=AutomationControlled",
+		},
+	})
+	if err != nil { return nil, err }
+	defer browser.Close()
 
-	// Save to temporary file for OCR
-	tmpFile := fmt.Sprintf("scraper_screenshot_%s.png", time.Now().Format("20060102_150405"))
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
-		return nil, fmt.Errorf("failed to save temporary screenshot: %v", err)
-	}
+	context, err := browser.NewContext(playwright.BrowserNewContextOptions{
+		Viewport: &playwright.Size{Width: 1600, Height: 1200},
+		UserAgent: playwright.String("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"),
+	})
+	if err != nil { return nil, err }
+	defer context.Close()
 
-	// Run OCR
-	flights, err := ExtractFlightsFromImage(tmpFile)
-	if err != nil {
+	page, err := context.NewPage()
+	if err != nil { return nil, err }
+
+	searchURL := "https://www.google.com/travel/flights?hl=en-US&gl=US&curr=EUR"
+	log.Printf("Navigating to: %s", searchURL)
+	if _, err = page.Goto(searchURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateNetworkidle}); err != nil {
 		return nil, err
 	}
 
-	// For debugging: keep the screenshot if no flights were found
-	if len(flights) == 0 {
-		permFile := "latest_failed_screenshot.png"
-		os.Rename(tmpFile, permFile)
-		log.Printf("DEBUG: No flights found. Preserving screenshot as %s", permFile)
-	} else {
-		os.Remove(tmpFile)
+	// 1. Consent
+	acceptBtn := page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "Accept all"}).First()
+	if err := acceptBtn.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(5000)}); err == nil {
+		time.Sleep(2 * time.Second)
 	}
 
+	// 2. Interaction
+	page.Click("input[aria-label='Where from?'], input[placeholder='Where from?']")
+	time.Sleep(500 * time.Millisecond)
+	page.Keyboard().Press("Control+A")
+	page.Keyboard().Press("Backspace")
+	page.Keyboard().Type(opts.Departure)
+	time.Sleep(1500 * time.Millisecond)
+	page.Keyboard().Press("Enter")
+
+	page.Click("input[aria-label='Where to?'], input[placeholder='Where to?']")
+	time.Sleep(500 * time.Millisecond)
+	page.Keyboard().Press("Control+A")
+	page.Keyboard().Press("Backspace")
+	page.Keyboard().Type(opts.Destination)
+	time.Sleep(1500 * time.Millisecond)
+	page.Keyboard().Press("Enter")
+
+	page.Click("input[placeholder='Departure'], input[aria-label='Departure']")
+	time.Sleep(1500 * time.Millisecond)
+	page.Keyboard().Press("Control+A")
+	page.Keyboard().Type(opts.StartDate)
+	time.Sleep(1000 * time.Millisecond)
+	page.Keyboard().Press("Tab")
+	time.Sleep(1000 * time.Millisecond)
+	page.Keyboard().Press("Control+A")
+	page.Keyboard().Type(opts.EndDate)
+	time.Sleep(1000 * time.Millisecond)
+	page.Keyboard().Press("Enter")
+	time.Sleep(2000 * time.Millisecond)
+
+	page.Keyboard().Press("Enter")
+	time.Sleep(2000 * time.Millisecond)
+	
+	searchBtn := page.Locator("button").Filter(playwright.LocatorFilterOptions{HasText: "Search"}).First()
+	if isVisible, _ := searchBtn.IsVisible(); isVisible {
+		searchBtn.Click()
+	}
+
+	log.Println("Waiting for results...")
+	time.Sleep(25 * time.Second)
+
+	screenshotPath := "latest_flight_screenshot.png"
+	_, _ = page.Screenshot(playwright.PageScreenshotOptions{Path: playwright.String(screenshotPath)})
+	html, _ := page.Content()
+
+	flights, err := ExtractFlightsFromImage(screenshotPath)
+	if (err != nil || len(flights) == 0) && html != "" {
+		log.Printf("⚠️ Still no results. Attempting HTML Miner fallback...")
+		flights, err = MinerExtractFlights(html)
+	}
+
+	if err != nil { return nil, err }
 	for i := range flights {
+		flights[i].URL = page.URL()
 		flights[i].CabinClass = opts.CabinClass
 	}
-
 	return flights, nil
+}
+
+func MinerExtractFlights(data string) ([]FlightInfo, error) {
+    // Determine if data is HTML or OCR text
+    isHTML := strings.Contains(data, "<html")
+    
+    snippet := data
+    if isHTML {
+        // Smart HTML snippet finding dense flight data
+        re := regexp.MustCompile(`\["([^"]+)",\["([^"]+)",.+?\d+\][,\]]`)
+        matches := re.FindAllString(data, 100)
+        if len(matches) > 0 {
+            snippet = strings.Join(matches, "\n")
+        } else {
+            pos := strings.Index(data, "round trip")
+            if pos == -1 { pos = len(data) / 2 }
+            start, end := pos-50000, pos+250000
+            if start < 0 { start = 0 }
+            if end > len(data) { end = len(data) }
+            snippet = data[start:end]
+        }
+    } else {
+        // OCR text is usually manageable size (< 100KB)
+        if len(snippet) > 100000 {
+            snippet = snippet[:100000]
+        }
+    }
+
+	prompt := fmt.Sprintf(`Extract flight results from this %s data.
+Return ONLY a JSON list of objects: "airline", "departure_time", "arrival_time", "duration", "stops", "price".
+
+Data:
+%s`, func() string { if isHTML { return "HTML" }; return "OCR text" }(), snippet)
+
+	ollamaReq := map[string]interface{}{
+		"model": "qwen3:14b", "prompt": prompt, "stream": false, "format": "json",
+	}
+
+	jsonReq, _ := json.Marshal(ollamaReq)
+	resp, err := http.Post("http://localhost:11434/api/generate", "application/json", bytes.NewBuffer(jsonReq))
+	if err != nil { return nil, err }
+	defer resp.Body.Close()
+
+	var ollamaResp struct { Response string `json:"response"` }
+	json.NewDecoder(resp.Body).Decode(&ollamaResp)
+
+	var flights []struct {
+		Airline       string `json:"airline"`
+		DepartureTime string `json:"departure_time"`
+		ArrivalTime   string `json:"arrival_time"`
+		Duration      string `json:"duration"`
+		Stops         string `json:"stops"`
+		Price         string `json:"price"`
+	}
+
+	if err := json.Unmarshal([]byte(ollamaResp.Response), &flights); err != nil {
+		var wrapper struct { Flights []struct {
+            Airline       string `json:"airline"`
+            DepartureTime string `json:"departure_time"`
+            ArrivalTime   string `json:"arrival_time"`
+            Duration      string `json:"duration"`
+            Stops         string `json:"stops"`
+            Price         string `json:"price"`
+        } `json:"flights"` }
+		if err2 := json.Unmarshal([]byte(ollamaResp.Response), &wrapper); err2 == nil {
+			flights = wrapper.Flights
+		} else {
+			return nil, fmt.Errorf("parse fail: %s", ollamaResp.Response)
+		}
+	}
+
+	var result []FlightInfo
+	for _, f := range flights {
+		result = append(result, FlightInfo{
+			Airline: f.Airline, Price: f.Price, Duration: f.Duration,
+			Stops: f.Stops, DepartureTime: f.DepartureTime, ArrivalTime: f.ArrivalTime,
+		})
+	}
+	log.Printf("🚀 Miner found %d flights", len(result))
+	return result, nil
 }

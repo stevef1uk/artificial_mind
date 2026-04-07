@@ -681,6 +681,7 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 			"--disable-extensions",
 			"--disable-background-networking",
 			"--single-process",
+			"--window-size=1600,1200",
 		},
 	}
 	if executablePath != "" {
@@ -694,8 +695,21 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 	}
 	defer browser.Close()
 
-	// Create page
-	page, err := browser.NewPage()
+	// Create context with working resolution
+	context, err := browser.NewContext(pw.BrowserNewContextOptions{
+		Viewport: &pw.Size{
+			Width:  1600,
+			Height: 1200,
+		},
+		UserAgent: pw.String("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create context: %v", err)
+	}
+	defer context.Close()
+
+	// Create page from context
+	page, err := context.NewPage()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create page: %v", err)
 	}
@@ -1057,7 +1071,7 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 
 		case "waitSelector":
 			if op.Selector != "" {
-				if _, err := page.WaitForSelector(op.Selector, pw.PageWaitForSelectorOptions{Timeout: pw.Float(30000)}); err != nil {
+				if _, err := page.WaitForSelector(op.Selector, pw.PageWaitForSelectorOptions{Timeout: pw.Float(float64(defaultTimeoutMS))}); err != nil {
 					log.Printf("   ⚠️ WaitSelector failed for %s: %v", op.Selector, err)
 				}
 			}
@@ -1633,8 +1647,10 @@ func main() {
 	} else {
 		defer playwright.Stop()
 
-		// Launch browser
-		browser, err := playwright.Chromium.Launch()
+		// Launch browser with stealth options
+		browser, err := playwright.Chromium.Launch(pw.BrowserTypeLaunchOptions{
+			Args: []string{"--disable-blink-features=AutomationControlled"},
+		})
 		if err != nil {
 			log.Printf("⚠️  Browser launch warning: %v (MyClimate/Generic scraper features unavailable)", err)
 		} else {
