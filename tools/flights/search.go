@@ -3,16 +3,31 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/playwright-community/playwright-go"
 )
 
 func SearchFlights(opts SearchOptions) ([]FlightInfo, error) {
-	log.Printf("Starting NATIVE Version 56 flights search...")
+	// 1. Check for Playwright Scraper Service (Primary for K3s)
+	scraperURL := os.Getenv("SCRAPER_URL")
+	if scraperURL != "" {
+		log.Printf("🛰️ Using Playwright Service at: %s", scraperURL)
+		return SearchFlightsWithScraper(scraperURL, opts)
+	}
+
+	// 2. Fallback to Native logic if no service configured
+	log.Printf("🏠 No SCRAPER_URL found. Using NATIVE Version 57 search...")
+	return SearchFlightsNative(opts)
+}
+
+func SearchFlightsNative(opts SearchOptions) ([]FlightInfo, error) {
+	log.Printf("Starting NATIVE Version 57 flights search...")
 
 	pw, err := playwright.Run()
 	if err != nil { return nil, fmt.Errorf("could not start playwright: %v", err) }
+	defer pw.Stop()
 
 	executablePath := opts.BrowserPath
 	if executablePath == "" { executablePath = "/usr/bin/chromium" }
@@ -44,13 +59,12 @@ func SearchFlights(opts SearchOptions) ([]FlightInfo, error) {
 		return nil, fmt.Errorf("could not navigate: %v", err)
 	}
 
-	// 1. Consent
+	// Interaction Flow
 	acceptBtn := page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "Accept all"}).First()
 	if err := acceptBtn.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(5000)}); err == nil {
 		time.Sleep(2 * time.Second)
 	}
 
-	// 2. Interaction
 	departureInput := page.Locator("input[aria-label='Where from?'], input[placeholder='Where from?']").First()
 	departureInput.Click()
 	time.Sleep(500 * time.Millisecond)
@@ -82,7 +96,7 @@ func SearchFlights(opts SearchOptions) ([]FlightInfo, error) {
 	page.Keyboard().Press("Enter")
 	time.Sleep(2000 * time.Millisecond)
 
-	page.Keyboard().Press("Enter") // Press Enter to close picker
+	page.Keyboard().Press("Enter")
 	time.Sleep(1000 * time.Millisecond)
 	
 	searchBtn := page.Locator("button").Filter(playwright.LocatorFilterOptions{HasText: "Search"}).First()
@@ -103,7 +117,7 @@ func SearchFlights(opts SearchOptions) ([]FlightInfo, error) {
 		flights, err = MinerExtractFlights(html)
 	}
 
-	if err != nil { return nil, err }
+	if err != nil { return nil, err}
 	for i := range flights {
 		flights[i].URL = page.URL()
 		flights[i].CabinClass = opts.CabinClass

@@ -8,121 +8,95 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
-
-	"github.com/playwright-community/playwright-go"
 )
 
+// SearchFlightsWithScraper uses the remote playwright_scraper service to perform the interaction
 func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightInfo, error) {
-	return SearchFlightsNative(opts)
-}
+	log.Printf("🚀 Connecting to Playwright Service at: %s", scraperURL)
 
-func SearchFlightsNative(opts SearchOptions) ([]FlightInfo, error) {
-	log.Printf("🚀 NATIVE VERSION 57 STARTING...")
-    
-	pw, err := playwright.Run()
-	if err != nil { return nil, err }
-	defer pw.Stop()
-
-	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless:       playwright.Bool(true),
-		ExecutablePath: playwright.String("/usr/bin/chromium"),
-		Args: []string{
-			"--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
-			"--window-size=1600,1200", "--disable-blink-features=AutomationControlled",
-		},
-	})
-	if err != nil { return nil, err }
-	defer browser.Close()
-
-	context, err := browser.NewContext(playwright.BrowserNewContextOptions{
-		Viewport: &playwright.Size{Width: 1600, Height: 1200},
-		UserAgent: playwright.String("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"),
-	})
-	if err != nil { return nil, err }
-	defer context.Close()
-
-	page, err := context.NewPage()
-	if err != nil { return nil, err }
-
-	searchURL := "https://www.google.com/travel/flights?hl=en-US&gl=US&curr=EUR"
-	log.Printf("Navigating to: %s", searchURL)
-	if _, err = page.Goto(searchURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateNetworkidle}); err != nil {
-		return nil, err
+	// Build exact interaction steps for the remote service
+	steps := []map[string]interface{}{
+		{"type": "goto", "params": map[string]interface{}{"url": "https://www.google.com/travel/flights?hl=en-US&gl=US&curr=EUR", "waitUntil": "networkidle", "timeout": 60000}},
+		{"type": "bypassConsent", "params": map[string]interface{}{"timeout": 5000}},
+		{"type": "locator", "params": map[string]interface{}{"selector": "input[aria-label='Where from?'], input[placeholder='Where from?']", "action": "click"}},
+		{"type": "keyboardPress", "params": map[string]interface{}{"key": "Control+A"}},
+		{"type": "keyboardPress", "params": map[string]interface{}{"key": "Backspace"}},
+		{"type": "keyboardType", "params": map[string]interface{}{"text": opts.Departure, "delay": 100}},
+		{"type": "keyboardPress", "params": map[string]interface{}{"key": "Enter"}},
+		{"type": "wait", "params": map[string]interface{}{"ms": 1000}},
+		
+		{"type": "locator", "params": map[string]interface{}{"selector": "input[aria-label='Where to?'], input[placeholder='Where to?']", "action": "click"}},
+		{"type": "keyboardPress", "params": map[string]interface{}{"key": "Control+A"}},
+		{"type": "keyboardPress", "params": map[string]interface{}{"key": "Backspace"}},
+		{"type": "keyboardType", "params": map[string]interface{}{"text": opts.Destination, "delay": 100}},
+		{"type": "keyboardPress", "params": map[string]interface{}{"key": "Enter"}},
+		{"type": "wait", "params": map[string]interface{}{"ms": 1000}},
+		
+		{"type": "locator", "params": map[string]interface{}{"selector": "input[placeholder='Departure'], input[aria-label='Departure']", "action": "click"}},
+		{"type": "wait", "params": map[string]interface{}{"ms": 1000}},
+		{"type": "keyboardPress", "params": map[string]interface{}{"key": "Control+A"}},
+		{"type": "keyboardType", "params": map[string]interface{}{"text": opts.StartDate, "delay": 50}},
+		{"type": "keyboardPress", "params": map[string]interface{}{"key": "Tab"}},
+		{"type": "wait", "params": map[string]interface{}{"ms": 500}},
+		{"type": "keyboardPress", "params": map[string]interface{}{"key": "Control+A"}},
+		{"type": "keyboardType", "params": map[string]interface{}{"text": opts.EndDate, "delay": 50}},
+		{"type": "keyboardPress", "params": map[string]interface{}{"key": "Enter"}},
+		{"type": "wait", "params": map[string]interface{}{"ms": 1000}},
+		
+		{"type": "keyboardPress", "params": map[string]interface{}{"key": "Enter"}},
+		{"type": "wait", "params": map[string]interface{}{"ms": 2000}},
+		{"type": "locator", "params": map[string]interface{}{"selector": "button:has-text('Search'), button:has-text('Explore')", "action": "click"}},
+		{"type": "wait", "params": map[string]interface{}{"ms": 25000}},
 	}
 
-	// 1. Consent
-	acceptBtn := page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "Accept all"}).First()
-	if err := acceptBtn.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(5000)}); err == nil {
-		time.Sleep(2 * time.Second)
-	}
-
-	// 2. Interaction
-	page.Click("input[aria-label='Where from?'], input[placeholder='Where from?']")
-	time.Sleep(500 * time.Millisecond)
-	page.Keyboard().Press("Control+A")
-	page.Keyboard().Press("Backspace")
-	page.Keyboard().Type(opts.Departure)
-	time.Sleep(1500 * time.Millisecond)
-	page.Keyboard().Press("Enter")
-
-	page.Click("input[aria-label='Where to?'], input[placeholder='Where to?']")
-	time.Sleep(500 * time.Millisecond)
-	page.Keyboard().Press("Control+A")
-	page.Keyboard().Press("Backspace")
-	page.Keyboard().Type(opts.Destination)
-	time.Sleep(1500 * time.Millisecond)
-	page.Keyboard().Press("Enter")
-
-	page.Click("input[placeholder='Departure'], input[aria-label='Departure']")
-	time.Sleep(1500 * time.Millisecond)
-	page.Keyboard().Press("Control+A")
-	page.Keyboard().Type(opts.StartDate)
-	time.Sleep(1000 * time.Millisecond)
-	page.Keyboard().Press("Tab")
-	time.Sleep(1000 * time.Millisecond)
-	page.Keyboard().Press("Control+A")
-	page.Keyboard().Type(opts.EndDate)
-	time.Sleep(1000 * time.Millisecond)
-	page.Keyboard().Press("Enter")
-	time.Sleep(2000 * time.Millisecond)
-
-	page.Keyboard().Press("Enter")
-	time.Sleep(2000 * time.Millisecond)
+	payload := map[string]interface{}{"operations": steps}
+	jsonReq, _ := json.Marshal(payload)
 	
-	searchBtn := page.Locator("button").Filter(playwright.LocatorFilterOptions{HasText: "Search"}).First()
-	if isVisible, _ := searchBtn.IsVisible(); isVisible {
-		searchBtn.Click()
+	resp, err := http.Post(scraperURL+"/api/multi-selector", "application/json", bytes.NewBuffer(jsonReq))
+	if err != nil { return nil, fmt.Errorf("failed to call scraper service: %v", err) }
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("scraper service returned status: %d", resp.StatusCode)
 	}
 
-	log.Println("Waiting for results...")
-	time.Sleep(25 * time.Second)
-
-	screenshotPath := "latest_flight_screenshot.png"
-	_, _ = page.Screenshot(playwright.PageScreenshotOptions{Path: playwright.String(screenshotPath)})
-	html, _ := page.Content()
-
-	flights, err := ExtractFlightsFromImage(screenshotPath)
-	if (err != nil || len(flights) == 0) && html != "" {
-		log.Printf("⚠️ Still no results. Attempting HTML Miner fallback...")
-		flights, err = MinerExtractFlights(html)
+	var scraperResp struct {
+		JobId string `json:"job_id"`
+		Status string `json:"status"`
+		Data struct {
+			Text string `json:"text"`
+			HTML string `json:"html"`
+		} `json:"data"`
+	}
+	
+	if err := json.NewDecoder(resp.Body).Decode(&scraperResp); err != nil {
+		return nil, fmt.Errorf("failed to decode scraper response: %v", err)
 	}
 
-	if err != nil { return nil, err }
+	if scraperResp.Status == "failed" {
+		return nil, fmt.Errorf("scraper job failed")
+	}
+
+	log.Printf("📥 Scraper job finished. Processing data...")
+	
+	flights := ParseFlightText(scraperResp.Data.Text)
+	if len(flights) == 0 && scraperResp.Data.HTML != "" {
+		log.Printf("⚠️ OCR text parse failed. Attempting SMART Miner on HTML (%d bytes)...", len(scraperResp.Data.HTML))
+		flights, err = MinerExtractFlights(scraperResp.Data.HTML)
+	}
+
+    if err != nil { return nil, err }
 	for i := range flights {
-		flights[i].URL = page.URL()
-		flights[i].CabinClass = opts.CabinClass
+		flights[i].URL = "https://www.google.com/travel/flights" // Placeholder for now
 	}
+
 	return flights, nil
 }
 
 func MinerExtractFlights(data string) ([]FlightInfo, error) {
-    // Determine if data is HTML or OCR text
     isHTML := strings.Contains(data, "<html")
-    
     snippet := data
     if isHTML {
-        // Smart HTML snippet finding dense flight data
         re := regexp.MustCompile(`\["([^"]+)",\["([^"]+)",.+?\d+\][,\]]`)
         matches := re.FindAllString(data, 100)
         if len(matches) > 0 {
@@ -136,10 +110,7 @@ func MinerExtractFlights(data string) ([]FlightInfo, error) {
             snippet = data[start:end]
         }
     } else {
-        // OCR text is usually manageable size (< 100KB)
-        if len(snippet) > 100000 {
-            snippet = snippet[:100000]
-        }
+        if len(snippet) > 100000 { snippet = snippet[:100000] }
     }
 
 	prompt := fmt.Sprintf(`Extract flight results from this %s data.
@@ -192,6 +163,5 @@ Data:
 			Stops: f.Stops, DepartureTime: f.DepartureTime, ArrivalTime: f.ArrivalTime,
 		})
 	}
-	log.Printf("🚀 Miner found %d flights", len(result))
 	return result, nil
 }
