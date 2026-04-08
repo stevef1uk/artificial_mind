@@ -73,6 +73,9 @@ type PlaywrightOperation struct {
 	Index          int    // For nth(n) selectors
 	ChildSelector  string // For scoped selectors (e.g., locator().locator())
 	IframeSelector string // For iframe elements (e.g., contentFrame())
+	Width          int    // For setViewportSize
+	Height         int    // For setViewportSize
+	Script         string // For evaluate
 }
 
 // JobStore manages scrape jobs in memory
@@ -267,15 +270,53 @@ func parseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
 	}
 	log.Printf("📝 TypeScript config (first 500 chars): %s", preview)
 
-	// Parse operations in order by finding all 'page.' patterns, optionally preceded by await
-	// stop at semicolon, newline, or end of string
-	awaitRegex := regexp.MustCompile(`(?:await\s+)?page\.[^;\n]+`)
-	matches := awaitRegex.FindAllString(tsConfig, -1)
+	lines := strings.Split(tsConfig, "\n")
+	var currentOp strings.Builder
+	inEvaluate := false
 
-	for _, match := range matches {
-		op := parseOperation(match)
-		if op.Type != "" {
-			operations = append(operations, op)
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+
+		// Detect start of evaluate block
+		if !inEvaluate && strings.Contains(trimmed, "page.evaluate") {
+			inEvaluate = true
+			currentOp.WriteString(trimmed)
+			// Check if it's a single-line evaluate
+			if strings.HasSuffix(trimmed, "})") || strings.HasSuffix(trimmed, "});") {
+				inEvaluate = false
+				op := parseOperation(currentOp.String())
+				if op.Type != "" {
+					operations = append(operations, op)
+				}
+				currentOp.Reset()
+			}
+			continue
+		}
+
+		if inEvaluate {
+			currentOp.WriteString(" " + trimmed)
+			if strings.HasSuffix(trimmed, "})") || strings.HasSuffix(trimmed, "});") {
+				inEvaluate = false
+				op := parseOperation(currentOp.String())
+				if op.Type != "" {
+					operations = append(operations, op)
+				}
+				currentOp.Reset()
+			}
+			continue
+		}
+
+		// Direct operation on current line
+		if strings.Contains(trimmed, "page.") {
+			op := parseOperation(trimmed)
+			if op.Type != "" {
+				operations = append(operations, op)
+			} else {
+				log.Printf("⚠️ Failed to parse operation line: %s", trimmed)
+			}
 		}
 	}
 
@@ -351,28 +392,45 @@ func parseOperation(line string) PlaywrightOperation {
 	}
 
 	// getByRole (click)
-	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByRole\(['"](\w+)['"],\s*\{\s*name:\s*['"](.+?)['"]\s*\}\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 2 {
+	// getByRole with .first().click()
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByRole\(['"](\w+)['"]\s*,\s*\{\s*name:\s*['"](.+?)['"]\s*\}\)\.first\(\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 2 {
+		return PlaywrightOperation{Type: "getByRole", Role: matches[1], RoleName: matches[2]}
+	}
+
+	// getByRole with .click()
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByRole\(['"](\w+)['"]\s*,\s*\{\s*name:\s*['"](.+?)['"]\s*\}\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "getByRole", Role: matches[1], RoleName: matches[2]}
 	}
 
 	// getByRole (fill)
-	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByRole\(['"](\w+)['"],\s*\{\s*name:\s*['"](.+?)['"]\s*\}\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByRole\(['"](\w+)['"]\s*,\s*\{\s*name:\s*['"](.+?)['"]\s*\}\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
 		return PlaywrightOperation{Type: "getByRoleFill", Role: matches[1], RoleName: matches[2], Value: matches[3]}
 	}
 
 	// getByLabel (click)
-	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByLabel\(['"](.+?)['"](?:,\s*\{.+?\})?\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByLabel\(['"](.+?)['"](?:,\s*\{.+?\}|,\s*\{exact:\s*true\})?\)\.first\(\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
+		return PlaywrightOperation{Type: "getByLabelClick", Text: matches[1]}
+	}
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByLabel\(['"](.+?)['"](?:,\s*\{.+?\}|,\s*\{exact:\s*true\})?\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "getByLabelClick", Text: matches[1]}
 	}
 
 	// getByLabel (fill)
-	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByLabel\(['"](.+?)['"](?:,\s*\{.+?\})?\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByLabel\(['"](.+?)['"](?:,\s*\{.+?\}|,\s*\{exact:\s*true\})?\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "getByLabelFill", Text: matches[1], Value: matches[2]}
 	}
 
 	// getByPlaceholder (fill)
 	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByPlaceholder\(['"](.+?)['"](?:,\s*\{.+?\})?\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 2 {
 		return PlaywrightOperation{Type: "getByPlaceholderFill", Text: matches[1], Value: matches[2]}
+	}
+
+	// getByPlaceholder (click)
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByPlaceholder\(['"](.+?)['"](?:,\s*\{.+?\})?\)\.first\(\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
+		return PlaywrightOperation{Type: "getByPlaceholderClick", Text: matches[1]}
+	}
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByPlaceholder\(['"](.+?)['"](?:,\s*\{.+?\})?\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
+		return PlaywrightOperation{Type: "getByPlaceholderClick", Text: matches[1]}
 	}
 
 	// getByTestId (click)
@@ -513,6 +571,25 @@ func parseOperation(line string) PlaywrightOperation {
 	// waitForLoadState
 	if matches := regexp.MustCompile(`(?:await\s+)?page\.waitForLoadState\(['"](\w+)['"](?:,\s*\{.+?\})?\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "waitLoadState", Value: matches[1]}
+	}
+
+	// setViewportSize
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.setViewportSize\(\{\s*width:\s*(\d+),\s*height:\s*(\d+)\s*\}\)`).FindStringSubmatch(line); len(matches) > 2 {
+		w, _ := strconv.Atoi(matches[1])
+		h, _ := strconv.Atoi(matches[2])
+		return PlaywrightOperation{Type: "setViewportSize", Width: w, Height: h}
+	}
+
+	// evaluate
+	if matches := regexp.MustCompile(`(?s)(?:await\s+)?page\.evaluate\(\s*\(.*?\)\s*=>\s*\{([\s\S]+?)\}\s*\)`).FindStringSubmatch(line); len(matches) > 1 {
+		return PlaywrightOperation{Type: "evaluate", Script: matches[1]}
+	}
+
+	// waitForTimeout (variant with parenthesis)
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.waitForTimeout\((\d+)\)`).FindStringSubmatch(line); len(matches) > 1 {
+		var timeout int
+		fmt.Sscanf(matches[1], "%d", &timeout)
+		return PlaywrightOperation{Type: "wait", TimeoutMS: timeout}
 	}
 
 	return PlaywrightOperation{}
@@ -676,12 +753,7 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 		Args: []string{
 			"--no-sandbox",
 			"--disable-dev-shm-usage",
-			"--disable-gpu",
-			"--disable-software-rasterizer",
-			"--disable-extensions",
-			"--disable-background-networking",
-			"--single-process",
-			"--window-size=1600,1200",
+			"--disable-blink-features=AutomationControlled",
 		},
 	}
 	if executablePath != "" {
@@ -698,10 +770,11 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 	// Create context with working resolution
 	context, err := browser.NewContext(pw.BrowserNewContextOptions{
 		Viewport: &pw.Size{
-			Width:  1600,
-			Height: 1200,
+			Width:  1920,
+			Height: 1080,
 		},
-		UserAgent: pw.String("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"),
+		UserAgent: pw.String("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
+		Locale:    pw.String("en-US"),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create context: %v", err)
@@ -874,6 +947,12 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 
 		case "getByPlaceholderFill":
 			if err := page.GetByPlaceholder(op.Text).Fill(op.Value); err != nil {
+				log.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(500 * time.Millisecond)
+
+		case "getByPlaceholderClick":
+			if err := page.GetByPlaceholder(op.Text).First().Click(); err != nil {
 				log.Printf("   ⚠️ Failed: %v", err)
 			}
 			time.Sleep(500 * time.Millisecond)
@@ -1080,6 +1159,18 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 			if op.Value != "" {
 				state := pw.LoadState(op.Value)
 				page.WaitForLoadState(pw.PageWaitForLoadStateOptions{State: &state, Timeout: pw.Float(15000)})
+			}
+		case "setViewportSize":
+			if op.Width > 0 && op.Height > 0 {
+				page.SetViewportSize(op.Width, op.Height)
+			}
+		case "evaluate":
+			if op.Script != "" {
+				// Wrap in a function that returns the script's result
+				_, err := page.Evaluate(fmt.Sprintf("() => { %s }", op.Script))
+				if err != nil {
+					log.Printf("   ⚠️ Evaluate failed: %v", err)
+				}
 			}
 		}
 	}
@@ -1649,7 +1740,15 @@ func main() {
 
 		// Launch browser with stealth options
 		browser, err := playwright.Chromium.Launch(pw.BrowserTypeLaunchOptions{
-			Args: []string{"--disable-blink-features=AutomationControlled"},
+			Args: []string{
+				"--disable-blink-features=AutomationControlled",
+				"--no-sandbox",
+				"--disable-setuid-sandbox",
+				"--use-fake-ui-for-media-stream",
+				"--use-fake-device-for-media-stream",
+				"--disable-web-security",
+				"--disable-features=IsolateOrigins,site-per-process",
+			},
 		})
 		if err != nil {
 			log.Printf("⚠️  Browser launch warning: %v (MyClimate/Generic scraper features unavailable)", err)

@@ -3,22 +3,14 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/playwright-community/playwright-go"
 )
 
 func SearchFlights(opts SearchOptions) ([]FlightInfo, error) {
-	// 1. Check for Playwright Scraper Service (Primary for K3s)
-	scraperURL := os.Getenv("SCRAPER_URL")
-	if scraperURL != "" {
-		log.Printf("🛰️ Using Playwright Service at: %s", scraperURL)
-		return SearchFlightsWithScraper(scraperURL, opts)
-	}
-
-	// 2. Fallback to Native logic if no service configured
-	log.Printf("🏠 No SCRAPER_URL found. Using NATIVE Version 57 search...")
+	// Prefer Native search as it's currently more stable for styled results
+	log.Printf("🏠 Using NATIVE search logic (Version 58)...")
 	return SearchFlightsNative(opts)
 }
 
@@ -53,55 +45,16 @@ func SearchFlightsNative(opts SearchOptions) ([]FlightInfo, error) {
 	page, err := context.NewPage()
 	if err != nil { return nil, fmt.Errorf("could not create page: %v", err) }
 
-	searchURL := "https://www.google.com/travel/flights?hl=en-US&gl=US&curr=EUR"
+	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=%s+flights+from+%s+to+%s+on+%s+return+%s&hl=en-US&gl=US&curr=EUR", opts.CabinClass, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
 	log.Printf("Navigating to: %s", searchURL)
 	if _, err = page.Goto(searchURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateNetworkidle}); err != nil {
 		return nil, fmt.Errorf("could not navigate: %v", err)
 	}
 
-	// Interaction Flow
+	// 1. Consent
 	acceptBtn := page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "Accept all"}).First()
 	if err := acceptBtn.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(5000)}); err == nil {
 		time.Sleep(2 * time.Second)
-	}
-
-	departureInput := page.Locator("input[aria-label='Where from?'], input[placeholder='Where from?']").First()
-	departureInput.Click()
-	time.Sleep(500 * time.Millisecond)
-	page.Keyboard().Press("Control+A")
-	page.Keyboard().Press("Backspace")
-	page.Keyboard().Type(opts.Departure)
-	time.Sleep(1500 * time.Millisecond)
-	page.Keyboard().Press("Enter")
-
-	destinationInput := page.Locator("input[aria-label='Where to?'], input[placeholder='Where to?']").First()
-	destinationInput.Click()
-	time.Sleep(500 * time.Millisecond)
-	page.Keyboard().Press("Control+A")
-	page.Keyboard().Press("Backspace")
-	page.Keyboard().Type(opts.Destination)
-	time.Sleep(1500 * time.Millisecond)
-	page.Keyboard().Press("Enter")
-
-	page.Locator("input[placeholder='Departure'], input[aria-label='Departure']").First().Click()
-	time.Sleep(1500 * time.Millisecond)
-	page.Keyboard().Press("Control+A")
-	page.Keyboard().Type(opts.StartDate)
-	time.Sleep(1000 * time.Millisecond)
-	page.Keyboard().Press("Tab")
-	time.Sleep(500 * time.Millisecond)
-	page.Keyboard().Press("Control+A")
-	page.Keyboard().Type(opts.EndDate)
-	time.Sleep(1000 * time.Millisecond)
-	page.Keyboard().Press("Enter")
-	time.Sleep(2000 * time.Millisecond)
-
-	page.Keyboard().Press("Enter")
-	time.Sleep(1000 * time.Millisecond)
-	
-	searchBtn := page.Locator("button").Filter(playwright.LocatorFilterOptions{HasText: "Search"}).First()
-	if isVisible, _ := searchBtn.IsVisible(); isVisible {
-		searchBtn.Click()
 	}
 
 	log.Println("Waiting for results...")

@@ -289,10 +289,10 @@ build-chatbot:
 # Build Flight MCP
 .PHONY: build-flights
 build-flights:
-	@echo "🔨 Building Flight MCP server..."
+	@echo "🔨 Building Flights MCP binary..."
 	@mkdir -p $(BIN_DIR)
-	@cd $(FLIGHTS_DIR) && CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) GO111MODULE=on go build $(GO_BUILD_FLAGS) ../../$(FLIGHTS_BIN) .
-	@echo "✅ Flight MCP built: $(FLIGHTS_BIN)"
+	@cd $(FLIGHTS_DIR) && GO111MODULE=on go build $(GO_BUILD_FLAGS) ../../$(FLIGHTS_BIN) main.go search.go ocr.go scraper_client.go types.go
+	@echo "✅ Flights MCP built: $(FLIGHTS_BIN)"
 
 # Deploy Chatbot
 .PHONY: deploy-chatbot
