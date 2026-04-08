@@ -3,13 +3,21 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/playwright-community/playwright-go"
 )
 
 func SearchFlights(opts SearchOptions) ([]FlightInfo, error) {
-	// Prefer Native search as it's currently more stable for styled results
+	// 1. Check for Playwright Scraper Service (Primary for K3s/Offloading)
+	scraperURL := os.Getenv("SCRAPER_URL")
+	if scraperURL != "" {
+		log.Printf("🛰️ Using Playwright Service at: %s", scraperURL)
+		return SearchFlightsWithScraper(scraperURL, opts)
+	}
+
+	// 2. Fallback to Native logic
 	log.Printf("🏠 Using NATIVE search logic (Version 58)...")
 	return SearchFlightsNative(opts)
 }

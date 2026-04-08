@@ -291,7 +291,7 @@ run_service() {
     
     # Show relevant environment variables being passed
     echo "🔧 Environment variables being passed:"
-    printenv | grep -E '^(LLM_|OPENAI_|ANTHROPIC_|OLLAMA_|EXECUTION_METHOD|ENABLE_ARM64_TOOLS|DOCKER_|REDIS_|NATS_|NEO4J_|WEAVIATE_|PRINCIPLES_|HDN_|FSM_|GOAL_|MONITOR_|CODEGEN_)' | sed 's/^/  /' || echo "  (none found)"
+    printenv | grep -E '^(LLM_|OPENAI_|ANTHROPIC_|OLLAMA_|EXECUTION_METHOD|ENABLE_ARM64_TOOLS|DOCKER_|REDIS_|NATS_|NEO4J_|WEAVIATE_|PRINCIPLES_|HDN_|FSM_|GOAL_|MONITOR_|CODEGEN_|SCRAPER_|FLIGHTS_)' | sed 's/^/  /' || echo "  (none found)"
 
     if [ -x "$binpath" ]; then
         # Environment is already exported above; run directly
@@ -337,6 +337,7 @@ make build-scraper-binary >/dev/null 2>&1 || { echo "❌ Failed to build Playwri
 if [ -f "$AGI_PROJECT_ROOT/bin/playwright-scraper" ]; then
 	export CODEGEN_MODE="container"
 	export CODEGEN_OUTPUT_DIR="$AGI_PROJECT_ROOT/data/codegen"
+    export PLAYWRIGHT_EXECUTABLE_PATH="/usr/bin/chromium"
     SCRAPER_PID=$(run_service "playwright_scraper" \
         "$AGI_PROJECT_ROOT" \
         "$AGI_PROJECT_ROOT/bin/playwright-scraper") || {
@@ -357,10 +358,11 @@ cd "$AGI_PROJECT_ROOT"
 make build-flights >/dev/null 2>&1 || { echo "❌ Failed to build Flight MCP"; FLIGHTS_PID=""; }
 
 if [ -f "$AGI_PROJECT_ROOT/bin/flight-mcp" ]; then
+    export SCRAPER_URL="http://localhost:8085"
     FLIGHTS_PID=$(run_service "flight_mcp" \
         "$AGI_PROJECT_ROOT" \
         "$AGI_PROJECT_ROOT/bin/flight-mcp" \
-        --transport http --port 8086) || {
+        --transport http --port 8086 --lang=en-GB --region=GB --currency=GBP) || {
         echo "⚠️  Flight MCP failed to start, but continuing"; FLIGHTS_PID=""; }
     
     # Wait for Flight MCP to be ready
@@ -388,6 +390,9 @@ fi
 echo "🔨 Building tools (including headless-browser)..."
 cd "$AGI_PROJECT_ROOT"
 make build-tools >/dev/null 2>&1 || { echo "❌ Failed to build tools"; exit 1; }
+
+# Ensure Flight MCP is discovered by HDN interpreter
+export MCP_ENDPOINTS="http://localhost:8086"
 
 # Ensure HDN binary is built with neo4j tag
 echo "🔨 Building HDN server (neo4j) binary..."
@@ -557,13 +562,13 @@ cd "$AGI_PROJECT_ROOT"
 make build-fsm || { echo "❌ Failed to build FSM Server"; exit 1; }
 
 echo "🧠 Starting FSM Server..."
-FSM_PID=$(run_service "fsm" \
-    "$AGI_PROJECT_ROOT/fsm" \
-    "$AGI_PROJECT_ROOT/bin/fsm-server" \
-    -config "config/artificial_mind.yaml") || {
-    echo "❌ Failed to start FSM Server"
-    exit 1
-}
+# FSM_PID=$(run_service "fsm" \
+#     "$AGI_PROJECT_ROOT/fsm" \
+#     "$AGI_PROJECT_ROOT/bin/fsm-server" \
+#     -config "config/artificial_mind.yaml") || {
+#     echo "❌ Failed to start FSM Server"
+#     exit 1
+# }
 
 # Optionally flush FSM state in Redis for a clean start (set FSM_FLUSH_STATE=true)
 if [ "${FSM_FLUSH_STATE:-false}" = "true" ]; then
@@ -575,11 +580,11 @@ echo "🔨 Building Goal Manager..."
 cd "$AGI_PROJECT_ROOT"
 make build-goal >/dev/null 2>&1 || { echo "❌ Failed to build Goal Manager"; GOAL_PID=""; }
 
-GOAL_PID=$(run_service "goal_manager" \
-    "$AGI_PROJECT_ROOT" \
-    "$AGI_PROJECT_ROOT/bin/goal-manager" \
-    -agent=agent_1 -nats=nats://localhost:4222 -redis=redis://localhost:6379 -debug) || {
-    echo "⚠️  Goal Manager failed to start, but continuing"; GOAL_PID=""; }
+# GOAL_PID=$(run_service "goal_manager" \
+#     "$AGI_PROJECT_ROOT" \
+#     "$AGI_PROJECT_ROOT/bin/goal-manager" \
+#     -agent=agent_1 -nats=nats://localhost:4222 -redis=redis://localhost:6379 -debug) || {
+#     echo "⚠️  Goal Manager failed to start, but continuing"; GOAL_PID=""; }
 
 # (Optional) Wait a moment for Goal Manager to warm up
 sleep 1
@@ -649,7 +654,7 @@ if [ ! -z "$FSM_PID" ]; then
     echo "  FSM: $(curl -s -o /dev/null -w "%{http_code}" http://localhost:8083/health)"
 fi
 echo "  Scraper: $(curl -s -o /dev/null -w "%{http_code}" http://localhost:8085/health)"
-echo "  Flight MCP: $(curl -s -o /dev/null -w "%%{http_code}" http://localhost:8086/)"
+echo "  Flight MCP: $(curl -s -o /dev/null -w "%{http_code}" http://localhost:8086/)"
 echo ""
 echo "🛑 To stop servers: ./stop_servers.sh"
 echo "📄 View logs: tail -f /tmp/principles_server.log /tmp/hdn_server.log"

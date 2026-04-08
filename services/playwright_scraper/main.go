@@ -36,10 +36,13 @@ const (
 type ScrapeRequest struct {
 	URL              string            `json:"url"`
 	Instructions     string            `json:"instructions"`
+	UserAgent        string            `json:"user_agent,omitempty"`
+	Operations       string            `json:"operations,omitempty"`
 	TypeScriptConfig string            `json:"typescript_config"`
 	Extractions      map[string]string `json:"extractions,omitempty"`
 	Variables        map[string]string `json:"variables,omitempty"`
 	GetHTML          bool              `json:"get_html,omitempty"`
+	FullPage         bool              `json:"full_page,omitempty"`
 	Cookies          []pw.Cookie       `json:"cookies,omitempty"` // Session persistence
 }
 
@@ -48,10 +51,12 @@ type ScrapeJob struct {
 	ID               string                 `json:"id"`
 	URL              string                 `json:"url"`
 	Instructions     string                 `json:"instructions"`
+	UserAgent        string                 `json:"user_agent,omitempty"`
 	TypeScriptConfig string                 `json:"typescript_config"`
 	Extractions      map[string]string      `json:"extractions,omitempty"`
 	Variables        map[string]string      `json:"variables,omitempty"`
 	GetHTML          bool                   `json:"get_html,omitempty"`
+	FullPage         bool                   `json:"full_page,omitempty"`
 	Cookies          []pw.Cookie            `json:"cookies,omitempty"`
 	Status           string                 `json:"status"`
 	CreatedAt        time.Time              `json:"created_at"`
@@ -76,6 +81,7 @@ type PlaywrightOperation struct {
 	Width          int    // For setViewportSize
 	Height         int    // For setViewportSize
 	Script         string // For evaluate
+	UserAgent      string // For setUserAgent
 }
 
 // JobStore manages scrape jobs in memory
@@ -90,7 +96,7 @@ func NewJobStore() *JobStore {
 	}
 }
 
-func (s *JobStore) Create(url, instructions, tsConfig string, extractions map[string]string, variables map[string]string, getHTML bool, cookies []pw.Cookie) *ScrapeJob {
+func (s *JobStore) Create(url, instructions, userAgent, tsConfig string, extractions map[string]string, variables map[string]string, getHTML bool, cookies []pw.Cookie) *ScrapeJob {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -98,6 +104,7 @@ func (s *JobStore) Create(url, instructions, tsConfig string, extractions map[st
 		ID:               uuid.New().String(),
 		URL:              url,
 		Instructions:     instructions,
+		UserAgent:        userAgent,
 		TypeScriptConfig: tsConfig,
 		Extractions:      extractions,
 		Variables:        variables,
@@ -257,7 +264,7 @@ func (s *ScraperService) executeJob(job *ScrapeJob) (map[string]interface{}, err
 	log.Printf("📋 Parsed %d operations", len(operations))
 
 	// Execute Playwright operations
-	return executePlaywrightOperations(job.URL, operations, job.Instructions, job.Extractions, job.GetHTML, job.Cookies)
+	return executePlaywrightOperations(job.URL, operations, job.Instructions, job.UserAgent, job.Extractions, job.GetHTML, job.FullPage, job.Cookies)
 }
 
 func parseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
@@ -298,7 +305,7 @@ func parseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
 
 		if inEvaluate {
 			currentOp.WriteString(" " + trimmed)
-			if strings.HasSuffix(trimmed, "})") || strings.HasSuffix(trimmed, "});") {
+			if strings.Contains(trimmed, "})") || strings.Contains(trimmed, ");") {
 				inEvaluate = false
 				op := parseOperation(currentOp.String())
 				if op.Type != "" {
@@ -384,6 +391,11 @@ func parseOperation(line string) PlaywrightOperation {
 	// iframe locator (fill)
 	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.contentFrame\(\)\.locator\(['"](.+?)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
 		return PlaywrightOperation{Type: "iframeLocatorFill", IframeSelector: matches[1], Selector: matches[2], Value: matches[3]}
+	}
+
+	// setUserAgent
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.setUserAgent\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 1 {
+		return PlaywrightOperation{Type: "setUserAgent", UserAgent: matches[1]}
 	}
 
 	// goto
@@ -580,9 +592,13 @@ func parseOperation(line string) PlaywrightOperation {
 		return PlaywrightOperation{Type: "setViewportSize", Width: w, Height: h}
 	}
 
-	// evaluate
-	if matches := regexp.MustCompile(`(?s)(?:await\s+)?page\.evaluate\(\s*\(.*?\)\s*=>\s*\{([\s\S]+?)\}\s*\)`).FindStringSubmatch(line); len(matches) > 1 {
-		return PlaywrightOperation{Type: "evaluate", Script: matches[1]}
+	// evaluate (supports both { } and direct statements)
+	if matches := regexp.MustCompile(`(?s)(?:await\s+)?page\.evaluate\(\s*\(.*?\)\s*=>\s*(?:\{([\s\S]+?)\}|([\s\S]+?))\s*\)`).FindStringSubmatch(line); len(matches) > 1 {
+		script := matches[1]
+		if script == "" {
+			script = matches[2]
+		}
+		return PlaywrightOperation{Type: "evaluate", Script: script}
 	}
 
 	// waitForTimeout (variant with parenthesis)
@@ -721,7 +737,7 @@ func asInt(value interface{}) int {
 	}
 }
 
-func executePlaywrightOperations(url string, operations []PlaywrightOperation, instructions string, extractions map[string]string, getHTML bool, cookies []pw.Cookie) (map[string]interface{}, error) {
+func executePlaywrightOperations(url string, operations []PlaywrightOperation, instructions, userAgent string, extractions map[string]string, getHTML, fullPage bool, cookies []pw.Cookie) (map[string]interface{}, error) {
 	// Start Playwright
 	pwInstance, err := pw.Run()
 	if err != nil {
@@ -730,29 +746,15 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 	defer pwInstance.Stop()
 
 	// Launch browser
-	// Launch browser
 	executablePath := os.Getenv("PLAYWRIGHT_EXECUTABLE_PATH")
-	if executablePath == "" {
-		// Try common paths
-		commonPaths := []string{
-			"/usr/bin/chromium",
-			"/usr/bin/google-chrome",
-			"/bin/google-chrome",
-			"/usr/bin/chromium-browser",
-		}
-		for _, p := range commonPaths {
-			if _, err := os.Stat(p); err == nil {
-				executablePath = p
-				break
-			}
-		}
-	}
 
 	launchOptions := pw.BrowserTypeLaunchOptions{
 		Headless: pw.Bool(true),
 		Args: []string{
 			"--no-sandbox",
+			"--disable-setuid-sandbox",
 			"--disable-dev-shm-usage",
+			"--window-size=1920,1080",
 			"--disable-blink-features=AutomationControlled",
 		},
 	}
@@ -768,13 +770,23 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 	defer browser.Close()
 
 	// Create context with working resolution
+	finalUA := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+	if userAgent != "" {
+		finalUA = userAgent
+	}
+
 	context, err := browser.NewContext(pw.BrowserNewContextOptions{
 		Viewport: &pw.Size{
 			Width:  1920,
 			Height: 1080,
 		},
-		UserAgent: pw.String("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
-		Locale:    pw.String("en-US"),
+		UserAgent: pw.String(finalUA),
+		Locale:    pw.String(func() string {
+			if l := os.Getenv("SCRAPE_LOCALE"); l != "" {
+				return l
+			}
+			return "en-GB"
+		}()),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create context: %v", err)
@@ -859,6 +871,12 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 				page.Goto(op.Selector, pw.PageGotoOptions{WaitUntil: pw.WaitUntilStateNetworkidle})
 			}
 
+		case "setUserAgent":
+			if op.UserAgent != "" {
+				log.Printf("👤 Setting User-Agent to: %s", op.UserAgent)
+				page.SetExtraHTTPHeaders(map[string]string{"User-Agent": op.UserAgent})
+			}
+
 		case "iframeGetByRole":
 			locator := page.FrameLocator(op.IframeSelector).GetByRole(pw.AriaRole(op.Role), pw.FrameLocatorGetByRoleOptions{Name: op.RoleName})
 			if err := locator.Click(); err != nil {
@@ -918,7 +936,7 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 		case "getByRole":
 			if op.Role != "" && op.RoleName != "" {
 				locator := page.GetByRole(pw.AriaRole(op.Role), pw.PageGetByRoleOptions{Name: op.RoleName})
-				if err := locator.Click(); err != nil {
+				if err := locator.First().Click(); err != nil {
 					log.Printf("   ⚠️ Failed: %v", err)
 				}
 				time.Sleep(500 * time.Millisecond)
@@ -927,7 +945,7 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 		case "getByRoleFill":
 			if op.Role != "" && op.RoleName != "" {
 				locator := page.GetByRole(pw.AriaRole(op.Role), pw.PageGetByRoleOptions{Name: op.RoleName})
-				if err := locator.Fill(op.Value); err != nil {
+				if err := locator.First().Fill(op.Value); err != nil {
 					log.Printf("   ⚠️ Failed: %v", err)
 				}
 				time.Sleep(500 * time.Millisecond)
@@ -1060,8 +1078,11 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 			}
 
 			if clicked {
-				log.Println("⏳ Waiting 5s for navigation after consent click...")
-				time.Sleep(5 * time.Second)
+				log.Println("⏳ Waiting for navigation after consent click...")
+				page.WaitForLoadState(pw.PageWaitForLoadStateOptions{
+					State: pw.LoadStateNetworkidle,
+				})
+				time.Sleep(2 * time.Second) // Extra buffer
 			} else {
 				log.Println("⚠️ No consent button found to click after trying all patterns")
 			}
@@ -1331,6 +1352,7 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 
 	if getHTML {
 		results["cleaned_html"] = cleanedHTML
+		results["raw_html"] = rawHTML
 	}
 
 	// Prepare content for extraction
@@ -1467,7 +1489,9 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 	// results["raw_text"] = bodyContent
 
 	// Capture screenshot for Wow dashboard AI Sight panel
-	screenshot, err := page.Screenshot(pw.PageScreenshotOptions{})
+	screenshot, err := page.Screenshot(pw.PageScreenshotOptions{
+		FullPage: pw.Bool(fullPage),
+	})
 	if err == nil && screenshot != nil {
 		results["screenshot"] = "data:image/png;base64," + base64.StdEncoding.EncodeToString(screenshot)
 		log.Printf("📸 Screenshot captured (%d bytes)", len(screenshot))
@@ -1587,7 +1611,7 @@ func (s *ScraperService) handleStartScrape(w http.ResponseWriter, r *http.Reques
 
 	// Create job
 	log.Printf("📥 ScrapeRequest received (Goal: %s, Script: %t)", req.Instructions, req.TypeScriptConfig != "")
-	job := s.store.Create(jobURL, req.Instructions, req.TypeScriptConfig, req.Extractions, req.Variables, req.GetHTML, req.Cookies)
+	job := s.store.Create(jobURL, req.Instructions, req.UserAgent, req.TypeScriptConfig, req.Extractions, req.Variables, req.GetHTML, req.Cookies)
 
 	// Queue for processing
 	s.jobQueue <- job.ID

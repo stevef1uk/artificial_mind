@@ -133,9 +133,7 @@ agents:
         max_iterations: 15
         verbose: true
       triggers:
-        schedule:
-            - cron: '0 9,17 * * *'
-              action: "Check all watched products for price drops."
+        events: []
       behavior:
         thinking_mode: true
         max_retries: 3

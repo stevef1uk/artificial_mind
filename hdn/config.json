@@ -1,7 +1,7 @@
 {
   "llm_provider": "openai",
   "llm_api_key": "not-needed",
-  "mcp_endpoint": "mock://localhost:3000/mcp",
+  "mcp_endpoint": "http://localhost:8086",
   "settings": {
     "model": "qwen2.5-coder:7b",
     "temperature": "0.7",

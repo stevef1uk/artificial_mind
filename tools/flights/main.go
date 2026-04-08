@@ -67,11 +67,21 @@ func main() {
 
 func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args, _ := request.Params.Arguments.(map[string]interface{})
+	log.Printf("🛠️ Received tool arguments: %+v", args)
+	
+	// Safe argument extraction
+	getStr := func(key string) string {
+		if v, ok := args[key].(string); ok {
+			return v
+		}
+		return ""
+	}
+
 	opts := SearchOptions{
-		Departure:   args["departure"].(string),
-		Destination: args["destination"].(string),
-		StartDate:   args["start_date"].(string),
-		EndDate:     args["end_date"].(string),
+		Departure:   getStr("departure"),
+		Destination: getStr("destination"),
+		StartDate:   getStr("start_date"),
+		EndDate:     getStr("end_date"),
 		CabinClass:  "Economy",
 		Language:    globalOptions.Language,
 		Region:      globalOptions.Region,
@@ -79,7 +89,24 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		Headless:    globalOptions.Headless,
 		BrowserPath: globalOptions.BrowserPath,
 	}
-	if c, ok := args["cabin"].(string); ok && c != "" { opts.CabinClass = c }
+	if c := getStr("cabin"); c != "" {
+		opts.CabinClass = c
+	}
+
+	// Handle natural language 'query' if provided (HDN fallback)
+	if query := getStr("query"); query != "" && opts.Departure == "" {
+		log.Printf("🧠 Extracting parameters from query: %s", query)
+		extracted, err := ExtractOptionsFromQuery(query)
+		if err == nil {
+			opts.Departure = extracted.Departure
+			opts.Destination = extracted.Destination
+			opts.StartDate = extracted.StartDate
+			opts.EndDate = extracted.EndDate
+			if extracted.CabinClass != "" { opts.CabinClass = extracted.CabinClass }
+		} else {
+			log.Printf("⚠️ Query extraction failed: %v", err)
+		}
+	}
 
 	log.Printf("🔍 Searching for %s flights: %s -> %s (%s to %s)", opts.CabinClass, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
 
@@ -92,6 +119,10 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		return mcp.NewToolResultText("No flights found."), nil
 	}
 
+	// Generate structured JSON for the reasoning engine
+	jsonData, _ := json.Marshal(flights)
+	
+	// Also generate a nice text summary for the UI
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Found %d flight options:\n\n", len(flights)))
 	for i, f := range flights {
@@ -100,5 +131,10 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		sb.WriteString(fmt.Sprintf("    URL: %s\n\n", f.URL))
 	}
 
-	return mcp.NewToolResultText(sb.String()), nil
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.NewTextContent(sb.String()),
+			mcp.NewTextContent(fmt.Sprintf("DATA_JSON: %s", string(jsonData))),
+		},
+	}, nil
 }

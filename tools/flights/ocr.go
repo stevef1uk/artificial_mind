@@ -32,7 +32,7 @@ func ParseFlightText(text string) []FlightInfo {
 	var flights []FlightInfo
 
 	timeRegex := regexp.MustCompile(`(?i)(\d{1,2}:\d{2}\s*[AP]M)\s*[–—~-]\s*(\d{1,2}:\d{2}\s*[AP]M)`)
-	priceRegex := regexp.MustCompile(`€\s*([\d,\.]+)`)
+	priceRegex := regexp.MustCompile(`[€£]\s*([\d,\.]+)`)
 	durationRegex := regexp.MustCompile(`(\d+)\s*hr\s*(\d+)?\s*min`)
 	stopRegex := regexp.MustCompile(`(\d+)\s*stop|Nonstop`)
 
@@ -41,6 +41,7 @@ func ParseFlightText(text string) []FlightInfo {
 		"American", "Icelandair", "Lufthansa", "Turkish Airlines", "Emirates", "Qatar",
 		"Iberia", "Swiss", "Aer Lingus", "TAP", "Austrian", "SAS", "Finnair", "LOT", 
 		"Brussels Airlines", "ITA Airways", "JetBlue", "Norse", "Vueling", "Ryanair", "EasyJet", "easyJet",
+        "AirFrance", "BritishAirways", // Handle potential OCR concatenation
 	}
 
 	for i, line := range lines {
@@ -58,7 +59,9 @@ func ParseFlightText(text string) []FlightInfo {
 			for j := start; j < end; j++ {
 				l := lines[j]
 				if pm := priceRegex.FindStringSubmatch(l); len(pm) > 0 && flight.Price == "Unknown" {
-					flight.Price = "€" + strings.ReplaceAll(strings.ReplaceAll(pm[1], ",", ""), ".", "")
+                    symbol := "£"
+                    if strings.Contains(l, "€") { symbol = "€" }
+					flight.Price = symbol + strings.ReplaceAll(strings.ReplaceAll(pm[1], ",", ""), ".", "")
 				}
 				if dm := durationRegex.FindStringSubmatch(l); len(dm) > 0 && flight.Duration == "Unknown" {
 					flight.Duration = dm[0]
