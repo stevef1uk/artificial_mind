@@ -55,6 +55,8 @@ spec:
         env:
         - name: SCRAPER_URL
           value: "http://playwright-scraper.agi.svc.cluster.local:8085"
+        - name: OLLAMA_URL
+          value: "http://ollama.agi.svc.cluster.local:11434"
         - name: TZ
           value: "Europe/Paris"
         - name: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD

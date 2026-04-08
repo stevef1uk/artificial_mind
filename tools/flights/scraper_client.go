@@ -91,7 +91,7 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 			if b64, ok := job.Result["screenshot"].(string); ok && b64 != "" {
 				dataStr := strings.TrimPrefix(b64, "data:image/png;base64,")
 				imgData, _ := base64.StdEncoding.DecodeString(dataStr)
-				tmpPath := "/home/stevef/dev/artificial_mind/tools/flights/remote_flight_screenshot.png"
+				tmpPath := getScreenshotPath()
 				_ = os.WriteFile(tmpPath, imgData, 0644)
 				
 				flights, _ := ExtractFlightsFromImage(tmpPath)
@@ -232,7 +232,7 @@ JSON array:`, snippet)
 	jsonReq, _ := json.Marshal(ollamaReq)
 
 	client := &http.Client{}
-	req, _ := http.NewRequestWithContext(ctx, "POST", "http://localhost:11434/api/generate", bytes.NewBuffer(jsonReq))
+	req, _ := http.NewRequestWithContext(ctx, "POST", getOllamaURL()+"/api/generate", bytes.NewBuffer(jsonReq))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)

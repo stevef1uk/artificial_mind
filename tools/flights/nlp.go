@@ -41,7 +41,7 @@ ONLY return JSON.`, query, currentYear, currentYear)
 	jsonReq, _ := json.Marshal(ollamaReq)
 
 	client := &http.Client{}
-	req, _ := http.NewRequestWithContext(ctx, "POST", "http://localhost:11434/api/generate", bytes.NewBuffer(jsonReq))
+	req, _ := http.NewRequestWithContext(ctx, "POST", getOllamaURL()+"/api/generate", bytes.NewBuffer(jsonReq))
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
