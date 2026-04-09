@@ -108,6 +108,26 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		}
 	}
 
+	// HEURISTIC: Broaden search for multi-airport cities if specific major ones are used
+	// This helps find easyJet/Ryanair results from alternative airports (LTN, LGW, etc)
+	cityMappings := map[string]string{
+		"LHR": "LON", "LGW": "LON", "LTN": "LON", "STN": "LON", "LCY": "LON",
+		"CDG": "PAR", "ORY": "PAR", "BVA": "PAR",
+		"EWR": "NYC", "JFK": "NYC", "LGA": "NYC",
+	}
+	
+	origDep, origDest := opts.Departure, opts.Destination
+	if city, ok := cityMappings[strings.ToUpper(opts.Departure)]; ok {
+		opts.Departure = city
+	}
+	if city, ok := cityMappings[strings.ToUpper(opts.Destination)]; ok {
+		opts.Destination = city
+	}
+	
+	if opts.Departure != origDep || opts.Destination != origDest {
+		log.Printf("🏙️  Broadening search: %s -> %s to %s -> %s", origDep, origDest, opts.Departure, opts.Destination)
+	}
+
 	log.Printf("🔍 Searching for %s flights: %s -> %s (%s to %s)", opts.CabinClass, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
 
 	flights, err := SearchFlights(opts)

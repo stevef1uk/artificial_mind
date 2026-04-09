@@ -81,7 +81,19 @@ func ParseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
 
 		// Direct operation on current line
 		if strings.Contains(trimmed, "page.") {
-			op := ParseOperation(trimmed)
+			// CLEANUP: Remove common JS boilerplate around the command to help the parser
+			cmd := trimmed
+			if idx := strings.Index(cmd, "page."); idx > 0 {
+				cmd = cmd[idx:]
+			}
+			// Remove trailing characters like }; or ) {
+			cmd = strings.TrimRight(cmd, "{}(); ")
+			// Add one back if it was a property call but ParseOperation expects it
+			if strings.Contains(trimmed, "(") && !strings.HasSuffix(cmd, ")") {
+				cmd += ")"
+			}
+
+			op := ParseOperation(cmd)
 			if op.Type != "" {
 				operations = append(operations, op)
 			} else {

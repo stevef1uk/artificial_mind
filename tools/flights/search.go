@@ -59,13 +59,21 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		console.log("Waiting for results table...");
 		await page.waitForSelector("div[role='listitem'], li.pI9Vpc", { timeout: 30000 });
 		
-		// 3. Scroll to ensure all lazy elements load
-		console.log("Stage 3: Scrolling for lazy-loading...");
-		await page.evaluate(() => { window.scrollBy(0, 1000); });
-		await page.waitForTimeout(2000);
-		await page.evaluate(() => { window.scrollBy(0, 1000); });
-		await page.waitForTimeout(2000);
-		await page.evaluate(() => { window.scrollTo(0, 0); });
+		// 3. Scroll and Expand to ensure all results load
+		console.log("Stage 3: Deep scrolling and expanding results...");
+		await page.evaluate(async () => {
+			for (let i = 0; i < 5; i++) {
+				window.scrollBy(0, 1000);
+				await new Promise(r => setTimeout(r, 800));
+			}
+			// Attempt to click expansion buttons for 'Other flights'
+			const btn = document.querySelector("button:has-text('More flights'), button:has-text('Other departing flights'), [aria-label*='Show more']");
+			if (btn) btn.click();
+			
+			window.scrollBy(0, 2000);
+			await new Promise(r => setTimeout(r, 1000));
+			window.scrollTo(0, 0);
+		});
 		await page.waitForTimeout(2000);
 	`, rootURL, searchURL)
 
@@ -75,6 +83,7 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		"typescript_config": tsConfig,
 		"get_html":          true,
 		"screenshot_path":   screenshotPath,
+		"full_page":         true,
 	})
 
 	log.Printf("📥 Sending synchronous scrape request to %s...", scraperURL)
@@ -100,16 +109,36 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		log.Printf("📸 Scraper saved screenshot to shared path: %s", screenshotPath)
 	}
 
-	// Extract flights using OCR on the shared screenshot
-	flights, err := ExtractFlightsFromImage(screenshotPath)
+	// 1. Extract flights using OCR on the shared screenshot
+	ocrFlights, _ := ExtractFlightsFromImage(screenshotPath)
 	
-	// Fallback to HTML miner if OCR fails
-	if (err != nil || len(flights) == 0) {
-		if html, ok := result["html"].(string); ok && html != "" {
-			log.Printf("⚠️ OCR produced 0 results. Attempting SMART Miner fallback on HTML...")
-			flights, err = MinerExtractFlights(html)
+	// 2. Always attempt SMART Miner on HTML to ensure nothing was missed (like EasyJet)
+	var minerFlights []FlightInfo
+	if html, ok := result["cleaned_html"].(string); ok && html != "" {
+		if len(html) > 500 {
+			log.Printf("🤖 Running SMART Miner on HTML to complement OCR results...")
+			minerFlights, _ = MinerExtractFlights(html)
 		}
 	}
+	
+	// 3. Combine and de-duplicate
+	flightMap := make(map[string]FlightInfo)
+	for _, f := range ocrFlights {
+		key := fmt.Sprintf("%s-%s", f.Airline, f.DepartureTime)
+		flightMap[key] = f
+	}
+	for _, f := range minerFlights {
+		key := fmt.Sprintf("%s-%s", f.Airline, f.DepartureTime)
+		// Prefer Miner attributes if already present, as it's usually more accurate
+		flightMap[key] = f 
+	}
+
+	var flights []FlightInfo
+	for _, f := range flightMap {
+		flights = append(flights, f)
+	}
+
+	log.Printf("📊 Combined Results: %d (OCR: %d, Miner: %d)", len(flights), len(ocrFlights), len(minerFlights))
 
 	if err != nil {
 		return nil, err

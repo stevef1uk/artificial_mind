@@ -21,6 +21,7 @@ type GenericScrapeRequest struct {
 	TypeScriptConfig string            `json:"typescript_config,omitempty"` // Playwright script to run
 	Variables        map[string]string `json:"variables,omitempty"`         // Variables for the script
 	ScreenshotPath   string            `json:"screenshot_path,omitempty"`   // Save screenshot to this path
+	FullPage         bool              `json:"full_page,omitempty"`         // Take full page screenshot
 }
 
 // ScrapeResult represents the result of a scrape operation
@@ -153,7 +154,7 @@ func (gs *GenericScraper) Scrape(ctx context.Context, req GenericScrapeRequest) 
 
 	// Take screenshot
 	var screenshot []byte
-	screenshotOptions := pw.PageScreenshotOptions{}
+	screenshotOptions := pw.PageScreenshotOptions{FullPage: pw.Bool(req.FullPage)}
 	if req.ScreenshotPath != "" {
 		screenshotOptions.Path = pw.String(req.ScreenshotPath)
 		gs.logger.Printf("📸 Saving screenshot to: %s", req.ScreenshotPath)
