@@ -28,31 +28,37 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		await page.bypassConsent();
 		await page.waitForTimeout(3000); 
 
-		// 2. Now perform the actual search
+		// 2. Now perform the actual search using the /search path which is more robust
 		console.log("Stage 2: Performing flight search...");
-		const searchURL = "https://www.google.com/travel/flights?q=%s+flights+from+%s+to+%s+on+%s+return+%s&hl=%s&gl=%s&curr=%s";
+		// Use a more structured query and include explicit origin/destination params if possible
+		const query = "%s+to+%s+%s+to+%s";
+		const searchURL = "https://www.google.com/travel/flights/search?q=" + encodeURIComponent(query) + "&hl=%s&gl=%s&curr=%s";
+		console.log("Navigating to: " + searchURL);
 		await page.goto(searchURL);
 		
-		// Wait for the results selector - this is more reliable than a static sleep
+		// Wait for the results selector
 		console.log("Waiting for results table...");
+		const resultsSelector = "div[role='listitem'], li.pI9Vpc, .Tf99Ab";
 		try {
-			await page.waitForSelector("div[role='listitem'], li.pI9Vpc", { timeout: 45000 });
+			await page.waitForSelector(resultsSelector, { timeout: 35000 });
 			console.log("✅ Results table detected.");
 		} catch (e) {
-			console.log("⚠️ Results table not found within timeout, proceeding anyway.");
+			console.log("⚠️ Results table not found within timeout, trying one last scroll...");
+			await page.evaluate(() => { window.scrollBy(0, 1000); });
+			await page.waitForTimeout(5000);
 		}
 		
 		await page.waitForTimeout(5000); // Buffer for animations
 		
 		// 3. Scroll to ensure all lazy elements load
 		console.log("Stage 3: Scrolling for lazy-loading...");
-		for (let i = 0; i < 3; i++) {
+		for (let i = 0; i < 4; i++) {
 			await page.evaluate(() => { window.scrollBy(0, 800); });
-			await page.waitForTimeout(1000);
+			await page.waitForTimeout(1500);
 		}
 		await page.evaluate(() => { window.scrollTo(0, 0); });
-		await page.waitForTimeout(1000);
-	`, opts.Language, opts.Region, opts.Currency, opts.CabinClass, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate, opts.Language, opts.Region, opts.Currency)
+		await page.waitForTimeout(2000);
+	`, opts.Language, opts.Region, opts.Currency, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate, opts.Language, opts.Region, opts.Currency)
 
 	payload := map[string]interface{}{
 		"url":               fmt.Sprintf("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s", opts.Language, opts.Region, opts.Currency),
