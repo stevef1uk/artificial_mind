@@ -137,17 +137,19 @@ func MinerExtractFlights(data string) ([]FlightInfo, error) {
 			"Top departing options",
 			"Best departing flights",
 			"Other departing flights",
-			"British Airways",
-			"Air France",
 			"Price, stops, and airline",
+			"Select flight",
 		}
 		
 		pos := -1
 		for _, target := range resultsAnchors {
 			if idx := strings.Index(data, target); idx != -1 {
-				pos = idx
-				log.Printf("🎯 Found results anchor '%s' at position %d", target, pos)
-				break
+				// Avoid false positives at the very start of the doc (unlikely to be the table)
+				if idx > 1000 {
+					pos = idx
+					log.Printf("🎯 Found results anchor '%s' at position %d", target, pos)
+					break
+				}
 			}
 		}
 
@@ -189,25 +191,26 @@ func MinerExtractFlights(data string) ([]FlightInfo, error) {
 	}
 	log.Printf("📝 Snippet preview (first 200): %s", strings.ReplaceAll(preview, "\n", " "))
 
-	prompt := fmt.Sprintf(`Task: Extract ALL flight options from the Google Flights HTML/text below.
+	prompt := fmt.Sprintf(`Task: Extract ALL flight options from the Google Flights HTML/text below. 
 Return a JSON array of objects with these fields ONLY:
-- airline (string). IMPORTANT: This is the name of the carrier (e.g. "British Airways").
+- airline (string, e.g. "British Airways")
 - departure_time (string, e.g. "10:30 AM")
 - arrival_time (string, e.g. "1:45 PM")
 - duration (string, e.g. "1h 15m")
 - stops (string, e.g. "Nonstop")
-- price (string, e.g. "£45"). IMPORTANT: The field name MUST be 'price', not 'total_price' or 'cost'.
+- price (string, e.g. "£45")
 
-Rules:
-1. ONLY output the JSON array. No preamble or explanation.
-2. If no flights are found, return [].
-3. Ensure every object has all the fields listed above.
-4. Field names MUST BE lowercase snake_case (airline, price, departure_time, etc).
-5. price field MUST be a string (e.g. "£146").
-6. airline field MUST be present for every flight.
-7. Extract EVERY flight you can find in the data. There should be multiple options.
+🚨 CRITICAL RULES:
+1. ONLY return a JSON array of flights. 
+2. NEVER include FAQ questions, help text, or "People also ask" sections.
+3. If no actual flight prices/airlines are present, return [].
+4. An airline MUST BE a specific carrier name, not a general concept.
+5. NO preambles or chat. ONLY JSON.
 
-Data snippet:
+Example Valid Result:
+[{"airline": "Air France", "departure_time": "12:00 PM", "arrival_time": "1:15 PM", "duration": "1h 15m", "stops": "Nonstop", "price": "£84"}]
+
+Data snippet to process:
 ---
 %s
 ---
@@ -283,16 +286,43 @@ JSON array:`, snippet)
 
 	log.Printf("🚀 Miner found %d flights (pre-dedupe)", len(flights))
 
+	// Validation and Normalization: Ensure they actually look like flights and aren't FAQs or boilerplate
+	validFlights := []FlightInfo{}
+	for _, f := range flights {
+		// Clean airline name
+		f.Airline = strings.TrimSpace(f.Airline)
+		f.Price = strings.TrimSpace(f.Price)
+		
+		// CRITICAL: A flight MUST have an airline and a price to be valid
+		// This prevents the Miner from hallucinating FAQs as flights
+		if f.Airline == "" || f.Price == "" || strings.EqualFold(f.Airline, "unknown") || strings.EqualFold(f.Price, "unknown") {
+			continue
+		}
+		
+		// Filter out obviously non-flight content (e.g., FAQ answers the LLM might have grabbed)
+		if len(f.Airline) > 50 || len(f.Price) > 20 {
+			continue
+		}
+
+		validFlights = append(validFlights, f)
+	}
+
 	// De-duplicate identical flights (fixes LLM seeing same flight twice in different sections)
 	uniqueFlights := []FlightInfo{}
 	seen := make(map[string]bool)
-	for _, f := range flights {
+	for _, f := range validFlights {
 		key := fmt.Sprintf("%s-%s-%s-%s", f.Airline, f.DepartureTime, f.ArrivalTime, f.Price)
 		if !seen[key] {
 			seen[key] = true
 			uniqueFlights = append(uniqueFlights, f)
 		}
 	}
-	log.Printf("🚀 Miner produced %d unique flights", len(uniqueFlights))
+	
+	if len(uniqueFlights) == 0 && len(flights) > 0 {
+		log.Printf("⚠️ All %d extracted items failed validation (hallucinated FAQs?). Returning 0.", len(flights))
+	} else {
+		log.Printf("🚀 Miner produced %d unique valid flights", len(uniqueFlights))
+	}
+	
 	return uniqueFlights, nil
 }
