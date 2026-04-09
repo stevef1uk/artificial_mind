@@ -28,22 +28,35 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		await page.bypassConsent();
 		await page.waitForTimeout(3000); 
 
-		// 2. Now perform the actual search using the /search path which is more robust
-		console.log("Stage 2: Performing flight search...");
-		// Use a more structured query and include explicit origin/destination params if possible
-		const query = "%s+to+%s+%s+to+%s";
-		const searchURL = "https://www.google.com/travel/flights/search?q=" + encodeURIComponent(query) + "&hl=%s&gl=%s&curr=%s";
+		// 2. Perform the search
+		console.log("Stage 2: Performing search...");
+		// Using the most stable query format: 'flights from [CODE] to [CODE] on [DATE] return [DATE]'
+		const query = "flights from %s to %s on %s return %s";
+		const searchURL = "https://www.google.com/travel/flights?q=" + encodeURIComponent(query) + "&hl=%s&gl=%s&curr=%s";
 		console.log("Navigating to: " + searchURL);
 		await page.goto(searchURL);
 		
+		// Detect if we landed on the Google Search home page instead of Flights
+		if (page.url().includes("google.com/search")) {
+			console.log("⚠️ Redirected to Google Search. Attempting to click 'View flights' or 'Flights' tab...");
+			try {
+				const viewFlights = page.locator("text='View flights', text='Show flights', text='Flights'").first();
+				if (await viewFlights.isVisible()) {
+					await viewFlights.click();
+					await page.waitForTimeout(5000);
+				}
+			} catch(e) { console.log("Failed to find redirect button."); }
+		}
+
 		// Wait for the results selector
 		console.log("Waiting for results table...");
-		const resultsSelector = "div[role='listitem'], li.pI9Vpc, .Tf99Ab";
+		const resultsSelector = "div[role='listitem'], li.pI9Vpc, .Tf99Ab, [data-result-id]";
 		try {
-			await page.waitForSelector(resultsSelector, { timeout: 35000 });
+			await page.waitForSelector(resultsSelector, { timeout: 40000 });
 			console.log("✅ Results table detected.");
 		} catch (e) {
-			console.log("⚠️ Results table not found within timeout, trying one last scroll...");
+			console.log("⚠️ Results table not found. Attempting a final scroll and bypass check.");
+			await page.bypassConsent();
 			await page.evaluate(() => { window.scrollBy(0, 1000); });
 			await page.waitForTimeout(5000);
 		}
