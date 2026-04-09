@@ -146,7 +146,7 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Found %d flight options:\n\n", len(flights)))
 	for i, f := range flights {
-		sb.WriteString(fmt.Sprintf("[%d] %s: %s (%s, %s)\n", i+1, f.Airline, f.Price, f.Duration, f.Stops))
+		sb.WriteString(fmt.Sprintf("[%d] %s: %s (%s to %s, %s, %s)\n", i+1, f.Airline, f.Price, f.DepartureAirport, f.ArrivalAirport, f.Duration, f.Stops))
 		sb.WriteString(fmt.Sprintf("    Times: %s - %s\n", f.DepartureTime, f.ArrivalTime))
 		sb.WriteString(fmt.Sprintf("    URL: %s\n\n", f.URL))
 	}

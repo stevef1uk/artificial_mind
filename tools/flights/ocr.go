@@ -37,6 +37,7 @@ func ParseFlightText(text string) []FlightInfo {
 	priceRegex := regexp.MustCompile(`([€£\$])\s*([\d,\.]+)`)
 	durationRegex := regexp.MustCompile(`(\d+)\s*hr\s*(\d+)?\s*min`)
 	stopRegex := regexp.MustCompile(`(\d+)\s*stop|Nonstop`)
+	routeRegex := regexp.MustCompile(`\b([A-Z]{3})\s*[^A-Z0-9]?\s*([A-Z]{3})\b`)
 
 	airlines := []string{
 		"Virgin Atlantic", "British Airways", "Air France", "Delta", "KLM", "United", 
@@ -52,6 +53,7 @@ func ParseFlightText(text string) []FlightInfo {
 			flight := FlightInfo{
 				DepartureTime: timeMatch[1], ArrivalTime: timeMatch[2],
 				Airline: "Unknown", Price: "Unknown", Duration: "Unknown", Stops: "Unknown",
+				DepartureAirport: "Unknown", ArrivalAirport: "Unknown",
 			}
 
 			// Wider search window (15 lines) to catch labels that might be separated by ads or styling
@@ -70,6 +72,10 @@ func ParseFlightText(text string) []FlightInfo {
 				}
 				if sm := stopRegex.FindStringSubmatch(l); len(sm) > 0 && flight.Stops == "Unknown" {
 					flight.Stops = sm[0]
+				}
+				if rm := routeRegex.FindStringSubmatch(l); len(rm) > 0 && flight.DepartureAirport == "Unknown" {
+					flight.DepartureAirport = rm[1]
+					flight.ArrivalAirport = rm[2]
 				}
 				if flight.Airline == "Unknown" {
 					for _, a := range airlines {

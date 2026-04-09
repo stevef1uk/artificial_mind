@@ -1,14 +1,16 @@
 package main
 
 type FlightInfo struct {
-	Price         string `json:"price"`
-	Airline       string `json:"airline"`
-	Duration      string `json:"duration"`
-	Stops         string `json:"stops"`
-	DepartureTime string `json:"departure_time"`
-	ArrivalTime   string `json:"arrival_time"`
-	URL           string `json:"url"`
-	CabinClass    string `json:"cabin_class"`
+	Price            string `json:"price"`
+	Airline          string `json:"airline"`
+	Duration         string `json:"duration"`
+	Stops            string `json:"stops"`
+	DepartureTime    string `json:"departure_time"`
+	ArrivalTime      string `json:"arrival_time"`
+	DepartureAirport string `json:"departure_airport"`
+	ArrivalAirport   string `json:"arrival_airport"`
+	URL              string `json:"url"`
+	CabinClass       string `json:"cabin_class"`
 }
 
 type SearchOptions struct {

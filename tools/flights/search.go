@@ -47,14 +47,10 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 
 		// 2. Perform the search - use the MOST stable entry point
 		console.log("Stage 2: Performing search via direct URL...");
-		await page.goto("%s");
-		await page.waitForTimeout(5000);
+		await page.goto("%s&sort=price_asc");
+		await page.waitForTimeout(3000);
+		await page.bypassConsent(); // Redundant check in case search triggers it
 		
-		// RECOVERY: If we are on a generic search page or home page, move to interaction
-		// Note: page.url() and if blocks are NOT supported by the simplified engine parser,
-		// but they are ignored (as warnings) so we keep them for documentation in the source.
-		// The engine just ignores non-matching lines.
-
 		// Final check for results
 		console.log("Waiting for results table...");
 		await page.waitForSelector("div[role='listitem'], li.pI9Vpc", { timeout: 30000 });
@@ -241,15 +237,39 @@ func MinerExtractFlights(data string) ([]FlightInfo, error) {
 		}
 	}
 
-	prompt := fmt.Sprintf(`Task: Extract ALL flight options from the Google Flights HTML/text below. 
-Return a JSON array of objects with these fields ONLY:
-- airline, departure_time, arrival_time, duration, stops, price
+	prompt := fmt.Sprintf(`### IMPORTANT: You MUST return a VALID JSON ARRAY of FLAT OBJECTS.
+### DO NOT use nested objects.
+### FIELDS: airline, departure_time, arrival_time, duration, stops, price, departure_airport, arrival_airport
 
-Data snippet to process:
+Return a JSON array of objects with these fields ONLY:
+- airline (string)
+- departure_time (string)
+- arrival_time (string)
+- duration (string)
+- stops (string)
+- price (string)
+- departure_airport (string)
+- arrival_airport (string)
+
+REQUIRED FORMAT EXAMPLE:
+[
+  {
+    "airline": "EasyJet",
+    "departure_time": "06:05 AM",
+    "arrival_time": "08:30 AM",
+    "duration": "1h 25m",
+    "stops": "Nonstop",
+    "price": "£76",
+    "departure_airport": "LTN",
+    "arrival_airport": "CDG"
+  }
+]
+
+Data snippet:
 ---
 %s
 ---
-JSON array:`, snippet)
+Final JSON array:`, snippet)
 
 	model := os.Getenv("LLM_MODEL")
 	if model == "" { model = "qwen2.5-coder:7b" }
@@ -292,9 +312,51 @@ JSON array:`, snippet)
 		cleanResp = cleanResp[:idx+1]
 	}
 
+	log.Printf("🤖 LLM Miner cleaned JSON: %s", cleanResp)
+	
+	var rawFlights []interface{}
+	if err := json.Unmarshal([]byte(cleanResp), &rawFlights); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal raw flights: %v (JSON: %s)", err, cleanResp)
+	}
+
 	var flights []FlightInfo
-	if err := json.Unmarshal([]byte(cleanResp), &flights); err != nil {
-		return nil, err
+	for _, item := range rawFlights {
+		m, ok := item.(map[string]interface{})
+		if !ok { continue }
+
+		f := FlightInfo{}
+		
+		// Recursive helper to find a key in nested maps
+		var findVal func(obj interface{}, key string) string
+		findVal = func(obj interface{}, key string) string {
+			m, ok := obj.(map[string]interface{})
+			if !ok { return "" }
+			if v, ok := m[key]; ok {
+				return fmt.Sprintf("%v", v)
+			}
+			for _, v := range m {
+				if child, ok := v.(map[string]interface{}); ok {
+					if found := findVal(child, key); found != "" {
+						return found
+					}
+				}
+			}
+			return ""
+		}
+
+		f.Airline = findVal(m, "airline")
+		f.Price = findVal(m, "price")
+		if f.Price == "" { f.Price = findVal(m, "amount") }
+		f.DepartureTime = findVal(m, "departure_time")
+		f.ArrivalTime = findVal(m, "arrival_time")
+		f.Duration = findVal(m, "duration")
+		f.Stops = findVal(m, "stops")
+		f.DepartureAirport = findVal(m, "departure_airport")
+		f.ArrivalAirport = findVal(m, "arrival_airport")
+
+		if f.Price != "" && f.Airline != "" {
+			flights = append(flights, f)
+		}
 	}
 
 	return flights, nil
