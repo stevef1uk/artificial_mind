@@ -22,6 +22,7 @@ type GenericScrapeRequest struct {
 	GetHTML          bool              `json:"get_html,omitempty"`          // Return raw HTML
 	TypeScriptConfig string            `json:"typescript_config,omitempty"` // Playwright script to run
 	Variables        map[string]string `json:"variables,omitempty"`         // Variables for the script
+	ScreenshotPath   string            `json:"screenshot_path,omitempty"`   // Save screenshot to this path
 }
 
 // ScrapeResult represents the result of a scrape operation
@@ -111,13 +112,35 @@ func (gs *GenericScraper) Scrape(ctx context.Context, req GenericScrapeRequest) 
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	// Get title
+	// Execute TypeScript configuration if provided
+	if req.TypeScriptConfig != "" {
+		gs.logger.Printf("🚀 Executing TypeScript script...")
+		// Interpolate variables into script
+		script := ApplyTemplateVariables(req.TypeScriptConfig, req.Variables)
+		
+		// Parse operations
+		ops, err := ParseTypeScriptConfig(script)
+		if err != nil {
+			gs.logger.Errorf("Failed to parse script: %v", err)
+			result.Status = "error"
+			result.Error = fmt.Sprintf("script parsing failed: %v", err)
+			return result, err
+		}
+
+		// Execute operations on the current page
+		if err := ExecuteEngine(page, ops, gs.logger); err != nil {
+			gs.logger.Errorf("Script execution failed: %v", err)
+			// Non-fatal if some operations fail, but log it
+		}
+	}
+
+	// 1. Get title
 	title, err := page.Title()
 	if err == nil {
 		result.Title = title
 	}
 
-	// Execute extractions
+	// 2. Execute extractions
 	result.Data = make(map[string]interface{})
 
 	// If instructions provided, use smart extraction
@@ -150,7 +173,14 @@ func (gs *GenericScraper) Scrape(ctx context.Context, req GenericScrapeRequest) 
 	}
 
 	// Take screenshot
-	screenshot, err := page.Screenshot(pw.PageScreenshotOptions{})
+	var screenshot []byte
+	screenshotOptions := pw.PageScreenshotOptions{}
+	if req.ScreenshotPath != "" {
+		screenshotOptions.Path = pw.String(req.ScreenshotPath)
+		gs.logger.Printf("📸 Saving screenshot to: %s", req.ScreenshotPath)
+	}
+
+	screenshot, err = page.Screenshot(screenshotOptions)
 	if err == nil && screenshot != nil {
 		result.ScreenshotB64 = "data:image/png;base64," + base64.StdEncoding.EncodeToString(screenshot)
 	}

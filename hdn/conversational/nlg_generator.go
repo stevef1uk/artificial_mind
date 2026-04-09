@@ -506,7 +506,8 @@ func (nlg *NLGGenerator) buildTaskPrompt(req *NLGRequest) string {
 	sb.WriteString("2. DO NOT include any labels like \"Goal:\", \"Task:\", \"Result:\", or \"Reasoning:\".\n")
 	sb.WriteString("3. DO NOT include confidence scores or metadata.\n")
 	sb.WriteString("4. DO NOT volunteer information about your knowledge gaps or mention what you 'couldn't find' unless it is absolutely necessary for the answer.\n")
-	sb.WriteString("5. Just tell the user what you did and show them the results. Be concise.\n\n")
+	sb.WriteString("5. Just tell the user what you did and show them the results. Be concise.\n")
+	sb.WriteString("6. 🚨 CRITICAL: ALWAYS prioritize current \"Task Results\" over any historical information in \"Information from Memory/Bio\". Current results are the single source of truth. NEVER use old or cached data from memory to fill in gaps if the current search returns nothing.\n\n")
 
 	sb.WriteString("Please provide a helpful, direct summary of the task results.")
 
@@ -1275,7 +1276,9 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 	isWeatherQuery := strings.Contains(lowerMsg, "weather") || strings.Contains(lowerMsg, "forecast") ||
 		strings.Contains(lowerMsg, "temp") || strings.Contains(lowerMsg, "temperature") ||
 		strings.Contains(lowerMsg, "rain") || strings.Contains(lowerMsg, "snow") ||
-		strings.Contains(lowerMsg, "sunny")
+		strings.Contains(lowerMsg, "sunny") || strings.Contains(lowerMsg, "flight") ||
+		strings.Contains(lowerMsg, "airline") || strings.Contains(lowerMsg, "fly") ||
+		strings.Contains(lowerMsg, "ticket")
 
 	if summariesValue, ok := req.Context["conversation_summaries"]; ok && !isWeatherQuery {
 		var summaries []string
