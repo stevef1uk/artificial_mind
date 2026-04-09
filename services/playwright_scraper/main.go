@@ -372,9 +372,13 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 		result["screenshot"] = "data:image/png;base64," + base64.StdEncoding.EncodeToString(screenshot)
 	}
 
-	if getHTML {
-		html, _ := page.Content()
+	// Capture title and cleaned HTML for regression tests
+	title, _ := page.Title()
+	result["title"] = title
+
+	if html, err := page.Content(); err == nil {
 		result["html"] = html
+		result["cleaned_html"] = scraper_pkg.CleanHTML(html)
 	}
 
 	return result, nil

@@ -46,6 +46,7 @@ type WorkflowResult struct {
 	Error         string                 `json:"error,omitempty"`
 	ExecutionTime int                    `json:"execution_time_ms"`
 	HTML          string                 `json:"html,omitempty"`
+	CleanedHTML   string                 `json:"cleaned_html,omitempty"`
 	URL           string                 `json:"final_url"`
 }
 
@@ -137,6 +138,12 @@ func (we *WorkflowExecutor) Execute(ctx context.Context, workflow *WorkflowDefin
 			value := we.extract(content, &rule)
 			result.Results[key] = value
 		}
+	}
+
+	// Extract HTML
+	if html, err := page.Content(); err == nil {
+		result.HTML = html
+		result.CleanedHTML = CleanHTML(html)
 	}
 
 	result.Status = "success"

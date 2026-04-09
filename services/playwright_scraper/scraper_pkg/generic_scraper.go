@@ -32,6 +32,7 @@ type ScrapeResult struct {
 	Title         string                 `json:"title"`
 	Data          map[string]interface{} `json:"data"`
 	HTML          string                 `json:"html,omitempty"`
+	CleanedHTML   string                 `json:"cleaned_html,omitempty"`
 	ExtractedAt   string                 `json:"extracted_at"`
 	ExecutionMs   int                    `json:"execution_time_ms"`
 	Error         string                 `json:"error,omitempty"`
@@ -169,6 +170,7 @@ func (gs *GenericScraper) Scrape(ctx context.Context, req GenericScrapeRequest) 
 		html, err := page.Content()
 		if err == nil {
 			result.HTML = html
+			result.CleanedHTML = CleanHTML(html)
 		}
 	}
 
@@ -404,4 +406,33 @@ func (gs *GenericScraper) extractBySelector(ctx context.Context, page pw.Page, s
 	}
 
 	return nil, fmt.Errorf("no match found for pattern")
+}
+
+// CleanHTML removes scripts, styles, and other non-content elements to make HTML LLM-friendly
+func CleanHTML(html string) string {
+	if html == "" {
+		return ""
+	}
+
+	// Remove scripts
+	reScripts := regexp.MustCompile(`(?i)<script[\s\S]*?</script>`)
+	cleaned := reScripts.ReplaceAllString(html, "")
+
+	// Remove styles
+	reStyles := regexp.MustCompile(`(?i)<style[\s\S]*?</style>`)
+	cleaned = reStyles.ReplaceAllString(cleaned, "")
+
+	// Remove comments
+	reComments := regexp.MustCompile(`<!--[\s\S]*?-->`)
+	cleaned = reComments.ReplaceAllString(cleaned, "")
+
+	// Remove SVG elements
+	reSVG := regexp.MustCompile(`(?i)<svg[\s\S]*?</svg>`)
+	cleaned = reSVG.ReplaceAllString(cleaned, "")
+
+	// Remove multiple newlines
+	reNewlines := regexp.MustCompile(`\n\s*\n`)
+	cleaned = reNewlines.ReplaceAllString(cleaned, "\n")
+
+	return strings.TrimSpace(cleaned)
 }
