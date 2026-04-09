@@ -17,27 +17,38 @@ const VERSION = "57"
 
 func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightInfo, error) {
 	tsConfig := fmt.Sprintf(`
-		await page.setViewportSize({ width: 1920, height: 2000 });
+		await page.setViewportSize({ width: 1920, height: 2500 });
 		await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
 		
 		// 1. Initial load to clear consent
 		console.log("Stage 1: Clearing consent...");
 		await page.goto("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s");
-		await page.waitForLoadState("networkidle");
+		try { await page.waitForLoadState("networkidle", { timeout: 10000 }); } catch(e) {}
 		await page.bypassConsent();
 		await page.waitForTimeout(3000); 
 
-		// 2. Now perform the actual search with cookies set
+		// 2. Now perform the actual search
 		console.log("Stage 2: Performing flight search...");
-		await page.goto("https://www.google.com/travel/flights?q=%s+flights+from+%s+to+%s+on+%s+return+%s&hl=%s&gl=%s&curr=%s");
-		await page.waitForLoadState("networkidle");
-		await page.bypassConsent(); // Try again in case navigation triggered another banner
+		const searchURL = "https://www.google.com/travel/flights?q=%s+flights+from+%s+to+%s+on+%s+return+%s&hl=%s&gl=%s&curr=%s";
+		await page.goto(searchURL);
 		
-		// 3. Long wait for results to populate and scroll to trigger lazy loading
-		await page.waitForTimeout(20000); 
-		console.log("Stage 3: Scrolling to bottom...");
-		await page.evaluate(() => { window.scrollTo(0, document.body.scrollHeight); });
-		await page.waitForTimeout(2000);
+		// Wait for the results selector - this is more reliable than a static sleep
+		console.log("Waiting for results table...");
+		try {
+			await page.waitForSelector("div[role='listitem'], li.pI9Vpc", { timeout: 45000 });
+			console.log("✅ Results table detected.");
+		} catch (e) {
+			console.log("⚠️ Results table not found within timeout, proceeding anyway.");
+		}
+		
+		await page.waitForTimeout(5000); // Buffer for animations
+		
+		// 3. Scroll to ensure all lazy elements load
+		console.log("Stage 3: Scrolling for lazy-loading...");
+		for (let i = 0; i < 3; i++) {
+			await page.evaluate(() => { window.scrollBy(0, 800); });
+			await page.waitForTimeout(1000);
+		}
 		await page.evaluate(() => { window.scrollTo(0, 0); });
 		await page.waitForTimeout(1000);
 	`, opts.Language, opts.Region, opts.Currency, opts.CabinClass, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate, opts.Language, opts.Region, opts.Currency)
