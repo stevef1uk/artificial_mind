@@ -765,6 +765,37 @@ func (nlg *NLGGenerator) formatToolResultRecursive(result interface{}, depth int
 		writeSafe(string(v))
 
 	case map[string]interface{}:
+		// PRIORITIZATION: Handle special fields first for better LLM ingestion
+		// Check for DATA_JSON at the top level
+		if dj, exists := v["DATA_JSON"]; exists {
+			if s, ok := dj.(string); ok && s != "" {
+				writeSafe("\n--- BEGIN STRUCTURED DATA ---\n")
+				writeSafe(s)
+				writeSafe("\n--- END STRUCTURED DATA ---\n")
+			}
+		}
+
+		// Handle MCP results with a 'content' slice specifically to highlight structured data
+		if content, exists := v["content"]; exists {
+			if items, ok := content.([]interface{}); ok {
+				writeSafe("\n[MCP Output]:\n")
+				for _, item := range items {
+					if imap, ok := item.(map[string]interface{}); ok {
+						if text, ok := imap["text"].(string); ok {
+							if strings.HasPrefix(text, "DATA_JSON: ") {
+								writeSafe("\n--- BEGIN STRUCTURED DATA ---\n")
+								writeSafe(strings.TrimPrefix(text, "DATA_JSON: "))
+								writeSafe("\n--- END STRUCTURED DATA ---\n")
+							} else {
+								writeSafe(text + "\n")
+							}
+						}
+					}
+				}
+				return // Handled the entire result
+			}
+		}
+
 		// 1. Try to find "main" content keys - check nested "result" first
 		if inner, ok := v["result"].(map[string]interface{}); ok {
 			nlg.formatToolResultRecursive(inner, depth+1, sb, budget)
@@ -773,6 +804,10 @@ func (nlg *NLGGenerator) formatToolResultRecursive(result interface{}, depth int
 
 		contentKeys := []string{"extracted_content", "headlines", "results", "items", "content", "summary", "text", "message"}
 		for _, k := range contentKeys {
+			// Skip 'content' as we handled it above
+			if k == "content" {
+				continue
+			}
 			if val, exists := v[k]; exists && val != nil {
 				nlg.formatToolResultRecursive(val, depth+1, sb, budget)
 				return
@@ -798,35 +833,6 @@ func (nlg *NLGGenerator) formatToolResultRecursive(result interface{}, depth int
 		// 3. Fallback: format as key-value pairs
 		writeSafe("{")
 		keysWritten := 0
-
-		// PRIORITIZATION: Handle special fields first for better LLM ingestion
-		if dj, exists := v["DATA_JSON"]; exists {
-			if s, ok := dj.(string); ok && s != "" {
-				writeSafe("\n--- BEGIN STRUCTURED DATA ---\n")
-				writeSafe(s)
-				writeSafe("\n--- END STRUCTURED DATA ---\n")
-			}
-		}
-
-		if content, exists := v["content"]; exists {
-			if items, ok := content.([]interface{}); ok {
-				writeSafe("\n[MCP Output]:\n")
-				for _, item := range items {
-					if imap, ok := item.(map[string]interface{}); ok {
-						if text, ok := imap["text"].(string); ok {
-							if strings.HasPrefix(text, "DATA_JSON: ") {
-								writeSafe("\n--- BEGIN STRUCTURED DATA ---\n")
-								writeSafe(strings.TrimPrefix(text, "DATA_JSON: "))
-								writeSafe("\n--- END STRUCTURED DATA ---\n")
-							} else {
-								writeSafe(text + "\n")
-							}
-						}
-					}
-				}
-			}
-		}
-
 		for mk, mv := range v {
 			if keysWritten >= 10 {
 				writeSafe(", ... [OTHER KEYS TRUNCATED]")
