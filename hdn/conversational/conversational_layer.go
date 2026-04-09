@@ -70,10 +70,10 @@ func (cl *ConversationalLayer) stripInterpretResultForContext(ir *InterpretResul
 
 				if len(rawResults) > 0 {
 					out["count"] = len(rawResults)
-					// Keep up to 5 items to allow current request to function
+					// Keep up to 10 items to allow current request to function
 					limit := len(rawResults)
-					if limit > 5 {
-						limit = 5
+					if limit > 10 {
+						limit = 10
 					}
 					summaryResults := make([]interface{}, 0, limit)
 					for i := 0; i < limit; i++ {

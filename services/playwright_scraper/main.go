@@ -370,7 +370,11 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 	}
 	screenshot, err = page.Screenshot(screenshotOptions)
 	if err == nil && screenshot != nil {
-		result["screenshot"] = "data:image/png;base64," + base64.StdEncoding.EncodeToString(screenshot)
+		if screenshotPath == "" {
+			result["screenshot"] = "data:image/png;base64," + base64.StdEncoding.EncodeToString(screenshot)
+		} else {
+			log.Printf("✅ Screenshot saved to %s; skipping base64 encoding", screenshotPath)
+		}
 	}
 
 	// Capture title and cleaned HTML for regression tests

@@ -110,27 +110,57 @@ func formatToolResultInternal(result interface{}, depth int) string {
 
 	// Handle maps (dictionaries)
 	if m, ok := result.(map[string]interface{}); ok {
-		// 1. Try to find "main" content keys - check nested "result" first
+		// 1. Handle MCP results with a 'content' slice specifically to highlight structured data
+		if content, exists := m["content"]; exists {
+			if items, ok := content.([]interface{}); ok {
+				var sb strings.Builder
+				for _, item := range items {
+					if imap, ok := item.(map[string]interface{}); ok {
+						if text, ok := imap["text"].(string); ok {
+							if strings.HasPrefix(text, "DATA_JSON: ") {
+								if sb.Len() > 0 && !strings.HasSuffix(sb.String(), "\n") {
+									sb.WriteString("\n")
+								}
+								sb.WriteString("--- BEGIN STRUCTURED DATA ---\n")
+								sb.WriteString(strings.TrimPrefix(text, "DATA_JSON: "))
+								sb.WriteString("\n--- END STRUCTURED DATA ---\n")
+							} else {
+								if sb.Len() > 0 && !strings.HasSuffix(sb.String(), "\n") {
+									sb.WriteString("\n")
+								}
+								sb.WriteString(text)
+							}
+						}
+					}
+				}
+				if sb.Len() > 0 {
+					return sb.String()
+				}
+			}
+		}
+
+		// 2. Try to find "main" content keys - check nested "result" first
 		if inner, ok := m["result"].(map[string]interface{}); ok {
 			return formatToolResultInternal(inner, depth+1)
 		}
 
 		contentKeys := []string{"extracted_content", "headlines", "results", "items", "content", "summary", "text", "message"}
 		for _, k := range contentKeys {
+			if k == "content" { continue } // Handled above
 			if val, exists := m[k]; exists && val != nil {
 				// Don't recurse if the value is the same type and has same keys (prevent trivial cycles)
 				return formatToolResultInternal(val, depth+1)
 			}
 		}
 
-		// 2. If it's a simple map with one key, use its value
+		// 3. If it's a simple map with one key, use its value
 		if len(m) == 1 {
 			for _, v := range m {
 				return formatToolResultInternal(v, depth+1)
 			}
 		}
 
-		// 3. Fallback: format as key-value pairs
+		// 4. Fallback: format as key-value pairs
 		var lines []string
 		for k, v := range m {
 			// Skip technical/large fields
@@ -1055,19 +1085,19 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 				// Strip large fields before they enter metadata
 				resultMap = stripLargeFields(resultMap)
 
-				// If it has a "results" key, use it directly, but limit to top 5 items for safety
+				// If it has a "results" key, use it directly, but limit to top 10 items for safety
 				if results, ok := resultMap["results"].([]interface{}); ok {
-					if len(results) > 5 {
-						log.Printf("✂️ [API] Truncating tool results from %d to 5 items", len(results))
-						toolResult["results"] = results[:5]
+					if len(results) > 10 {
+						log.Printf("✂️ [API] Truncating tool results from %d to 10 items", len(results))
+						toolResult["results"] = results[:10]
 					} else {
 						toolResult["results"] = results
 					}
 				} else if results, ok := resultMap["results"].([]map[string]interface{}); ok {
 					// Handle typed slice
-					if len(results) > 5 {
-						log.Printf("✂️ [API] Truncating tool results from %d to 5 items", len(results))
-						toolResult["results"] = results[:5]
+					if len(results) > 10 {
+						log.Printf("✂️ [API] Truncating tool results from %d to 10 items", len(results))
+						toolResult["results"] = results[:10]
 					} else {
 						toolResult["results"] = results
 					}
@@ -1085,9 +1115,9 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 				}
 			} else if resultSlice, ok := result.ToolExecutionResult.Result.([]interface{}); ok {
 				// If result is already a slice, truncate if too large
-				if len(resultSlice) > 5 {
-					log.Printf("✂️ [API] Truncating tool result slice from %d to 5 items", len(resultSlice))
-					resultSlice = resultSlice[:5]
+				if len(resultSlice) > 10 {
+					log.Printf("✂️ [API] Truncating tool result slice from %d to 10 items", len(resultSlice))
+					resultSlice = resultSlice[:10]
 				}
 
 				// If result is already a slice, strip from each item

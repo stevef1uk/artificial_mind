@@ -161,7 +161,12 @@ func (gs *GenericScraper) Scrape(ctx context.Context, req GenericScrapeRequest) 
 
 	screenshot, err = page.Screenshot(screenshotOptions)
 	if err == nil && screenshot != nil {
-		result.ScreenshotB64 = "data:image/png;base64," + base64.StdEncoding.EncodeToString(screenshot)
+		// Only return base64 if NO screenshot path was provided (reduce overhead)
+		if req.ScreenshotPath == "" {
+			result.ScreenshotB64 = "data:image/png;base64," + base64.StdEncoding.EncodeToString(screenshot)
+		} else {
+			gs.logger.Printf("✅ Screenshot saved to path; skipping base64 encoding as requested.")
+		}
 	}
 
 	gs.logger.Printf("✅ Scrape completed: %d extractions", len(result.Data))

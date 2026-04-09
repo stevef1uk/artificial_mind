@@ -10,7 +10,7 @@ echo "📂 Working directory: $(pwd)"
 # Cleanup previous runs
 # Cleanup previous runs and force image rebuild
 docker-compose -f docker-compose.test.yml down -v --remove-orphans || true
-docker rmi regression-hdn regression-fsm regression-test-runner regression-scraper 2>/dev/null || true
+docker rmi regression-hdn regression-fsm regression-test-runner regression-scraper regression-mock-llm 2>/dev/null || true
 
 # Run tests
 echo "🔨 Building and Running Tests..."

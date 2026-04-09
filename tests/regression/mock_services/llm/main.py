@@ -6,10 +6,35 @@ app = Flask(__name__)
 
 def get_smart_response(msg):
     lower_msg = msg.lower()
-    if "json array of tool calls" in lower_msg or "scraper_agent" in lower_msg:
-        return """[{"tool_id": "smart_scrape", "params": {"url": "https://example.com", "goal": "Find rates"}}]"""
     
-    if "scraper" in lower_msg or "scraping" in lower_msg:
+    # 1. SPECIFIC SUCCESS CASES (Highest Priority)
+    # This must come first to avoid being caught by generic keyword matches below
+    if ("example" in lower_msg and "domain" in lower_msg) and ("title" in lower_msg or "find" in lower_msg) and "html content" in lower_msg:
+        return "Example Domain"
+        
+    # 2. HYPOTHESIS GENERATION / AGENT PLANNING
+    # Prompts that ask for 1 to 3 experiment ideas
+    if "generate 1 to 3" in lower_msg or "experiment ideas" in lower_msg or "json array of tool calls" in lower_msg or "scraper_agent" in lower_msg:
+        return """[
+  {
+    "description": "If we scrape the example.com domain, we will find the title is Example Domain.",
+    "confidence": 0.9
+  }
+]"""
+    
+    # 3. CODE GENERATION
+    # Only trigger if specifically asked for code or calculations, not just mentioning "code blocks" in instructions
+    if ("write" in lower_msg or "generate" in lower_msg) and ("python" in lower_msg or "code" in lower_msg or "calculate" in lower_msg):
+        return """Here is the Python code:
+```python
+print('Hello from Mock LLM Code Gen')
+x = 10 + 20
+print(f'Result: {x}')
+```"""
+    
+    # 4. SCRAPER CONFIGURATION PLANNING
+    # Only if asked to plan or configure a scraper
+    if ("plan" in lower_msg or "configure" in lower_msg) and ("scraper" in lower_msg or "scraping" in lower_msg):
         return """```json
 {
   "typescript_config": "",
@@ -18,14 +43,9 @@ def get_smart_response(msg):
   }
 }
 ```"""
-    elif "python" in lower_msg or "code" in lower_msg or "calculate" in lower_msg:
-        return """Here is the Python code:
-```python
-print('Hello from Mock LLM Code Gen')
-x = 10 + 20
-print(f'Result: {x}')
-```"""
+    
     return f"Mock response to: {msg[:20]}... [Processed by Mock LLM]"
+
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -71,19 +91,35 @@ def ollama_chat():
     messages = data.get('messages', [])
     last_msg = messages[-1]['content'] if messages else ""
 
-    print(f"🦙 [Mock Ollama] Received request: {last_msg[:50]}...")
-
-    content = f"Mock Ollama response to: {last_msg[:20]}..."
-    
     # Check for keywords to trigger specific behaviors
     lower_msg = last_msg.lower()
     
-    # Behavior 1: Agent Planning
-    if "json array of tool calls" in lower_msg or "scraper_agent" in lower_msg or "plan" in lower_msg or "decide" in lower_msg:
-        content = """[{"tool_id": "smart_scrape", "params": {"url": "https://example.com", "goal": "Find rates"}}]"""
+    content = f"Mock Ollama response to: {last_msg[:20]}..."
     
-    # Behavior 2: Scraper Configuration
-    elif "scraper" in lower_msg or "scraping" in lower_msg:
+    # 1. SPECIFIC SUCCESS CASES
+    if ("example" in lower_msg and "domain" in lower_msg) and ("title" in lower_msg or "find" in lower_msg) and "html content" in lower_msg:
+        content = "Example Domain"
+    
+    # 2. HYPOTHESIS GENERATION / AGENT PLANNING
+    elif "generate 1 to 3" in lower_msg or "experiment ideas" in lower_msg or "json array of tool calls" in lower_msg or "scraper_agent" in lower_msg or ("plan" in lower_msg and "experiment" in lower_msg):
+        content = """[
+  {
+    "description": "If we scrape the example.com domain, we will find the title is Example Domain.",
+    "confidence": 0.9
+  }
+]"""
+    
+    # 3. CODE GENERATION
+    elif ("write" in lower_msg or "generate" in lower_msg) and ("python" in lower_msg or "code" in lower_msg or "calculate" in lower_msg):
+        content = """Here is the Python code you requested:
+```python
+print('Hello from Mock LLM Code Gen')
+x = 10 + 20
+print(f'Result: {x}')
+```"""
+
+    # 4. SCRAPER CONFIGURATION PLANNING
+    elif ("plan" in lower_msg or "configure" in lower_msg) and ("scraper" in lower_msg or "scraping" in lower_msg):
         content = """```json
 {
   "typescript_config": "",
@@ -92,15 +128,8 @@ def ollama_chat():
   }
 }
 ```"""
-    
-    # Behavior 3: Code Generation
-    elif "python" in lower_msg or "code" in lower_msg or "calculate" in lower_msg:
-        content = """Here is the Python code you requested:
-```python
-print('Hello from Mock LLM Code Gen')
-x = 10 + 20
-print(f'Result: {x}')
-```"""
+
+
 
     # Behavior 4: Intent Classification
     elif "classify" in lower_msg and "category" in lower_msg:
@@ -132,6 +161,50 @@ print(f'Result: {x}')
         "load_duration": 10,
         "prompt_eval_count": 10,
         "eval_count": 10
+    })
+
+@app.route('/api/generate', methods=['POST'])
+def ollama_generate():
+    data = request.json
+    prompt = data.get('prompt', '').lower()
+
+    print(f"🦙 [Mock Ollama Generate] Received request: {prompt[:50]}...")
+
+    # Default flight response
+    content = """{
+  "departure": "LHR",
+  "destination": "JFK",
+  "start_date": "2026-05-01",
+  "end_date": "2026-05-10",
+  "cabin": "Economy"
+}"""
+
+    # If it's a Miner request (HTML extraction)
+    if "extract all flight options" in prompt or "airline" in prompt:
+        content = """[
+  {
+    "airline": "British Airways",
+    "departure_time": "10:00 AM",
+    "arrival_time": "1:00 PM",
+    "duration": "7h 0m",
+    "stops": "Nonstop",
+    "price": "£450"
+  },
+  {
+    "airline": "Virgin Atlantic",
+    "departure_time": "12:00 PM",
+    "arrival_time": "3:00 PM",
+    "duration": "7h 0m",
+    "stops": "Nonstop",
+    "price": "£480"
+  }
+]"""
+
+    return jsonify({
+        "model": data.get("model", "mock-model"),
+        "created_at": "2023-01-01T00:00:00Z",
+        "response": content,
+        "done": True
     })
 
 @app.route('/api/embeddings', methods=['POST'])

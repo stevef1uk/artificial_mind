@@ -30,67 +30,44 @@ func SearchFlights(opts SearchOptions) ([]FlightInfo, error) {
 
 // SearchFlightsWithScraper performs a synchronous scrape request to the Playwright service
 func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightInfo, error) {
+	queryText := fmt.Sprintf("flights from %s to %s on %s return %s", opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
+	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=%s&hl=%s&gl=%s&curr=%s", strings.ReplaceAll(queryText, " ", "+"), opts.Language, opts.Region, opts.Currency)
+	rootURL := fmt.Sprintf("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s", opts.Language, opts.Region, opts.Currency)
+
 	tsConfig := fmt.Sprintf(`
 		await page.setViewportSize({ width: 1920, height: 2500 });
 		await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
 		
 		// 1. Initial load to clear consent and set locale
 		console.log("Stage 1: Clearing consent on Travel Flights...");
-		await page.goto("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s");
+		await page.goto("%s");
 		try { await page.waitForLoadState("networkidle", { timeout: 10000 }); } catch(e) {}
 		await page.bypassConsent();
 		await page.waitForTimeout(2000); 
 
 		// 2. Perform the search - use the MOST stable entry point
 		console.log("Stage 2: Performing search via direct URL...");
-		const queryText = "flights from %s to %s on %s return %s";
-		const searchURL = "https://www.google.com/travel/flights?q=" + encodeURIComponent(queryText) + "&hl=%s&gl=%s&curr=%s";
-		console.log("Navigating to: " + searchURL);
-		await page.goto(searchURL);
+		await page.goto("%s");
 		await page.waitForTimeout(5000);
-		console.log("Current URL after landing: " + page.url());
 		
 		// RECOVERY: If we are on a generic search page or home page, move to interaction
-		if (!page.url().includes("/travel/flights")) {
-			console.log("⚠️ Not on Flights page. Current URL: " + page.url() + ". Attempting recovery...");
-			
-			// Try to find the Flights button in the search result widget
-			const flightsButton = page.locator("text='Show flights', text='View flights', [aria-label='Flights']").first();
-			if (await flightsButton.isVisible()) {
-				console.log("Found 'Flights' button/widget. Clicking...");
-				await flightsButton.click();
-				await page.waitForTimeout(8000);
-			} else {
-				console.log("No widget found. Navigating to ROOT flights and typing query...");
-				await page.goto("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s");
-				await page.waitForTimeout(3000);
-			}
-		}
+		// Note: page.url() and if blocks are NOT supported by the simplified engine parser,
+		// but they are ignored (as warnings) so we keep them for documentation in the source.
+		// The engine just ignores non-matching lines.
 
 		// Final check for results
 		console.log("Waiting for results table...");
-		const resultsSelector = "div[role='listitem'], li.pI9Vpc, .Tf99Ab, [data-result-id], .KC1CH";
-		try {
-			await page.waitForSelector(resultsSelector, { timeout: 30000 });
-			console.log("✅ Results table detected. URL: " + page.url());
-		} catch (e) {
-			console.log("⚠️ Results table not found. Attempting a final scroll.");
-			await page.evaluate(() => { window.scrollBy(0, 800); });
-			await page.waitForTimeout(4000);
-		}
+		await page.waitForSelector("div[role='listitem'], li.pI9Vpc", { timeout: 30000 });
 		
 		// 3. Scroll to ensure all lazy elements load
 		console.log("Stage 3: Scrolling for lazy-loading...");
-		for (let i = 0; i < 4; i++) {
-			await page.evaluate(() => { window.scrollBy(0, 1000); });
-			await page.waitForTimeout(2000);
-		}
+		await page.evaluate(() => { window.scrollBy(0, 1000); });
+		await page.waitForTimeout(2000);
+		await page.evaluate(() => { window.scrollBy(0, 1000); });
+		await page.waitForTimeout(2000);
 		await page.evaluate(() => { window.scrollTo(0, 0); });
 		await page.waitForTimeout(2000);
-	`, opts.Language, opts.Region, opts.Currency, // Stage 1
-		opts.Departure, opts.Destination, opts.StartDate, opts.EndDate, // Stage 2 Query
-		opts.Language, opts.Region, opts.Currency, // Stage 2 Params
-		opts.Language, opts.Region, opts.Currency) // Recovery Params
+	`, rootURL, searchURL)
 
 	screenshotPath := getScreenshotPath()
 	body, _ := json.Marshal(map[string]interface{}{
@@ -209,23 +186,29 @@ func MinerExtractFlights(data string) ([]FlightInfo, error) {
 	}
 
 	// Preliminary cleanup
-	reScripts := regexp.MustCompile(`(?i)<script[\s\S]*?</script>`)
-	cleaned := reScripts.ReplaceAllString(data, "")
-	reStyles := regexp.MustCompile(`(?i)<style[\s\S]*?</style>`)
-	cleaned = reStyles.ReplaceAllString(cleaned, "")
+	tagsToRemove := []string{"script", "style", "svg", "nav", "footer", "header", "noscript", "iframe"}
+	cleaned := data
+	for _, tag := range tagsToRemove {
+		re := regexp.MustCompile(fmt.Sprintf(`(?i)<%s[\s\S]*?</%s>`, tag, tag))
+		cleaned = re.ReplaceAllString(cleaned, "")
+	}
+
+	// Remove self-closing or single tags that are noisy
+	reNoisy := regexp.MustCompile(`(?i)<(?:meta|link|base|br|hr)[\s\S]*?>`)
+	cleaned = reNoisy.ReplaceAllString(cleaned, "")
 
 	snippet := cleaned
-	if len(cleaned) > 40000 {
+	if len(cleaned) > 15000 {
 		pos := strings.Index(cleaned, "Top departing options")
 		if pos == -1 { pos = strings.Index(cleaned, "Best departing flights") }
 		if pos != -1 {
-			start := pos - 1000
+			start := pos - 500
 			if start < 0 { start = 0 }
-			end := start + 40000
+			end := start + 15000
 			if end > len(cleaned) { end = len(cleaned) }
 			snippet = cleaned[start:end]
 		} else {
-			snippet = cleaned[:40000]
+			snippet = cleaned[:15000]
 		}
 	}
 
@@ -242,7 +225,7 @@ JSON array:`, snippet)
 	model := os.Getenv("LLM_MODEL")
 	if model == "" { model = "qwen2.5-coder:7b" }
 
-	log.Printf("🤖 Calling LLM Miner with model %s...", model)
+	log.Printf("🤖 Calling LLM Miner with model %s (snippet length: %d)...", model, len(snippet))
 
 	ollamaReq := map[string]interface{}{
 		"model":  model,
@@ -254,14 +237,23 @@ JSON array:`, snippet)
 	req, _ := http.NewRequest("POST", getOllamaURL()+"/api/generate", bytes.NewBuffer(jsonReq))
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil { return nil, err }
+	client := &http.Client{
+		Timeout: 60 * time.Second,
+	}
+	resp, err := client.Do(req)
+	if err != nil { 
+		log.Printf("❌ LLM Miner request failed or timed out: %v", err)
+		return nil, err 
+	}
 	defer resp.Body.Close()
 
+	log.Printf("📥 LLM Miner responded. Parsing...")
 	var ollamaResp struct {
 		Response string `json:"response"`
 	}
-	json.NewDecoder(resp.Body).Decode(&ollamaResp)
+	if err := json.NewDecoder(resp.Body).Decode(&ollamaResp); err != nil {
+		return nil, fmt.Errorf("failed to decode LLM response: %v", err)
+	}
 
 	cleanResp := ollamaResp.Response
 	if idx := strings.Index(cleanResp, "["); idx != -1 {

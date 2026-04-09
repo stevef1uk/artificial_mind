@@ -423,7 +423,7 @@ func (nlg *NLGGenerator) buildKnowledgePrompt(req *NLGRequest) string {
 	sb.WriteString("\nGoal: ")
 	sb.WriteString(req.Action.Goal)
 	sb.WriteString("\n\n🚨 CRITICAL RULES:\n")
-	sb.WriteString("1. You MUST use the information provided in the \"Knowledge/Intelligence Results\" and \"Information from Memory/Bio\" sections below, but ONLY if they are relevant to the user's specific question.\n")
+	sb.WriteString("1. You MUST use the information provided in the \"Knowledge/Intelligence Results\" section below. This is the output from tools executed JUST NOW in response to the user's request. It is THE SINGLE SOURCE OF TRUTH and always overrides historical memory.\n")
 	sb.WriteString("2. DO NOT repeat, echo, or include any of the labels or data from the \"Reasoning Process\" or \"Knowledge/Intelligence Results\" sections in your final response.\n")
 	userName := os.Getenv("USER_NAME")
 	if userName == "" {
@@ -507,7 +507,7 @@ func (nlg *NLGGenerator) buildTaskPrompt(req *NLGRequest) string {
 	sb.WriteString("3. DO NOT include confidence scores or metadata.\n")
 	sb.WriteString("4. DO NOT volunteer information about your knowledge gaps or mention what you 'couldn't find' unless it is absolutely necessary for the answer.\n")
 	sb.WriteString("5. Just tell the user what you did and show them the results. Be concise.\n")
-	sb.WriteString("6. 🚨 CRITICAL: ALWAYS prioritize current \"Task Results\" over any historical information in \"Information from Memory/Bio\". Current results are the single source of truth. NEVER use old or cached data from memory to fill in gaps if the current search returns nothing.\n\n")
+	sb.WriteString("6. 🚨 CRITICAL: ALWAYS prioritize current \"Task Results\" over any historical information in \"Information from Memory/Bio\". Current results are the ONLY source of truth for THIS request. NEVER use old or cached data from memory to fill in gaps if the current search returns nothing.\n\n")
 
 	sb.WriteString("Please provide a helpful, direct summary of the task results.")
 

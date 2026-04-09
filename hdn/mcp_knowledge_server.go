@@ -4180,16 +4180,26 @@ var (
 	reMarkdownUnderBold  = regexp.MustCompile(`__(.+?)__`)
 	reMarkdownHeading    = regexp.MustCompile(`(?m)^#{1,6}\s+`)
 	reMarkdownInlineCode = regexp.MustCompile("`([^`]+)`")
+	reMarkdownCodeBlock  = regexp.MustCompile("(?s)```(?:[a-z]*\\n)?(.*?)\\n?```")
 	reMarkdownBullet     = regexp.MustCompile(`(?m)^\s*\*\s+`)
 )
 
 func stripMarkdownFormatting(text string) string {
+	// First handle triple backtick blocks
+	text = reMarkdownCodeBlock.ReplaceAllString(text, "$1")
+	// Handle inline code
+	text = reMarkdownInlineCode.ReplaceAllString(text, "$1")
+	// Handle other formatting
 	text = reMarkdownBold.ReplaceAllString(text, "$1")
 	text = reMarkdownUnderBold.ReplaceAllString(text, "$1")
 	text = reMarkdownHeading.ReplaceAllString(text, "")
-	text = reMarkdownInlineCode.ReplaceAllString(text, "$1")
 	text = reMarkdownBullet.ReplaceAllString(text, "- ")
-	return text
+
+	// Final brute-force for any remaining backticks (failsafe)
+	text = strings.ReplaceAll(text, "```", "")
+	text = strings.ReplaceAll(text, "`", "")
+
+	return strings.TrimSpace(text)
 }
 
 func (s *MCPKnowledgeServer) executeSmartScrape(ctx context.Context, url string, goal string, userConfig *ScrapeConfig) (interface{}, error) {

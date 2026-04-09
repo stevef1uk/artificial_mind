@@ -1,4 +1,4 @@
-version: "3.9"
+# version: "3.9" (obsolete)
 
 services:
   # --- Infrastructure ---
@@ -33,6 +33,8 @@ services:
       - PERSISTENCE_DATA_PATH=/var/lib/weaviate
       - DEFAULT_VECTORIZER_MODULE=none
       - CLUSTER_HOSTNAME=node1
+      - DISK_USE_WARNING_PERCENTAGE=95
+      - DISK_USE_READONLY_PERCENTAGE=99
 
   neo4j:
     image: neo4j:5-community
