@@ -31,7 +31,9 @@ func ParseFlightText(text string) []FlightInfo {
 	lines := strings.Split(text, "\n")
 	var flights []FlightInfo
 
-	timeRegex := regexp.MustCompile(`(?i)(\d{1,2}:\d{2}\s*[AP]M)\s*[–—~-]\s*(\d{1,2}:\d{2}\s*[AP]M)`)
+	// Comprehensive time regex: support 12h (10:30 AM) and 24h (10:30) formats
+	// Also handle different dashes used by Google (en-dash, em-dash, hyphen)
+	timeRegex := regexp.MustCompile(`(?i)(\d{1,2}:\d{2}(?:\s*[AP]M)?)\s*[–—~-]\s*(\d{1,2}:\d{2}(?:\s*[AP]M)?)`)
 	priceRegex := regexp.MustCompile(`([€£\$])\s*([\d,\.]+)`)
 	durationRegex := regexp.MustCompile(`(\d+)\s*hr\s*(\d+)?\s*min`)
 	stopRegex := regexp.MustCompile(`(\d+)\s*stop|Nonstop`)
@@ -41,7 +43,7 @@ func ParseFlightText(text string) []FlightInfo {
 		"American", "Icelandair", "Lufthansa", "Turkish Airlines", "Emirates", "Qatar",
 		"Iberia", "Swiss", "Aer Lingus", "TAP", "Austrian", "SAS", "Finnair", "LOT", 
 		"Brussels Airlines", "ITA Airways", "JetBlue", "Norse", "Vueling", "Ryanair", "EasyJet", "easyJet",
-		"AirFrance", "BritishAirways", // Handle potential OCR concatenation
+		"AirFrance", "BritishAirways", "Transavia", "Wizz Air", "Eurowings", "Norwegian",
 	}
 
 	for i, line := range lines {
