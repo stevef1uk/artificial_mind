@@ -21,57 +21,64 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		await page.setViewportSize({ width: 1920, height: 2500 });
 		await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
 		
-		// 1. Initial load to clear consent
-		console.log("Stage 1: Clearing consent...");
+		// 1. Initial load to clear consent and set locale
+		console.log("Stage 1: Clearing consent on Travel Flights...");
 		await page.goto("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s");
 		try { await page.waitForLoadState("networkidle", { timeout: 10000 }); } catch(e) {}
 		await page.bypassConsent();
-		await page.waitForTimeout(3000); 
+		await page.waitForTimeout(2000); 
 
-		// 2. Perform the search
-		console.log("Stage 2: Performing search...");
-		// Using the most stable query format: 'flights from [CODE] to [CODE] on [DATE] return [DATE]'
-		const query = "flights from %s to %s on %s return %s";
-		const searchURL = "https://www.google.com/travel/flights?q=" + encodeURIComponent(query) + "&hl=%s&gl=%s&curr=%s";
+		// 2. Perform the search - use the MOST stable entry point (Google Search with Flights Widget)
+		console.log("Stage 2: Performing search via direct URL...");
+		const queryText = "flights from %s to %s on %s return %s";
+		const searchURL = "https://www.google.com/travel/flights?q=" + encodeURIComponent(queryText) + "&hl=%s&gl=%s&curr=%s";
 		console.log("Navigating to: " + searchURL);
 		await page.goto(searchURL);
+		await page.waitForTimeout(5000);
+		console.log("Current URL after landing: " + page.url());
 		
-		// Detect if we landed on the Google Search home page instead of Flights
-		if (page.url().includes("google.com/search")) {
-			console.log("⚠️ Redirected to Google Search. Attempting to click 'View flights' or 'Flights' tab...");
-			try {
-				const viewFlights = page.locator("text='View flights', text='Show flights', text='Flights'").first();
-				if (await viewFlights.isVisible()) {
-					await viewFlights.click();
-					await page.waitForTimeout(5000);
-				}
-			} catch(e) { console.log("Failed to find redirect button."); }
+		// RECOVERY: If we are on a generic search page or home page, move to interaction
+		if (!page.url().includes("/travel/flights")) {
+			console.log("⚠️ Not on Flights page. Current URL: " + page.url() + ". Attempting recovery...");
+			
+			// Try to find the Flights button in the search result widget
+			const flightsButton = page.locator("text='Show flights', text='View flights', [aria-label='Flights']").first();
+			if (await flightsButton.isVisible()) {
+				console.log("Found 'Flights' button/widget. Clicking...");
+				await flightsButton.click();
+				await page.waitForTimeout(8000);
+			} else {
+				console.log("No widget found. Navigating to ROOT flights and typing query...");
+				await page.goto("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s");
+				await page.waitForTimeout(3000);
+				// If we are still lost, the image is likely bot-detected or generic
+			}
 		}
 
-		// Wait for the results selector
+		// Final check for results
 		console.log("Waiting for results table...");
-		const resultsSelector = "div[role='listitem'], li.pI9Vpc, .Tf99Ab, [data-result-id]";
+		const resultsSelector = "div[role='listitem'], li.pI9Vpc, .Tf99Ab, [data-result-id], .KC1CH";
 		try {
-			await page.waitForSelector(resultsSelector, { timeout: 40000 });
-			console.log("✅ Results table detected.");
+			await page.waitForSelector(resultsSelector, { timeout: 30000 });
+			console.log("✅ Results table detected. URL: " + page.url());
 		} catch (e) {
-			console.log("⚠️ Results table not found. Attempting a final scroll and bypass check.");
-			await page.bypassConsent();
-			await page.evaluate(() => { window.scrollBy(0, 1000); });
-			await page.waitForTimeout(5000);
+			console.log("⚠️ Results table not found. Attempting a final scroll.");
+			await page.evaluate(() => { window.scrollBy(0, 800); });
+			await page.waitForTimeout(4000);
 		}
-		
-		await page.waitForTimeout(5000); // Buffer for animations
 		
 		// 3. Scroll to ensure all lazy elements load
 		console.log("Stage 3: Scrolling for lazy-loading...");
 		for (let i = 0; i < 4; i++) {
-			await page.evaluate(() => { window.scrollBy(0, 800); });
-			await page.waitForTimeout(1500);
+			await page.evaluate(() => { window.scrollBy(0, 1000); });
+			await page.waitForTimeout(2000);
 		}
 		await page.evaluate(() => { window.scrollTo(0, 0); });
 		await page.waitForTimeout(2000);
-	`, opts.Language, opts.Region, opts.Currency, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate, opts.Language, opts.Region, opts.Currency)
+	`, opts.Language, opts.Region, opts.Currency, // Stage 1
+	opts.Departure, opts.Destination, opts.StartDate, opts.EndDate, // Stage 2 Query
+	opts.Language, opts.Region, opts.Currency, // Stage 2 Params
+	opts.Language, opts.Region, opts.Currency) // Recovery Params
 
 	payload := map[string]interface{}{
 		"url":               fmt.Sprintf("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s", opts.Language, opts.Region, opts.Currency),
