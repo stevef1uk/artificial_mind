@@ -38,7 +38,7 @@ func main() {
 	s := server.NewMCPServer("Flights Search", "1.1.0", server.WithLogging())
 
 	s.AddTool(mcp.NewTool("search_flights",
-		mcp.WithDescription("Search for flights on Google Flights using NATIVE Playwright and AI extraction"),
+		mcp.WithDescription("Search for flights on Google Flights using Playwright and AI-powered data extraction"),
 		mcp.WithString("departure", mcp.Required(), mcp.Description("Departure airport code (e.g., JFK, LAX)")),
 		mcp.WithString("destination", mcp.Required(), mcp.Description("Destination airport code (e.g., CDG, LHR)")),
 		mcp.WithString("start_date", mcp.Required(), mcp.Description("Departure date (YYYY-MM-DD)")),
