@@ -8,6 +8,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -291,7 +292,7 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 		finalUA = userAgent
 	}
 
-	context, err := browser.NewContext(pw.BrowserNewContextOptions{
+	browserCtx, err := browser.NewContext(pw.BrowserNewContextOptions{
 		Viewport: &pw.Size{
 			Width:  1920,
 			Height: 1080,
@@ -307,10 +308,10 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 	if err != nil {
 		return nil, fmt.Errorf("failed to create context: %v", err)
 	}
-	defer context.Close()
+	defer browserCtx.Close()
 
 	// Create page from context
-	page, err := context.NewPage()
+	page, err := browserCtx.NewPage()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create page: %v", err)
 	}
@@ -379,6 +380,18 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 	if html, err := page.Content(); err == nil {
 		result["html"] = html
 		result["cleaned_html"] = scraper_pkg.CleanHTML(html)
+	}
+
+	// 2. Execute extractions (restored logic)
+	goCtx := context.Background()
+	extractedData := scraper_pkg.Extract(goCtx, page, instructions, extractions, logger)
+	for k, v := range extractedData {
+		result[k] = v
+	}
+
+	// Also make sure 'title' is in the result if extracted specifically
+	if t, ok := extractedData["title"].(string); ok && t != "" {
+		result["title"] = t
 	}
 
 	return result, nil
