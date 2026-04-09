@@ -76,19 +76,19 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		await page.evaluate(() => { window.scrollTo(0, 0); });
 		await page.waitForTimeout(2000);
 	`, opts.Language, opts.Region, opts.Currency, // Stage 1
-	opts.Departure, opts.Destination, opts.StartDate, opts.EndDate, // Stage 2 Query
-	opts.Language, opts.Region, opts.Currency, // Stage 2 Params
-	opts.Language, opts.Region, opts.Currency) // Recovery Params
+		opts.Departure, opts.Destination, opts.StartDate, opts.EndDate, // Stage 2 Query
+		opts.Language, opts.Region, opts.Currency, // Stage 2 Params
+		opts.Language, opts.Region, opts.Currency) // Recovery Params
 
-	payload := map[string]interface{}{
+	tmpPath := getScreenshotPath()
+	body, _ := json.Marshal(map[string]interface{}{
 		"url":               fmt.Sprintf("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s", opts.Language, opts.Region, opts.Currency),
-		"user_agent":        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
 		"typescript_config": tsConfig,
 		"get_html":          true,
 		"full_page":         true,
-	}
+		"screenshot_path":   tmpPath,
+	})
 
-	body, _ := json.Marshal(payload)
 	resp, err := http.Post(scraperURL+"/scrape/start", "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		return nil, err
@@ -112,7 +112,7 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		if err != nil {
 			continue
 		}
-		
+
 		var job struct {
 			Status string                 `json:"status"`
 			Result map[string]interface{} `json:"result"`
@@ -126,18 +126,28 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 
 		if job.Status == "completed" {
 			log.Printf("✅ Job %s completed. Processing results...", startResp.JobID)
-			if b64, ok := job.Result["screenshot"].(string); ok && b64 != "" {
+			// 1. Process screenshot from shared path
+			screenshotPath := ""
+			if p, ok := job.Result["screenshot_path"].(string); ok && p != "" {
+				screenshotPath = p
+				log.Printf("📸 Scraper returned shared path: %s", screenshotPath)
+			} else if b64, ok := job.Result["screenshot"].(string); ok && b64 != "" {
+				// Fallback for legacy scraper versions
+				log.Printf("⚠️ Scraper returned base64 (fallback mode)")
 				dataStr := strings.TrimPrefix(b64, "data:image/png;base64,")
 				imgData, _ := base64.StdEncoding.DecodeString(dataStr)
-				tmpPath := getScreenshotPath()
-				_ = os.WriteFile(tmpPath, imgData, 0644)
-				
-				flights, _ := ExtractFlightsFromImage(tmpPath)
+				screenshotPath = getScreenshotPath()
+				_ = os.WriteFile(screenshotPath, imgData, 0644)
+			}
+
+			if screenshotPath != "" {
+				flights, _ := ExtractFlightsFromImage(screenshotPath)
 				if len(flights) > 0 {
-					log.Printf("🎉 Found %d flights via OCR", len(flights))
+					log.Printf("✅ OCR found %d flights from %s", len(flights), screenshotPath)
 					return flights, nil
 				}
-				
+				log.Printf("⚠️ Regular OCR parse failed. Using Miner on OCR text...")
+
 				// OCR Failed or too short - try Miner extraction on RAW HTML if available
 				log.Printf("⚠️ OCR produced %d results. Attempting SMART Miner fallback on HTML...", len(flights))
 				if html, ok := job.Result["raw_html"].(string); ok && html != "" {

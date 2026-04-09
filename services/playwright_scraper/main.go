@@ -57,6 +57,7 @@ type ScrapeJob struct {
 	Variables        map[string]string      `json:"variables,omitempty"`
 	GetHTML          bool                   `json:"get_html,omitempty"`
 	FullPage         bool                   `json:"full_page,omitempty"`
+	ScreenshotPath   string                 `json:"screenshot_path,omitempty"`
 	Cookies          []pw.Cookie            `json:"cookies,omitempty"`
 	Status           string                 `json:"status"`
 	CreatedAt        time.Time              `json:"created_at"`
@@ -109,7 +110,7 @@ func (s *JobStore) Create(url, instructions, userAgent, tsConfig string, extract
 		Extractions:      extractions,
 		Variables:        variables,
 		GetHTML:          getHTML,
-		Cookies:          cookies,
+		FullPage:         true, // Default to true for better OCR
 		Status:           JobStatusPending,
 		CreatedAt:        time.Now(),
 	}
@@ -264,7 +265,7 @@ func (s *ScraperService) executeJob(job *ScrapeJob) (map[string]interface{}, err
 	log.Printf("📋 Parsed %d operations", len(operations))
 
 	// Execute Playwright operations
-	return executePlaywrightOperations(job.URL, operations, job.Instructions, job.UserAgent, job.Extractions, job.GetHTML, job.FullPage, job.Cookies)
+	return executePlaywrightOperations(job.URL, operations, job.Instructions, job.UserAgent, job.Extractions, job.GetHTML, job.FullPage, job.ScreenshotPath, job.Cookies)
 }
 
 func parseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
@@ -737,7 +738,7 @@ func asInt(value interface{}) int {
 	}
 }
 
-func executePlaywrightOperations(url string, operations []PlaywrightOperation, instructions, userAgent string, extractions map[string]string, getHTML, fullPage bool, cookies []pw.Cookie) (map[string]interface{}, error) {
+func executePlaywrightOperations(url string, operations []PlaywrightOperation, instructions, userAgent string, extractions map[string]string, getHTML, fullPage bool, screenshotPath string, cookies []pw.Cookie) (map[string]interface{}, error) {
 	// Start Playwright
 	pwInstance, err := pw.Run()
 	if err != nil {
@@ -1488,14 +1489,30 @@ func executePlaywrightOperations(url string, operations []PlaywrightOperation, i
 	// Store raw text for debugging (Disabled to reduce payload size)
 	// results["raw_text"] = bodyContent
 
-	// Capture screenshot for Wow dashboard AI Sight panel
-	screenshot, err := page.Screenshot(pw.PageScreenshotOptions{
+	// Capture screenshot
+	screenshotOps := pw.PageScreenshotOptions{
 		FullPage: pw.Bool(fullPage),
-	})
-	if err == nil && screenshot != nil {
-		results["screenshot"] = "data:image/png;base64," + base64.StdEncoding.EncodeToString(screenshot)
-		log.Printf("📸 Screenshot captured (%d bytes)", len(screenshot))
-	} else if err != nil {
+	}
+	if screenshotPath != "" {
+		// Ensure parent directory exists
+		dir := strings.Split(screenshotPath, "/")
+		if len(dir) > 1 {
+			os.MkdirAll(strings.Join(dir[:len(dir)-1], "/"), 0755)
+		}
+		screenshotOps.Path = pw.String(screenshotPath)
+		log.Printf("📸 Saving screenshot to path: %s", screenshotPath)
+	}
+
+	screenshot, err := page.Screenshot(screenshotOps)
+	if err == nil {
+		if screenshotPath != "" {
+			results["screenshot_path"] = screenshotPath
+			log.Printf("✅ Screenshot saved to %s", screenshotPath)
+		} else {
+			results["screenshot"] = "data:image/png;base64," + base64.StdEncoding.EncodeToString(screenshot)
+			log.Printf("📸 Screenshot captured as base64 (%d bytes)", len(screenshot))
+		}
+	} else {
 		log.Printf("⚠️ Screenshot capture failed: %v", err)
 	}
 
