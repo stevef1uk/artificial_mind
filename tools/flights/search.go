@@ -15,21 +15,21 @@ import (
 )
 
 // SearchFlights is the entry point for all flight searches
-func SearchFlights(opts SearchOptions) ([]FlightInfo, error) {
+func SearchFlights(opts SearchOptions) ([]FlightInfo, string, error) {
 	// 1. Check for Playwright Scraper Service (Primary for K3s/Offloading)
 	scraperURL := os.Getenv("SCRAPER_URL")
 	if scraperURL != "" {
 		log.Printf("🛰️ Using Playwright Service at: %s", scraperURL)
 		return SearchFlightsWithScraper(scraperURL, opts)
 	}
-
+ 
 	// 2. Fallback to Native logic
 	log.Printf("🏠 Using NATIVE search logic (Version 60)...")
 	return SearchFlightsNative(opts)
 }
-
+ 
 // SearchFlightsWithScraper performs a synchronous scrape request to the Playwright service
-func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightInfo, error) {
+func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightInfo, string, error) {
 	queryText := fmt.Sprintf("flights from %s to %s on %s return %s", opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
 	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=%s&hl=%s&gl=%s&curr=%s", strings.ReplaceAll(queryText, " ", "+"), opts.Language, opts.Region, opts.Currency)
 	rootURL := fmt.Sprintf("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s", opts.Language, opts.Region, opts.Currency)
@@ -137,14 +137,14 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	log.Printf("📊 Combined Results: %d (OCR: %d, Miner: %d)", len(flights), len(ocrFlights), len(minerFlights))
 
 	if err != nil {
-		return nil, err
+		return nil, screenshotPath, err
 	}
 
 	for i := range flights {
 		flights[i].CabinClass = opts.CabinClass
 	}
 
-	return flights, nil
+	return flights, screenshotPath, nil
 }
 
 // SearchFlightsNative remains as a local fallback for testing without the service
@@ -196,12 +196,14 @@ func SearchFlightsNative(opts SearchOptions) ([]FlightInfo, error) {
 		flights, err = MinerExtractFlights(html)
 	}
 
-	if err != nil { return nil, err}
+	if err != nil {
+		return nil, screenshotPath, err
+	}
 	for i := range flights {
 		flights[i].URL = page.URL()
 		flights[i].CabinClass = opts.CabinClass
 	}
-	return flights, nil
+	return flights, screenshotPath, nil
 }
 
 // MinerExtractFlights uses AI to extract flight data from raw HTML snippets

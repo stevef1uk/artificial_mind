@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"regexp"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -108,6 +111,18 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		}
 	}
 
+	// Normalizer: ensure dates are in YYYY-MM-DD format before search
+	dateRegex := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+	if (opts.StartDate != "" && !dateRegex.MatchString(opts.StartDate)) || (opts.EndDate != "" && !dateRegex.MatchString(opts.EndDate)) {
+		log.Printf("📅 Normalizing dates from natural language: %s, %s", opts.StartDate, opts.EndDate)
+		q := fmt.Sprintf("flights from %s to %s starting %s returning %s", opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
+		extracted, err := ExtractOptionsFromQuery(q)
+		if err == nil {
+			if extracted.StartDate != "" { opts.StartDate = extracted.StartDate }
+			if extracted.EndDate != "" { opts.EndDate = extracted.EndDate }
+		}
+	}
+
 	// HEURISTIC: Broaden search for multi-airport cities if specific major ones are used
 	// This helps find easyJet/Ryanair results from alternative airports (LTN, LGW, etc)
 	cityMappings := map[string]string{
@@ -130,31 +145,84 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 
 	log.Printf("🔍 Searching for %s flights: %s -> %s (%s to %s)", opts.CabinClass, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
 
-	flights, err := SearchFlights(opts)
+	flights, screenshotPath, err := SearchFlights(opts)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Error: %v", err)), nil
 	}
 
+	// VALIDATION FILTER: Remove hallucinated results (e.g. search for LON->PAR returns Delhi)
+	validDeparture := strings.ToUpper(opts.Departure)
+	validDestination := strings.ToUpper(opts.Destination)
+	
+	// Create a membership map for the city groups
+	cityMembers := map[string][]string{
+		"LON": {"LHR", "LGW", "LTN", "STN", "LCY", "SEN"},
+		"PAR": {"CDG", "ORY", "BVA"},
+		"NYC": {"JFK", "EWR", "LGA"},
+	}
+	
+	isMember := func(code, group string) bool {
+		if code == group { return true }
+		if members, ok := cityMembers[group]; ok {
+			for _, m := range members {
+				if code == m { return true }
+			}
+		}
+		return false
+	}
+
+	var filtered []FlightInfo
+	for _, f := range flights {
+		dep := strings.ToUpper(f.DepartureAirport)
+		arr := strings.ToUpper(f.ArrivalAirport)
+		
+		// If both are unknown or at least one matches the city group, keep it
+		// We are lenient if both are unknown to avoid dropping everything, 
+		// but if we HAVE codes, we enforce them.
+		if dep == "UNKNOWN" || dep == "" || isMember(dep, validDeparture) {
+			if arr == "UNKNOWN" || arr == "" || isMember(arr, validDestination) {
+				filtered = append(filtered, f)
+			}
+		}
+	}
+	flights = filtered
+
 	if len(flights) == 0 {
-		return mcp.NewToolResultText("No flights found."), nil
+		return mcp.NewToolResultText("No flights found matching the requested route."), nil
+	}
+
+	// Read and encode screenshot if available
+	var imageContent *mcp.ImageContent
+	if screenshotPath != "" {
+		imgData, err := os.ReadFile(screenshotPath)
+		if err == nil {
+			imageContent = mcp.NewImageContent(base64.StdEncoding.EncodeToString(imgData), "image/png")
+		}
 	}
 
 	// Generate structured JSON for the reasoning engine
-	jsonData, _ := json.Marshal(flights)
-	
-	// Also generate a nice text summary for the UI
+	jsonData, _ := json.MarshalIndent(flights, "", "  ")
+
+	// Generate a summary for the chat response
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Found %d flight options:\n\n", len(flights)))
+	sb.WriteString(fmt.Sprintf("Found %d flight options from %s to %s on %s. (Luton/Gatwick/Heathrow are included in LON group)\n", len(flights), opts.Departure, opts.Destination, opts.StartDate))
 	for i, f := range flights {
 		sb.WriteString(fmt.Sprintf("[%d] %s: %s (%s to %s, %s, %s)\n", i+1, f.Airline, f.Price, f.DepartureAirport, f.ArrivalAirport, f.Duration, f.Stops))
-		sb.WriteString(fmt.Sprintf("    Times: %s - %s\n", f.DepartureTime, f.ArrivalTime))
-		sb.WriteString(fmt.Sprintf("    URL: %s\n\n", f.URL))
+		if i == 4 { // Only show top 5 in text summary to keep it clean
+			sb.WriteString("... [truncated, see JSON for full list]\n")
+			break
+		}
+	}
+
+	results := []mcp.Content{
+		mcp.NewTextContent(sb.String()),
+		mcp.NewTextContent(fmt.Sprintf("DATA_JSON: %s", string(jsonData))),
+	}
+	if imageContent != nil {
+		results = append(results, *imageContent)
 	}
 
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			mcp.NewTextContent(sb.String()),
-			mcp.NewTextContent(fmt.Sprintf("DATA_JSON: %s", string(jsonData))),
-		},
+		Content: results,
 	}, nil
 }
