@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -139,10 +140,17 @@ func MinerExtractFlights(data string) ([]FlightInfo, error) {
 	if len(data) == 0 {
 		return nil, nil
 	}
+
+	// 0. Preliminary cleanup: strip massive <script> and <style> blocks that confuse the LLM
+	// Google Flights embeds multi-megabyte JSON blobs in <script> tags which are irrelevant to the visual results.
+	reScripts := regexp.MustCompile(`(?i)<script[\s\S]*?</script>`)
+	cleaned := reScripts.ReplaceAllString(data, "")
+	reStyles := regexp.MustCompile(`(?i)<style[\s\S]*?</style>`)
+	cleaned = reStyles.ReplaceAllString(cleaned, "")
 	
-	// Smart snippet selection
-	snippet := data
-	if len(data) > 40000 {
+	// Smart snippet selection using the CLEANED data
+	snippet := cleaned
+	if len(cleaned) > 40000 {
 		// High-confidence anchors that usually appear at the start of the results table
 		resultsAnchors := []string{
 			"Top departing options",
@@ -154,7 +162,7 @@ func MinerExtractFlights(data string) ([]FlightInfo, error) {
 		
 		pos := -1
 		for _, target := range resultsAnchors {
-			if idx := strings.Index(data, target); idx != -1 {
+			if idx := strings.Index(cleaned, target); idx != -1 {
 				// Avoid false positives at the very start of the doc (unlikely to be the table)
 				if idx > 1000 {
 					pos = idx
@@ -169,7 +177,7 @@ func MinerExtractFlights(data string) ([]FlightInfo, error) {
 		if pos == -1 {
 			indicators := []string{"Top departing options", "Best departing flights", "Other departing flights", "£", "€", "Nonstop", "1 stop", "Select flight"}
 			for _, indicator := range indicators {
-				if idx := strings.LastIndex(data, indicator); idx != -1 {
+				if idx := strings.LastIndex(cleaned, indicator); idx != -1 {
 					// Results usually aren't right at the top
 					if idx > 2000 {
 						pos = idx
@@ -184,15 +192,15 @@ func MinerExtractFlights(data string) ([]FlightInfo, error) {
 			start := pos - 1000
 			if start < 0 { start = 0 }
 			end := start + 40000 // 40KB is fast and usually enough
-			if end > len(data) { end = len(data) }
-			snippet = data[start:end]
+			if end > len(cleaned) { end = len(cleaned) }
+			snippet = cleaned[start:end]
 		} else {
 			// Deep fallback: the center of the cleaned HTML
 			log.Println("⚠️ No anchors found, using center-weighted fallback")
-			start := len(data) / 6 
+			start := len(cleaned) / 6 
 			end := start + 40000
-			if end > len(data) { end = len(data) }
-			snippet = data[start:end]
+			if end > len(cleaned) { end = len(cleaned) }
+			snippet = cleaned[start:end]
 		}
 	}
 
