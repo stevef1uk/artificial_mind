@@ -86,17 +86,17 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	apiURL := scraperURL + "/api/scraper/generic"
 	resp, err := http.Post(apiURL, "application/json", bytes.NewBuffer(body))
 	if err != nil {
-		return nil, fmt.Errorf("request to scraper failed: %v", err)
+		return nil, "", fmt.Errorf("request to scraper failed: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("scraper returned error status: %d", resp.StatusCode)
+		return nil, "", fmt.Errorf("scraper returned error status: %d", resp.StatusCode)
 	}
 
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode scraper response: %v", err)
+		return nil, "", fmt.Errorf("failed to decode scraper response: %v", err)
 	}
 
 	// Check if we received the screenshot
@@ -136,10 +136,6 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 
 	log.Printf("📊 Combined Results: %d (OCR: %d, Miner: %d)", len(flights), len(ocrFlights), len(minerFlights))
 
-	if err != nil {
-		return nil, screenshotPath, err
-	}
-
 	for i := range flights {
 		flights[i].CabinClass = opts.CabinClass
 	}
@@ -148,11 +144,9 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 }
 
 // SearchFlightsNative remains as a local fallback for testing without the service
-func SearchFlightsNative(opts SearchOptions) ([]FlightInfo, error) {
-	log.Printf("Starting NATIVE Version 60 flights search...")
-
+func SearchFlightsNative(opts SearchOptions) ([]FlightInfo, string, error) {
 	pw, err := playwright.Run()
-	if err != nil { return nil, fmt.Errorf("could not start playwright: %v", err) }
+	if err != nil { return nil, "", fmt.Errorf("could not start playwright: %v", err) }
 	defer pw.Stop()
 
 	executablePath := opts.BrowserPath
@@ -166,23 +160,23 @@ func SearchFlightsNative(opts SearchOptions) ([]FlightInfo, error) {
 			"--window-size=1600,1200", "--disable-blink-features=AutomationControlled",
 		},
 	})
-	if err != nil { return nil, fmt.Errorf("could not launch browser: %v", err) }
+	if err != nil { return nil, "", fmt.Errorf("could not launch browser: %v", err) }
 	defer browser.Close()
 
 	context, err := browser.NewContext(playwright.BrowserNewContextOptions{
 		Viewport: &playwright.Size{Width: 1600, Height: 1200},
 		UserAgent: playwright.String("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"),
 	})
-	if err != nil { return nil, fmt.Errorf("could not create context: %v", err) }
+	if err != nil { return nil, "", fmt.Errorf("could not create context: %v", err) }
 	defer context.Close()
 
 	page, err := context.NewPage()
-	if err != nil { return nil, fmt.Errorf("could not create page: %v", err) }
+	if err != nil { return nil, "", fmt.Errorf("could not create page: %v", err) }
 
 	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=flights+from+%s+to+%s+on+%s+return+%s&hl=en-US&gl=US&curr=EUR", opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
 	log.Printf("Navigating to: %s", searchURL)
 	if _, err = page.Goto(searchURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateNetworkidle}); err != nil {
-		return nil, fmt.Errorf("could not navigate: %v", err)
+		return nil, "", fmt.Errorf("could not navigate: %v", err)
 	}
 
 	// Wait and take screenshot
@@ -347,14 +341,31 @@ Final JSON array:`, snippet)
 		}
 
 		f.Airline = findVal(m, "airline")
+		
+		// Priority price check
 		f.Price = findVal(m, "price")
 		if f.Price == "" { f.Price = findVal(m, "amount") }
+		if f.Price == "" { f.Price = findVal(m, "total") }
+		if f.Price == "" { f.Price = findVal(m, "cost") }
+		
 		f.DepartureTime = findVal(m, "departure_time")
+		if f.DepartureTime == "" { f.DepartureTime = findVal(m, "time") }
+		
 		f.ArrivalTime = findVal(m, "arrival_time")
 		f.Duration = findVal(m, "duration")
 		f.Stops = findVal(m, "stops")
+		
+		// Robust Airport search
 		f.DepartureAirport = findVal(m, "departure_airport")
+		if f.DepartureAirport == "" { f.DepartureAirport = findVal(m, "origin") }
+		if f.DepartureAirport == "" { f.DepartureAirport = findVal(m, "from") }
+		if f.DepartureAirport == "" { f.DepartureAirport = findVal(m, "dep") }
+		
 		f.ArrivalAirport = findVal(m, "arrival_airport")
+		if f.ArrivalAirport == "" { f.ArrivalAirport = findVal(m, "destination") }
+		if f.ArrivalAirport == "" { f.ArrivalAirport = findVal(m, "to") }
+		if f.ArrivalAirport == "" { f.ArrivalAirport = findVal(m, "arr") }
+		if f.ArrivalAirport == "" { f.ArrivalAirport = findVal(m, "dest") }
 
 		if f.Price != "" && f.Airline != "" {
 			flights = append(flights, f)

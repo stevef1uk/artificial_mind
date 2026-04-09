@@ -192,11 +192,13 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 	}
 
 	// Read and encode screenshot if available
-	var imageContent *mcp.ImageContent
+	var imageContent mcp.ImageContent
+	hasImage := false
 	if screenshotPath != "" {
 		imgData, err := os.ReadFile(screenshotPath)
 		if err == nil {
 			imageContent = mcp.NewImageContent(base64.StdEncoding.EncodeToString(imgData), "image/png")
+			hasImage = true
 		}
 	}
 
@@ -218,8 +220,8 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		mcp.NewTextContent(sb.String()),
 		mcp.NewTextContent(fmt.Sprintf("DATA_JSON: %s", string(jsonData))),
 	}
-	if imageContent != nil {
-		results = append(results, *imageContent)
+	if hasImage {
+		results = append(results, imageContent)
 	}
 
 	return &mcp.CallToolResult{
