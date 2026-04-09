@@ -281,6 +281,18 @@ JSON array:`, snippet)
 		}
 	}
 
-	log.Printf("🚀 Miner found %d flights", len(flights))
-	return flights, nil
+	log.Printf("🚀 Miner found %d flights (pre-dedupe)", len(flights))
+
+	// De-duplicate identical flights (fixes LLM seeing same flight twice in different sections)
+	uniqueFlights := []FlightInfo{}
+	seen := make(map[string]bool)
+	for _, f := range flights {
+		key := fmt.Sprintf("%s-%s-%s-%s", f.Airline, f.DepartureTime, f.ArrivalTime, f.Price)
+		if !seen[key] {
+			seen[key] = true
+			uniqueFlights = append(uniqueFlights, f)
+		}
+	}
+	log.Printf("🚀 Miner produced %d unique flights", len(uniqueFlights))
+	return uniqueFlights, nil
 }
