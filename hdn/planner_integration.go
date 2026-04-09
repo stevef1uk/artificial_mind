@@ -65,7 +65,31 @@ func (h *HDNExecutor) ExecutePlan(ctx context.Context, plan planner.Plan, workfl
 
 // executeCapabilityDirectly executes a capability without going through the planner
 func (h *HDNExecutor) executeCapabilityDirectly(ctx context.Context, step planner.PlanStep, workflowID string) (interface{}, error) {
-	// Try to find and execute the capability directly
+	// 1. Direct Tool Path: If this is an MCP tool, execute it directly
+	if strings.HasPrefix(step.CapabilityID, "mcp_") {
+		log.Printf("🛠️ [PLANNER] Detected MCP tool capability: %s - executing directly", step.CapabilityID)
+		result, err := h.apiServer.executeToolDirect(ctx, step.CapabilityID, step.Args)
+		if err != nil {
+			log.Printf("❌ [PLANNER] Direct MCP tool execution failed: %v", err)
+			return nil, err
+		}
+		return result, nil
+	}
+
+	// 2. Check for other non-code capabilities if any (e.g. language="mcp_tool")
+	if h.apiServer != nil && h.apiServer.plannerIntegration != nil {
+		cap, err := h.apiServer.plannerIntegration.planner.GetCapability(ctx, step.CapabilityID)
+		if err == nil && cap != nil && cap.Language == "mcp_tool" {
+			log.Printf("🛠️ [PLANNER] Found mcp_tool capability: %s (ID: %s) - executing directly", cap.TaskName, cap.ID)
+			result, err := h.apiServer.executeToolDirect(ctx, cap.ID, step.Args)
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		}
+	}
+
+	// 3. Code Generation Path: Try to find and execute the capability as code
 	// First, check if it's a cached code capability - try multiple languages
 	languages := []string{"python", "go", "javascript", "java", "cpp"}
 	var cachedCode *GeneratedCode
@@ -76,14 +100,11 @@ func (h *HDNExecutor) executeCapabilityDirectly(ctx context.Context, step planne
 		if err == nil && cachedCode != nil {
 			log.Printf("🔍 [PLANNER] Found cached code for capability: %s (language: %s)", step.CapabilityID, lang)
 			break
-		} else if err != nil {
-			log.Printf("🔍 [PLANNER] No cached code found for capability: %s (language: %s) - %v", step.CapabilityID, lang, err)
 		}
 	}
 
 	if cachedCode != nil {
 		// Execute the cached code directly
-		// Use the original task name from the cached code, not the capability ID
 		execReq := &ExecutionRequest{
 			TaskName:    cachedCode.TaskName,
 			Description: fmt.Sprintf("Execute capability: %s", step.CapabilityID),
@@ -93,14 +114,12 @@ func (h *HDNExecutor) executeCapabilityDirectly(ctx context.Context, step planne
 			Timeout:     600,
 		}
 
-		// Use traditional execution without planner, ensuring the workflow ID is used
-		log.Printf("🔍 [PLANNER] Executing capability %s with workflow ID: %s", step.CapabilityID, workflowID)
+		log.Printf("🔍 [PLANNER] Executing cached capability %s with workflow ID: %s", step.CapabilityID, workflowID)
 		result, err := h.intelligentExecutor.executeTraditionally(ctx, execReq, time.Now(), workflowID)
 		if err != nil {
 			return nil, err
 		}
 
-		// Store workflow mapping if execution was successful
 		if result != nil && result.Success && result.WorkflowID != "" {
 			h.apiServer.storeWorkflowMapping(workflowID, result.WorkflowID)
 		}
@@ -112,10 +131,9 @@ func (h *HDNExecutor) executeCapabilityDirectly(ctx context.Context, step planne
 		return result.Result, nil
 	}
 
-	// If no cached code, try to generate new code
-	log.Printf("🔍 [PLANNER] No cached code found, generating new code for: %s", step.CapabilityID)
+	// 4. Default: generate new code
+	log.Printf("🔍 [PLANNER] No cached code or direct tool found, generating new code for: %s", step.CapabilityID)
 
-	// Extract original task name from context if available, otherwise use capability ID
 	taskName := step.CapabilityID
 	if originalTaskName, exists := step.Args["original_task_name"]; exists {
 		if taskNameStr, ok := originalTaskName.(string); ok {
@@ -132,14 +150,12 @@ func (h *HDNExecutor) executeCapabilityDirectly(ctx context.Context, step planne
 		Timeout:     30,
 	}
 
-	// Use traditional execution without planner, ensuring the workflow ID is used
-	log.Printf("🔍 [PLANNER] Executing new capability %s with workflow ID: %s", step.CapabilityID, workflowID)
+	log.Printf("🔍 [PLANNER] Executing new capability %s via code generation with workflow ID: %s", step.CapabilityID, workflowID)
 	result, err := h.intelligentExecutor.executeTraditionally(ctx, execReq, time.Now(), workflowID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Store workflow mapping if execution was successful
 	if result != nil && result.Success && result.WorkflowID != "" {
 		h.apiServer.storeWorkflowMapping(workflowID, result.WorkflowID)
 	}

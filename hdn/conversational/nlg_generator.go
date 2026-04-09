@@ -7,6 +7,7 @@ import (
 	"hdn/utils"
 	"log"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 )
@@ -797,13 +798,43 @@ func (nlg *NLGGenerator) formatToolResultRecursive(result interface{}, depth int
 		// 3. Fallback: format as key-value pairs
 		writeSafe("{")
 		keysWritten := 0
+
+		// PRIORITIZATION: Handle special fields first for better LLM ingestion
+		if dj, exists := v["DATA_JSON"]; exists {
+			if s, ok := dj.(string); ok && s != "" {
+				writeSafe("\n--- BEGIN STRUCTURED DATA ---\n")
+				writeSafe(s)
+				writeSafe("\n--- END STRUCTURED DATA ---\n")
+			}
+		}
+
+		if content, exists := v["content"]; exists {
+			if items, ok := content.([]interface{}); ok {
+				writeSafe("\n[MCP Output]:\n")
+				for _, item := range items {
+					if imap, ok := item.(map[string]interface{}); ok {
+						if text, ok := imap["text"].(string); ok {
+							if strings.HasPrefix(text, "DATA_JSON: ") {
+								writeSafe("\n--- BEGIN STRUCTURED DATA ---\n")
+								writeSafe(strings.TrimPrefix(text, "DATA_JSON: "))
+								writeSafe("\n--- END STRUCTURED DATA ---\n")
+							} else {
+								writeSafe(text + "\n")
+							}
+						}
+					}
+				}
+			}
+		}
+
 		for mk, mv := range v {
 			if keysWritten >= 10 {
 				writeSafe(", ... [OTHER KEYS TRUNCATED]")
 				break
 			}
-			// Skip technical/large fields
-			if mk == "raw_html" || mk == "cleaned_html" || mk == "screenshot" || mk == "cookies" || mk == "extraction_method" {
+			// Skip technical/large fields OR already handled fields
+			if mk == "raw_html" || mk == "cleaned_html" || mk == "screenshot" || mk == "cookies" || mk == "extraction_method" ||
+				mk == "DATA_JSON" || mk == "content" {
 				continue
 			}
 
@@ -909,16 +940,56 @@ func (nlg *NLGGenerator) formatToolResultRecursive(result interface{}, depth int
 		}
 
 	default:
-		// Try to handle typed slices that are common
-		if items, ok := v.([]map[string]interface{}); ok {
-			genericItems := make([]interface{}, len(items))
-			for i, item := range items {
-				genericItems[i] = item
-			}
-			nlg.formatToolResultRecursive(genericItems, depth, sb, budget)
-		} else {
-			writeSafe(fmt.Sprintf("Object of type %T", result))
+		// Reflection-based fallback for structs (like mcp.CallToolResult)
+		rv := reflect.ValueOf(v)
+		if rv.Kind() == reflect.Ptr {
+			rv = rv.Elem()
 		}
+
+		if rv.Kind() == reflect.Struct {
+			// Check for Content field (MCP-style)
+			contentField := rv.FieldByName("Content")
+			if contentField.IsValid() && (contentField.Kind() == reflect.Slice || contentField.Kind() == reflect.Array) {
+				writeSafe("\n[MCP Struct Output]:\n")
+				for i := 0; i < contentField.Len(); i++ {
+					item := contentField.Index(i)
+					if item.Kind() == reflect.Struct {
+						textField := item.FieldByName("Text")
+						if textField.IsValid() && textField.Kind() == reflect.String {
+							text := textField.String()
+							if strings.HasPrefix(text, "DATA_JSON: ") {
+								writeSafe("\n--- BEGIN STRUCTURED DATA ---\n")
+								writeSafe(strings.TrimPrefix(text, "DATA_JSON: "))
+								writeSafe("\n--- END STRUCTURED DATA ---\n")
+							} else {
+								writeSafe(text + "\n")
+							}
+						}
+					}
+				}
+				return
+			}
+		}
+
+		// Try to handle typed slices that are common
+		if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
+			writeSafe("[")
+			for i := 0; i < rv.Len(); i++ {
+				if i >= 30 {
+					writeSafe(fmt.Sprintf("\n... [AND %d MORE ITEMS TRUNCATED]", rv.Len()-30))
+					break
+				}
+				if i > 0 {
+					writeSafe("\n")
+				}
+				writeSafe(fmt.Sprintf("[%d] ", i+1))
+				nlg.formatToolResultRecursive(rv.Index(i).Interface(), depth+1, sb, budget)
+			}
+			writeSafe("]")
+			return
+		}
+
+		writeSafe(fmt.Sprintf("%v", v))
 	}
 }
 
