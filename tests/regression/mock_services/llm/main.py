@@ -9,7 +9,7 @@ def get_smart_response(msg):
     
     # 1. SPECIFIC SUCCESS CASES (Highest Priority)
     # This must come first to avoid being caught by generic keyword matches below
-    if ("example" in lower_msg and "domain" in lower_msg) and ("title" in lower_msg or "find" in lower_msg) and "html content" in lower_msg:
+    if ("example" in lower_msg and "domain" in lower_msg) and ("title" in lower_msg or "find" in lower_msg):
         return "Example Domain"
         
     # 2. HYPOTHESIS GENERATION / AGENT PLANNING
@@ -23,8 +23,8 @@ def get_smart_response(msg):
 ]"""
     
     # 3. CODE GENERATION
-    # Only trigger if specifically asked for code or calculations, not just mentioning "code blocks" in instructions
-    if ("write" in lower_msg or "generate" in lower_msg) and ("python" in lower_msg or "code" in lower_msg or "calculate" in lower_msg):
+    # Only trigger if specifically asked for code or calculations
+    if ("write" in lower_msg or "generate" in lower_msg) and ("python code" in lower_msg or "calculate the" in lower_msg):
         return """Here is the Python code:
 ```python
 print('Hello from Mock LLM Code Gen')
@@ -96,8 +96,9 @@ def ollama_chat():
     
     content = f"Mock Ollama response to: {last_msg[:20]}..."
     
-    # 1. SPECIFIC SUCCESS CASES
-    if ("example" in lower_msg and "domain" in lower_msg) and ("title" in lower_msg or "find" in lower_msg) and "html content" in lower_msg:
+    # 1. SPECIFIC SUCCESS CASES (Highest Priority)
+    # Ensure this matches the smart_scrape prompt for example.com
+    if ("example" in lower_msg and "domain" in lower_msg) and ("title" in lower_msg or "find" in lower_msg):
         content = "Example Domain"
     
     # 2. HYPOTHESIS GENERATION / AGENT PLANNING
@@ -110,7 +111,7 @@ def ollama_chat():
 ]"""
     
     # 3. CODE GENERATION
-    elif ("write" in lower_msg or "generate" in lower_msg) and ("python" in lower_msg or "code" in lower_msg or "calculate" in lower_msg):
+    elif ("write" in lower_msg or "generate" in lower_msg) and ("python code" in lower_msg or "calculate the" in lower_msg):
         content = """Here is the Python code you requested:
 ```python
 print('Hello from Mock LLM Code Gen')
