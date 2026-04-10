@@ -32,8 +32,8 @@ func ParseFlightText(text string) []FlightInfo {
 	var flights []FlightInfo
 
 	// Comprehensive time regex: support 12h (10:30 AM) and 24h (10:30) formats
-	// Also handle different dashes used by Google (en-dash, em-dash, hyphen)
-	timeRegex := regexp.MustCompile(`(?i)(\d{1,2}[:\.]\d{2}(?:\s*[AP]M)?)\s*[–—~-]\s*(\d{1,2}[:\.]\d{2}(?:\s*[AP]M)?)`)
+	// Added flexibility for spacing around separators (e.g. "10 . 25") common in some OCR versions.
+	timeRegex := regexp.MustCompile(`(?i)(\d{1,2}[\s]*[:\.]?[\s]*\d{1,2}(?:[\s]*[AP]M)?)\s*[–—~-]\s*(\d{1,2}[\s]*[:\.]?[\s]*\d{1,2}(?:[\s]*[AP]M)?)`)
 	priceRegex := regexp.MustCompile(`(?:^|[\s])([€£\$])\s*(\d{1,4}(?:[\.,]\d{2})?)\b`)
 	durationRegex := regexp.MustCompile(`(\d+)\s*hr\s*(\d+)?\s*min`)
 	stopRegex := regexp.MustCompile(`(?i)(\d+)\s*stop|Nonstop`)
@@ -57,9 +57,9 @@ func ParseFlightText(text string) []FlightInfo {
 				DepartureAirport: "Unknown", ArrivalAirport: "Unknown",
 			}
 
-			// Tight window (5 lines total) to avoid picking up prices from adjacent flights.
-			// Prices in Google Flights are almost always on the same line as the time or below.
-			start, end := i, i+5
+			// Look ahead up to 12 lines to find flight details.
+			// Starting at i ensures we don't pick up data from the previous flight row.
+			start, end := i, i+12
 			if start < 0 { start = 0 }
 			if end > len(lines) { end = len(lines) }
 

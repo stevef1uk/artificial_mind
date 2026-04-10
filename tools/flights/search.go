@@ -304,35 +304,17 @@ func MinerExtractFlights(data string) ([]FlightInfo, error) {
 			snippet = cleaned[:15000]
 		}
 	}
+	prompt := fmt.Sprintf(`STRICT DATA EXTRACTION TASK:
+From the following raw text, extract ALL visible flight options into a JSON list.
 
-	prompt := fmt.Sprintf(`### TASK: Extract REAL FLIGHT DATA from the provided text snippet.
-### IMPORTANT: 
-- RETURN A VALID JSON ARRAY of FLAT OBJECTS ONLY.
-- DO NOT use nested objects.
-- IF NO FLIGHTS ARE EXPRESSLY LISTED IN THE DATA, RETURN AN EMPTY ARRAY '[]'.
-- DO NOT hallucinate flights.
-- DO NOT return hardware, products, or unrelated data.
-- FIELDS: airline, departure_time, arrival_time, duration, stops, price, departure_airport, arrival_airport
+RULES:
+- RETURN A JSON ARRAY OF OBJECTS ONLY.
+- IF NO FLIGHTS ARE EXPRESSLY LISTED, RETURN [].
+- ### DISABLE HARDWARE EXTRACTION: DO NOT extract Mac minis, iMacs, or any Apple products. IGNORE THEM.
+- Fields: airline, price, departure_time, arrival_time, departure_airport, arrival_airport.
 
-REQUIRED JSON FORMAT EXAMPLE:
-[
-  {
-    "airline": "EasyJet",
-    "departure_time": "06:05 AM",
-    "arrival_time": "08:30 AM",
-    "duration": "1h 25m",
-    "stops": "Nonstop",
-    "price": "€76",
-    "departure_airport": "LTN",
-    "arrival_airport": "CDG"
-  }
-]
-
-DATA SNIPPET TO PROCESS:
----
-%s
----
-JSON ARRAY:`, snippet)
+RAW DATA:
+%s`, snippet)
 
 	model := os.Getenv("LLM_MODEL")
 	if model == "" { model = "qwen2.5-coder:7b" }
