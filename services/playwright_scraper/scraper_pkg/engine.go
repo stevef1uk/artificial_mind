@@ -32,14 +32,6 @@ type PlaywrightOperation struct {
 // ParseTypeScriptConfig parses a string of TypeScript-like Playwright commands into a sequence of operations
 func ParseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
 	var operations []PlaywrightOperation
-
-	// Log first 500 chars of the config for debugging
-	preview := tsConfig
-	if len(preview) > 500 {
-		preview = preview[:500] + "..."
-	}
-	log.Printf("📝 TypeScript config (first 500 chars): %s", preview)
-
 	lines := strings.Split(tsConfig, "\n")
 	var currentOp strings.Builder
 	inEvaluate := false
@@ -50,12 +42,16 @@ func ParseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
 			continue
 		}
 
-		// Detect start of evaluate block
-		if !inEvaluate && strings.Contains(trimmed, "page.evaluate") {
+		// Detect start of evaluate block or other complex blocks
+		if !inEvaluate && (strings.Contains(trimmed, "page.evaluate") || 
+			strings.Contains(trimmed, "page.setViewportSize") || 
+			strings.Contains(trimmed, "page.waitForSelector")) {
+			
 			inEvaluate = true
 			currentOp.WriteString(trimmed)
-			// Check if it's a single-line evaluate
-			if strings.HasSuffix(trimmed, "})") || strings.HasSuffix(trimmed, "});") {
+			// Check if it's a single-line block
+			if (strings.HasSuffix(trimmed, "})") || strings.HasSuffix(trimmed, "});")) || 
+			    (strings.Contains(trimmed, "page.goto") && strings.HasSuffix(trimmed, ");")) {
 				inEvaluate = false
 				op := ParseOperation(currentOp.String())
 				if op.Type != "" {
@@ -168,6 +164,13 @@ func ParseOperation(line string) PlaywrightOperation {
 	// iframe locator (fill)
 	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.contentFrame\(\)\.locator\(['"](.+?)['"]\)\.fill\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 3 {
 		return PlaywrightOperation{Type: "iframeLocatorFill", IframeSelector: matches[1], Selector: matches[2], Value: matches[3]}
+	}
+
+	// setViewportSize
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.setViewportSize\(\{\s*width:\s*(\d+),\s*height:\s*(\d+)\s*\}\)`).FindStringSubmatch(line); len(matches) > 2 {
+		w, _ := strconv.Atoi(matches[1])
+		h, _ := strconv.Atoi(matches[2])
+		return PlaywrightOperation{Type: "setViewportSize", Width: w, Height: h}
 	}
 
 	// setUserAgent
@@ -323,6 +326,12 @@ func ExecuteEngine(page pw.Page, operations []PlaywrightOperation, logger Logger
 		logger.Printf("  [%d/%d] Executing: %s", i+1, len(operations), op.Type)
 
 		switch op.Type {
+		case "setViewportSize":
+			if op.Width > 0 && op.Height > 0 {
+				if err := page.SetViewportSize(op.Width, op.Height); err != nil {
+					logger.Printf("   ⚠️ Failed to set viewport: %v", err)
+				}
+			}
 		case "goto":
 			if op.Selector != "" {
 				if _, err := page.Goto(op.Selector, pw.PageGotoOptions{WaitUntil: pw.WaitUntilStateNetworkidle}); err != nil {
@@ -417,7 +426,12 @@ func ExecuteEngine(page pw.Page, operations []PlaywrightOperation, logger Logger
 			}
 
 		case "evaluate":
-			if _, err := page.Evaluate(op.Script); err != nil {
+			script := op.Script
+			// Surgical: Wrap in async IIFE if script contains await
+			if strings.Contains(script, "await") && !strings.Contains(script, "async ()") {
+				script = fmt.Sprintf("(async () => { %s })()", script)
+			}
+			if _, err := page.Evaluate(script); err != nil {
 				logger.Printf("   ⚠️ Evaluation failed: %v", err)
 			}
 
