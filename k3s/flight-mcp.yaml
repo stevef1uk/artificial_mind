@@ -86,30 +86,44 @@ spec:
             await page.goto("%s&sort=price_asc");
             await page.waitForTimeout(5000);
             await page.bypassConsent(); 
-            
+
             // 3. Multi-stage wait and result verification (Wrapped in evaluate for parser compatibility)
-            console.log("Stage 3: Waiting for results and lazy loading...");
+            console.log("Stage 3: Waiting for full results list...");
             await page.evaluate(async () => {
-                // Wait for the results container
-                console.log("Waiting for container...");
-                // Note: We can only use standard DOM APIs here, not 'page.'
-                const checkVisibility = () => document.body.innerText.match(/[€£$¥]/);
+                const getResultCount = () => document.querySelectorAll("div[role='listitem'], li.pI9Vpc").length;
+                const isStillLoading = () => document.body.innerText.includes("Loading results") || document.body.innerText.includes("Chargement");
                 
-                for (let i = 0; i < 40; i++) {
-                    window.scrollBy(0, 800);
-                    if (checkVisibility()) break;
+                console.log("Waiting for results to populate...");
+                for (let i = 0; i < 45; i++) {
+                    window.scrollBy(0, 500);
+                    const count = getResultCount();
+                    const loading = isStillLoading();
+                    
+                    // If we have 3+ results and loading is gone, we are likely done
+                    if (count >= 3 && !loading) {
+                        console.log("✅ Sufficient results found (" + count + ").");
+                        break;
+                    }
+                    
+                    // If we see "No flights found", we are also done
+                    if (document.body.innerText.includes("No flights") || document.body.innerText.includes("aucun vol")) {
+                        console.log("✅ Confirmed no flights.");
+                        break;
+                    }
+
                     await new Promise(r => setTimeout(r, 1000));
-                    if (i % 5 === 0) window.scrollTo(0, 0);
+                    if (i % 10 === 0) window.scrollTo(0, 0); // Reset scroll occasionally to poke the engine
                 }
                 
-                // Deep scroll to finish
-                for (let i = 0; i < 5; i++) {
+                // Final thorough scroll to ensure all lazy elements are in place
+                console.log("Finalizing scroll...");
+                for (let i = 0; i < 6; i++) {
                     window.scrollBy(0, 1500);
-                    await new Promise(r => setTimeout(r, 1000));
+                    await new Promise(r => setTimeout(r, 800));
                 }
                 window.scrollTo(0, 0);
             });
-            await page.waitForTimeout(5000);
+            await page.waitForTimeout(3000);
         
         volumeMounts:
         - name: dshm
