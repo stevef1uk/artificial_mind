@@ -76,12 +76,10 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		console.log("Stage 2: Performing search via direct URL...");
 		await page.goto("%s&sort=price_asc");
 		await page.waitForTimeout(3000);
-		await page.bypassConsent(); // Redundant check in case search triggers it
-		
+		await page.bypassConsent(); // Ensure consent is cleared at result stage if it reappears
 		// Final check for results - expanded selectors for robustness
 		console.log("Waiting for results table with universal selectors...");
-		const universalSelector = "div[role='listitem'], li.pI9Vpc, [jsname='I897t'], div[aria-label^='Flight']";
-		await page.waitForSelector(universalSelector, { timeout: 30000 });
+		await page.waitForSelector("div[role='listitem'], .pI9Vpc, [jsname='I897t'], div[aria-label^='Flight'], .nS495e", { timeout: 30000 });
 		
 		// 3. Scroll and Expand to ensure all results load
 		console.log("Stage 3: Deep scrolling and expanding results...");
@@ -90,9 +88,14 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 				window.scrollBy(0, 1000);
 				await new Promise(r => setTimeout(r, 800));
 			}
-			// Attempt to click expansion buttons for 'Other flights'
-			const btn = document.querySelector("button:has-text('More flights'), button:has-text('Other departing flights'), [aria-label*='Show more']");
-			if (btn) btn.click();
+			// Attempt to click expansion buttons for 'Other flights' using STANDARD CSS/JS
+			const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
+			const moreBtn = buttons.find(b => 
+				b.textContent.includes('More flights') || 
+				b.textContent.includes('Other departing flights') ||
+				(b.getAttribute('aria-label') && b.getAttribute('aria-label').includes('Show more'))
+			);
+			if (moreBtn) moreBtn.click();
 			
 			window.scrollBy(0, 2000);
 			await new Promise(r => setTimeout(r, 1000));
