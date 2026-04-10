@@ -87,58 +87,48 @@ spec:
             await page.waitForTimeout(5000);
             await page.bypassConsent(); 
 
-            // 3. Multi-stage wait and result verification
-            console.log("Stage 3: Crushing overlays and waiting for results...");
-            await page.keyboard.press("Escape");
-            await page.waitForTimeout(500);
-            await page.keyboard.press("Escape");
+            // 3. Diagnostic Wait and Results Extraction
+            console.log("Stage 3: Running Diagnostics and Waiting...");
+            await page.waitForTimeout(5000); // 5s static wait to let things settle
             
             await page.evaluate(async () => {
-                const getResultCount = () => document.querySelectorAll("div[role='listitem'], li.pI9Vpc, [jsname='I897t']").length;
-                const isStillLoading = () => document.body.innerText.includes("Loading results") || document.body.innerText.includes("Chargement");
+                console.log("DEBUG: Page Title = " + document.title);
+                console.log("DEBUG: Current URL = " + window.location.href);
                 
-                // Overlay Crusher: Remove common Google popups/modals
-                const crushOverlays = () => {
-                   const selectors = ['div[aria-modal="true"]', '.VfPpkd-Sx9Kwc', 'div[jsname="V67SHe"]', '.modal-open', '[role="dialog"]'];
-                   selectors.forEach(s => {
-                      document.querySelectorAll(s).forEach(el => el.remove());
-                   });
-                   document.body.style.overflow = 'auto';
-                   document.documentElement.style.overflow = 'auto';
-                };
+                // Overlay Crusher
+                document.querySelectorAll('div[aria-modal="true"], [role="dialog"], .VfPpkd-Sx9Kwc').forEach(el => el.remove());
                 
-                console.log("Waiting for results to populate...");
-                for (let i = 0; i < 50; i++) {
-                    crushOverlays();
-                    window.scrollBy(0, 500);
-                    const count = getResultCount();
-                    const loading = isStillLoading();
-                    
-                    // We want at least 8 results on a route like LHR-CDG
-                    if (count >= 8 && !loading) {
-                        console.log("✅ Sufficient results found (" + count + ").");
-                        break;
-                    }
-                    
-                    if (document.body.innerText.includes("No flights") || document.body.innerText.includes("aucun vol")) {
-                        console.log("✅ Confirmed no flights.");
-                        break;
-                    }
+                const results = document.querySelectorAll("div[role='listitem'], li.pI9Vpc, [jsname='I897t']");
+                console.log("DEBUG: Found " + results.length + " potential result elements.");
+                
+                if (results.length > 0) {
+                    const snippets = Array.from(results).slice(0, 5).map(el => el.innerText.substring(0, 40).replace(/\n/g, ' '));
+                    console.log("DEBUG: Result Snippets: " + snippets.join(" | "));
+                } else {
+                    console.log("DEBUG: No results found. Body Text (first 200 chars): " + document.body.innerText.substring(0, 200).replace(/\n/g, ' '));
+                }
 
-                    await new Promise(r => setTimeout(r, 1000));
-                    if (i % 5 === 0) window.scrollTo(0, 0); 
+                // If we are stuck on a "Select City" page, try to click the first option
+                if (document.title.includes("Select") || document.title.includes("Choisir")) {
+                    console.log("DEBUG: Detected selection page. Clicking first option...");
+                    const firstOption = document.querySelector("[role='link'], [role='button']");
+                    if (firstOption) firstOption.click();
                 }
                 
-                // Final thorough scroll
-                crushOverlays();
-                for (let i = 0; i < 8; i++) {
-                    window.scrollBy(0, 1200);
-                    await new Promise(r => setTimeout(r, 1000));
-                }
-                window.scrollTo(0, 0);
-                crushOverlays();
+                // Force a scroll to bottom to ensure lazy loads trigger
+                window.scrollTo(0, 5000);
             });
-            await page.waitForTimeout(3000);
+
+            await page.waitForTimeout(5000);
+            console.log("Final check before screenshot...");
+            await page.keyboard.press("Escape");
+            await page.waitForTimeout(2000);
+            
+            // Re-run results check after the scroll
+            await page.evaluate(() => {
+                const results = document.querySelectorAll("div[role='listitem'], li.pI9Vpc");
+                console.log("DEBUG: Post-scroll result count: " + results.length);
+            });
         
         volumeMounts:
         - name: dshm
