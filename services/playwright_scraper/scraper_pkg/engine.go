@@ -71,8 +71,9 @@ func ParseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
 		}
 
 		if inEvaluate {
-			currentOp.WriteString(" " + trimmed)
-			if strings.Contains(trimmed, "})") || strings.Contains(trimmed, ");") {
+			currentOp.WriteString(line + "\n")
+			// Stricter end detection: only }) or }); at the very end of a line
+			if strings.HasSuffix(trimmed, "})") || strings.HasSuffix(trimmed, "});") {
 				inEvaluate = false
 				content := currentOp.String()
 				startIdx := strings.Index(content, "{")
@@ -80,6 +81,8 @@ func ParseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
 				if startIdx != -1 && endIdx != -1 && endIdx > startIdx {
 					inner := strings.TrimSpace(content[startIdx+1 : endIdx])
 					operations = append(operations, PlaywrightOperation{Type: "evaluate", Script: inner})
+				} else {
+					log.Printf("⚠️ Failed to parse evaluate block: %s", trimmed)
 				}
 				currentOp.Reset()
 			}
