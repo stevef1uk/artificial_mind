@@ -52,23 +52,14 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=%s&hl=%s&gl=%s&curr=%s%s", strings.ReplaceAll(queryText, " ", "+"), opts.Language, opts.Region, opts.Currency, cabinParam)
 	rootURL := fmt.Sprintf("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s", opts.Language, opts.Region, opts.Currency)
 
-	// 2. Build the navigation script (PREFER environment variable from YAML for rapid iteration)
-	envScript := os.Getenv("FLIGHT_SCRAPER_SCRIPT")
-	var tsConfig string
-
-	if envScript != "" {
-		log.Printf("📜 Using custom scrape script from environment variable...")
-		tsConfig = fmt.Sprintf(envScript, rootURL, searchURL)
-	} else {
-		log.Printf("📜 Using default built-in scrape script...")
-		tsConfig = fmt.Sprintf(`
+	tsConfig := fmt.Sprintf(`
 		await page.setViewportSize({ width: 1920, height: 2500 });
 		await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
 		
 		// 1. Initial load to clear consent and set locale
 		console.log("Stage 1: Clearing consent on Travel Flights...");
 		await page.goto("%s");
-		try { await page.waitForLoadState("networkidle", { timeout: 15000 }); } catch(e) {}
+		try { await page.waitForLoadState("networkidle", { timeout: 10000 }); } catch(e) {}
 		await page.bypassConsent();
 		await page.waitForTimeout(2000); 
 
@@ -76,10 +67,11 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		console.log("Stage 2: Performing search via direct URL...");
 		await page.goto("%s&sort=price_asc");
 		await page.waitForTimeout(3000);
-		await page.bypassConsent(); // Ensure consent is cleared at result stage if it reappears
-		// Final check for results - expanded selectors for robustness
-		console.log("Waiting for results table with universal selectors...");
-		await page.waitForSelector("div[role='listitem'], .pI9Vpc, [jsname='I897t'], div[aria-label^='Flight'], .nS495e", { timeout: 30000 });
+		await page.bypassConsent(); // Redundant check in case search triggers it
+		
+		// Final check for results
+		console.log("Waiting for results table...");
+		await page.waitForSelector("div[role='listitem'], li.pI9Vpc", { timeout: 30000 });
 		
 		// 3. Scroll and Expand to ensure all results load
 		console.log("Stage 3: Deep scrolling and expanding results...");
@@ -88,14 +80,9 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 				window.scrollBy(0, 1000);
 				await new Promise(r => setTimeout(r, 800));
 			}
-			// Attempt to click expansion buttons for 'Other flights' using STANDARD CSS/JS
-			const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
-			const moreBtn = buttons.find(b => 
-				b.textContent.includes('More flights') || 
-				b.textContent.includes('Other departing flights') ||
-				(b.getAttribute('aria-label') && b.getAttribute('aria-label').includes('Show more'))
-			);
-			if (moreBtn) moreBtn.click();
+			// Attempt to click expansion buttons for 'Other flights'
+			const btn = document.querySelector("button:has-text('More flights'), button:has-text('Other departing flights'), [aria-label*='Show more']");
+			if (btn) btn.click();
 			
 			window.scrollBy(0, 2000);
 			await new Promise(r => setTimeout(r, 1000));
@@ -103,7 +90,6 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		});
 		await page.waitForTimeout(2000);
 	`, rootURL, searchURL)
-	}
 
 	screenshotPath := getScreenshotPath()
 	body, _ := json.Marshal(map[string]interface{}{

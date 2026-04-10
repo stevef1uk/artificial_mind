@@ -1,10 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"strings"
-	"time"
 )
 
 func getOllamaURL() string {
@@ -21,7 +19,8 @@ func getOllamaURL() string {
 func getScreenshotPath() string {
 	path := os.Getenv("SCREENSHOT_PATH")
 	if path == "" {
-		return fmt.Sprintf("artifacts/flight_results_%d.png", time.Now().Unix())
+		// Fallback to local directory if not specified
+		return "artifacts/latest_screenshot.png"
 	}
 	return path
 }
