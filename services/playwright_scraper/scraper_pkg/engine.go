@@ -63,6 +63,10 @@ func ParseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
 				endIdx := strings.LastIndex(content, "}")
 				if startIdx != -1 && endIdx != -1 && endIdx > startIdx {
 					inner := strings.TrimSpace(content[startIdx+1 : endIdx])
+					// If script contains await, wrap it in an async IIFE
+					if strings.Contains(inner, "await") && !strings.Contains(inner, "async ()") {
+						inner = fmt.Sprintf("(async () => { %s })()", inner)
+					}
 					operations = append(operations, PlaywrightOperation{Type: "evaluate", Script: inner})
 				}
 				currentOp.Reset()
@@ -80,6 +84,10 @@ func ParseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
 				endIdx := strings.LastIndex(content, "}")
 				if startIdx != -1 && endIdx != -1 && endIdx > startIdx {
 					inner := strings.TrimSpace(content[startIdx+1 : endIdx])
+					// If script contains await, wrap it in an async IIFE
+					if strings.Contains(inner, "await") && !strings.Contains(inner, "async ()") {
+						inner = fmt.Sprintf("(async () => { %s })()", inner)
+					}
 					operations = append(operations, PlaywrightOperation{Type: "evaluate", Script: inner})
 				} else {
 					log.Printf("⚠️ Failed to parse evaluate block: %s", trimmed)
