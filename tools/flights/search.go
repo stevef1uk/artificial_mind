@@ -160,7 +160,13 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	genKey := func(f FlightInfo) string {
 		// Use numeric price for key to avoid '£80' vs '80' mismatch
 		price := parsePrice(f.Price)
-		return strings.ToLower(fmt.Sprintf("%s-%s-%.0f", f.Airline, f.DepartureTime, price))
+		airline := strings.ToLower(f.Airline)
+		// Normalize: "EasyJet (U2)" -> "easyjet"
+		if idx := strings.Index(airline, "("); idx != -1 {
+			airline = airline[:idx]
+		}
+		airline = strings.TrimSpace(airline)
+		return fmt.Sprintf("%s-%s-%.0f", airline, f.DepartureTime, price)
 	}
 	
 	for _, f := range ocrFlights {
@@ -297,23 +303,16 @@ func MinerExtractFlights(data string) ([]FlightInfo, error) {
 		}
 	}
 
-	prompt := fmt.Sprintf(`### IMPORTANT: You MUST return a VALID JSON ARRAY of FLAT OBJECTS.
-### DO NOT use nested objects.
-### IF NO FLIGHTS ARE PHYSICALLY ON THE PAGE, RETURN AN EMPTY ARRAY '[]'.
-### DO NOT ever hallucinate flights or use placeholder data.
-### FIELDS: airline, departure_time, arrival_time, duration, stops, price, departure_airport, arrival_airport
+	prompt := fmt.Sprintf(`### TASK: Extract REAL FLIGHT DATA from the provided text snippet.
+### IMPORTANT: 
+- RETURN A VALID JSON ARRAY of FLAT OBJECTS ONLY.
+- DO NOT use nested objects.
+- IF NO FLIGHTS ARE EXPRESSLY LISTED IN THE DATA, RETURN AN EMPTY ARRAY '[]'.
+- DO NOT hallucinate flights.
+- DO NOT return hardware, products, or unrelated data.
+- FIELDS: airline, departure_time, arrival_time, duration, stops, price, departure_airport, arrival_airport
 
-Return a JSON array of objects with these fields ONLY:
-- airline (string)
-- departure_time (string)
-- arrival_time (string)
-- duration (string)
-- stops (string)
-- price (string)
-- departure_airport (string)
-- arrival_airport (string)
-
-REQUIRED FORMAT EXAMPLE:
+REQUIRED JSON FORMAT EXAMPLE:
 [
   {
     "airline": "EasyJet",
@@ -321,17 +320,17 @@ REQUIRED FORMAT EXAMPLE:
     "arrival_time": "08:30 AM",
     "duration": "1h 25m",
     "stops": "Nonstop",
-    "price": "£76",
+    "price": "€76",
     "departure_airport": "LTN",
     "arrival_airport": "CDG"
   }
 ]
 
-Data snippet:
+DATA SNIPPET TO PROCESS:
 ---
 %s
 ---
-Final JSON array:`, snippet)
+JSON ARRAY:`, snippet)
 
 	model := os.Getenv("LLM_MODEL")
 	if model == "" { model = "qwen2.5-coder:7b" }
