@@ -80,12 +80,16 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		// 2. Perform the search - use the MOST stable entry point
 		console.log("Stage 2: Performing search via direct URL...");
 		await page.goto("%s&sort=price_asc");
-		await page.waitForTimeout(3000);
+		await page.waitForLoadState("networkidle", { timeout: 15000 });
 		await page.bypassConsent(); // Redundant check in case search triggers it
 		
 		// Final check for results
 		console.log("Waiting for results table...");
-		await page.waitForSelector("div[role='listitem'], li.pI9Vpc", { timeout: 30000 });
+		try {
+			await page.waitForSelector("div[role='listitem'], .pI9Vpc, [jsname='I897t'], [aria-label^='Flight'], .nS495e, h3:has-text('options'), h3:has-text('flights'), div:has-text('Best'), div:has-text('Cheapest')", { timeout: 30000 });
+		} catch (e) {
+			console.log("Results selector timeout - taking screenshot anyway");
+		}
 		
 		// 3. Scroll and Expand to ensure all results load
 		console.log("Stage 3: Deep scrolling and expanding results...");
@@ -95,8 +99,9 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 				await new Promise(r => setTimeout(r, 800));
 			}
 			// Attempt to click expansion buttons for 'Other flights'
-			const btn = document.querySelector("button:has-text('More flights'), button:has-text('Other departing flights'), [aria-label*='Show more']");
-			if (btn) btn.click();
+			const buttons = Array.from(document.querySelectorAll("button"));
+			const moreBtn = buttons.find(b => b.textContent.includes("More flights") || b.textContent.includes("Other departing flights") || b.ariaLabel?.includes("Show more"));
+			if (moreBtn) moreBtn.click();
 			
 			window.scrollBy(0, 2000);
 			await new Promise(r => setTimeout(r, 1000));
@@ -153,7 +158,9 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	// 3. Combine and de-duplicate
 	flightMap := make(map[string]FlightInfo)
 	genKey := func(f FlightInfo) string {
-		return strings.ToLower(fmt.Sprintf("%s-%s-%s", f.Airline, f.DepartureTime, f.Price))
+		// Use numeric price for key to avoid '£80' vs '80' mismatch
+		price := parsePrice(f.Price)
+		return strings.ToLower(fmt.Sprintf("%s-%s-%.0f", f.Airline, f.DepartureTime, price))
 	}
 	
 	for _, f := range ocrFlights {

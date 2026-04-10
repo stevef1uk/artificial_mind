@@ -56,23 +56,30 @@ func ParseFlightText(text string) []FlightInfo {
 				DepartureAirport: "Unknown", ArrivalAirport: "Unknown",
 			}
 
-			// Wider search window (15 lines) to catch labels that might be separated by ads or styling
-			start, end := i-5, i+12
+			// Tight window (6 lines total) to avoid picking up prices from adjacent flights.
+			// Prices in Google Flights are almost always on the same line as the time or adjacent.
+			start, end := i-1, i+4
 			if start < 0 { start = 0 }
 			if end > len(lines) { end = len(lines) }
 
+			// Priority 1: Check same line for price (most accurate)
+			if pm := priceRegex.FindStringSubmatch(line); len(pm) > 0 {
+				symbol := pm[1]
+				val := strings.ReplaceAll(pm[2], ",", "")
+				if len(val) <= 4 {
+					flight.Price = symbol + val
+				}
+			}
+
+			// Priority 2: Check surrounding lines
 			for j := start; j < end; j++ {
 				l := lines[j]
 				if pm := priceRegex.FindStringSubmatch(l); len(pm) > 0 && flight.Price == "Unknown" {
 					symbol := pm[1]
-					// Remove commas (thousands separators) but keep dots (decimal separators)
 					val := strings.ReplaceAll(pm[2], ",", "")
-					// CRITICAL: Prevent OCR hallucinations of massive prices
-					if len(val) > 4 { 
-						log.Printf("⚠️ Filtering suspicious price: %s", val)
-						continue 
+					if len(val) <= 4 {
+						flight.Price = symbol + val
 					}
-					flight.Price = symbol + val
 				}
 				if dm := durationRegex.FindStringSubmatch(l); len(dm) > 0 && flight.Duration == "Unknown" {
 					flight.Duration = dm[0]
