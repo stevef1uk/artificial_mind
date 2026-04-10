@@ -87,48 +87,28 @@ spec:
             await page.waitForTimeout(5000);
             await page.bypassConsent(); 
 
-            // 3. Diagnostic Wait and Results Extraction
-            console.log("Stage 3: Running Diagnostics and Waiting...");
-            await page.waitForTimeout(5000); // 5s static wait to let things settle
+            // 3. Robust Wait for Results
+            console.log("Stage 3: Waiting for results to appear (up to 30s)...");
+            try {
+                await page.waitForSelector("div[role='listitem'], li.pI9Vpc, [jsname='I897t']", { timeout: 30000 });
+                console.log("✅ Results selector detected!");
+            } catch (e) {
+                console.log("⚠️ Results selector NOT found after 30s. Checking body text...");
+            }
             
             await page.evaluate(async () => {
-                console.log("DEBUG: Page Title = " + document.title);
-                console.log("DEBUG: Current URL = " + window.location.href);
-                
-                // Overlay Crusher
-                document.querySelectorAll('div[aria-modal="true"], [role="dialog"], .VfPpkd-Sx9Kwc').forEach(el => el.remove());
-                
                 const results = document.querySelectorAll("div[role='listitem'], li.pI9Vpc, [jsname='I897t']");
-                console.log("DEBUG: Found " + results.length + " potential result elements.");
-                
+                console.log("DEBUG RESULTS COUNT: " + results.length);
                 if (results.length > 0) {
-                    const snippets = Array.from(results).slice(0, 5).map(el => el.innerText.substring(0, 40).replace(/\n/g, ' '));
-                    console.log("DEBUG: Result Snippets: " + snippets.join(" | "));
-                } else {
-                    console.log("DEBUG: No results found. Body Text (first 200 chars): " + document.body.innerText.substring(0, 200).replace(/\n/g, ' '));
+                    const snippets = Array.from(results).slice(0, 3).map(el => el.innerText.substring(0, 30).replace(/\n/g, ' '));
+                    console.log("DEBUG PREVIEW: " + snippets.join(" | "));
                 }
-
-                // If we are stuck on a "Select City" page, try to click the first option
-                if (document.title.includes("Select") || document.title.includes("Choisir")) {
-                    console.log("DEBUG: Detected selection page. Clicking first option...");
-                    const firstOption = document.querySelector("[role='link'], [role='button']");
-                    if (firstOption) firstOption.click();
-                }
-                
-                // Force a scroll to bottom to ensure lazy loads trigger
-                window.scrollTo(0, 5000);
+                window.scrollTo(0, 3000);
             });
 
             await page.waitForTimeout(5000);
-            console.log("Final check before screenshot...");
             await page.keyboard.press("Escape");
             await page.waitForTimeout(2000);
-            
-            // Re-run results check after the scroll
-            await page.evaluate(() => {
-                const results = document.querySelectorAll("div[role='listitem'], li.pI9Vpc");
-                console.log("DEBUG: Post-scroll result count: " + results.length);
-            });
         
         volumeMounts:
         - name: dshm
