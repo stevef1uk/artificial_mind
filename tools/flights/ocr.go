@@ -33,11 +33,11 @@ func ParseFlightText(text string) []FlightInfo {
 
 	// Comprehensive time regex: support 12h (10:30 AM) and 24h (10:30) formats
 	// Also handle different dashes used by Google (en-dash, em-dash, hyphen)
-	timeRegex := regexp.MustCompile(`(?i)(\d{1,2}:\d{2}(?:\s*[AP]M)?)\s*[–—~-]\s*(\d{1,2}:\d{2}(?:\s*[AP]M)?)`)
+	timeRegex := regexp.MustCompile(`(?i)(\d{1,2}[:\.]\d{2}(?:\s*[AP]M)?)\s*[–—~-]\s*(\d{1,2}[:\.]\d{2}(?:\s*[AP]M)?)`)
 	priceRegex := regexp.MustCompile(`([€£\$])\s*([\d,\.]+)`)
 	durationRegex := regexp.MustCompile(`(\d+)\s*hr\s*(\d+)?\s*min`)
-	stopRegex := regexp.MustCompile(`(\d+)\s*stop|Nonstop`)
-	routeRegex := regexp.MustCompile(`\b([A-Z]{3})\s*[^A-Z0-9]?\s*([A-Z]{3})\b`)
+	stopRegex := regexp.MustCompile(`(?i)(\d+)\s*stop|Nonstop`)
+	routeRegex := regexp.MustCompile(`(?i)\b([A-Z]{3})[-—–\s]+([A-Z]{3})\b`)
 
 	airlines := []string{
 		"Virgin Atlantic", "British Airways", "Air France", "Delta", "KLM", "United", 
@@ -81,8 +81,8 @@ func ParseFlightText(text string) []FlightInfo {
 					flight.Stops = sm[0]
 				}
 				if rm := routeRegex.FindStringSubmatch(l); len(rm) > 0 && flight.DepartureAirport == "Unknown" {
-					flight.DepartureAirport = rm[1]
-					flight.ArrivalAirport = rm[2]
+					flight.DepartureAirport = strings.ToUpper(rm[1])
+					flight.ArrivalAirport = strings.ToUpper(rm[2])
 				}
 				if flight.Airline == "Unknown" {
 					for _, a := range airlines {

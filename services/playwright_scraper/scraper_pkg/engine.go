@@ -302,7 +302,7 @@ func ParseOperation(line string) PlaywrightOperation {
 		}
 		return PlaywrightOperation{Type: "waitLoadState", Value: matches[1], TimeoutMS: timeout}
 	}
-	if matches := regexp.MustCompile(`(?:await\s+)?page\.mouse\.wheel\((\d+),\s*(\d+)\)`).FindStringSubmatch(line); len(matches) > 2 {
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.mouse\.wheel\((-?\d+),\s*(-?\d+)\)`).FindStringSubmatch(line); len(matches) > 2 {
 		x, _ := strconv.Atoi(matches[1])
 		y, _ := strconv.Atoi(matches[2])
 		return PlaywrightOperation{Type: "mouseWheel", X: x, Y: y}

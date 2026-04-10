@@ -90,7 +90,8 @@ spec:
             // 3. High-Patience Result Detection
             console.log("Stage 3: Waiting for result elements...");
             try {
-                await page.waitForSelector("div[role=\"listitem\"], .pI9Vpc, [jsname=\"I897t\"], div[aria-label^=\"Flight\"], .nS495e", { timeout: 45000 });
+                // Wait for any indicator of results: listitems, tabs, or specific text
+                await page.waitForSelector("div[role='listitem'], .pI9Vpc, [jsname='I897t'], [aria-label^='Flight'], .nS495e, h3:has-text('options'), h3:has-text('flights'), div:has-text('Best'), div:has-text('Cheapest')", { timeout: 45000 });
                 console.log("✅ Results detected!");
             } catch (e) {
                 console.log("⚠️ Results timeout - taking safety screenshot anyway.");
