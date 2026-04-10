@@ -74,63 +74,42 @@ spec:
             await page.setViewportSize({ width: 1920, height: 2500 });
             await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
             
-            // 1. Initial load to clear consent and set locale
-            console.log("Stage 1: Clearing consent on Travel Flights...");
-            await page.goto("%%s");
+            // 1. Initial load
+            console.log("Stage 1: Clearing consent...");
+            await page.goto("%s");
             try { await page.waitForLoadState("networkidle", { timeout: 15000 }); } catch(e) {}
             await page.bypassConsent();
             await page.waitForTimeout(3000); 
 
-            // 2. Perform the search
-            console.log("Stage 2: Performing search via direct URL...");
-            await page.goto("%%s&sort=price_asc");
+            // 2. Search
+            console.log("Stage 2: Navigating to search URL...");
+            await page.goto("%s&sort=price_asc");
             await page.waitForTimeout(5000);
             await page.bypassConsent(); 
             
-            // Final check for results (Increase timeout to 60s for Pi)
-            console.log("Waiting for results table (60s timeout)...");
-            try {
-              await page.waitForSelector("div[role='listitem'], li.pI9Vpc, [aria-label*='Flight details']", { timeout: 60000 });
-            } catch(e) {
-               console.log("⚠️ Selector timeout reached, proceeding with best-effort screenshot.");
-            }
-            
-            // 3. Scroll and Expand to ensure all results load
-            console.log("Stage 3: Deep scrolling and expanding results...");
+            // 3. Multi-stage wait and result verification (Wrapped in evaluate for parser compatibility)
+            console.log("Stage 3: Waiting for results and lazy loading...");
             await page.evaluate(async () => {
-                for (let i = 0; i < 8; i++) {
-                    window.scrollBy(0, 1000);
+                // Wait for the results container
+                console.log("Waiting for container...");
+                // Note: We can only use standard DOM APIs here, not 'page.'
+                const checkVisibility = () => document.body.innerText.match(/[€£$¥]/);
+                
+                for (let i = 0; i < 40; i++) {
+                    window.scrollBy(0, 800);
+                    if (checkVisibility()) break;
+                    await new Promise(r => setTimeout(r, 1000));
+                    if (i % 5 === 0) window.scrollTo(0, 0);
+                }
+                
+                // Deep scroll to finish
+                for (let i = 0; i < 5; i++) {
+                    window.scrollBy(0, 1500);
                     await new Promise(r => setTimeout(r, 1000));
                 }
                 window.scrollTo(0, 0);
             });
-            await page.waitForTimeout(3000);
-            
-            // Final verify: does a price symbol exist? (Wait up to 20s more)
-            console.log("⏳ Final check for data visibility...");
-            for (let i = 0; i < 20; i++) {
-                const content = await page.textContent("body");
-                if (content.match(/[€£$¥]/)) {
-                    console.log("✅ Data visible.");
-                    break;
-                }
-                await page.waitForTimeout(1000);
-            }
-            
-            // LOG RESULTS FOR VERIFICATION
-            const resultCount = await page.locator("div[role='listitem'], li.pI9Vpc").count();
-            console.log("📊 VERIFICATION: Found " + resultCount + " result items.");
-            
-            if (resultCount === 0) {
-               const content = await page.textContent("body");
-               if (content.includes("No flights") || content.includes("aucun vol") || content.includes("No practical flights")) {
-                   console.log("✅ VERIFICATION: Confirmed 'No flights found' message.");
-               } else {
-                   console.log("❌ VERIFICATION: Result count is 0 and no 'No flights' message. Page text length: " + (content ? content.length : 0));
-               }
-            }
-            
-            await page.waitForTimeout(5000); // Small final buffer for animations Small final buffer for animations
+            await page.waitForTimeout(5000);
         
         volumeMounts:
         - name: dshm
