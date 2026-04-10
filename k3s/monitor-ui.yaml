@@ -102,6 +102,7 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
+          volumeMounts:
             - name: customer-key
               mountPath: /keys
               readOnly: true
