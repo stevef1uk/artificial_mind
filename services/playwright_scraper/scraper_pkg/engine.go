@@ -359,6 +359,11 @@ func ParseOperation(line string) PlaywrightOperation {
 
 // ExecuteEngine runs a sequence of PlaywrightOperations on an existing Page
 func ExecuteEngine(page pw.Page, operations []PlaywrightOperation, logger Logger) error {
+	// Log console messages from the browser
+	page.OnConsole(func(msg pw.ConsoleMessage) {
+		log.Printf("👤 BROWSER [%s]: %s", msg.Type(), msg.Text())
+	})
+
 	for i, op := range operations {
 		logger.Printf("  [%d/%d] Executing: %s", i+1, len(operations), op.Type)
 
