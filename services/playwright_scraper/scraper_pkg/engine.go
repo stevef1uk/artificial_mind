@@ -58,9 +58,12 @@ func ParseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
 			// Check if it's a single-line evaluate
 			if strings.HasSuffix(trimmed, "})") || strings.HasSuffix(trimmed, "});") {
 				inEvaluate = false
-				op := ParseOperation(currentOp.String())
-				if op.Type != "" {
-					operations = append(operations, op)
+				content := currentOp.String()
+				startIdx := strings.Index(content, "{")
+				endIdx := strings.LastIndex(content, "}")
+				if startIdx != -1 && endIdx != -1 && endIdx > startIdx {
+					inner := strings.TrimSpace(content[startIdx+1 : endIdx])
+					operations = append(operations, PlaywrightOperation{Type: "evaluate", Script: inner})
 				}
 				currentOp.Reset()
 			}
@@ -71,9 +74,12 @@ func ParseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
 			currentOp.WriteString(" " + trimmed)
 			if strings.Contains(trimmed, "})") || strings.Contains(trimmed, ");") {
 				inEvaluate = false
-				op := ParseOperation(currentOp.String())
-				if op.Type != "" {
-					operations = append(operations, op)
+				content := currentOp.String()
+				startIdx := strings.Index(content, "{")
+				endIdx := strings.LastIndex(content, "}")
+				if startIdx != -1 && endIdx != -1 && endIdx > startIdx {
+					inner := strings.TrimSpace(content[startIdx+1 : endIdx])
+					operations = append(operations, PlaywrightOperation{Type: "evaluate", Script: inner})
 				}
 				currentOp.Reset()
 			}
