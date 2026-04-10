@@ -308,6 +308,10 @@ func ParseOperation(line string) PlaywrightOperation {
 		return PlaywrightOperation{Type: "waitLoadState", Value: matches[1]}
 	}
 
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.waitForLoadState\(['"](\w+)['"](?:,\s*\{.+?\})?\)`).FindStringSubmatch(line); len(matches) > 1 {
+		return PlaywrightOperation{Type: "waitLoadState", Value: matches[1]}
+	}
+
 	// Misc
 	if matches := regexp.MustCompile(`(?s)(?:await\s+)?page\.evaluate\(\s*\(.*?\)\s*=>\s*(?:\{([\s\S]+?)\}|([\s\S]+?))\s*\)`).FindStringSubmatch(line); len(matches) > 1 {
 		script := matches[1]
@@ -436,8 +440,23 @@ func ExecuteEngine(page pw.Page, operations []PlaywrightOperation, logger Logger
 			}
 
 		case "waitSelector":
-			if _, err := page.WaitForSelector(op.Selector, pw.PageWaitForSelectorOptions{Timeout: pw.Float(10000)}); err != nil {
+			timeout := float64(30000)
+			if op.TimeoutMS > 0 {
+				timeout = float64(op.TimeoutMS)
+			}
+			if _, err := page.WaitForSelector(op.Selector, pw.PageWaitForSelectorOptions{Timeout: pw.Float(timeout)}); err != nil {
 				logger.Printf("   ⚠️ Wait for selector %s failed: %v", op.Selector, err)
+			}
+
+		case "waitLoadState":
+			state := pw.WaitUntilStateNetworkidle
+			if op.Value == "load" {
+				state = pw.WaitUntilStateLoad
+			} else if op.Value == "domcontentloaded" {
+				state = pw.WaitUntilStateDomcontentloaded
+			}
+			if err := page.WaitForLoadState(pw.PageWaitForLoadStateOptions{State: state, Timeout: pw.Float(30000)}); err != nil {
+				logger.Printf("   ⚠️ Wait for load state %s failed: %v", op.Value, err)
 			}
 
 		default:
