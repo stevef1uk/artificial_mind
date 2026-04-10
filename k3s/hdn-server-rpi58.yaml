@@ -171,6 +171,8 @@ spec:
               value: "18790"
             - name: PICOCLAW_WS_TOKEN
               value: "test-token"
+            - name: ARTIFACTS_DIR
+              value: "/app/artifacts"
             - name: UNPACK_WORK_DIR
               value: "/tmp/unpack"
             # Docker resource limits for Raspberry Pi (increased for code validation)
@@ -262,6 +264,8 @@ spec:
             - name: ssh-keys
               mountPath: /root/.ssh
               readOnly: true
+            - name: artifacts
+              mountPath: /app/artifacts
       volumes:
         - name: customer-key
           secret:
@@ -284,6 +288,9 @@ spec:
           secret:
             secretName: ssh-keys
             defaultMode: 0600
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: pvc-artifacts
       securityContext:
         runAsNonRoot: false
         runAsUser: 0

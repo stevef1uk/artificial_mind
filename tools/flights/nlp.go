@@ -20,7 +20,7 @@ Return a JSON object with these fields ONLY:
 - destination (airport code, e.g. "CDG")
 - start_date (YYYY-MM-DD)
 - end_date (YYYY-MM-DD)
-- cabin (e.g. "Economy")
+- cabin (Default to "Economy". ONLY use "Business" or "First" if specifically requested in the input text.)
 
 IMPORTANT: The current year is %d. If no year is specified in the query, you MUST use %d.
 ONLY return JSON.`, query, currentYear, currentYear)

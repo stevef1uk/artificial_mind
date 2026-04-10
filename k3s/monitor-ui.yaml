@@ -75,6 +75,8 @@ spec:
                 secretKeyRef:
                   name: secure-vendor
                   key: token
+            - name: ARTIFACTS_DIR
+              value: "/app/artifacts"
             - name: UNPACK_WORK_DIR
               value: "/tmp/unpack"
           livenessProbe:
@@ -100,14 +102,18 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
-          volumeMounts:
             - name: customer-key
               mountPath: /keys
               readOnly: true
+            - name: artifacts
+              mountPath: /app/artifacts
       volumes:
         - name: customer-key
           secret:
             secretName: secure-customer-private
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: pvc-artifacts
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

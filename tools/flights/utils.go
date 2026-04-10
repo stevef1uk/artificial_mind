@@ -20,7 +20,7 @@ func getScreenshotPath() string {
 	path := os.Getenv("SCREENSHOT_PATH")
 	if path == "" {
 		// Fallback to local directory if not specified
-		return "remote_flight_screenshot.png"
+		return "artifacts/latest_screenshot.png"
 	}
 	return path
 }

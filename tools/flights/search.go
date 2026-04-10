@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,8 +31,25 @@ func SearchFlights(opts SearchOptions) ([]FlightInfo, string, error) {
  
 // SearchFlightsWithScraper performs a synchronous scrape request to the Playwright service
 func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightInfo, string, error) {
-	queryText := fmt.Sprintf("flights from %s to %s on %s return %s", opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
-	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=%s&hl=%s&gl=%s&curr=%s", strings.ReplaceAll(queryText, " ", "+"), opts.Language, opts.Region, opts.Currency)
+	cabinQuery := ""
+	cabinParam := ""
+	cabinLower := strings.ToLower(opts.CabinClass)
+	
+	if strings.Contains(cabinLower, "business") {
+		cabinQuery = " business class"
+		cabinParam = "&tf=sc:b"
+	} else if strings.Contains(cabinLower, "premium") {
+		cabinQuery = " premium economy"
+		cabinParam = "&tf=sc:p"
+	} else if strings.Contains(cabinLower, "first") {
+		cabinQuery = " first class"
+		cabinParam = "&tf=sc:f"
+	}
+
+	log.Printf("🛂 Cabin selection: '%s' -> Query suffix: '%s', Param: '%s'", opts.CabinClass, cabinQuery, cabinParam)
+
+	queryText := fmt.Sprintf("flights from %s to %s on %s return %s%s", opts.Departure, opts.Destination, opts.StartDate, opts.EndDate, cabinQuery)
+	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=%s&hl=%s&gl=%s&curr=%s%s", strings.ReplaceAll(queryText, " ", "+"), opts.Language, opts.Region, opts.Currency, cabinParam)
 	rootURL := fmt.Sprintf("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s", opts.Language, opts.Region, opts.Currency)
 
 	tsConfig := fmt.Sprintf(`
@@ -119,14 +137,17 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	
 	// 3. Combine and de-duplicate
 	flightMap := make(map[string]FlightInfo)
+	genKey := func(f FlightInfo) string {
+		return strings.ToLower(fmt.Sprintf("%s-%s-%s", f.Airline, f.DepartureTime, f.Price))
+	}
+	
 	for _, f := range ocrFlights {
-		key := fmt.Sprintf("%s-%s", f.Airline, f.DepartureTime)
-		flightMap[key] = f
+		flightMap[genKey(f)] = f
 	}
 	for _, f := range minerFlights {
-		key := fmt.Sprintf("%s-%s", f.Airline, f.DepartureTime)
-		// Prefer Miner attributes if already present, as it's usually more accurate
-		flightMap[key] = f 
+		// Miner usually has better attributes but might miss time. 
+		// If it's a "close enough" match, we could merge, but for now just add.
+		flightMap[genKey(f)] = f 
 	}
 
 	var flights []FlightInfo
@@ -134,10 +155,21 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		flights = append(flights, f)
 	}
 
-	log.Printf("📊 Combined Results: %d (OCR: %d, Miner: %d)", len(flights), len(ocrFlights), len(minerFlights))
+	// 4. Sort by price (cheapest first)
+	sort.Slice(flights, func(i, j int) bool {
+		pi := parsePrice(flights[i].Price)
+		pj := parsePrice(flights[j].Price)
+		return pi < pj
+	})
 
+	log.Printf("📊 Combined & Sorted Results: %d (OCR: %d, Miner: %d)", len(flights), len(ocrFlights), len(minerFlights))
+
+	finalURL, _ := result["url"].(string)
 	for i := range flights {
 		flights[i].CabinClass = opts.CabinClass
+		if flights[i].URL == "" {
+			flights[i].URL = finalURL
+		}
 	}
 
 	return flights, screenshotPath, nil
@@ -173,7 +205,17 @@ func SearchFlightsNative(opts SearchOptions) ([]FlightInfo, string, error) {
 	page, err := context.NewPage()
 	if err != nil { return nil, "", fmt.Errorf("could not create page: %v", err) }
 
-	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=flights+from+%s+to+%s+on+%s+return+%s&hl=en-US&gl=US&curr=EUR", opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
+	cabinQuery := ""
+	cabinLower := strings.ToLower(opts.CabinClass)
+	if strings.Contains(cabinLower, "business") {
+		cabinQuery = "+business+class"
+	} else if strings.Contains(cabinLower, "premium") {
+		cabinQuery = "+premium+economy"
+	} else if strings.Contains(cabinLower, "first") {
+		cabinQuery = "+first+class"
+	}
+
+	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=flights+from+%s+to+%s+on+%s+return+%s%s&hl=%s&gl=%s&curr=%s", opts.Departure, opts.Destination, opts.StartDate, opts.EndDate, cabinQuery, opts.Language, opts.Region, opts.Currency)
 	log.Printf("Navigating to: %s", searchURL)
 	if _, err = page.Goto(searchURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateNetworkidle}); err != nil {
 		return nil, "", fmt.Errorf("could not navigate: %v", err)
@@ -235,6 +277,8 @@ func MinerExtractFlights(data string) ([]FlightInfo, error) {
 
 	prompt := fmt.Sprintf(`### IMPORTANT: You MUST return a VALID JSON ARRAY of FLAT OBJECTS.
 ### DO NOT use nested objects.
+### IF NO FLIGHTS ARE PHYSICALLY ON THE PAGE, RETURN AN EMPTY ARRAY '[]'.
+### DO NOT ever hallucinate flights or use placeholder data.
 ### FIELDS: airline, departure_time, arrival_time, duration, stops, price, departure_airport, arrival_airport
 
 Return a JSON array of objects with these fields ONLY:
@@ -386,4 +430,16 @@ Final JSON array:`, snippet)
 	}
 
 	return flights, nil
+}
+
+func parsePrice(priceStr string) float64 {
+	priceStr = strings.ReplaceAll(priceStr, ",", "")
+	re := regexp.MustCompile(`[\d.]+`)
+	match := re.FindString(priceStr)
+	if match == "" {
+		return 999999
+	}
+	var p float64
+	fmt.Sscanf(match, "%f", &p)
+	return p
 }

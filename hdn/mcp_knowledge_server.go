@@ -178,6 +178,13 @@ func (s *MCPKnowledgeServer) GetAllPromptHints() map[string]*PromptHintsConfig {
 		ForceToolCall: true,
 		AlwaysInclude: []string{"nemoclaw"},
 	}
+
+	// Add hints for search_flights
+	hints["search_flights"] = &PromptHintsConfig{
+		Keywords:      []string{"flight", "airline", "CDG", "LHR", "JFK", "airport"},
+		PromptText:    "✅ FOR FLIGHT RESULTS: When presenting results, ALWAYS list at least the top 5 cheapest options with their specific times and airlines. Use a bulleted list. Do NOT just summarize with a range.",
+		ForceToolCall: false,
+	}
 	return hints
 }
 

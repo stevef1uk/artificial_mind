@@ -90,6 +90,8 @@ spec:
           readOnly: true
         - name: dshm
           mountPath: /dev/shm
+        - name: artifacts
+          mountPath: /app/artifacts
       
       volumes:
       - name: customer-key
@@ -99,6 +101,9 @@ spec:
         emptyDir:
           medium: Memory
           sizeLimit: 256Mi
+      - name: artifacts
+        persistentVolumeClaim:
+          claimName: pvc-artifacts
       
       securityContext:
         runAsNonRoot: false

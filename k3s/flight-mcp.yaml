@@ -65,6 +65,10 @@ spec:
           value: "/usr/bin/chromium"
         - name: DEBUG
           value: "pw:api"
+        - name: SCREENSHOT_PATH
+          value: "/app/artifacts/latest_screenshot.png"
+        - name: ARTIFACTS_DIR
+          value: "/app/artifacts"
         - name: FLIGHT_SCRAPER_SCRIPT
           value: |
             await page.goto("%s");
@@ -187,6 +191,8 @@ spec:
         volumeMounts:
         - name: dshm
           mountPath: /dev/shm
+        - name: artifacts
+          mountPath: /app/artifacts
 
         livenessProbe:
           # Note: mcp-go doesn't have a built-in health check endpoint yet, 
@@ -207,3 +213,6 @@ spec:
         emptyDir:
           medium: Memory
           sizeLimit: 512Mi
+      - name: artifacts
+        persistentVolumeClaim:
+          claimName: pvc-artifacts

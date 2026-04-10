@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -46,7 +48,7 @@ func main() {
 		mcp.WithString("destination", mcp.Required(), mcp.Description("Destination airport code (e.g., CDG, LHR)")),
 		mcp.WithString("start_date", mcp.Required(), mcp.Description("Departure date (YYYY-MM-DD)")),
 		mcp.WithString("end_date", mcp.Required(), mcp.Description("Return date (YYYY-MM-DD)")),
-		mcp.WithString("cabin", mcp.Description("Cabin class (Economy, Business, First, Premium Economy). Default: Economy")),
+		mcp.WithString("cabin", mcp.Description("The travel class. Defaults to Economy. Only change if the user specifically requests a different class.")),
 	), searchFlightsHandler)
 
 	if *transportType == "sse" {
@@ -126,11 +128,48 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 	// HEURISTIC: Broaden search for multi-airport cities if specific major ones are used
 	// This helps find easyJet/Ryanair results from alternative airports (LTN, LGW, etc)
 	cityMappings := map[string]string{
+		"LONDON": "LON", "PARIS": "PAR", "NEW YORK": "NYC", "NYC": "NYC",
 		"LHR": "LON", "LGW": "LON", "LTN": "LON", "STN": "LON", "LCY": "LON",
 		"CDG": "PAR", "ORY": "PAR", "BVA": "PAR",
 		"EWR": "NYC", "JFK": "NYC", "LGA": "NYC",
 	}
+
+	// 1. Resolve full names to codes using mapping
+	if code, ok := cityMappings[strings.ToUpper(opts.Departure)]; ok {
+		opts.Departure = code
+	}
+	if code, ok := cityMappings[strings.ToUpper(opts.Destination)]; ok {
+		opts.Destination = code
+	}
+
+	// 2. If still not a 3-letter code, use LLM to resolve (e.g. "San Francisco" -> "SFO")
+	iataRegex := regexp.MustCompile(`^[A-Z]{3}$`)
+	if !iataRegex.MatchString(strings.ToUpper(opts.Departure)) || !iataRegex.MatchString(strings.ToUpper(opts.Destination)) {
+		log.Printf("🏙️ Resolving vague city names via NLP: %s -> %s", opts.Departure, opts.Destination)
+		q := fmt.Sprintf("flight from %s to %s", opts.Departure, opts.Destination)
+		extracted, err := ExtractOptionsFromQuery(q)
+		if err == nil {
+			if iataRegex.MatchString(extracted.Departure) { opts.Departure = extracted.Departure }
+			if iataRegex.MatchString(extracted.Destination) { opts.Destination = extracted.Destination }
+		}
+	}
+
+	// 3. Past Date Prevention: If year is in the past, bump to current year
+	currentYear := time.Now().Year()
+	dateFix := func(d string) string {
+		if len(d) >= 4 {
+			y, _ := strconv.Atoi(d[:4])
+			if y < currentYear {
+				log.Printf("📅 Correcting past year: %s -> %d%s", d, currentYear, d[4:])
+				return fmt.Sprintf("%d%s", currentYear, d[4:])
+			}
+		}
+		return d
+	}
+	opts.StartDate = dateFix(opts.StartDate)
+	opts.EndDate = dateFix(opts.EndDate)
 	
+	// 4. Final broadening (e.g. LHR -> LON)
 	origDep, origDest := opts.Departure, opts.Destination
 	if city, ok := cityMappings[strings.ToUpper(opts.Departure)]; ok {
 		opts.Departure = city
@@ -205,13 +244,14 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 	// Generate structured JSON for the reasoning engine
 	jsonData, _ := json.MarshalIndent(flights, "", "  ")
 
-	// Generate a summary for the chat response
+	// Generate a clean summary for the chat response
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Found %d flight options from %s to %s on %s. (Luton/Gatwick/Heathrow are included in LON group)\n", len(flights), opts.Departure, opts.Destination, opts.StartDate))
+	sb.WriteString(fmt.Sprintf("Found %d flight options from %s to %s on %s.\n\n", len(flights), opts.Departure, opts.Destination, opts.StartDate))
+	sb.WriteString("Recommended Options:\n")
 	for i, f := range flights {
-		sb.WriteString(fmt.Sprintf("[%d] %s: %s (%s to %s, %s, %s)\n", i+1, f.Airline, f.Price, f.DepartureAirport, f.ArrivalAirport, f.Duration, f.Stops))
-		if i == 4 { // Only show top 5 in text summary to keep it clean
-			sb.WriteString("... [truncated, see JSON for full list]\n")
+		sb.WriteString(fmt.Sprintf("• %s: %s (Dep: %s, Arr: %s) - %s to %s\n", f.Airline, f.Price, f.DepartureTime, f.ArrivalTime, f.DepartureAirport, f.ArrivalAirport))
+		if i == 5 { // Show top 6 in text summary
+			sb.WriteString("\n... [Additional options available in DATA_JSON]")
 			break
 		}
 	}

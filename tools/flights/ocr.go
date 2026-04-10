@@ -65,7 +65,14 @@ func ParseFlightText(text string) []FlightInfo {
 				l := lines[j]
 				if pm := priceRegex.FindStringSubmatch(l); len(pm) > 0 && flight.Price == "Unknown" {
 					symbol := pm[1]
-					flight.Price = symbol + strings.ReplaceAll(strings.ReplaceAll(pm[2], ",", ""), ".", "")
+					// Remove commas (thousands separators) but keep dots (decimal separators)
+					val := strings.ReplaceAll(pm[2], ",", "")
+					// CRITICAL: Prevent OCR hallucinations of massive prices
+					if len(val) > 4 { 
+						log.Printf("⚠️ Filtering suspicious price: %s", val)
+						continue 
+					}
+					flight.Price = symbol + val
 				}
 				if dm := durationRegex.FindStringSubmatch(l); len(dm) > 0 && flight.Duration == "Unknown" {
 					flight.Duration = dm[0]
@@ -88,7 +95,7 @@ func ParseFlightText(text string) []FlightInfo {
 
 			if flight.Price != "Unknown" {
 				flights = append(flights, flight)
-				log.Printf("✅ Found Flight: %s %s at %s", flight.Airline, flight.Price, flight.DepartureTime)
+				log.Printf("✅ Found Flight: %s %s at %s (%s to %s)", flight.Airline, flight.Price, flight.DepartureTime, flight.DepartureAirport, flight.ArrivalAirport)
 			}
 		}
 	}
