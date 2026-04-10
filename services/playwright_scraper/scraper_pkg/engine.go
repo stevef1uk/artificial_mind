@@ -454,6 +454,7 @@ func ExecuteEngine(page pw.Page, operations []PlaywrightOperation, logger Logger
 			timeout := float64(30000)
 			if op.TimeoutMS > 0 {
 				timeout = float64(op.TimeoutMS)
+			// Force sync commit
 			}
 			if err := page.WaitForLoadState(pw.PageWaitForLoadStateOptions{State: state, Timeout: pw.Float(timeout)}); err != nil {
 				logger.Printf("   ⚠️ Wait for load state %s failed: %v", op.Value, err)
