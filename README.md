@@ -120,6 +120,7 @@ The Artificial Mind system consists of several interconnected components that wo
 - [**Tool Metrics**](docs/TOOL_METRICS_README.md) - Performance monitoring and metrics
 - [**Scraper Quick Start**](docs/SCRAPER_QUICK_START.md) - "Easy Mode" AI-powered scraping
 - [**Scraper Configuration Guide**](docs/SCRAPER_CONFIGURATION_GUIDE.md) - Best practices for dynamic data extraction
+- [**Flight Search Service**](docs/FLIGHT_SERVICE.md) - High-fidelity flight extraction architecture
 
 ### 🐳 Infrastructure & Deployment
 - [**Docker Compose**](docker-compose.yml) - Local development deployment
