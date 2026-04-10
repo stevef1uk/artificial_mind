@@ -56,9 +56,9 @@ func ParseFlightText(text string) []FlightInfo {
 				DepartureAirport: "Unknown", ArrivalAirport: "Unknown",
 			}
 
-			// Tight window (6 lines total) to avoid picking up prices from adjacent flights.
-			// Prices in Google Flights are almost always on the same line as the time or adjacent.
-			start, end := i-1, i+4
+			// Tight window (5 lines total) to avoid picking up prices from adjacent flights.
+			// Prices in Google Flights are almost always on the same line as the time or below.
+			start, end := i, i+5
 			if start < 0 { start = 0 }
 			if end > len(lines) { end = len(lines) }
 

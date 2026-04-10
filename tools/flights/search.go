@@ -166,7 +166,9 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 			airline = airline[:idx]
 		}
 		airline = strings.TrimSpace(airline)
-		return fmt.Sprintf("%s-%s-%.0f", airline, f.DepartureTime, price)
+		// Normalize time: "10.25" -> "10:25"
+		time := strings.ReplaceAll(f.DepartureTime, ".", ":")
+		return fmt.Sprintf("%s-%s-%.0f", airline, time, price)
 	}
 	
 	for _, f := range ocrFlights {

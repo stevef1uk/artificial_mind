@@ -20,9 +20,14 @@ Return a JSON object with these fields ONLY:
 - destination (airport code, e.g. "CDG")
 - start_date (YYYY-MM-DD)
 - end_date (YYYY-MM-DD)
-- cabin (Default to "Economy". ONLY use "Business" or "First" if specifically requested in the input text.)
+- cabin (Default to "Economy". ONLY use "Business" or "First" if specifically requested in the input text. NOTE: Terms like "morning", "fast", "options", "best" DO NOT imply Business class.)
 
 IMPORTANT: The current year is %d. If no year is specified in the query, you MUST use %d.
+EXAMPLES:
+- "Find morning flights to JFK" -> cabin: "Economy"
+- "Business class to PAR" -> cabin: "Business"
+- "LHR to CDG tomorrow" -> cabin: "Economy"
+
 ONLY return JSON.`, query, currentYear, currentYear)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
