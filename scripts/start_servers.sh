@@ -119,32 +119,22 @@ wait_for_service() {
     return 1
 }
 
-# Clean up any existing processes
-echo "🧹 Cleaning up existing processes..."
-# App/service ports (safe to clean up)
-kill_port 8084 "Principles Server"
-kill_port 8081 "HDN Server"
-kill_port 8082 "Monitor UI"
-kill_port 8083 "FSM Server"
-kill_port 8090 "Goal Manager"
-kill_port 8085 "Playwright Scraper"
-kill_port 8086 "Flight MCP Server"
-# Also ensure no docker container is hogging the port
-docker stop playwright-scraper 2>/dev/null || true
-docker rm playwright-scraper 2>/dev/null || true
-# Infra ports (potentially managed by Docker Desktop) — only clean up if not skipping infra
-if [ "$SKIP_INFRA" != "true" ]; then
-    kill_port 8080 "Weaviate"
-    kill_port 7474 "Neo4j"
-    kill_port 7687 "Neo4j Bolt"
-    kill_port 8080 "Weaviate"
-else
-    echo "⏭️  SKIP_INFRA=true: not touching ports 8080/7474/7687"
-fi
-
 # Resolve project root from env or current dir
 AGI_PROJECT_ROOT=${AGI_PROJECT_ROOT:-$(pwd)}
 export AGI_PROJECT_ROOT
+
+# Clean up any existing processes (Aggressive)
+echo "🧹 Cleaning up existing processes..."
+kill_port 8084 "Principles Server"
+kill_port 8081 "HDN Server"
+kill_port 8082 "Monitor UI"
+kill_port 8085 "Playwright Scraper"
+kill_port 8086 "Flight MCP Server"
+
+# Force sweep for scraper and flights
+lsof -ti:8085 | xargs kill -9 2>/dev/null || true
+lsof -ti:8086 | xargs kill -9 2>/dev/null || true
+
 export AGENTS_CONFIG=$AGI_PROJECT_ROOT/config/agents.yaml
 
 # Load environment from project .env if present
@@ -330,13 +320,15 @@ if ! wait_for_service "http://localhost:8084/action" "Principles Server"; then
 fi
 
 # Start Playwright Scraper
-echo "🔨 Building Playwright Scraper..."
-cd "$AGI_PROJECT_ROOT"
-make build-scraper-binary >/dev/null 2>&1 || { echo "❌ Failed to build Playwright Scraper"; SCRAPER_PID=""; }
+if [ "$REBUILD_FLIGHTS" = "true" ] || [ ! -f "$AGI_PROJECT_ROOT/bin/playwright-scraper" ]; then
+    echo "🔨 Building Playwright Scraper..."
+    cd "$AGI_PROJECT_ROOT/services/playwright_scraper"
+    go build -o "$AGI_PROJECT_ROOT/bin/playwright-scraper" .
+fi
 
 if [ -f "$AGI_PROJECT_ROOT/bin/playwright-scraper" ]; then
-	export CODEGEN_MODE="container"
-	export CODEGEN_OUTPUT_DIR="$AGI_PROJECT_ROOT/data/codegen"
+    export CODEGEN_MODE="container"
+    export CODEGEN_OUTPUT_DIR="$AGI_PROJECT_ROOT/data/codegen"
     export PLAYWRIGHT_EXECUTABLE_PATH="/usr/bin/chromium"
     SCRAPER_PID=$(run_service "playwright_scraper" \
         "$AGI_PROJECT_ROOT" \
@@ -353,9 +345,11 @@ if [ -f "$AGI_PROJECT_ROOT/bin/playwright-scraper" ]; then
 fi
 
 # Start Flight MCP Server
-echo "🔨 Building Flight MCP Server..."
-cd "$AGI_PROJECT_ROOT"
-make build-flights >/dev/null 2>&1 || { echo "❌ Failed to build Flight MCP"; FLIGHTS_PID=""; }
+if [ "$REBUILD_FLIGHTS" = "true" ] || [ ! -f "$AGI_PROJECT_ROOT/bin/flight-mcp" ]; then
+    echo "🔨 Building Flight MCP Server..."
+    cd "$AGI_PROJECT_ROOT/tools/flights"
+    go build -o "$AGI_PROJECT_ROOT/bin/flight-mcp" .
+fi
 
 if [ -f "$AGI_PROJECT_ROOT/bin/flight-mcp" ]; then
     export SCRAPER_URL="http://localhost:8085"

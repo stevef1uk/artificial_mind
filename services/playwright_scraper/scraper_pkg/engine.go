@@ -13,6 +13,8 @@ import (
 
 // PlaywrightOperation represents a parsed operation from TypeScript config
 type PlaywrightOperation struct {
+	X              int
+	Y              int
 	Type           string
 	Selector       string
 	Value          string
@@ -30,74 +32,59 @@ type PlaywrightOperation struct {
 }
 
 // ParseTypeScriptConfig parses a string of TypeScript-like Playwright commands into a sequence of operations
-func ParseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
+func ParseTypeScriptConfig(config string) ([]PlaywrightOperation, error) {
 	var operations []PlaywrightOperation
-	lines := strings.Split(tsConfig, "\n")
-	var currentOp strings.Builder
-	inEvaluate := false
+	lines := strings.Split(config, "\n")
 
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "//") {
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "" || strings.HasPrefix(line, "//") {
 			continue
 		}
 
-		// Detect start of evaluate block or other complex blocks
-		if !inEvaluate && (strings.Contains(trimmed, "page.evaluate") || 
-			strings.Contains(trimmed, "page.setViewportSize") || 
-			strings.Contains(trimmed, "page.waitForSelector")) {
+		// Handle multiline evaluate or other block operations
+		if strings.Contains(line, "page.evaluate") || strings.Contains(line, "page.setViewportSize") || strings.Contains(line, "page.waitForSelector") || strings.Contains(line, "page.mouse.wheel") || strings.Contains(line, "page.waitForLoadState") {
+			// Find start of the block or arguments
+			content := line
 			
-			inEvaluate = true
-			currentOp.WriteString(trimmed)
-			// Check if it's a single-line block
-			if (strings.HasSuffix(trimmed, "})") || strings.HasSuffix(trimmed, "});")) || 
-			    (strings.Contains(trimmed, "page.goto") && strings.HasSuffix(trimmed, ");")) {
-				inEvaluate = false
-				op := ParseOperation(currentOp.String())
-				if op.Type != "" {
-					operations = append(operations, op)
+			// Detect if it opens a brace that needs matching
+			if strings.Contains(line, "{") {
+				braceCount := strings.Count(line, "{") - strings.Count(line, "}")
+				for braceCount > 0 && i+1 < len(lines) {
+					i++
+					content += "\n" + lines[i]
+					braceCount += strings.Count(lines[i], "{") - strings.Count(lines[i], "}")
 				}
-				currentOp.Reset()
-			}
-			continue
-		}
-
-		if inEvaluate {
-			currentOp.WriteString(" " + trimmed)
-			if strings.Contains(trimmed, "})") || strings.Contains(trimmed, ");") {
-				inEvaluate = false
-				op := ParseOperation(currentOp.String())
-				if op.Type != "" {
-					operations = append(operations, op)
+			} else if strings.HasSuffix(line, ";") || strings.Contains(line, ");") {
+				// Single line but complex
+			} else if i+1 < len(lines) && !strings.HasSuffix(line, ";") {
+				// Try to peek next line for completion
+				if strings.Contains(lines[i+1], ");") || strings.Contains(lines[i+1], "}") {
+					i++
+					content += "\n" + lines[i]
 				}
-				currentOp.Reset()
-			}
-			continue
-		}
-
-		// Direct operation on current line
-		if strings.Contains(trimmed, "page.") {
-			// CLEANUP: Remove common JS boilerplate around the command to help the parser
-			cmd := trimmed
-			if idx := strings.Index(cmd, "page."); idx > 0 {
-				cmd = cmd[idx:]
-			}
-			// Remove trailing characters like }; or ) {
-			cmd = strings.TrimRight(cmd, "{}(); ")
-			// Add one back if it was a property call but ParseOperation expects it
-			if strings.Contains(trimmed, "(") && !strings.HasSuffix(cmd, ")") {
-				cmd += ")"
 			}
 
-			op := ParseOperation(cmd)
+			trimmed := strings.TrimSpace(content)
+			op := ParseOperation(trimmed)
 			if op.Type != "" {
 				operations = append(operations, op)
 			} else {
-				log.Printf("⚠️ Failed to parse operation line: %s", trimmed)
+				log.Printf("⚠️ Failed to parse complex operation (Stage 1): %s", trimmed)
+			}
+			continue
+		}
+
+		// Simple single-line fallback
+		op := ParseOperation(line)
+		if op.Type != "" {
+			operations = append(operations, op)
+		} else {
+			if strings.Contains(line, "page.") {
+				log.Printf("⚠️ Failed to parse simple operation line: %s", line)
 			}
 		}
 	}
-
 	return operations, nil
 }
 
@@ -301,15 +288,24 @@ func ParseOperation(line string) PlaywrightOperation {
 		fmt.Sscanf(matches[1], "%d", &timeout)
 		return PlaywrightOperation{Type: "wait", TimeoutMS: timeout}
 	}
-	if matches := regexp.MustCompile(`(?:await\s+)?page\.waitForSelector\(['"](.+?)['"](?:,\s*\{.+?\})?\)`).FindStringSubmatch(line); len(matches) > 1 {
-		return PlaywrightOperation{Type: "waitSelector", Selector: matches[1]}
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.waitForSelector\(['"](.+?)['"](?:,\s*\{\s*timeout:\s*(\d+)\s*\})?\)`).FindStringSubmatch(line); len(matches) > 1 {
+		timeout := 0
+		if len(matches) > 2 {
+			timeout, _ = strconv.Atoi(matches[2])
+		}
+		return PlaywrightOperation{Type: "waitSelector", Selector: matches[1], TimeoutMS: timeout}
 	}
-	if matches := regexp.MustCompile(`(?:await\s+)?page\.waitForLoadState\(['"](\w+)['"](?:,\s*\{.+?\})?\)`).FindStringSubmatch(line); len(matches) > 1 {
-		return PlaywrightOperation{Type: "waitLoadState", Value: matches[1]}
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.waitForLoadState\(['"](\w+)['"](?:,\s*\{\s*timeout:\s*(\d+)\s*\})?\)`).FindStringSubmatch(line); len(matches) > 1 {
+		timeout := 0
+		if len(matches) > 2 {
+			timeout, _ = strconv.Atoi(matches[2])
+		}
+		return PlaywrightOperation{Type: "waitLoadState", Value: matches[1], TimeoutMS: timeout}
 	}
-
-	if matches := regexp.MustCompile(`(?:await\s+)?page\.waitForLoadState\(['"](\w+)['"](?:,\s*\{.+?\})?\)`).FindStringSubmatch(line); len(matches) > 1 {
-		return PlaywrightOperation{Type: "waitLoadState", Value: matches[1]}
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.mouse\.wheel\((\d+),\s*(\d+)\)`).FindStringSubmatch(line); len(matches) > 2 {
+		x, _ := strconv.Atoi(matches[1])
+		y, _ := strconv.Atoi(matches[2])
+		return PlaywrightOperation{Type: "mouseWheel", X: x, Y: y}
 	}
 
 	// Misc
@@ -449,14 +445,23 @@ func ExecuteEngine(page pw.Page, operations []PlaywrightOperation, logger Logger
 			}
 
 		case "waitLoadState":
-			state := pw.WaitUntilStateNetworkidle
+			state := pw.LoadStateNetworkidle
 			if op.Value == "load" {
-				state = pw.WaitUntilStateLoad
+				state = pw.LoadStateLoad
 			} else if op.Value == "domcontentloaded" {
-				state = pw.WaitUntilStateDomcontentloaded
+				state = pw.LoadStateDomcontentloaded
 			}
-			if err := page.WaitForLoadState(pw.PageWaitForLoadStateOptions{State: state, Timeout: pw.Float(30000)}); err != nil {
+			timeout := float64(30000)
+			if op.TimeoutMS > 0 {
+				timeout = float64(op.TimeoutMS)
+			}
+			if err := page.WaitForLoadState(pw.PageWaitForLoadStateOptions{State: &state, Timeout: pw.Float(timeout)}); err != nil {
 				logger.Printf("   ⚠️ Wait for load state %s failed: %v", op.Value, err)
+			}
+
+		case "mouseWheel":
+			if err := page.Mouse().Wheel(float64(op.X), float64(op.Y)); err != nil {
+				logger.Printf("   ⚠️ Mouse wheel failed: %v", err)
 			}
 
 		default:
