@@ -327,9 +327,22 @@ Final JSON array:`, snippet)
 		findVal = func(obj interface{}, key string) string {
 			m, ok := obj.(map[string]interface{})
 			if !ok { return "" }
+			
+			keyLower := strings.ToLower(key)
+
+			// 1. Try exact match first
 			if v, ok := m[key]; ok {
 				return fmt.Sprintf("%v", v)
 			}
+			
+			// 2. Try case-insensitive substring match in current level
+			for k, v := range m {
+				if strings.Contains(strings.ToLower(k), keyLower) {
+					return fmt.Sprintf("%v", v)
+				}
+			}
+			
+			// 3. Recurse into children
 			for _, v := range m {
 				if child, ok := v.(map[string]interface{}); ok {
 					if found := findVal(child, key); found != "" {
