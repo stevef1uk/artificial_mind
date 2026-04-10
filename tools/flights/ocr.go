@@ -37,7 +37,8 @@ func ParseFlightText(text string) []FlightInfo {
 	priceRegex := regexp.MustCompile(`([€£\$])\s*([\d,\.]+)`)
 	durationRegex := regexp.MustCompile(`(\d+)\s*hr\s*(\d+)?\s*min`)
 	stopRegex := regexp.MustCompile(`(?i)(\d+)\s*stop|Nonstop`)
-	routeRegex := regexp.MustCompile(`(?i)\b([A-Z]{3})[-—–\s]+([A-Z]{3})\b`)
+	// Be more specific: require a dash, slash, or dot between codes to avoid 'MIN NON'
+	routeRegex := regexp.MustCompile(`(?i)\b([A-Z]{3})[\s]*[-—–/][\s]*([A-Z]{3})\b`)
 
 	airlines := []string{
 		"Virgin Atlantic", "British Airways", "Air France", "Delta", "KLM", "United", 

@@ -436,16 +436,16 @@ JSON ARRAY:`, snippet)
 		f.Stops = findVal(m, "stops")
 		
 		// Robust Airport search
-		f.DepartureAirport = findVal(m, "departure_airport")
-		if f.DepartureAirport == "" { f.DepartureAirport = findVal(m, "origin") }
-		if f.DepartureAirport == "" { f.DepartureAirport = findVal(m, "from") }
-		if f.DepartureAirport == "" { f.DepartureAirport = findVal(m, "dep") }
-		
-		f.ArrivalAirport = findVal(m, "arrival_airport")
-		if f.ArrivalAirport == "" { f.ArrivalAirport = findVal(m, "destination") }
-		if f.ArrivalAirport == "" { f.ArrivalAirport = findVal(m, "to") }
-		if f.ArrivalAirport == "" { f.ArrivalAirport = findVal(m, "arr") }
-		if f.ArrivalAirport == "" { f.ArrivalAirport = findVal(m, "dest") }
+		f.DepartureAirport = extractIATA(findVal(m, "departure_airport"))
+		if f.DepartureAirport == "" { f.DepartureAirport = extractIATA(findVal(m, "origin")) }
+		if f.DepartureAirport == "" { f.DepartureAirport = extractIATA(findVal(m, "from")) }
+		if f.DepartureAirport == "" { f.DepartureAirport = extractIATA(findVal(m, "dep")) }
+
+		f.ArrivalAirport = extractIATA(findVal(m, "arrival_airport"))
+		if f.ArrivalAirport == "" { f.ArrivalAirport = extractIATA(findVal(m, "destination")) }
+		if f.ArrivalAirport == "" { f.ArrivalAirport = extractIATA(findVal(m, "to")) }
+		if f.ArrivalAirport == "" { f.ArrivalAirport = extractIATA(findVal(m, "arr")) }
+		if f.ArrivalAirport == "" { f.ArrivalAirport = extractIATA(findVal(m, "dest")) }
 
 		if f.Price != "" && f.Airline != "" {
 			flights = append(flights, f)
@@ -465,4 +465,20 @@ func parsePrice(priceStr string) float64 {
 	var p float64
 	fmt.Sscanf(match, "%f", &p)
 	return p
+}
+
+func extractIATA(s string) string {
+	if s == "" { return "" }
+	s = strings.ToUpper(s)
+	// Try to find code in parentheses: "London (LHR)" -> "LHR"
+	re := regexp.MustCompile(`\(([A-Z]{3})\)`)
+	if m := re.FindStringSubmatch(s); len(m) > 1 {
+		return m[1]
+	}
+	// Fallback to searching for the first 3-letter capital word if it looks like a code
+	re2 := regexp.MustCompile(`\b([A-Z]{3})\b`)
+	if m := re2.FindStringSubmatch(s); len(m) > 0 {
+		return m[0]
+	}
+	return s
 }
