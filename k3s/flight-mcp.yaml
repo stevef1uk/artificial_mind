@@ -77,9 +77,9 @@ spec:
             // 1. Initial load to clear consent and set locale
             console.log("Stage 1: Clearing consent...");
             await page.goto("%s");
-            await page.waitForLoadState("networkidle", { timeout: 20000 });
+            await page.waitForLoadState("networkidle", { timeout: 30000 }); // More patience for Pi
             await page.bypassConsent();
-            await page.waitForTimeout(2000); 
+            await page.waitForTimeout(5000); // 5s wait after consent
 
             // 2. Direct Search URL (Most stable for K3s)
             console.log("Stage 2: Navigating to search results...");
@@ -90,21 +90,21 @@ spec:
             // 3. High-Patience Result Detection
             console.log("Stage 3: Waiting for result elements...");
             try {
-                // Use a broad list of selectors in case Google rotates them
-                await page.waitForSelector("div[role='listitem'], .pI9Vpc, [jsname='I897t'], div[aria-label^='Flight'], .nS495e", { timeout: 45000 });
+                await page.waitForSelector("div[role=\"listitem\"], .pI9Vpc, [jsname=\"I897t\"], div[aria-label^=\"Flight\"], .nS495e", { timeout: 45000 });
                 console.log("✅ Results detected!");
             } catch (e) {
                 console.log("⚠️ Results timeout - taking safety screenshot anyway.");
             }
-            
+
             // 4. Scroll & Expand (Force lazy loading of all results)
             console.log("Stage 4: Scrolling to force lazy-load...");
             await page.mouse.wheel(0, 1500);
-            await page.waitForTimeout(2000);
+            await page.waitForTimeout(3000);
             await page.mouse.wheel(0, -1500);
             await page.waitForTimeout(2000);
             await page.keyboard.press("Escape"); // Crush any overlays
-            await page.waitForTimeout(1000);
+            await page.waitForTimeout(2000);
+            
             await page.waitForTimeout(5000); // Small buffer for final render
         
         volumeMounts:
