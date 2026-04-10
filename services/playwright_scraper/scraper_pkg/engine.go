@@ -185,6 +185,18 @@ func ParseOperation(line string) PlaywrightOperation {
 		return PlaywrightOperation{Type: "iframeLocatorFill", IframeSelector: matches[1], Selector: matches[2], Value: matches[3]}
 	}
 
+	// page.evaluate(() => { ... })
+	reEval := regexp.MustCompile(`(?s)(?:await\s+)?page\.evaluate\(\(\)\s*=>\s*\{(.*)\}\)`)
+	if matches := reEval.FindStringSubmatch(line); len(matches) > 1 {
+		return PlaywrightOperation{Type: "evaluate", Script: strings.TrimSpace(matches[1])}
+	}
+	
+	// fallback for evaluate without braces: page.evaluate(() => ...)
+	reEvalSimple := regexp.MustCompile(`(?s)(?:await\s+)?page\.evaluate\(\(\)\s*=>\s*(.*)\)`)
+	if matches := reEvalSimple.FindStringSubmatch(line); len(matches) > 1 {
+		return PlaywrightOperation{Type: "evaluate", Script: strings.TrimSpace(matches[1])}
+	}
+
 	// setUserAgent
 	if matches := regexp.MustCompile(`(?:await\s+)?page\.setUserAgent\(['"](.+?)['"]\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "setUserAgent", UserAgent: matches[1]}
