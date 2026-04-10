@@ -49,7 +49,7 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	log.Printf("🛂 Cabin selection: '%s' -> Query suffix: '%s', Param: '%s'", opts.CabinClass, cabinQuery, cabinParam)
 
 	queryText := fmt.Sprintf("flights from %s to %s on %s return %s%s", opts.Departure, opts.Destination, opts.StartDate, opts.EndDate, cabinQuery)
-	searchURL := fmt.Sprintf("https://www.google.com/travel/flights/search?q=%s&hl=%s&gl=%s&curr=%s%s", strings.ReplaceAll(queryText, " ", "+"), opts.Language, opts.Region, opts.Currency, cabinParam)
+	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=%s&hl=%s&gl=%s&curr=%s%s", strings.ReplaceAll(queryText, " ", "+"), opts.Language, opts.Region, opts.Currency, cabinParam)
 	rootURL := fmt.Sprintf("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s", opts.Language, opts.Region, opts.Currency)
 
 	// 2. Build the navigation script (PREFER environment variable from YAML for rapid iteration)
@@ -67,20 +67,21 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		
 		// 1. Initial load to clear consent and set locale
 		console.log("Stage 1: Clearing consent on Travel Flights...");
-		await page.goto("%%s");
+		await page.goto("%s");
 		try { await page.waitForLoadState("networkidle", { timeout: 15000 }); } catch(e) {}
 		await page.bypassConsent();
 		await page.waitForTimeout(2000); 
 
 		// 2. Perform the search - use the MOST stable entry point
 		console.log("Stage 2: Performing search via direct URL...");
-		await page.goto("%%s&sort=price_asc");
+		await page.goto("%s&sort=price_asc");
 		await page.waitForTimeout(3000);
 		await page.bypassConsent(); // Redundant check in case search triggers it
 		
-		// Final check for results
-		console.log("Waiting for results table...");
-		await page.waitForSelector("div[role='listitem'], li.pI9Vpc", { timeout: 30000 });
+		// Final check for results - expanded selectors for robustness
+		console.log("Waiting for results table with universal selectors...");
+		const universalSelector = "div[role='listitem'], li.pI9Vpc, [jsname='I897t'], div[aria-label^='Flight']";
+		await page.waitForSelector(universalSelector, { timeout: 30000 });
 		
 		// 3. Scroll and Expand to ensure all results load
 		console.log("Stage 3: Deep scrolling and expanding results...");
