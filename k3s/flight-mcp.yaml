@@ -87,41 +87,56 @@ spec:
             await page.waitForTimeout(5000);
             await page.bypassConsent(); 
 
-            // 3. Multi-stage wait and result verification (Wrapped in evaluate for parser compatibility)
-            console.log("Stage 3: Waiting for full results list...");
+            // 3. Multi-stage wait and result verification
+            console.log("Stage 3: Crushing overlays and waiting for results...");
+            await page.keyboard.press("Escape");
+            await page.waitForTimeout(500);
+            await page.keyboard.press("Escape");
+            
             await page.evaluate(async () => {
-                const getResultCount = () => document.querySelectorAll("div[role='listitem'], li.pI9Vpc").length;
+                const getResultCount = () => document.querySelectorAll("div[role='listitem'], li.pI9Vpc, [jsname='I897t']").length;
                 const isStillLoading = () => document.body.innerText.includes("Loading results") || document.body.innerText.includes("Chargement");
                 
+                // Overlay Crusher: Remove common Google popups/modals
+                const crushOverlays = () => {
+                   const selectors = ['div[aria-modal="true"]', '.VfPpkd-Sx9Kwc', 'div[jsname="V67SHe"]', '.modal-open', '[role="dialog"]'];
+                   selectors.forEach(s => {
+                      document.querySelectorAll(s).forEach(el => el.remove());
+                   });
+                   document.body.style.overflow = 'auto';
+                   document.documentElement.style.overflow = 'auto';
+                };
+                
                 console.log("Waiting for results to populate...");
-                for (let i = 0; i < 45; i++) {
+                for (let i = 0; i < 50; i++) {
+                    crushOverlays();
                     window.scrollBy(0, 500);
                     const count = getResultCount();
                     const loading = isStillLoading();
                     
-                    // If we have 3+ results and loading is gone, we are likely done
-                    if (count >= 3 && !loading) {
+                    // We want at least 8 results on a route like LHR-CDG
+                    if (count >= 8 && !loading) {
                         console.log("✅ Sufficient results found (" + count + ").");
                         break;
                     }
                     
-                    // If we see "No flights found", we are also done
                     if (document.body.innerText.includes("No flights") || document.body.innerText.includes("aucun vol")) {
                         console.log("✅ Confirmed no flights.");
                         break;
                     }
 
                     await new Promise(r => setTimeout(r, 1000));
-                    if (i % 10 === 0) window.scrollTo(0, 0); // Reset scroll occasionally to poke the engine
+                    if (i % 5 === 0) window.scrollTo(0, 0); 
                 }
                 
-                // Final thorough scroll to ensure all lazy elements are in place
-                console.log("Finalizing scroll...");
-                for (let i = 0; i < 6; i++) {
-                    window.scrollBy(0, 1500);
-                    await new Promise(r => setTimeout(r, 800));
+                // Final thorough scroll
+                crushOverlays();
+                for (let i = 0; i < 8; i++) {
+                    window.scrollBy(0, 1200);
+                    await new Promise(r => setTimeout(r, 1000));
                 }
                 window.scrollTo(0, 0);
+                crushOverlays();
             });
             await page.waitForTimeout(3000);
         
