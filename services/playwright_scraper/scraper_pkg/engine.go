@@ -27,6 +27,7 @@ type PlaywrightOperation struct {
 	Height         int    // For setViewportSize
 	Script         string // For evaluate
 	UserAgent      string // For setUserAgent
+	State          string // For waitForLoadState
 }
 
 // ParseTypeScriptConfig parses a string of TypeScript-like Playwright commands into a sequence of operations
@@ -86,12 +87,19 @@ func ParseTypeScriptConfig(tsConfig string) ([]PlaywrightOperation, error) {
 			if idx := strings.Index(cmd, "page."); idx > 0 {
 				cmd = cmd[idx:]
 			}
-			// Remove trailing characters like }; or ) {
-			cmd = strings.TrimRight(cmd, "{}(); ")
-			// Add one back if it was a property call but ParseOperation expects it
-			if strings.Contains(trimmed, "(") && !strings.HasSuffix(cmd, ")") {
-				cmd += ")"
+			
+			// Detect if this is a try-catch wrapped line
+			if strings.HasPrefix(trimmed, "try {") {
+				// Internal command is between { and }
+				start := strings.Index(trimmed, "page.")
+				end := strings.LastIndex(trimmed, "}")
+				if start > 0 && end > start {
+					cmd = trimmed[start:end]
+				}
 			}
+
+			// ONLY remove semicolon and trailing space, DO NOT remove brackets/braces as they are part of the command
+			cmd = strings.TrimRight(cmd, "; ")
 
 			op := ParseOperation(cmd)
 			if op.Type != "" {
@@ -131,6 +139,13 @@ func ApplyTemplateVariables(tsConfig string, variables map[string]string) string
 
 // ParseOperation uses regex to convert a single line of TS into a PlaywrightOperation struct
 func ParseOperation(line string) PlaywrightOperation {
+	// setViewportSize
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.setViewportSize\(\{\s*width:\s*(\d+),\s*height:\s*(\d+)\s*\}\)`).FindStringSubmatch(line); len(matches) > 2 {
+		w, _ := strconv.Atoi(matches[1])
+		h, _ := strconv.Atoi(matches[2])
+		return PlaywrightOperation{Type: "setViewportSize", Width: w, Height: h}
+	}
+
 	// iframe getByRole (click)
 	if matches := regexp.MustCompile(`(?:await\s+)?page\.locator\(['"](.+?)['"]\)\.contentFrame\(\)\.getByRole\(['"](\w+)['"],\s*\{\s*name:\s*['"](.+?)['"]\s*\}\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 3 {
 		return PlaywrightOperation{Type: "iframeGetByRole", IframeSelector: matches[1], Role: matches[2], RoleName: matches[3]}
@@ -194,7 +209,7 @@ func ParseOperation(line string) PlaywrightOperation {
 	}
 
 	// getByLabel (click)
-	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByLabel\(['"](.+?)['"](?:,\s*\{.+?\}|,\s*\{exact:\s*true\})?\)\.first\(\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
+	if matches := regexp.MustCompile(`(?:await\s+)? page\.getByLabel\(['"](.+?)['"](?:,\s*\{.+?\}|,\s*\{exact:\s*true\})?\)\.first\(\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
 		return PlaywrightOperation{Type: "getByLabelClick", Text: matches[1]}
 	}
 	if matches := regexp.MustCompile(`(?:await\s+)?page\.getByLabel\(['"](.+?)['"](?:,\s*\{.+?\}|,\s*\{exact:\s*true\})?\)\.click\(\)`).FindStringSubmatch(line); len(matches) > 1 {
@@ -298,11 +313,15 @@ func ParseOperation(line string) PlaywrightOperation {
 		fmt.Sscanf(matches[1], "%d", &timeout)
 		return PlaywrightOperation{Type: "wait", TimeoutMS: timeout}
 	}
-	if matches := regexp.MustCompile(`(?:await\s+)?page\.waitForSelector\(['"](.+?)['"](?:,\s*\{.+?\})?\)`).FindStringSubmatch(line); len(matches) > 1 {
-		return PlaywrightOperation{Type: "waitSelector", Selector: matches[1]}
+	if matches := regexp.MustCompile(`(?:await\s+)?page\.waitForSelector\(['"](.+?)['"](?:,\s*\{\s*timeout:\s*(\d+)\s*\})?\)`).FindStringSubmatch(line); len(matches) > 1 {
+		ms := 10000
+		if len(matches) > 2 && matches[2] != "" {
+			ms, _ = strconv.Atoi(matches[2])
+		}
+		return PlaywrightOperation{Type: "waitSelector", Selector: matches[1], TimeoutMS: ms}
 	}
 	if matches := regexp.MustCompile(`(?:await\s+)?page\.waitForLoadState\(['"](\w+)['"](?:,\s*\{.+?\})?\)`).FindStringSubmatch(line); len(matches) > 1 {
-		return PlaywrightOperation{Type: "waitLoadState", Value: matches[1]}
+		return PlaywrightOperation{Type: "waitLoadState", State: matches[1]}
 	}
 
 	// Misc
@@ -323,6 +342,11 @@ func ExecuteEngine(page pw.Page, operations []PlaywrightOperation, logger Logger
 		logger.Printf("  [%d/%d] Executing: %s", i+1, len(operations), op.Type)
 
 		switch op.Type {
+		case "setViewportSize":
+			if err := page.SetViewportSize(op.Width, op.Height); err != nil {
+				logger.Printf("   ⚠️ Failed to set viewport: %v", err)
+			}
+
 		case "goto":
 			if op.Selector != "" {
 				if _, err := page.Goto(op.Selector, pw.PageGotoOptions{WaitUntil: pw.WaitUntilStateNetworkidle}); err != nil {
@@ -422,8 +446,24 @@ func ExecuteEngine(page pw.Page, operations []PlaywrightOperation, logger Logger
 			}
 
 		case "waitSelector":
-			if _, err := page.WaitForSelector(op.Selector, pw.PageWaitForSelectorOptions{Timeout: pw.Float(10000)}); err != nil {
+			timeout := 10000.0
+			if op.TimeoutMS > 0 {
+				timeout = float64(op.TimeoutMS)
+			}
+			if _, err := page.WaitForSelector(op.Selector, pw.PageWaitForSelectorOptions{Timeout: pw.Float(timeout)}); err != nil {
 				logger.Printf("   ⚠️ Wait for selector %s failed: %v", op.Selector, err)
+			}
+
+		case "waitLoadState":
+			var state *pw.LoadState
+			if op.State != "" {
+				s := pw.LoadState(op.State)
+				state = &s
+			} else {
+				state = pw.LoadStateNetworkidle
+			}
+			if err := page.WaitForLoadState(pw.PageWaitForLoadStateOptions{State: state}); err != nil {
+				logger.Printf("   ⚠️ Wait for load state %v failed: %v", state, err)
 			}
 
 		default:
