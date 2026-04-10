@@ -34,7 +34,7 @@ func ParseFlightText(text string) []FlightInfo {
 	// Comprehensive time regex: support 12h (10:30 AM) and 24h (10:30) formats
 	// Also handle different dashes used by Google (en-dash, em-dash, hyphen)
 	timeRegex := regexp.MustCompile(`(?i)(\d{1,2}[:\.]\d{2}(?:\s*[AP]M)?)\s*[–—~-]\s*(\d{1,2}[:\.]\d{2}(?:\s*[AP]M)?)`)
-	priceRegex := regexp.MustCompile(`([€£\$])\s*([\d,\.]+)`)
+	priceRegex := regexp.MustCompile(`(?:^|[\s])([€£\$])\s*(\d{1,4}(?:[\.,]\d{2})?)\b`)
 	durationRegex := regexp.MustCompile(`(\d+)\s*hr\s*(\d+)?\s*min`)
 	stopRegex := regexp.MustCompile(`(?i)(\d+)\s*stop|Nonstop`)
 	// Be more specific: require a dash, slash, or dot between codes to avoid 'MIN NON'
@@ -65,9 +65,8 @@ func ParseFlightText(text string) []FlightInfo {
 
 			// Priority 1: Check same line for price (most accurate)
 			if pm := priceRegex.FindStringSubmatch(line); len(pm) > 0 {
-				symbol := pm[1]
-				val := strings.ReplaceAll(pm[2], ",", "")
-				if len(val) <= 4 {
+				symbol, val := pm[1], strings.ReplaceAll(pm[2], ",", "")
+				if p := parsePrice(val); p > 0 && p < 2500 {
 					flight.Price = symbol + val
 				}
 			}
@@ -76,9 +75,8 @@ func ParseFlightText(text string) []FlightInfo {
 			for j := start; j < end; j++ {
 				l := lines[j]
 				if pm := priceRegex.FindStringSubmatch(l); len(pm) > 0 && flight.Price == "Unknown" {
-					symbol := pm[1]
-					val := strings.ReplaceAll(pm[2], ",", "")
-					if len(val) <= 4 {
+					symbol, val := pm[1], strings.ReplaceAll(pm[2], ",", "")
+					if p := parsePrice(val); p > 0 && p < 2500 {
 						flight.Price = symbol + val
 					}
 				}

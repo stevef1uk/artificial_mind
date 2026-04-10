@@ -470,15 +470,29 @@ func parsePrice(priceStr string) float64 {
 func extractIATA(s string) string {
 	if s == "" { return "" }
 	s = strings.ToUpper(s)
+	
+	iata := ""
 	// Try to find code in parentheses: "London (LHR)" -> "LHR"
 	re := regexp.MustCompile(`\(([A-Z]{3})\)`)
 	if m := re.FindStringSubmatch(s); len(m) > 1 {
-		return m[1]
+		iata = m[1]
+	} else {
+		// Fallback to searching for the first 3-letter capital word if it looks like a code
+		re2 := regexp.MustCompile(`\b([A-Z]{3})\b`)
+		if m := re2.FindStringSubmatch(s); len(m) > 0 {
+			iata = m[0]
+		}
 	}
-	// Fallback to searching for the first 3-letter capital word if it looks like a code
-	re2 := regexp.MustCompile(`\b([A-Z]{3})\b`)
-	if m := re2.FindStringSubmatch(s); len(m) > 0 {
-		return m[0]
+
+	if iata != "" {
+		// Common OCR corrections for airport codes
+		corrections := map[string]string{
+			"LEW": "LGW", "LOW": "LGW", "LHA": "LHR", "COG": "CDG", "ORG": "ORY",
+		}
+		if corr, ok := corrections[iata]; ok {
+			return corr
+		}
 	}
-	return s
+	
+	return iata
 }
