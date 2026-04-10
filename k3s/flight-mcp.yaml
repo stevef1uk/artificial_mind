@@ -97,6 +97,14 @@ spec:
                 console.log("⚠️ Results timeout - taking safety screenshot anyway.");
             }
             
+            // 4. Scroll & Expand (Force lazy loading of all results)
+            console.log("Stage 4: Scrolling to force lazy-load...");
+            await page.mouse.wheel(0, 1500);
+            await page.waitForTimeout(2000);
+            await page.mouse.wheel(0, -1500);
+            await page.waitForTimeout(2000);
+            await page.keyboard.press("Escape"); // Crush any overlays
+            await page.waitForTimeout(1000);
             await page.waitForTimeout(5000); // Small buffer for final render
         
         volumeMounts:
