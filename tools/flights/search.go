@@ -52,20 +52,29 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=%s&hl=%s&gl=%s&curr=%s%s", strings.ReplaceAll(queryText, " ", "+"), opts.Language, opts.Region, opts.Currency, cabinParam)
 	rootURL := fmt.Sprintf("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s", opts.Language, opts.Region, opts.Currency)
 
-	tsConfig := fmt.Sprintf(`
+	// 2. Build the navigation script (PREFER environment variable from YAML for rapid iteration)
+	envScript := os.Getenv("FLIGHT_SCRAPER_SCRIPT")
+	var tsConfig string
+
+	if envScript != "" {
+		log.Printf("📜 Using custom scrape script from environment variable...")
+		tsConfig = fmt.Sprintf(envScript, rootURL, searchURL)
+	} else {
+		log.Printf("📜 Using default built-in scrape script...")
+		tsConfig = fmt.Sprintf(`
 		await page.setViewportSize({ width: 1920, height: 2500 });
 		await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
 		
 		// 1. Initial load to clear consent and set locale
 		console.log("Stage 1: Clearing consent on Travel Flights...");
-		await page.goto("%s");
-		try { await page.waitForLoadState("networkidle", { timeout: 10000 }); } catch(e) {}
+		await page.goto("%%s");
+		try { await page.waitForLoadState("networkidle", { timeout: 15000 }); } catch(e) {}
 		await page.bypassConsent();
 		await page.waitForTimeout(2000); 
 
 		// 2. Perform the search - use the MOST stable entry point
 		console.log("Stage 2: Performing search via direct URL...");
-		await page.goto("%s&sort=price_asc");
+		await page.goto("%%s&sort=price_asc");
 		await page.waitForTimeout(3000);
 		await page.bypassConsent(); // Redundant check in case search triggers it
 		
@@ -90,6 +99,7 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		});
 		await page.waitForTimeout(2000);
 	`, rootURL, searchURL)
+	}
 
 	screenshotPath := getScreenshotPath()
 	body, _ := json.Marshal(map[string]interface{}{

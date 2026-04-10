@@ -71,106 +71,50 @@ spec:
           value: "/app/artifacts"
         - name: FLIGHT_SCRAPER_SCRIPT
           value: |
-            await page.goto("%s");
+            await page.setViewportSize({ width: 1920, height: 2500 });
+            await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
+            
+            // 1. Initial load to clear consent and set locale
+            console.log("Stage 1: Clearing consent on Travel Flights...");
+            await page.goto("%%s");
+            try { await page.waitForLoadState("networkidle", { timeout: 15000 }); } catch(e) {}
+            await page.bypassConsent();
+            await page.waitForTimeout(3000); 
+
+            // 2. Perform the search
+            console.log("Stage 2: Performing search via direct URL...");
+            await page.goto("%%s&sort=price_asc");
             await page.waitForTimeout(5000);
-            try { await page.bypassConsent(); } catch(e) {}
-            await page.waitForTimeout(2000);
+            await page.bypassConsent(); 
             
-            // 1. Departure
-            console.log("Locating Departure input...");
-            const fromLoc = page.locator("input[placeholder*='Where from'], input[placeholder*='D\\'où'], input[aria-label*='Where from'], input[value*='Current']").first();
-            await fromLoc.waitFor({ state: 'visible', timeout: 15000 });
-            await fromLoc.click();
-            await page.waitForTimeout(500);
-            await fromLoc.fill("%s");
-            await page.waitForTimeout(1500);
-            await page.keyboard.press("Enter");
-            await page.waitForTimeout(1000);
-            
-            // 2. Destination
-            console.log("Locating Destination input...");
-            const toLoc = page.locator("input[placeholder*='Where to'], input[placeholder*='Où allez-vous'], input[aria-label*='Where to']").first();
-            await toLoc.waitFor({ state: 'visible', timeout: 15000 });
-            await toLoc.click();
-            await page.waitForTimeout(500);
-            await toLoc.fill("%s");
-            await page.waitForTimeout(1500);
-            await page.keyboard.press("Enter");
-            await page.waitForTimeout(1000);
-            
-            // 3. Dates
-            console.log("Locating Date input...");
-            const dateLoc = page.locator("input[placeholder*='Departure'], input[placeholder*='Départ'], input[aria-label*='Departure']").first();
-            await dateLoc.waitFor({ state: 'visible', timeout: 15000 });
-            await dateLoc.click();
-            await page.waitForTimeout(2000);
-            await page.keyboard.press("Control+A");
-            await page.keyboard.press("Backspace");
-            await page.keyboard.type("%s");
-            await page.waitForTimeout(1000);
-            await page.keyboard.press("Tab");
-            await page.keyboard.press("Control+A");
-            await page.keyboard.press("Backspace");
-            await page.keyboard.type("%s");
-            await page.waitForTimeout(1000);
-            await page.keyboard.press("Enter");
-            await page.waitForTimeout(2000);
-            
-            // Close any overlays
-            await page.keyboard.press("Escape");
-            await page.waitForTimeout(1000);
-            
-            // 4. Search
-            console.log("Executing Search...");
-            const searchBtn = page.locator("button:has-text('Search'), button:has-text('Rechercher'), button[aria-label*='Search']").first();
-            if (await searchBtn.isVisible()) {
-                await searchBtn.click();
-            } else {
-                await page.keyboard.press("Enter");
+            // Final check for results (Increase timeout to 60s for Pi)
+            console.log("Waiting for results table (60s timeout)...");
+            try {
+              await page.waitForSelector("div[role='listitem'], li.pI9Vpc, [aria-label*='Flight details']", { timeout: 60000 });
+            } catch(e) {
+               console.log("⚠️ Selector timeout reached, proceeding with best-effort screenshot.");
             }
             
-            // Wait for results to actually render
-            console.log("⏳ Waiting for result elements to appear and loading to finish...");
-            try {
-                // Increase the initial wait for results container
-                await page.waitForSelector("div[role='listitem'], li.pI9Vpc", { timeout: 60000 });
-                console.log("✅ Results container detected. Checking for loading state...");
-                
-                // Wait up to 30s more if "Loading results" is visible
-                let loading = true;
-                for (let i = 0; i < 30; i++) {
-                    const content = await page.textContent("body");
-                    if (!content.includes("Loading results") && !content.includes("Chargement") && !content.includes("Loading...")) {
-                        // Also check if we have at least one currency symbol which indicates real data
-                        if (content.match(/[€£$¥]/)) {
-                            loading = false;
-                            console.log("✅ Results loaded successfully (no loading text + currency found).");
-                            break;
-                        }
-                    }
-                    console.log("⏳ Still loading or no data... (" + (i+1) + "/30)");
-                    
-                    // Periodically scroll to trigger lazy loading
-                    if (i %% 5 === 0) {
-                        await page.mouse.wheel(0, 500);
-                        await page.waitForTimeout(500);
-                        await page.mouse.wheel(0, -500);
-                    }
-                    
-                    await page.waitForTimeout(1000);
+            // 3. Scroll and Expand to ensure all results load
+            console.log("Stage 3: Deep scrolling and expanding results...");
+            await page.evaluate(async () => {
+                for (let i = 0; i < 8; i++) {
+                    window.scrollBy(0, 1000);
+                    await new Promise(r => setTimeout(r, 1000));
                 }
-                
-                // Final verify: does a price symbol exist?
-                const hasPrice = (await page.textContent("body")).match(/[€£$¥]/);
-                if (!hasPrice) {
-                    console.log("⚠️ Results elements exist but no currency symbol found yet. Waiting 15s more and scrolling.");
-                    await page.mouse.wheel(0, 1000);
-                    await page.waitForTimeout(15000);
+                window.scrollTo(0, 0);
+            });
+            await page.waitForTimeout(3000);
+            
+            // Final verify: does a price symbol exist? (Wait up to 20s more)
+            console.log("⏳ Final check for data visibility...");
+            for (let i = 0; i < 20; i++) {
+                const content = await page.textContent("body");
+                if (content.match(/[€£$¥]/)) {
+                    console.log("✅ Data visible.");
+                    break;
                 }
-            } catch (e) {
-                console.log("⚠️ Results elements not found/timeout, doing one last scroll and wait.");
-                await page.mouse.wheel(0, 800);
-                await page.waitForTimeout(20000);
+                await page.waitForTimeout(1000);
             }
             
             // LOG RESULTS FOR VERIFICATION
