@@ -176,9 +176,10 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 			airline = airline[:idx]
 		}
 		airline = strings.TrimSpace(airline)
-		// Normalize time: "10.25" -> "10:25"
-		time := strings.ReplaceAll(f.DepartureTime, ".", ":")
-		return fmt.Sprintf("%s-%s-%.0f", airline, time, price)
+		// Normalize: "10.25" -> "10:25"
+		depTime := strings.ReplaceAll(f.DepartureTime, ".", ":")
+		arrTime := strings.ReplaceAll(f.ArrivalTime, ".", ":")
+		return fmt.Sprintf("%s-%s-%s-%.0f", airline, depTime, arrTime, price)
 	}
 	
 	for _, f := range ocrFlights {
@@ -266,17 +267,17 @@ func MinerExtractFlights(data string) ([]FlightInfo, error) {
 	cleaned = reNoisy.ReplaceAllString(cleaned, "")
 
 	snippet := cleaned
-	if len(cleaned) > 15000 {
+	if len(cleaned) > 25000 {
 		pos := strings.Index(cleaned, "Top departing options")
 		if pos == -1 { pos = strings.Index(cleaned, "Best departing flights") }
 		if pos != -1 {
 			start := pos - 500
 			if start < 0 { start = 0 }
-			end := start + 15000
+			end := start + 25000
 			if end > len(cleaned) { end = len(cleaned) }
 			snippet = cleaned[start:end]
 		} else {
-			snippet = cleaned[:15000]
+			snippet = cleaned[:25000]
 		}
 	}
 	prompt := fmt.Sprintf(`### TASK: EXTRACT FLIGHT RESULTS TO JSON

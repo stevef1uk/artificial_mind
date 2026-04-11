@@ -101,8 +101,8 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 			for j := start; j < end; j++ {
 				l := lines[j]
 				
-				// CRITICAL FIX: If we see another time match on a LATER line, stop looking in this row
-				if j > i && timeRegex.MatchString(l) {
+				// RECOVERY: Only stop if we see a likely NEW flight starting (time match on a much later line)
+				if j > i+3 && timeRegex.MatchString(l) {
 					break
 				}
 				
