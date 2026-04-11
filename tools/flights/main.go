@@ -171,12 +171,23 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 	opts.EndDate = dateFix(opts.EndDate)
 	
 	// 4. Final broadening (e.g. LHR -> LON)
+	// ONLY broaden if we don't have a specific 3-letter code, or if the user's intent was general.
+	// But actually, Google Flights is better if we search LON instead of LHR for variety.
+    // HOWEVER, if the user is complaining about 'regression', maybe they want their specific airport.
 	origDep, origDest := opts.Departure, opts.Destination
+    
+    // Heuristic: If it's already a 3-letter IATA, don't broaden UNLESS it's a known city group and we want to be helpful. 
+    // Let's refine this: broaden but KEEP the original for the validation filter.
 	if city, ok := cityMappings[strings.ToUpper(opts.Departure)]; ok {
-		opts.Departure = city
+        // Only broaden if it WASN'T a 3-letter code (i.e., it was 'London')
+        if len(origDep) != 3 {
+		    opts.Departure = city
+        }
 	}
 	if city, ok := cityMappings[strings.ToUpper(opts.Destination)]; ok {
-		opts.Destination = city
+        if len(origDest) != 3 {
+		    opts.Destination = city
+        }
 	}
 	
 	if opts.Departure != origDep || opts.Destination != origDest {
