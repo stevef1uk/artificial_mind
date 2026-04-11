@@ -137,6 +137,20 @@ func (nlg *NLGGenerator) GenerateResponse(ctx context.Context, req *NLGRequest) 
 	if req.Result != nil {
 		log.Printf("🗣️ [NLG] Result available: type=%s, success=%v, data_keys=%d", req.Result.Type, req.Result.Success, len(req.Result.Data))
 	}
+	// For scrape results with extracted content, present directly without LLM summarization
+	if extractedContent := nlg.getExtractedScrapeContent(req); extractedContent != "" {
+		log.Printf("📤 [NLG] Returning extracted scrape content directly (%d chars), skipping LLM summarization", len(extractedContent))
+		return &NLGResponse{
+			Text:       extractedContent,
+			Confidence: 0.9,
+			Metadata: map[string]interface{}{
+				"response_type": "task",
+				"intent_type":   req.Intent.Type,
+				"scrape_direct": true,
+			},
+		}, nil
+	}
+
 	switch req.Action.Type {
 	case "knowledge_query":
 		return nlg.generateKnowledgeResponse(ctx, req)
@@ -258,20 +272,23 @@ func (nlg *NLGGenerator) getExtractedScrapeContent(req *NLGRequest) string {
 	var resultsList []interface{}
 	if list, ok := toolResult["results"].([]interface{}); ok {
 		resultsList = list
+	} else {
 	}
+
 	if len(resultsList) == 0 {
 		return ""
 	}
 
 	// 1. SPECIAL CASE: Flight Search Results (MCP content array)
-	// These are often nested in resultsList[0] by the simple-chat layer
 	if firstItem, ok := resultsList[0].(map[string]interface{}); ok {
+		
 		// Check if it's an MCP-wrapped result with a 'content' array
 		if contentArray, ok := firstItem["content"].([]interface{}); ok && len(contentArray) > 0 {
 			if firstContent, ok := contentArray[0].(map[string]interface{}); ok {
-				if text, ok := firstContent["text"].(string); ok && strings.Contains(text, "SUCCESS: Found") {
-					log.Printf("📥 [NLG] Detected Flight Search SUCCESS summary in results[0], extracting directly")
-					return stripMarkdownFormatting(text)
+				if text, ok := firstContent["text"].(string); ok {
+					if strings.Contains(text, "SUCCESS: Found") {
+						return stripMarkdownFormatting(text)
+					}
 				}
 			}
 		}
@@ -1477,3 +1494,4 @@ func (nlg *NLGGenerator) addMemoryContext(basePrompt string, req *NLGRequest) st
 }
 
 // Summarizing functions removed (consolidated in hdn/utils)
+
