@@ -197,7 +197,7 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	}
 
 	// 4. OUTLIER FILTERING: Remove OCR hallucinations by checking relative price
-	// Approach: Mean-based filtering (discard prices > 2x mean)
+	// Approach: Robust filtering (discard astronomical prices > 4x mean)
 	var flights []FlightInfo
 	if len(rawResults) > 0 {
 		var prices []float64
@@ -210,16 +210,21 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 			total := 0.0
 			for _, p := range prices { total += p }
 			mean := total / float64(len(prices))
-			threshold := mean * 2.0
-			log.Printf("📊 Mean price: %.2f. Threshold (2x): %.2f. Filtering outliers...", mean, threshold)
+			threshold := mean * 4.0 // Softened from 2x to 4x to avoid dropping valid premium/last-minute flights
+			log.Printf("📊 Mean price: %.2f. Threshold (4x): %.2f. Filtering outliers...", mean, threshold)
 
 			for _, f := range rawResults {
 				p := parsePrice(f.Price)
-				// Discard if > 2x mean, assuming multiple flights exist
-				if p <= threshold || p < 150 { // Always allow small prices
+				isRequestedAirport := false
+				if opts.Departure != "" && (strings.EqualFold(f.DepartureAirport, opts.Departure) || strings.EqualFold(f.DepartureAirport, origDep)) {
+					isRequestedAirport = true
+				}
+
+				// Discard if > 4x mean, UNLESS it's the specific airport requested (high trust)
+				if p <= threshold || p < 150 || isRequestedAirport { 
 					flights = append(flights, f)
 				} else {
-					log.Printf("⚠️ Dropping price outlier: %s %s (%.0f > 2x mean %.0f)", f.Airline, f.Price, p, mean)
+					log.Printf("⚠️ Dropping price outlier: %s %s (%.0f > 4x mean %.0f)", f.Airline, f.Price, p, mean)
 				}
 			}
 		} else {

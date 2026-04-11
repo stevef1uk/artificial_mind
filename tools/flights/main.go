@@ -21,7 +21,8 @@ import (
 var globalOptions *SearchOptions
 
 func main() {
-	fmt.Println("🚀 FLIGHT MCP VERSION 56 STARTING...")
+	// log to Stderr to avoid polluting Stdout which might be used for MCP transport
+	log.Println("🚀 FLIGHT MCP VERSION 58 STARTING...")
     
 	transportType := flag.String("transport", "sse", "Transport type (stdio, sse, or http)")
 	port := flag.Int("port", 8080, "Port for network transport")

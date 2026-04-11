@@ -39,7 +39,9 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 	// Regexes optimized for Google Flights OCR
 	// Support both HH:MM and HH.MM formats
 	timeRegex := regexp.MustCompile(`(\d{1,2}[:.]\d{2})\s*(?:AM|PM|am|pm)?`)
-	priceRegex := regexp.MustCompile(`(?:^|[\s])([€£\$])\s*(\d{1,4}(?:[\.,]\d{2})?)\b`)
+	// Strict price regex: must start with symbol and have 2-4 digits. 
+	// Avoid matching single digits or long sequences that might be DURATIONS like 2h 8m 6s.
+	priceRegex := regexp.MustCompile(`(?:^|[\s])([€£\$])\s*(\d{2,4}(?:[\.,]\d{2})?)\b`)
 	durationRegex := regexp.MustCompile(`\d{1,2}h\s*\d{0,2}m?`)
 	stopRegex := regexp.MustCompile(`(?i)(non-stop|\d+\s*stop)`)
 	routeRegex := regexp.MustCompile(`\b([A-Z]{3})\b\s*-\s*\b([A-Z]{3})\b`)
