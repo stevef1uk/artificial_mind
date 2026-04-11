@@ -7,7 +7,7 @@ RUN cd monitor && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w
 FROM stevef1uk/secure-packager:latest AS packager
 
 FROM alpine:latest AS secure-build
-RUN apk add --no-cache ca-certificates tzdata zip curl bash
+RUN for i in 1 2 3 4 5; do apk add --no-cache ca-certificates tzdata zip curl bash && break || sleep 2; done
 # Install kubectl
 RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/arm64/kubectl" && \
     chmod +x kubectl && \
@@ -52,7 +52,7 @@ RUN install -d /out \
     -zip
 
 FROM alpine:latest
-RUN apk add --no-cache ca-certificates tzdata curl bash
+RUN for i in 1 2 3 4 5; do apk add --no-cache ca-certificates tzdata curl bash && break || sleep 2; done
 # Install kubectl
 RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/arm64/kubectl" && \
     chmod +x kubectl && \

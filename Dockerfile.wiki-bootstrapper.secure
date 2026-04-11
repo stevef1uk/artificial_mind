@@ -8,7 +8,7 @@ RUN cd cmd/wiki-bootstrapper && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -
 FROM stevef1uk/secure-packager:latest AS packager
 
 FROM alpine:latest AS secure-build
-RUN apk add --no-cache ca-certificates tzdata bash zip
+RUN for i in 1 2 3 4 5; do apk add --no-cache ca-certificates tzdata bash zip && break || sleep 2; done
 WORKDIR /app
 # Copy packager tools
 COPY --from=packager /app/packager /usr/local/bin/packager
@@ -38,7 +38,7 @@ RUN install -d /payload /out \
 
 # Final runtime image
 FROM alpine:latest
-RUN apk add --no-cache ca-certificates tzdata bash
+RUN for i in 1 2 3 4 5; do apk add --no-cache ca-certificates tzdata bash && break || sleep 2; done
 WORKDIR /app
 # runtime unpack tool and encrypted payload
 COPY --from=secure-build /usr/local/bin/unpack /usr/local/bin/unpack

@@ -12,7 +12,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o scraper .
 FROM stevef1uk/secure-packager:latest AS packager
 
 FROM alpine:latest AS secure-build
-RUN apk add --no-cache ca-certificates tzdata
+RUN for i in 1 2 3 4 5; do apk add --no-cache ca-certificates tzdata && break || sleep 2; done
 WORKDIR /app
 
 # Copy packager tools

@@ -27,7 +27,7 @@ RUN set -e; \
 FROM stevef1uk/secure-packager:latest AS packager
 
 FROM alpine:latest AS secure-build
-RUN apk add --no-cache ca-certificates tzdata && update-ca-certificates
+RUN for i in 1 2 3 4 5; do apk add --no-cache ca-certificates tzdata && break || sleep 2; done && update-ca-certificates
 WORKDIR /app
 # Copy packager tools
 COPY --from=packager /app/packager /usr/local/bin/packager
@@ -57,12 +57,12 @@ RUN install -d /payload /out \
 
 # Final runtime image - lightweight Alpine (no Playwright dependencies)
 FROM alpine:latest
-RUN apk add --no-cache \
+RUN for i in 1 2 3 4 5; do apk add --no-cache \
   ca-certificates \
   openssh-client \
   bash \
   tzdata && \
-  update-ca-certificates
+  update-ca-certificates && break || sleep 3; done
 WORKDIR /app
 # runtime unpack tool and encrypted payload
 COPY --from=secure-build /usr/local/bin/unpack /usr/local/bin/unpack
