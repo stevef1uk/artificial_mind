@@ -254,18 +254,6 @@ func (nlg *NLGGenerator) getExtractedScrapeContent(req *NLGRequest) string {
 		return ""
 	}
 
-	// 1. SPECIAL CASE: Flight Search Results (MCP content array)
-	// Flight tool returns a clean text summary in content[0].text
-	if contentArray, ok := toolResult["content"].([]interface{}); ok && len(contentArray) > 0 {
-		if firstContent, ok := contentArray[0].(map[string]interface{}); ok {
-			if text, ok := firstContent["text"].(string); ok && strings.Contains(text, "SUCCESS: Found") {
-				log.Printf("📥 [NLG] Detected Flight Search SUCCESS summary, extracting directly")
-				return stripMarkdownFormatting(text)
-			}
-		}
-	}
-
-	// 2. EXISTING CASE: Scrape URL results (resultsList)
 	// Get results list
 	var resultsList []interface{}
 	if list, ok := toolResult["results"].([]interface{}); ok {
@@ -274,6 +262,21 @@ func (nlg *NLGGenerator) getExtractedScrapeContent(req *NLGRequest) string {
 	if len(resultsList) == 0 {
 		return ""
 	}
+
+	// 1. SPECIAL CASE: Flight Search Results (MCP content array)
+	// These are often nested in resultsList[0] by the simple-chat layer
+	if firstItem, ok := resultsList[0].(map[string]interface{}); ok {
+		// Check if it's an MCP-wrapped result with a 'content' array
+		if contentArray, ok := firstItem["content"].([]interface{}); ok && len(contentArray) > 0 {
+			if firstContent, ok := contentArray[0].(map[string]interface{}); ok {
+				if text, ok := firstContent["text"].(string); ok && strings.Contains(text, "SUCCESS: Found") {
+					log.Printf("📥 [NLG] Detected Flight Search SUCCESS summary in results[0], extracting directly")
+					return stripMarkdownFormatting(text)
+				}
+			}
+		}
+	}
+    
 
 	// Check first item for extracted_content (directly or in nested "result")
 	item, ok := resultsList[0].(map[string]interface{})
