@@ -181,7 +181,7 @@ func (s *MCPKnowledgeServer) GetAllPromptHints() map[string]*PromptHintsConfig {
 
 	// Add hints for search_flights
 	hints["search_flights"] = &PromptHintsConfig{
-		Keywords:      []string{"flight", "airline", "CDG", "LHR", "JFK", "airport"},
+		Keywords:      []string{"flight", "airline", "airport", "booking", "travel"},
 		PromptText:    "✅ FOR FLIGHT RESULTS: When presenting results, ALWAYS list at least the top 5 cheapest options with their specific times and airlines. Use a bulleted list. Do NOT just summarize with a range.",
 		ForceToolCall: false,
 	}
@@ -4934,7 +4934,7 @@ CALCULATION RULE:
 - If the GOAL is to "calculate", "search", or "find" something that requires filling a form:
 - YOU MUST PROVIDE "await page.fill('...', '...');" and "await page.click('...');" commands.
 - DO NOT just provide a "commit" click. You must fill the inputs first with the values from the GOAL.
-- DO NOT USE PLACEHOLDERS like {{value}}. Use the actual values from the GOAL (e.g. CDG, LHR).
+- DO NOT USE PLACEHOLDERS like {{value}}. Use the actual values from the GOAL.
 
 STRATEGY:
 - Look for custom HTML tags (anything not standard like div/span/p)
