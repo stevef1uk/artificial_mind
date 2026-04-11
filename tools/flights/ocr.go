@@ -94,7 +94,7 @@ func ParseFlightText(text string) []FlightInfo {
 			// Priority 1: Check same line for price (most accurate)
 			if pm := priceRegex.FindStringSubmatch(line); len(pm) > 0 {
 				symbol, val := pm[1], strings.ReplaceAll(pm[2], ",", "")
-				if p := parsePrice(val); p > 0 && p < 2500 {
+				if p := parsePrice(val); p > 0 && p < 1500 {
 					flight.Price = symbol + val
 				}
 			}
@@ -111,7 +111,7 @@ func ParseFlightText(text string) []FlightInfo {
 				
 				if pm := priceRegex.FindStringSubmatch(l); len(pm) > 0 && flight.Price == "Unknown" {
 					symbol, val := pm[1], strings.ReplaceAll(pm[2], ",", "")
-					if p := parsePrice(val); p > 0 && p < 2500 {
+					if p := parsePrice(val); p > 0 && p < 1500 {
 						flight.Price = symbol + val
 					}
 				}

@@ -458,9 +458,10 @@ func extractIATA(s string) string {
 	if m := re.FindStringSubmatch(s); len(m) > 1 {
 		iata = m[1]
 	} else {
-		// Fallback to searching for the first 3-letter capital word if it looks like a code
 		re2 := regexp.MustCompile(`\b([A-Z]{3})\b`)
-		if m := re2.FindStringSubmatch(s); len(m) > 0 {
+		if m := re2.FindStringSubmatch(s); len(m) > 1 {
+			iata = m[1]
+		} else if len(m) > 0 {
 			iata = m[0]
 		}
 	}

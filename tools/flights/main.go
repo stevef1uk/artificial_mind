@@ -246,12 +246,12 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 
 	// Generate a clean summary for the chat response
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Found %d flight options from %s to %s on %s.\n\n", len(flights), opts.Departure, opts.Destination, opts.StartDate))
-	sb.WriteString("Recommended Options:\n")
+	sb.WriteString(fmt.Sprintf("SUCCESS: Found %d flight options for your trip from %s to %s (Dates: %s to %s).\n\n", len(flights), opts.Departure, opts.Destination, opts.StartDate, opts.EndDate))
+	sb.WriteString("Flight Details (Departing):\n")
 	for i, f := range flights {
-		sb.WriteString(fmt.Sprintf("• %s: %s (Dep: %s, Arr: %s) - %s to %s\n", f.Airline, f.Price, f.DepartureTime, f.ArrivalTime, f.DepartureAirport, f.ArrivalAirport))
-		if i == 5 { // Show top 6 in text summary
-			sb.WriteString("\n... [Additional options available in DATA_JSON]")
+		sb.WriteString(fmt.Sprintf("• %s: %s (Time: %s - %s) Route: %s -> %s\n", f.Airline, f.Price, f.DepartureTime, f.ArrivalTime, f.DepartureAirport, f.ArrivalAirport))
+		if i == 7 { // Show top 8 in text summary for better coverage
+			sb.WriteString("\n... [Full list of all %d flights available in DATA_JSON block below]")
 			break
 		}
 	}
