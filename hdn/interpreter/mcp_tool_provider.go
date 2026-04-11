@@ -25,7 +25,7 @@ func NewMCPToolProvider(mcpEndpoint string) *MCPToolProvider {
 		mcpEndpoint: mcpEndpoint,
 		httpClient: &http.Client{
 			// 120s to allow for slow scrape jobs on ARM/RPi (navigation + extraction + polling)
-			Timeout: 120 * time.Second,
+			Timeout: 300 * time.Second,
 		},
 	}
 }

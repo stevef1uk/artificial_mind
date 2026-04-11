@@ -2780,7 +2780,7 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 		req.MaxRetries = 3
 	}
 	if req.Timeout == 0 {
-		req.Timeout = 120 // Reduced from 600 to prevent long-running requests
+		req.Timeout = 300 // Increased from 120 to allow for long-running flights/research on RPi
 	}
 
 	// Create intelligent executor with planner integration
@@ -2800,7 +2800,7 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 	)
 
 	// Execute intelligently with timeout (reduced from 600s to prevent GPU overload)
-	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 300*time.Second)
 	defer cancel()
 
 	// Determine priority: default to high for user API requests, unless explicitly set to low
@@ -2823,14 +2823,14 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		// Check if error is due to context cancellation/timeout
 		if ctx.Err() == context.DeadlineExceeded {
-			log.Printf("⏱️ [API] Execution timed out after 120 seconds for task: %s", req.TaskName)
+			log.Printf("⏱️ [API] Execution timed out after 300 seconds for task: %s", req.TaskName)
 			// Return a proper JSON response with timeout error instead of http.Error
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK) // Return 200 with success=false to match API contract
 			response := IntelligentExecutionResponse{
 				Success:       false,
-				Error:         fmt.Sprintf("Execution timed out after 120 seconds: %v", err),
-				ExecutionTime: 120000, // 120 seconds in milliseconds
+				Error:         fmt.Sprintf("Execution timed out after 300 seconds: %v", err),
+				ExecutionTime: 300000, // 300 seconds in milliseconds
 				RetryCount:    0,
 				WorkflowID:    fmt.Sprintf("intelligent_%d", time.Now().UnixNano()),
 			}
@@ -2849,8 +2849,8 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 			w.WriteHeader(http.StatusOK)
 			response := IntelligentExecutionResponse{
 				Success:       false,
-				Error:         "Execution timed out after 120 seconds (no result returned)",
-				ExecutionTime: 120000, // 120 seconds in milliseconds
+				Error:         "Execution timed out after 300 seconds (no result returned)",
+				ExecutionTime: 300000, // 300 seconds in milliseconds
 				RetryCount:    0,
 				WorkflowID:    fmt.Sprintf("intelligent_%d", time.Now().UnixNano()),
 			}
@@ -2866,7 +2866,7 @@ func (s *APIServer) handleIntelligentExecute(w http.ResponseWriter, r *http.Requ
 		log.Printf("⚠️ [API] Execution failed but no error message set for task: %s", req.TaskName)
 		// Set a default error message if missing
 		if ctx.Err() == context.DeadlineExceeded {
-			result.Error = "Execution timed out after 120 seconds"
+			result.Error = "Execution timed out after 300 seconds"
 		} else {
 			result.Error = "Execution failed (no error details available)"
 		}
