@@ -148,10 +148,18 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		}
 	}
 
-	// 1. Extract flights using OCR on the shared screenshot
-	ocrFlights, _ := ExtractFlightsFromImage(screenshotPath)
+	// 1. Calculate price ceiling based on cabin class
+	maxPrice := 800.0
+	cabinLower = strings.ToLower(opts.CabinClass)
+	if strings.Contains(cabinLower, "business") || strings.Contains(cabinLower, "first") || strings.Contains(cabinLower, "premium") {
+		maxPrice = 8000.0 // Allow much higher prices for premium cabins
+		log.Printf("💎 Premium cabin detected (%s), raising price cap to %.0f", opts.CabinClass, maxPrice)
+	}
+
+	// 2. Extract flights using OCR on the shared screenshot
+	ocrFlights, _, _ := ExtractFlightsFromImage(screenshotPath, maxPrice)
 	
-	// 2. Always attempt SMART Miner on HTML to ensure nothing was missed (like EasyJet)
+	// 3. Always attempt SMART Miner on HTML to ensure nothing was missed (like EasyJet)
 	var minerFlights []FlightInfo
 	if html, ok := result["cleaned_html"].(string); ok && html != "" {
 		if len(html) > 500 {
@@ -243,15 +251,16 @@ func MinerExtractFlights(data string) ([]FlightInfo, error) {
 			snippet = cleaned[:15000]
 		}
 	}
-	prompt := fmt.Sprintf(`### TASK: EXTRACT FLIGHTS TO JSON. 
-### RULES:
-1. RETURN ONLY VALID JSON ARRAY.
-2. NO MARKDOWN. NO EXPLANATIONS. NO TEXT.
-3. IGNORE ALL COMPUTER HARDWARE (MAC MINI, IMAC, APPLE).
-4. FIELDS: airline, price, departure_time, arrival_time, departure_airport, arrival_airport.
-
-### DATA:
+	prompt := fmt.Sprintf(`### TASK: EXTRACT FLIGHT RESULTS TO JSON
+### DATA SOURCE (HTML/TEXT):
 %s
+
+### RULES:
+1. RETURN ONLY A VALID JSON ARRAY OF FLIGHT OBJECTS.
+2. FIELDS: airline, price, departure_time, arrival_time, origin, destination, duration.
+3. IGNORE ALL BAG POLICY WARNINGS (e.g., "overhead locker access", "Bags filter").
+4. IGNORE COMPUTER HARDWARE.
+5. IF NO FLIGHT OPTIONS ARE FOUND, RETURN [].
 
 JSON RESULT:`, snippet)
 

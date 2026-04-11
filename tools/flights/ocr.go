@@ -9,37 +9,40 @@ import (
 	"github.com/otiai10/gosseract/v2"
 )
 
-func ExtractFlightsFromImage(imagePath string) ([]FlightInfo, error) {
+// ExtractFlightsFromImage parses OCR text for flight rows
+func ExtractFlightsFromImage(imagePath string, maxPrice float64) ([]FlightInfo, string, error) {
 	client := gosseract.NewClient()
 	defer client.Close()
-	if err := client.SetImage(imagePath); err != nil { return nil, err }
+	if err := client.SetImage(imagePath); err != nil { return nil, "", err }
 	text, err := client.Text()
-	if err != nil { return nil, err }
+	if err != nil { return nil, "", err }
     
-	log.Printf("📸 OCR extracted %d chars. Parsing...", len(text))
+	log.Printf("📸 OCR extracted %d chars. Parsing (MaxPrice: %.0f)...", len(text), maxPrice)
     
-    flights := ParseFlightText(text)
+    flights := ParseFlightText(text, maxPrice)
     
+    // If regular OCR fails to find structure but we have text, try the LLM Miner on the OCR text as a fallback
     if len(flights) == 0 && len(text) > 100 {
         log.Println("⚠️ Regular OCR parse failed. Using Miner on OCR text...")
-        return MinerExtractFromText(text)
+        results, err := MinerExtractFromText(text)
+        return results, text, err
     }
     
-	return flights, nil
+	return flights, text, nil
 }
 
-func ParseFlightText(text string) []FlightInfo {
+// ParseFlightText performs the actual line-by-line regex work
+func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 	lines := strings.Split(text, "\n")
 	var flights []FlightInfo
 
-	// Comprehensive time regex: support 12h (10:30 AM) and 24h (10:30) formats
-	// Added flexibility for spacing around separators (e.g. "10 . 25") common in some OCR versions.
-	timeRegex := regexp.MustCompile(`(?i)(\d{1,2}[\s]*[:\.]?[\s]*\d{1,2}(?:[\s]*[AP]M)?)\s*[–—~-]\s*(\d{1,2}[\s]*[:\.]?[\s]*\d{1,2}(?:[\s]*[AP]M)?)`)
+	// Regexes optimized for Google Flights OCR
+	// Support both HH:MM and HH.MM formats
+	timeRegex := regexp.MustCompile(`(\d{1,2}[:.]\d{2})\s*(?:AM|PM|am|pm)?`)
 	priceRegex := regexp.MustCompile(`(?:^|[\s])([€£\$])\s*(\d{1,4}(?:[\.,]\d{2})?)\b`)
-	durationRegex := regexp.MustCompile(`(\d+)\s*hr\s*(\d+)?\s*min`)
-	stopRegex := regexp.MustCompile(`(?i)(\d+)\s*stop|Nonstop`)
-	// Be more specific: require a dash, slash, or dot between codes to avoid 'MIN NON'
-	routeRegex := regexp.MustCompile(`(?i)\b([A-Z]{3})[\s]*[-—–/][\s]*([A-Z]{3})\b`)
+	durationRegex := regexp.MustCompile(`\d{1,2}h\s*\d{0,2}m?`)
+	stopRegex := regexp.MustCompile(`(?i)(non-stop|\d+\s*stop)`)
+	routeRegex := regexp.MustCompile(`\b([A-Z]{3})\b\s*-\s*\b([A-Z]{3})\b`)
 
 	airlines := []string{
 		"Virgin Atlantic", "British Airways", "Air France", "Delta", "KLM", "United", 
@@ -50,32 +53,28 @@ func ParseFlightText(text string) []FlightInfo {
 	}
 
 	for i, line := range lines {
-		timeMatch := timeRegex.FindStringSubmatch(line)
-		if len(timeMatch) > 2 {
-			dep := timeMatch[1]
-			arr := timeMatch[2]
-
-			// Validate time components to avoid hallucinations like "0895"
-			isValidTime := func(t string) bool {
-				t = strings.ReplaceAll(t, " ", "")
-				t = strings.ReplaceAll(t, ".", ":")
-				parts := strings.Split(t, ":")
-				if len(parts) >= 1 {
-					h_str := parts[0]
-					if len(h_str) > 2 { return false } // Hallucination like 1081
-					h, _ := strconv.Atoi(h_str)
-					if h < 0 || h > 23 { return false }
-					if len(parts) > 1 {
-						m_str := strings.TrimRight(parts[1], "APMampm ")
-						if len(m_str) > 2 { return false }
-						min, err := strconv.Atoi(m_str)
-						if err != nil || min < 0 || min > 59 { return false }
-					}
-				}
-				return true
+		matches := timeRegex.FindAllStringSubmatch(line, -1)
+		// We expect at least one time on the main flight row (usually two: dep and arr)
+		if len(matches) > 0 {
+			dep := matches[0][1]
+			arr := ""
+			if len(matches) > 1 {
+				arr = matches[1][1]
 			}
+			
+			// Normalize times: "10.25" -> "10:25"
+			dep = strings.ReplaceAll(dep, ".", ":")
+			arr = strings.ReplaceAll(arr, ".", ":")
 
-			if !isValidTime(dep) || !isValidTime(arr) {
+			// RECOVERY: Validate time components (Prevent 0895 or 1081)
+			isValidTime := func(t string) bool {
+				parts := strings.Split(t, ":")
+				if len(parts) != 2 { return false }
+				h, _ := strconv.Atoi(parts[0])
+				m, _ := strconv.Atoi(parts[1])
+				return h >= 0 && h < 24 && m >= 0 && m < 60
+			}
+			if !isValidTime(dep) {
 				continue
 			}
 
@@ -86,7 +85,6 @@ func ParseFlightText(text string) []FlightInfo {
 			}
 
 			// Look ahead up to 12 lines to find flight details.
-			// Starting at i ensures we don't pick up data from the previous flight row.
 			start, end := i, i+12
 			if start < 0 { start = 0 }
 			if end > len(lines) { end = len(lines) }
@@ -94,7 +92,7 @@ func ParseFlightText(text string) []FlightInfo {
 			// Priority 1: Check same line for price (most accurate)
 			if pm := priceRegex.FindStringSubmatch(line); len(pm) > 0 {
 				symbol, val := pm[1], strings.ReplaceAll(pm[2], ",", "")
-				if p := parsePrice(val); p > 0 && p < 1500 {
+				if p := parsePrice(val); p > 10 && (maxPrice <= 0 || p < maxPrice) {
 					flight.Price = symbol + val
 				}
 			}
@@ -103,15 +101,14 @@ func ParseFlightText(text string) []FlightInfo {
 			for j := start; j < end; j++ {
 				l := lines[j]
 				
-				// CRITICAL FIX: If we see another time match on a LATER line, 
-				// then we've entered the next flight's territory. Stop looking for this flight.
+				// CRITICAL FIX: If we see another time match on a LATER line, stop looking in this row
 				if j > i && timeRegex.MatchString(l) {
 					break
 				}
 				
 				if pm := priceRegex.FindStringSubmatch(l); len(pm) > 0 && flight.Price == "Unknown" {
 					symbol, val := pm[1], strings.ReplaceAll(pm[2], ",", "")
-					if p := parsePrice(val); p > 0 && p < 1500 {
+					if p := parsePrice(val); p > 10 && (maxPrice <= 0 || p < maxPrice) {
 						flight.Price = symbol + val
 					}
 				}
@@ -140,9 +137,10 @@ func ParseFlightText(text string) []FlightInfo {
 			}
 		}
 	}
+
 	return flights
 }
 
 func MinerExtractFromText(text string) ([]FlightInfo, error) {
-    return MinerExtractFlights(text) 
+    return MinerExtractFlights(text)
 }
