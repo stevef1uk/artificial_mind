@@ -20,6 +20,46 @@ func SearchFlights(opts SearchOptions) ([]FlightInfo, string, error) {
 		scraperURL = "http://localhost:8085" // Default local fallback if ENV not set
 	}
 	log.Printf("🛰️ Using Playwright Service at: %s", scraperURL)
+
+	// If it's a round trip, we perform two separate one-way searches to be more reliable
+	// (Google Flights Round-Trip UI is complex to scrape with single screenshots)
+	if opts.StartDate != "" && opts.EndDate != "" {
+		log.Printf("🔄 Round-trip detected. Performing dual-pass search...")
+		
+		// 1. Search Departing Leg
+		log.Printf("🛫 Searching DEPARTING leg: %s -> %s (%s)", opts.Departure, opts.Destination, opts.StartDate)
+		depOpts := opts
+		depOpts.EndDate = "" // Treat as one-way
+		depFlights, screenshotPath, err := SearchFlightsWithScraper(scraperURL, depOpts)
+		if err != nil {
+			return nil, "", fmt.Errorf("departing leg failed: %v", err)
+		}
+		for i := range depFlights {
+            if depFlights[i].Airline == "" { depFlights[i].Airline = "Unknown" }
+			depFlights[i].Airline = "[DEPART] " + depFlights[i].Airline
+		}
+
+		// 2. Search Returning Leg
+		log.Printf("🛬 Searching RETURNING leg: %s -> %s (%s)", opts.Destination, opts.Departure, opts.EndDate)
+		retOpts := opts
+		retOpts.Departure = opts.Destination
+		retOpts.Destination = opts.Departure
+		retOpts.StartDate = opts.EndDate
+		retOpts.EndDate = ""
+		retFlights, _, err := SearchFlightsWithScraper(scraperURL, retOpts)
+		if err != nil {
+			log.Printf("⚠️ Warning: Returning leg search failed: %v. Returning only departing flights.", err)
+			return depFlights, screenshotPath, nil
+		}
+		for i := range retFlights {
+            if retFlights[i].Airline == "" { retFlights[i].Airline = "Unknown" }
+			retFlights[i].Airline = "[RETURN] " + retFlights[i].Airline
+		}
+
+		allFlights := append(depFlights, retFlights...)
+		return allFlights, screenshotPath, nil
+	}
+
 	return SearchFlightsWithScraper(scraperURL, opts)
 }
  

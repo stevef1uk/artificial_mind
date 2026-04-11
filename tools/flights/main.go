@@ -228,12 +228,17 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		arr := strings.ToUpper(f.ArrivalAirport)
 		
 		// If both are unknown or at least one matches the city group, keep it
-		// We are lenient if both are unknown to avoid dropping everything, 
-		// but if we HAVE codes, we enforce them.
-		if dep == "UNKNOWN" || dep == "" || isMember(dep, validDeparture) {
-			if arr == "UNKNOWN" || arr == "" || isMember(arr, validDestination) {
-				filtered = append(filtered, f)
-			}
+		// For round trips, we accept flights in both directions
+		matchesNormal := (dep == "UNKNOWN" || dep == "" || isMember(dep, validDeparture)) && 
+						 (arr == "UNKNOWN" || arr == "" || isMember(arr, validDestination))
+		
+		matchesReverse := (dep == "UNKNOWN" || dep == "" || isMember(dep, validDestination)) && 
+						  (arr == "UNKNOWN" || arr == "" || isMember(arr, validDeparture))
+		
+		if matchesNormal || matchesReverse {
+			filtered = append(filtered, f)
+		} else {
+			log.Printf("🚫 Filtered out mismatched route: %s -> %s (Target: %s -> %s)", dep, arr, validDeparture, validDestination)
 		}
 	}
 	flights = filtered
