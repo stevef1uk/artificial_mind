@@ -3769,8 +3769,20 @@ func (s *MCPKnowledgeServer) HandleScreenshot(w http.ResponseWriter, r *http.Req
 	s.screenshotMu.RUnlock()
 
 	if len(data) == 0 {
-		http.Error(w, "No screenshot available", http.StatusNotFound)
-		return
+		// Fallback: try reading from /app/artifacts/latest_screenshot.png
+		// This is necessary because flight tools run in separate processes and save to disk
+		artifactsPath := "/app/artifacts/latest_screenshot.png"
+		if projectRoot := os.Getenv("AGI_PROJECT_ROOT"); projectRoot != "" {
+			artifactsPath = filepath.Join(projectRoot, "artifacts", "latest_screenshot.png")
+		}
+		
+		var err error
+		data, err = os.ReadFile(artifactsPath)
+		if err != nil {
+			log.Printf("⚠️ [SCREENSHOT] Could not read fallback screenshot from %s: %v", artifactsPath, err)
+			http.Error(w, "No screenshot available", http.StatusNotFound)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "image/png")

@@ -1001,9 +1001,9 @@ func (m *MonitorService) chatAPI(c *gin.Context) {
 
 	jsonData, _ := json.Marshal(chatReq)
 
-	// Create HTTP client with timeout (3 minutes for chat - allows multiple LLM calls)
+	// Create HTTP client with timeout (6 minutes for chat - allows multiple LLM calls/flights on RPi)
 	client := &http.Client{
-		Timeout: 180 * time.Second, // 3 minute timeout for chat (multiple LLM calls)
+		Timeout: 360 * time.Second, // 6 minute timeout for chat (multiple LLM calls)
 	}
 
 	resp, err := client.Post(m.hdnURL+"/api/v1/chat", "application/json", bytes.NewBuffer(jsonData))
@@ -4058,6 +4058,11 @@ func (m *MonitorService) serveLocalFileOrProxy(c *gin.Context) {
 
 	// 1. Try local file from artifacts directory
 	projectRoot := os.Getenv("AGI_PROJECT_ROOT")
+	if projectRoot == "" {
+		// Default path for Docker/K3s
+		projectRoot = "/app"
+	}
+	
 	if projectRoot != "" {
 		localPath := filepath.Join(projectRoot, "artifacts", fp)
 		if info, err := os.Stat(localPath); err == nil && !info.IsDir() {
