@@ -110,7 +110,13 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 			if extracted.Destination != "" { opts.Destination = extracted.Destination }
 			if extracted.StartDate != "" { opts.StartDate = extracted.StartDate }
 			if extracted.EndDate != "" { opts.EndDate = extracted.EndDate }
-			if extracted.CabinClass != "" { opts.CabinClass = extracted.CabinClass }
+			if extracted.CabinClass != "" {
+				// Only overwrite if the current cabin is Economy OR the extracted one is a premium class
+				// This prevents a 'Business' argument from being clobbered by a default 'Economy' extraction
+				if opts.CabinClass == "Economy" || (extracted.CabinClass != "Economy" && extracted.CabinClass != "") {
+					opts.CabinClass = extracted.CabinClass
+				}
+			}
             
 			// Manual high-confidence override for cabin
 			lowQuery := strings.ToLower(query)
