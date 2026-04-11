@@ -146,6 +146,12 @@
             padding: 15px;
             border-left: 3px solid var(--accent-color);
             animation: fadeIn 0.5s ease;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .thought-entry:hover {
+            background: rgba(255, 255, 255, 0.08);
         }
 
         .thought-entry.observation {
@@ -739,6 +745,15 @@
             const stream = document.getElementById('thought-stream');
             const entry = document.createElement('div');
             entry.className = `thought-entry ${thought.type}`;
+            entry.onclick = () => {
+                document.getElementById("image-modal").style.display = "block";
+                document.getElementById("modal-img").style.display = "none";
+                const caption = document.getElementById("image-modal-caption");
+                caption.innerText = text;
+                caption.style.whiteSpace = "pre-wrap";
+                caption.style.textAlign = "left";
+                caption.style.fontSize = "1.2rem";
+            };
 
             const time = new Date(thought.timestamp).toLocaleTimeString();
             entry.innerHTML = `
@@ -777,6 +792,10 @@
 
         document.getElementById('screenshot-view').onclick = function() {
             if (this.src && !this.src.endsWith('/')) {
+                document.getElementById("modal-img").style.display = "block";
+                const caption = document.getElementById("image-modal-caption");
+                caption.style.textAlign = "center";
+                caption.style.fontSize = "1rem";
                 modal.style.display = "block";
                 modalImg.src = this.src;
             }
