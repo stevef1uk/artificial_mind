@@ -89,7 +89,7 @@ func NewMCPClient(config DomainConfig) *MCPClient {
 	return &MCPClient{
 		config: config,
 		httpClient: &http.Client{
-			Timeout: 120 * time.Second,
+			Timeout: 300 * time.Second,
 		},
 		endpoints:  endpoints,
 		toolRouter: make(map[string]string),
