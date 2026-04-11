@@ -235,8 +235,17 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 			}
 			if (f.DepartureAirport == "" || f.DepartureAirport == "Unknown") && existing.DepartureAirport != "" { f.DepartureAirport = existing.DepartureAirport }
 			if (f.ArrivalAirport == "" || f.ArrivalAirport == "Unknown") && existing.ArrivalAirport != "" { f.ArrivalAirport = existing.ArrivalAirport }
+            
             // Miner price is usually better normalized, stick with it unless 0
-            if f.Price == "" || f.Price == "0" { f.Price = existing.Price }
+            if f.Price == "" || f.Price == "0" { 
+                f.Price = existing.Price 
+            } else if !strings.ContainsAny(f.Price, "£$€") && strings.ContainsAny(existing.Price, "£$€") {
+                // Restore currency symbol from OCR if Miner dropped it
+                reSym := regexp.MustCompile(`[£$€]`)
+                sym := reSym.FindString(existing.Price)
+                if sym == "" { sym = "£" }
+                f.Price = sym + f.Price
+            }
 		}
 		flightMap[key] = f 
 	}
@@ -341,7 +350,7 @@ func MinerExtractFlights(data string) ([]FlightInfo, error) {
 
 ### RULES:
 1. RETURN ONLY A VALID JSON ARRAY OF FLIGHT OBJECTS.
-2. FIELDS: airline, price, departure_time, arrival_time, origin, destination, duration.
+2. FIELDS: airline, price (include currency symbol e.g. £77), departure_time, arrival_time (24h format), origin (IATA code e.g. LTN, LHR), destination (IATA code e.g. CDG), duration.
 3. IGNORE ALL BAG POLICY WARNINGS (e.g., "overhead locker access", "Bags filter").
 4. IGNORE COMPUTER HARDWARE.
 5. IF NO FLIGHT OPTIONS ARE FOUND, RETURN [].
@@ -542,11 +551,15 @@ func parsePrice(priceStr string) float64 {
 }
 
 func extractIATA(s string) string {
+	s = strings.TrimSpace(strings.ToUpper(s))
 	if s == "" { return "" }
-	s = strings.ToUpper(s)
-	
-	iata := ""
-	// Try to find code in parentheses: "London (LHR)" -> "LHR"
+    
+    // If already looks like a code, just clean it
+    if len(s) == 3 && regexp.MustCompile(`^[A-Z]{3}$`).MatchString(s) {
+        return s
+    }
+
+	var iata string
 	re := regexp.MustCompile(`\(([A-Z]{3})\)`)
 	if m := re.FindStringSubmatch(s); len(m) > 1 {
 		iata = m[1]
@@ -554,10 +567,11 @@ func extractIATA(s string) string {
 		re2 := regexp.MustCompile(`\b([A-Z]{3})\b`)
 		if m := re2.FindStringSubmatch(s); len(m) > 1 {
 			iata = m[1]
-		} else if len(m) > 0 {
-			iata = m[0]
 		}
 	}
+
+    // HEURISTIC: If no 3-letter code found, but it looks like a city name,
+    // we could map it, but for now we just return "" and let the smart merge use OCR code.
 
 	if iata != "" {
 		// Common OCR corrections for airport codes
