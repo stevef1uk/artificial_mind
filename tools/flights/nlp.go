@@ -33,7 +33,7 @@ EXAMPLES:
 
 ONLY return JSON.`, currentDate, query, currentYear)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	model := os.Getenv("LLM_MODEL")
