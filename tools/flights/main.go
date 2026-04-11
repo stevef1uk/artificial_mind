@@ -207,7 +207,7 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 	
 	// Create a membership map for the city groups
 	cityMembers := map[string][]string{
-		"LON": {"LHR", "LGW", "LTN", "STN", "LCY", "SEN"},
+		"LON": {"LHR", "LGW", "LTN", "STN", "LCY", "SEN", "LUT"},
 		"PAR": {"CDG", "ORY", "BVA"},
 		"NYC": {"JFK", "EWR", "LGA"},
 	}
