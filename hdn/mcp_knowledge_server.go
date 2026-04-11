@@ -805,45 +805,44 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 	if s.skillRegistry != nil && s.skillRegistry.HasSkill(toolName) {
 		log.Printf("🔧 [MCP-KNOWLEDGE] Executing configured skill: %s", toolName)
 		result, err = s.skillRegistry.ExecuteSkill(ctx, toolName, arguments)
-		return result, err
-	}
-
-	// Fallback to hardcoded tools
-	switch toolName {
-	case "query_neo4j":
-		result, err = s.queryNeo4j(ctx, arguments)
-	case "search_weaviate":
-		result, err = s.searchWeaviate(ctx, arguments)
-	case "get_concept":
-		result, err = s.getConcept(ctx, arguments)
-	case "find_related_concepts":
-		result, err = s.findRelatedConcepts(ctx, arguments)
-	case "search_avatar_context":
-		result, err = s.searchAvatarContext(ctx, arguments)
-	case "save_avatar_context":
-		result, err = s.saveAvatarContext(ctx, arguments)
-	case "save_episode":
-		result, err = s.saveEpisode(ctx, arguments)
-	case "scrape_url", "execute_code", "read_file", "smart_scrape", "weather":
-		// Route to the new wrapper
-		result, err = s.executeToolWrapper(ctx, toolName, arguments)
-	case "deep_research":
-		result, err = s.deepResearch(ctx, arguments)
-	case "research_agent":
-		result, err = s.researchAgentQuery(ctx, arguments)
-	case "picoclaw_query":
-		result, err = s.picoclawQuery(ctx, arguments)
-	case "nemoclaw_query":
-		result, err = s.nemoclawQuery(ctx, arguments)
-	case "get_scrape_status":
-		jobID, _ := arguments["job_id"].(string)
-		if jobID == "" {
-			err = fmt.Errorf("job_id parameter required")
-		} else {
-			result, err = s.getScrapeStatus(ctx, jobID)
+	} else {
+		// Fallback to hardcoded tools
+		switch toolName {
+		case "query_neo4j":
+			result, err = s.queryNeo4j(ctx, arguments)
+		case "search_weaviate":
+			result, err = s.searchWeaviate(ctx, arguments)
+		case "get_concept":
+			result, err = s.getConcept(ctx, arguments)
+		case "find_related_concepts":
+			result, err = s.findRelatedConcepts(ctx, arguments)
+		case "search_avatar_context":
+			result, err = s.searchAvatarContext(ctx, arguments)
+		case "save_avatar_context":
+			result, err = s.saveAvatarContext(ctx, arguments)
+		case "save_episode":
+			result, err = s.saveEpisode(ctx, arguments)
+		case "scrape_url", "execute_code", "read_file", "smart_scrape", "weather":
+			// Route to the new wrapper
+			result, err = s.executeToolWrapper(ctx, toolName, arguments)
+		case "deep_research":
+			result, err = s.deepResearch(ctx, arguments)
+		case "research_agent":
+			result, err = s.researchAgentQuery(ctx, arguments)
+		case "picoclaw_query":
+			result, err = s.picoclawQuery(ctx, arguments)
+		case "nemoclaw_query":
+			result, err = s.nemoclawQuery(ctx, arguments)
+		case "get_scrape_status":
+			jobID, _ := arguments["job_id"].(string)
+			if jobID == "" {
+				err = fmt.Errorf("job_id parameter required")
+			} else {
+				result, err = s.getScrapeStatus(ctx, jobID)
+			}
+		default:
+			err = fmt.Errorf("unknown tool: %s", toolName)
 		}
-	default:
-		err = fmt.Errorf("unknown tool: %s", toolName)
 	}
 
 	if err != nil {
@@ -851,6 +850,14 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 	}
 
 	// Detect and save screenshots for Wow dashboard / AI Sight
+	s.extractAndSaveScreenshot(toolName, result)
+
+	// Final step: wrap result for MCP protocol compatibility
+	return s.wrapMCPResponse(result), nil
+}
+
+// extractAndSaveScreenshot looks for base64 images in tool results and saves them
+func (s *MCPKnowledgeServer) extractAndSaveScreenshot(toolName string, result interface{}) {
 	if resMap, ok := result.(map[string]interface{}); ok {
 		var screenshotB64 string
 		if s, ok := resMap["screenshot"].(string); ok {
@@ -905,9 +912,6 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 			}(screenshotB64)
 		}
 	}
-
-	// Final step: wrap result for MCP protocol compatibility
-	return s.wrapMCPResponse(result), nil
 }
 
 // queryNeo4j executes a Cypher query against Neo4j
