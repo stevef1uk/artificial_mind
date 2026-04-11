@@ -226,9 +226,19 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		flightMap[genKey(f)] = f
 	}
 	for _, f := range minerFlights {
-		// Miner usually has better attributes and price accuracy. 
-		// If Miner found it, overwrite OCR version.
-		flightMap[genKey(f)] = f 
+		key := genKey(f)
+		// SMART MERGE: if Miner found it but has missing fields, keep existing OCR fields
+		if existing, ok := flightMap[key]; ok {
+			if (f.Airline == "" || f.Airline == "Unknown") && existing.Airline != "" { f.Airline = existing.Airline }
+			if (f.Duration == "" || strings.Contains(strings.ToLower(f.Duration), "unknown") || strings.Contains(strings.ToLower(f.Duration), "specified")) && existing.Duration != "" {
+				f.Duration = existing.Duration
+			}
+			if (f.DepartureAirport == "" || f.DepartureAirport == "Unknown") && existing.DepartureAirport != "" { f.DepartureAirport = existing.DepartureAirport }
+			if (f.ArrivalAirport == "" || f.ArrivalAirport == "Unknown") && existing.ArrivalAirport != "" { f.ArrivalAirport = existing.ArrivalAirport }
+            // Miner price is usually better normalized, stick with it unless 0
+            if f.Price == "" || f.Price == "0" { f.Price = existing.Price }
+		}
+		flightMap[key] = f 
 	}
 
 	var rawResults []FlightInfo

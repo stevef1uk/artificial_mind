@@ -254,6 +254,18 @@ func (nlg *NLGGenerator) getExtractedScrapeContent(req *NLGRequest) string {
 		return ""
 	}
 
+	// 1. SPECIAL CASE: Flight Search Results (MCP content array)
+	// Flight tool returns a clean text summary in content[0].text
+	if contentArray, ok := toolResult["content"].([]interface{}); ok && len(contentArray) > 0 {
+		if firstContent, ok := contentArray[0].(map[string]interface{}); ok {
+			if text, ok := firstContent["text"].(string); ok && strings.Contains(text, "SUCCESS: Found") {
+				log.Printf("📥 [NLG] Detected Flight Search SUCCESS summary, extracting directly")
+				return stripMarkdownFormatting(text)
+			}
+		}
+	}
+
+	// 2. EXISTING CASE: Scrape URL results (resultsList)
 	// Get results list
 	var resultsList []interface{}
 	if list, ok := toolResult["results"].([]interface{}); ok {
