@@ -10,7 +10,7 @@ import (
 )
 
 // ExtractFlightsFromImage parses OCR text for flight rows
-func ExtractFlightsFromImage(imagePath string, maxPrice float64) ([]FlightInfo, string, error) {
+func ExtractFlightsFromImage(imagePath string, maxPrice float64, opts SearchOptions) ([]FlightInfo, string, error) {
 	client := gosseract.NewClient()
 	defer client.Close()
 	if err := client.SetImage(imagePath); err != nil { return nil, "", err }
@@ -18,13 +18,13 @@ func ExtractFlightsFromImage(imagePath string, maxPrice float64) ([]FlightInfo, 
 	if err != nil { return nil, "", err }
     
 	log.Printf("📸 OCR extracted %d chars. Parsing (MaxPrice: %.0f)...", len(text), maxPrice)
+
     
     flights := ParseFlightText(text, maxPrice)
     
-    // If regular OCR fails to find structure but we have text, try the LLM Miner on the OCR text as a fallback
     if len(flights) == 0 && len(text) > 100 {
         log.Println("⚠️ Regular OCR parse failed. Using Miner on OCR text...")
-        results, err := MinerExtractFromText(text)
+        results, err := MinerExtractFromText(text, opts)
         return results, text, err
     }
     
@@ -41,7 +41,7 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 	timeRegex := regexp.MustCompile(`(\d{1,2}[:.]\d{2})\s*(?:AM|PM|am|pm)?`)
 	// Strict price regex: must start with symbol and have 2-4 digits. 
 	// Avoid matching single digits or long sequences that might be DURATIONS like 2h 8m 6s.
-	priceRegex := regexp.MustCompile(`(?:^|[\s])([€£\$])\s*(\d{2,4}(?:[\.,]\d{2})?)\b`)
+	priceRegex := regexp.MustCompile(`(?:^|[s])([€£$])s*(d{1,3}(?:[.,]d{3})*(?:[.,]d{2})?)b`)
 	durationRegex := regexp.MustCompile(`\d{1,2}h\s*\d{0,2}m?`)
 	stopRegex := regexp.MustCompile(`(?i)(non-stop|\d+\s*stop)`)
 	routeRegex := regexp.MustCompile(`\b([A-Z]{3})\b\s*-\s*\b([A-Z]{3})\b`)
@@ -50,6 +50,7 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 		"Virgin Atlantic", "British Airways", "Air France", "Delta", "KLM", "United", 
 		"American", "Icelandair", "Lufthansa", "Turkish Airlines", "Emirates", "Qatar",
 		"Iberia", "Swiss", "Aer Lingus", "TAP", "Austrian", "SAS", "Finnair", "LOT", 
+		"Azul", "Gol", "LATAM", "Latam Airlines", "Air Europa", "Royal Air Maroc", "Condor", "Iberia Express",
 		"Brussels Airlines", "ITA Airways", "JetBlue", "Norse", "Vueling", "Ryanair", "EasyJet", "easyJet",
 		"AirFrance", "BritishAirways", "Transavia", "Wizz Air", "Eurowings", "Norwegian",
 	}
@@ -143,6 +144,6 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 	return flights
 }
 
-func MinerExtractFromText(text string) ([]FlightInfo, error) {
-    return MinerExtractFlights(text)
+func MinerExtractFromText(text string, opts SearchOptions) ([]FlightInfo, error) {
+    return MinerExtractFlights(text, opts)
 }

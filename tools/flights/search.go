@@ -194,14 +194,14 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	log.Printf("🛰️ Using route-adaptive safety cap: %.0f", maxPrice)
 
 	// 2. Extract flights using OCR on the shared screenshot
-	ocrFlights, _, _ := ExtractFlightsFromImage(screenshotPath, maxPrice)
+	ocrFlights, _, _ := ExtractFlightsFromImage(screenshotPath, maxPrice, opts)
 	
 	// 3. Always attempt SMART Miner on HTML to ensure nothing was missed (like EasyJet)
 	var minerFlights []FlightInfo
 	if html, ok := result["cleaned_html"].(string); ok && html != "" {
 		if len(html) > 500 {
 			log.Printf("🤖 Running SMART Miner on HTML to complement OCR results...")
-			minerFlights, _ = MinerExtractFlights(html)
+			minerFlights, _ = MinerExtractFlights(html, opts)
 		}
 	}
 	
@@ -313,7 +313,7 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 
 
 // MinerExtractFlights uses AI to extract flight data from raw HTML snippets
-func MinerExtractFlights(data string) ([]FlightInfo, error) {
+func MinerExtractFlights(data string, opts SearchOptions) ([]FlightInfo, error) {
 	if len(data) == 0 {
 		return nil, nil
 	}
@@ -345,20 +345,23 @@ func MinerExtractFlights(data string) ([]FlightInfo, error) {
 		}
 	}
 	prompt := fmt.Sprintf(`### TASK: EXTRACT FLIGHT RESULTS TO JSON
+### TARGET ROUTE: %s to %s (%s)
+### CITY GROUPS: LIS=Lisbon, RIO=GIG/SDU, LON=LHR/LGW/LTN/STN, PAR=CDG/ORY, NYC=JFK/EWR/LGA
 ### DATA SOURCE (HTML/TEXT):
 %s
 
 ### RULES:
 1. RETURN ONLY A VALID JSON ARRAY OF FLIGHT OBJECTS.
-2. FIELDS: airline, price (include currency symbol e.g. £77), departure_time, arrival_time (24h format), origin (IATA code e.g. LTN, LHR), destination (IATA code e.g. CDG), duration.
-3. IGNORE ALL BAG POLICY WARNINGS (e.g., "overhead locker access", "Bags filter").
-4. IGNORE COMPUTER HARDWARE.
-5. IF NO FLIGHT OPTIONS ARE FOUND, RETURN [].
+2. FIELDS: airline, price (include currency symbol e.g. €4509), departure_time, arrival_time (24h format), origin (IATA code e.g. LIS), destination (IATA code e.g. GIG), duration.
+3. DO NOT HALLUCINATE. DO NOT CREATE "EXAMPLE" DATA. ONLY EXTRACT WHAT IS PRESENT IN THE DATA SOURCE.
+4. IF THE DATA SOURCE DOES NOT MATCH %s TO %s (or its members), OR NO FLIGHTS ARE FOUND, RETURN [].
+5. IGNORE ALL BAG POLICY WARNINGS AND COMPUTER HARDWARE.
 
-JSON RESULT:`, snippet)
+JSON RESULT:`, opts.Departure, opts.Destination, opts.CabinClass, snippet, opts.Departure, opts.Destination)
 
 	model := os.Getenv("LLM_MODEL")
 	if model == "" { model = "qwen2.5-coder:7b" }
+
 
 	log.Printf("🤖 Calling LLM Miner with model %s (snippet length: %d)...", model, len(snippet))
 

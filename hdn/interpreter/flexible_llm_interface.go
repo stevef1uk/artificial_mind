@@ -95,7 +95,7 @@ func init() {
 func Set_mcp_search_flights_hints() {
 	SetPromptHints("mcp_search_flights", &PromptHintsConfig{
 		Keywords:      []string{"flight", "flights", "airline", "booking", "google flights", "travel", "plane", "ticket"},
-		PromptText:    "✈️ FOR FLIGHT SEARCH: You MUST use 'mcp_search_flights'. This is a specialized high-performance tool. 🚨 CRITICAL: Use the CURRENT YEAR if the user doesn't specify one. Prefer airport codes (JFK, LHR, CDG) over city names. Output the results in a clean markdown table.",
+		PromptText:    "✈️ FOR FLIGHT SEARCH: You MUST use 'mcp_search_flights'. This is a specialized high-performance tool. 🚨 CRITICAL: Use the CURRENT YEAR if the user doesn't specify one. Prefer IATA airport codes over city names for the 'departure' and 'destination' parameters. Output the results in a clean markdown table.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"flight search", "find flights", "search flights", "book flight"},
 		RejectText:    true,

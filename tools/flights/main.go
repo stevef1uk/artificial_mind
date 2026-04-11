@@ -44,14 +44,15 @@ func main() {
 	s := server.NewMCPServer("Flights Search", "1.1.0", server.WithLogging())
 
 	s.AddTool(mcp.NewTool("search_flights",
-		mcp.WithDescription("Search for flights on Google Flights using Playwright and AI-powered data extraction"),
-		mcp.WithString("departure", mcp.Required(), mcp.Description("Departure airport code (e.g., JFK, LAX)")),
-		mcp.WithString("destination", mcp.Required(), mcp.Description("Destination airport code (e.g., CDG, LHR)")),
-		mcp.WithString("start_date", mcp.Required(), mcp.Description("Departure date (YYYY-MM-DD)")),
-		mcp.WithString("end_date", mcp.Required(), mcp.Description("Return date (YYYY-MM-DD)")),
-		mcp.WithString("cabin", mcp.Description("The travel class. Defaults to Economy. Only change if the user specifically requests a different class.")),
+		mcp.WithDescription("Search for flights on Google Flights. Provide a natural language query or structured parameters."),
+		mcp.WithString("query", mcp.Description("Natural language search string (e.g., 'morning business flights from Lisbon to Rio tomorrow')")),
+		mcp.WithString("departure", mcp.Description("Departure airport code")),
+		mcp.WithString("destination", mcp.Description("Destination airport code")),
+		mcp.WithString("start_date", mcp.Description("Departure date (YYYY-MM-DD)")),
+		mcp.WithString("end_date", mcp.Description("Return date (YYYY-MM-DD)")),
+		mcp.WithString("cabin", mcp.Description("Travel class (Economy, Business, First)")),
 	), searchFlightsHandler)
-
+    
 	if *transportType == "sse" {
 		sseServer := server.NewSSEServer(s, server.WithBaseURL(fmt.Sprintf("http://localhost:%d", *port)))
 		log.Printf("Starting SSE server on :%d", *port)
@@ -100,20 +101,29 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 	}
 
 	// Handle natural language 'query' if provided (HDN fallback)
-	if query := getStr("query"); query != "" && opts.Departure == "" {
+	if query := getStr("query"); query != "" {
 		log.Printf("🧠 Extracting parameters from query: %s", query)
 		extracted, err := ExtractOptionsFromQuery(query)
 		if err == nil {
-			opts.Departure = extracted.Departure
-			opts.Destination = extracted.Destination
-			opts.StartDate = extracted.StartDate
-			opts.EndDate = extracted.EndDate
+			// If extracted fields are non-empty, prioritize them over potentially hallucinated args
+			if extracted.Departure != "" { opts.Departure = extracted.Departure }
+			if extracted.Destination != "" { opts.Destination = extracted.Destination }
+			if extracted.StartDate != "" { opts.StartDate = extracted.StartDate }
+			if extracted.EndDate != "" { opts.EndDate = extracted.EndDate }
 			if extracted.CabinClass != "" { opts.CabinClass = extracted.CabinClass }
+            
+			// Manual high-confidence override for cabin
+			lowQuery := strings.ToLower(query)
+			if strings.Contains(lowQuery, "business") {
+				opts.CabinClass = "Business"
+			} else if strings.Contains(lowQuery, "first") {
+				opts.CabinClass = "First"
+			}
 		} else {
 			log.Printf("⚠️ Query extraction failed: %v", err)
 		}
 	}
-
+    
 	// Normalizer: ensure dates are in YYYY-MM-DD format before search
 	dateRegex := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 	if (opts.StartDate != "" && !dateRegex.MatchString(opts.StartDate)) || (opts.EndDate != "" && !dateRegex.MatchString(opts.EndDate)) {
@@ -130,9 +140,12 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 	// This helps find easyJet/Ryanair results from alternative airports (LTN, LGW, etc)
 	cityMappings := map[string]string{
 		"LONDON": "LON", "PARIS": "PAR", "NEW YORK": "NYC", "NYC": "NYC",
+		"LISBON": "LIS", "LISBOA": "LIS", "RIO": "RIO", "RIO DE JANEIRO": "RIO",
+		"RIO DE JENERIO": "RIO", "SAO PAULO": "SAO", "TOKYO": "TYO",
 		"LHR": "LON", "LGW": "LON", "LTN": "LON", "STN": "LON", "LCY": "LON",
 		"CDG": "PAR", "ORY": "PAR", "BVA": "PAR",
 		"EWR": "NYC", "JFK": "NYC", "LGA": "NYC",
+		"GIG": "RIO", "SDU": "RIO",
 	}
 
 	// 1. Resolve full names to codes using mapping
@@ -194,6 +207,13 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		log.Printf("🏙️  Broadening search: %s -> %s to %s -> %s", origDep, origDest, opts.Departure, opts.Destination)
 	}
 
+    // FINAL CABIN HARDENING: Priority detection for Business/First class
+    if lowQuery := strings.ToLower(getStr("query")); strings.Contains(lowQuery, "business") {
+        opts.CabinClass = "Business"
+    } else if strings.Contains(lowQuery, "first") {
+        opts.CabinClass = "First"
+    }
+
 	log.Printf("🔍 Searching for %s flights: %s -> %s (%s to %s)", opts.CabinClass, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
 
 	flights, screenshotPath, err := SearchFlights(opts)
@@ -210,6 +230,13 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		"LON": {"LHR", "LGW", "LTN", "STN", "LCY", "SEN", "LUT"},
 		"PAR": {"CDG", "ORY", "BVA"},
 		"NYC": {"JFK", "EWR", "LGA"},
+		"RIO": {"GIG", "SDU"},
+		"SAO": {"GRU", "CGH", "VCP"},
+		"STO": {"ARN", "BMA", "NYO", "VST"},
+		"MIL": {"MXP", "LIN", "BGY"},
+		"CHI": {"ORD", "MDW"},
+		"WAS": {"IAD", "DCA", "BWI"},
+		"TYO": {"NRT", "HND"},
 	}
 	
 	isMember := func(code, group string) bool {

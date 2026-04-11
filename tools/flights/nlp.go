@@ -12,7 +12,10 @@ import (
 
 func ExtractOptionsFromQuery(query string) (SearchOptions, error) {
 	currentYear := time.Now().Year()
+	currentDate := time.Now().Format("2006-01-02 (Monday)")
 	prompt := fmt.Sprintf(`Task: Extract flight search parameters from the natural language query.
+Present Date: %s
+
 Query: %s
 
 Return a JSON object with these fields ONLY:
@@ -20,15 +23,15 @@ Return a JSON object with these fields ONLY:
 - destination (airport code, e.g. "CDG")
 - start_date (YYYY-MM-DD)
 - end_date (YYYY-MM-DD)
-- cabin (Default to "Economy". ONLY use "Business" or "First" if specifically requested in the input text. NOTE: Terms like "morning", "fast", "options", "best" DO NOT imply Business class.)
+- cabin (Default to "Economy". Use "Business" or "First" if specifically mentioned.)
 
-IMPORTANT: The current year is %d. If no year is specified in the query, you MUST use %d.
+IMPORTANT: If no year is specified in the query, you MUST use %d.
 EXAMPLES:
 - "Find morning flights to JFK" -> cabin: "Economy"
 - "Business class to PAR" -> cabin: "Business"
 - "LHR to CDG tomorrow" -> cabin: "Economy"
 
-ONLY return JSON.`, query, currentYear, currentYear)
+ONLY return JSON.`, currentDate, query, currentYear)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
