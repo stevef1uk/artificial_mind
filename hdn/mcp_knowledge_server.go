@@ -860,11 +860,25 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 func (s *MCPKnowledgeServer) extractAndSaveScreenshot(toolName string, result interface{}) {
 	if resMap, ok := result.(map[string]interface{}); ok {
 		var screenshotB64 string
-		if s, ok := resMap["screenshot"].(string); ok {
-			screenshotB64 = s
+		if sVal, ok := resMap["screenshot"].(string); ok {
+			screenshotB64 = sVal
 		} else if res, ok := resMap["result"].(map[string]interface{}); ok {
-			if s, ok := res["screenshot"].(string); ok {
-				screenshotB64 = s
+			if sVal, ok := res["screenshot"].(string); ok {
+				screenshotB64 = sVal
+			}
+		}
+		// Fallback: look into results array (standard for our n8n skills)
+		if screenshotB64 == "" {
+			if results, ok := resMap["results"].([]interface{}); ok && len(results) > 0 {
+				if first, ok := results[0].(map[string]interface{}); ok {
+					if sVal, ok := first["screenshot"].(string); ok {
+						screenshotB64 = sVal
+					} else if res, ok := first["result"].(map[string]interface{}); ok {
+						if sVal, ok := res["screenshot"].(string); ok {
+							screenshotB64 = sVal
+						}
+					}
+				}
 			}
 		}
 
