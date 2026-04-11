@@ -11,22 +11,16 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/playwright-community/playwright-go"
 )
 
 // SearchFlights is the entry point for all flight searches
 func SearchFlights(opts SearchOptions) ([]FlightInfo, string, error) {
-	// 1. Check for Playwright Scraper Service (Primary for K3s/Offloading)
 	scraperURL := os.Getenv("SCRAPER_URL")
-	if scraperURL != "" {
-		log.Printf("🛰️ Using Playwright Service at: %s", scraperURL)
-		return SearchFlightsWithScraper(scraperURL, opts)
+	if scraperURL == "" {
+		scraperURL = "http://localhost:8085" // Default local fallback if ENV not set
 	}
- 
-	// 2. Fallback to Native logic
-	log.Printf("🏠 Using NATIVE search logic (Version 60)...")
-	return SearchFlightsNative(opts)
+	log.Printf("🛰️ Using Playwright Service at: %s", scraperURL)
+	return SearchFlightsWithScraper(scraperURL, opts)
 }
  
 // SearchFlightsWithScraper performs a synchronous scrape request to the Playwright service
@@ -83,10 +77,10 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		await page.waitForLoadState("networkidle", { timeout: 15000 });
 		await page.bypassConsent(); // Redundant check in case search triggers it
 		
-		// Final check for results
+		// Final check for results - USE SIMPLE CSS (No quotes for regex safety)
 		console.log("Waiting for results table...");
 		try {
-			await page.waitForSelector("div[role='listitem'], .pI9Vpc, [jsname='I897t'], [aria-label^='Flight'], .nS495e, h3:has-text('options'), h3:has-text('flights'), div:has-text('Best'), div:has-text('Cheapest')", { timeout: 30000 });
+			await page.waitForSelector("div[role=listitem], .pI9Vpc, .nS495e", { timeout: 30000 });
 		} catch (e) {
 			console.log("Results selector timeout - taking screenshot anyway");
 		}
@@ -141,6 +135,17 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	if screenshotPath != "" {
 		// File should be on PVC shared path
 		log.Printf("📸 Scraper saved screenshot to shared path: %s", screenshotPath)
+		
+		// MAINTAIN LATEST: Copy to latest_screenshot.png so Monitor UI (wow_factor.html) shows it
+		dir := strings.TrimSuffix(screenshotPath, regexp.MustCompile(`screenshot_.*\.png`).FindString(screenshotPath))
+		if dir != "" {
+			latestPath := dir + "latest_screenshot.png"
+			imgData, err := os.ReadFile(screenshotPath)
+			if err == nil {
+				os.WriteFile(latestPath, imgData, 0644)
+				log.Printf("📸 Updated latest_screenshot.png for Visualizer")
+			}
+		}
 	}
 
 	// 1. Extract flights using OCR on the shared screenshot
@@ -205,72 +210,6 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	return flights, screenshotPath, nil
 }
 
-// SearchFlightsNative remains as a local fallback for testing without the service
-func SearchFlightsNative(opts SearchOptions) ([]FlightInfo, string, error) {
-	pw, err := playwright.Run()
-	if err != nil { return nil, "", fmt.Errorf("could not start playwright: %v", err) }
-	defer pw.Stop()
-
-	executablePath := opts.BrowserPath
-	if executablePath == "" { executablePath = "/usr/bin/chromium" }
-
-	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(opts.Headless),
-		ExecutablePath: playwright.String(executablePath),
-		Args: []string{
-			"--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
-			"--window-size=1600,1200", "--disable-blink-features=AutomationControlled",
-		},
-	})
-	if err != nil { return nil, "", fmt.Errorf("could not launch browser: %v", err) }
-	defer browser.Close()
-
-	context, err := browser.NewContext(playwright.BrowserNewContextOptions{
-		Viewport: &playwright.Size{Width: 1600, Height: 1200},
-		UserAgent: playwright.String("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"),
-	})
-	if err != nil { return nil, "", fmt.Errorf("could not create context: %v", err) }
-	defer context.Close()
-
-	page, err := context.NewPage()
-	if err != nil { return nil, "", fmt.Errorf("could not create page: %v", err) }
-
-	cabinQuery := ""
-	cabinLower := strings.ToLower(opts.CabinClass)
-	if strings.Contains(cabinLower, "business") {
-		cabinQuery = "+business+class"
-	} else if strings.Contains(cabinLower, "premium") {
-		cabinQuery = "+premium+economy"
-	} else if strings.Contains(cabinLower, "first") {
-		cabinQuery = "+first+class"
-	}
-
-	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=flights+from+%s+to+%s+on+%s+return+%s%s&hl=%s&gl=%s&curr=%s", opts.Departure, opts.Destination, opts.StartDate, opts.EndDate, cabinQuery, opts.Language, opts.Region, opts.Currency)
-	log.Printf("Navigating to: %s", searchURL)
-	if _, err = page.Goto(searchURL, playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateNetworkidle}); err != nil {
-		return nil, "", fmt.Errorf("could not navigate: %v", err)
-	}
-
-	// Wait and take screenshot
-	time.Sleep(15 * time.Second)
-	screenshotPath := getScreenshotPath()
-	_, _ = page.Screenshot(playwright.PageScreenshotOptions{Path: playwright.String(screenshotPath)})
-	html, _ := page.Content()
-
-	flights, err := ExtractFlightsFromImage(screenshotPath)
-	if (err != nil || len(flights) == 0) && html != "" {
-		flights, err = MinerExtractFlights(html)
-	}
-
-	if err != nil {
-		return nil, screenshotPath, err
-	}
-	for i := range flights {
-		flights[i].URL = page.URL()
-		flights[i].CabinClass = opts.CabinClass
-	}
-	return flights, screenshotPath, nil
-}
 
 // MinerExtractFlights uses AI to extract flight data from raw HTML snippets
 func MinerExtractFlights(data string) ([]FlightInfo, error) {
@@ -304,17 +243,17 @@ func MinerExtractFlights(data string) ([]FlightInfo, error) {
 			snippet = cleaned[:15000]
 		}
 	}
-	prompt := fmt.Sprintf(`STRICT DATA EXTRACTION TASK:
-From the following raw text, extract ALL visible flight options into a JSON list.
+	prompt := fmt.Sprintf(`### TASK: EXTRACT FLIGHTS TO JSON. 
+### RULES:
+1. RETURN ONLY VALID JSON ARRAY.
+2. NO MARKDOWN. NO EXPLANATIONS. NO TEXT.
+3. IGNORE ALL COMPUTER HARDWARE (MAC MINI, IMAC, APPLE).
+4. FIELDS: airline, price, departure_time, arrival_time, departure_airport, arrival_airport.
 
-RULES:
-- RETURN A JSON ARRAY OF OBJECTS ONLY.
-- IF NO FLIGHTS ARE EXPRESSLY LISTED, RETURN [].
-- ### DISABLE HARDWARE EXTRACTION: DO NOT extract Mac minis, iMacs, or any Apple products. IGNORE THEM.
-- Fields: airline, price, departure_time, arrival_time, departure_airport, arrival_airport.
+### DATA:
+%s
 
-RAW DATA:
-%s`, snippet)
+JSON RESULT:`, snippet)
 
 	model := os.Getenv("LLM_MODEL")
 	if model == "" { model = "qwen2.5-coder:7b" }
@@ -350,18 +289,69 @@ RAW DATA:
 	}
 
 	cleanResp := ollamaResp.Response
+	// Remove markdown code blocks if present
+	cleanResp = strings.TrimPrefix(cleanResp, "```json")
+	cleanResp = strings.TrimPrefix(cleanResp, "```")
+	cleanResp = strings.TrimSuffix(cleanResp, "```")
+	cleanResp = strings.TrimSpace(cleanResp)
+	
 	if idx := strings.Index(cleanResp, "["); idx != -1 {
 		cleanResp = cleanResp[idx:]
-	}
-	if idx := strings.LastIndex(cleanResp, "]"); idx != -1 {
-		cleanResp = cleanResp[:idx+1]
+		if last := strings.LastIndex(cleanResp, "]"); last != -1 {
+			cleanResp = cleanResp[:last+1]
+		}
+	} else if idx := strings.Index(cleanResp, "{"); idx != -1 {
+		cleanResp = cleanResp[idx:]
+		if last := strings.LastIndex(cleanResp, "}"); last != -1 {
+			cleanResp = cleanResp[:last+1]
+		}
 	}
 
 	log.Printf("🤖 LLM Miner cleaned JSON: %s", cleanResp)
 	
+	var jsonData interface{}
+	if err := json.Unmarshal([]byte(cleanResp), &jsonData); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal Miner JSON: %v", err)
+	}
+
 	var rawFlights []interface{}
-	if err := json.Unmarshal([]byte(cleanResp), &rawFlights); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal raw flights: %v (JSON: %s)", err, cleanResp)
+	switch v := jsonData.(type) {
+	case []interface{}:
+		rawFlights = v
+	case map[string]interface{}:
+		// 1. Check common wrapper keys
+		for _, key := range []string{"flights", "flight", "flight_details", "flight_info", "data"} {
+			if f, ok := v[key].([]interface{}); ok {
+				rawFlights = f
+				break
+			}
+			if f, ok := v[key].(map[string]interface{}); ok {
+				rawFlights = append(rawFlights, f)
+				break
+			}
+		}
+		// 2. If still empty, check if the map itself is a flight
+		if len(rawFlights) == 0 {
+			if _, ok := v["airline"]; ok {
+				rawFlights = append(rawFlights, v)
+			} else {
+				// 3. Last ditch: try to find ANY nested map with an airline
+				var searchMap func(m map[string]interface{})
+				searchMap = func(m map[string]interface{}) {
+					if _, ok := m["airline"]; ok {
+						rawFlights = append(rawFlights, m)
+						return
+					}
+					for _, val := range m {
+						if child, ok := val.(map[string]interface{}); ok {
+							searchMap(child)
+							if len(rawFlights) > 0 { return }
+						}
+					}
+				}
+				searchMap(v)
+			}
+		}
 	}
 
 	var flights []FlightInfo
@@ -381,7 +371,16 @@ RAW DATA:
 
 			// 1. Try exact match first
 			if v, ok := m[key]; ok {
-				return fmt.Sprintf("%v", v)
+				if child, ok := v.(map[string]interface{}); ok {
+					// Special case: if we found a map for "price", look for "amount" inside it
+					if strings.Contains(strings.ToLower(key), "price") {
+						if amt, ok := child["amount"]; ok { return fmt.Sprintf("%v", amt) }
+						if total, ok := child["total"]; ok { return fmt.Sprintf("%v", total) }
+					}
+					// If it's a map but not price-related, just continue searching inside
+				} else {
+					return fmt.Sprintf("%v", v)
+				}
 			}
 			
 			// 2. Try case-insensitive substring match in current level

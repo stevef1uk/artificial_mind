@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/otiai10/gosseract/v2"
@@ -50,9 +51,36 @@ func ParseFlightText(text string) []FlightInfo {
 
 	for i, line := range lines {
 		timeMatch := timeRegex.FindStringSubmatch(line)
-		if len(timeMatch) > 0 {
+		if len(timeMatch) > 2 {
+			dep := timeMatch[1]
+			arr := timeMatch[2]
+
+			// Validate time components to avoid hallucinations like "0895"
+			isValidTime := func(t string) bool {
+				t = strings.ReplaceAll(t, " ", "")
+				t = strings.ReplaceAll(t, ".", ":")
+				parts := strings.Split(t, ":")
+				if len(parts) >= 1 {
+					h_str := parts[0]
+					if len(h_str) > 2 { return false } // Hallucination like 1081
+					h, _ := strconv.Atoi(h_str)
+					if h < 0 || h > 23 { return false }
+					if len(parts) > 1 {
+						m_str := strings.TrimRight(parts[1], "APMampm ")
+						if len(m_str) > 2 { return false }
+						min, err := strconv.Atoi(m_str)
+						if err != nil || min < 0 || min > 59 { return false }
+					}
+				}
+				return true
+			}
+
+			if !isValidTime(dep) || !isValidTime(arr) {
+				continue
+			}
+
 			flight := FlightInfo{
-				DepartureTime: timeMatch[1], ArrivalTime: timeMatch[2],
+				DepartureTime: dep, ArrivalTime: arr,
 				Airline: "Unknown", Price: "Unknown", Duration: "Unknown", Stops: "Unknown",
 				DepartureAirport: "Unknown", ArrivalAirport: "Unknown",
 			}
@@ -74,6 +102,13 @@ func ParseFlightText(text string) []FlightInfo {
 			// Priority 2: Check surrounding lines
 			for j := start; j < end; j++ {
 				l := lines[j]
+				
+				// CRITICAL FIX: If we see another time match on a LATER line, 
+				// then we've entered the next flight's territory. Stop looking for this flight.
+				if j > i && timeRegex.MatchString(l) {
+					break
+				}
+				
 				if pm := priceRegex.FindStringSubmatch(l); len(pm) > 0 && flight.Price == "Unknown" {
 					symbol, val := pm[1], strings.ReplaceAll(pm[2], ",", "")
 					if p := parsePrice(val); p > 0 && p < 2500 {
