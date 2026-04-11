@@ -11,9 +11,14 @@ graph TB
     
     %% HDN Core Components
     IE[🧠 Intelligent Executor]
+    KS[📚 Knowledge Server<br/>MCP Bridge]
     CG[⚙️ Code Generator]
     CS[💾 Code Storage<br/>Redis]
     DA[🐳 Docker API]
+    
+    %% Scraper & MCP Services
+    FM[✈️ Flight MCP<br/>Port 8086]
+    PS[🌐 Playwright Scraper<br/>Port 8085]
     
     %% Event Bus
     subgraph Bus[📡 Event Bus]
@@ -48,16 +53,24 @@ graph TB
     User --> |1. Request Task| API
     API --> |2. Check Principles| PC
     PC --> Principles
-    PC --> |3. Generate Code| CG
-    CG --> |4. Store Code| CS
-    CS --> |5. Execute in Docker| DA
+    PC --> |3. Resolve Knowledge| KS
+    KS --> |4. Call Tool| FM
+    FM --> |5. Scrape Web| PS
+    PS --> |6. Screenshot & HTML| FM
+    FM --> |7. Extract & Verify| KS
+    KS --> |8. Return Hybrid Response| API
+    
+    API --> |A. Generate Code| CG
+    CG --> |B. Store Code| CS
+    CS --> |C. Execute in Docker| DA
     DA --> Docker
-    Docker --> |6. Validate Results| Validation
-    Validation --> |7. Learn & Update| SM
-    SM --> |8. Return Results| User
+    Docker --> |D. Validate Results| Validation
+    Validation --> |E. Learn & Update| SM
+    SM --> |F. Return Results| User
     
     %% API Connections
     API --> IE
+    API --> KS
     API --> CG
     API --> CS
     API --> DA
@@ -111,6 +124,25 @@ graph TB
     classDef securityClass fill:#ffebee
     classDef llmClass fill:#fff9c4
     classDef selfClass fill:#e8eaf6
+    classDef scraperClass fill:#e1f5fe,stroke:#01579b
+    
+    class User userClass
+    class API,IE,CG,DA serverClass
+    class KS,FM,PS scraperClass
+    class PC aiClass
+    class CS,Capabilities,Redis storageClass
+    class Principles,Rules,Block securityClass
+    class LLM1,LLM2,LLM3 llmClass
+    class SM selfClass
+    
+    %% Styling
+    classDef userClass fill:#e1f5fe
+    classDef serverClass fill:#f3e5f5
+    classDef aiClass fill:#e8f5e8
+    classDef storageClass fill:#fff3e0
+    classDef securityClass fill:#ffebee
+    classDef llmClass fill:#fff9c4
+    classDef selfClass fill:#e8eaf6
     
     class User userClass
     class API,IE,CG,DA serverClass
@@ -147,6 +179,28 @@ graph TB
     - Retrieves prevention hints before code generation
     - Incorporates successful strategies into prompt construction
     - Logs intelligence activity for observability
+
+### 📚 **Knowledge Server (KS)**
+- **Purpose**: MCP (Model Context Protocol) bridge for external tools and domain knowledge
+- **Functions**:
+  - MCP tool discovery and lifecycle management
+  - Routing complex requests to specialized MCP servers (Flights, Research, strategic reasoning)
+  - **AI Sight Screenshot Management**: Automatically extracts base64 image data from tool results and saves to `/app/artifacts` for visual verification in the Monitor UI.
+  - **Hybrid Response Generator**: Combines LLM-generated summaries with structured tool output to prevent hallucinations.
+
+### ✈️ **Flight MCP Server (FM)**
+- **Purpose**: Specialized flight search orchestrator
+- **Functions**:
+  - **Dual-Pass Search**: Splits round-trip requests into two discrete searches (Departing/Returning) for maximum scraper reliability.
+  - **Smart Route Validation**: Validates extracted flights against target airport groups (e.g., ensuring `LCY`, `LHR`, `LUT` are mapped to `LON`).
+  - **AI Hybrid Extraction**: Combines high-fidelity OCR with LLM-based HTML mining to ensure no budget airlines (like easyJet) are missed.
+
+### 🌐 **Playwright Scraper Service (PS)**
+- **Purpose**: Stateless browser automation engine
+- **Functions**:
+  - Headless navigation to complex SPAs (Google Flights, Research portals).
+  - Consent wall bypassing and anti-bot mitigation.
+  - Generates full-page screenshots and cleaned HTML for AI processing.
 
 ### 🧠 **Self-Model Manager (SM)**
 - **Purpose**: Self-awareness and learning system
