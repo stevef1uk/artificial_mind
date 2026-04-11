@@ -137,36 +137,49 @@ func (nlg *NLGGenerator) GenerateResponse(ctx context.Context, req *NLGRequest) 
 	if req.Result != nil {
 		log.Printf("🗣️ [NLG] Result available: type=%s, success=%v, data_keys=%d", req.Result.Type, req.Result.Success, len(req.Result.Data))
 	}
-	// For scrape results with extracted content, present directly without LLM summarization
-	if extractedContent := nlg.getExtractedScrapeContent(req); extractedContent != "" {
-		log.Printf("📤 [NLG] Returning extracted scrape content directly (%d chars), skipping LLM summarization", len(extractedContent))
-		return &NLGResponse{
-			Text:       extractedContent,
-			Confidence: 0.9,
-			Metadata: map[string]interface{}{
-				"response_type": "task",
-				"intent_type":   req.Intent.Type,
-				"scrape_direct": true,
-			},
-		}, nil
-	}
+
+	// Start by attempting to extract structured scrape content (e.g. Flight List)
+	extractedContent := nlg.getExtractedScrapeContent(req)
+
+	var response *NLGResponse
+	var err error
 
 	switch req.Action.Type {
 	case "knowledge_query":
-		return nlg.generateKnowledgeResponse(ctx, req)
+		response, err = nlg.generateKnowledgeResponse(ctx, req)
 	case "task_execution":
-		return nlg.generateTaskResponse(ctx, req)
+		response, err = nlg.generateTaskResponse(ctx, req)
 	case "planning":
-		return nlg.generatePlanningResponse(ctx, req)
+		response, err = nlg.generatePlanningResponse(ctx, req)
 	case "learning":
-		return nlg.generateLearningResponse(ctx, req)
+		response, err = nlg.generateLearningResponse(ctx, req)
 	case "explanation":
-		return nlg.generateExplanationResponse(ctx, req)
+		response, err = nlg.generateExplanationResponse(ctx, req)
 	case "general_conversation":
-		return nlg.generateConversationResponse(ctx, req)
+		response, err = nlg.generateConversationResponse(ctx, req)
 	default:
-		return nlg.generateGenericResponse(ctx, req)
+		response, err = nlg.generateGenericResponse(ctx, req)
 	}
+
+	if err != nil {
+		return response, err
+	}
+
+	// HYBRID LOGIC: If we have structured content, append it to the LLM response.
+	// We prioritize the structured content as the source of truth.
+	if extractedContent != "" {
+		log.Printf("📥 [NLG] Appending extracted scrape content (%d chars) to LLM response", len(extractedContent))
+		
+		// If the LLM response is very short or generic, we lead with the structured list.
+		// If it's a "lead-in", we append the list.
+		if !strings.Contains(response.Text, "SUCCESS: Found") {
+			response.Text = response.Text + "\n\n" + extractedContent
+		}
+		
+		response.Metadata["scrape_hybrid"] = true
+	}
+
+	return response, nil
 }
 
 // generateKnowledgeResponse generates a response for knowledge queries
@@ -465,10 +478,11 @@ func (nlg *NLGGenerator) buildKnowledgePrompt(req *NLGRequest) string {
 	sb.WriteString("4. DO NOT invent, make up, or hallucinate any data that is not explicitly shown in those sections.\n")
 	sb.WriteString("5. If the \"Knowledge/Intelligence Results\" contains email data or list data, present it cleanly and formatted for the user.\n")
 	sb.WriteString("6. If information is present in ONE section but not the other, just use what is available. Do NOT mention that the other section was empty.\n")
-	sb.WriteString("7. NEVER provide code, scripts, or commands that could be harmful or destructive.\n")
-	sb.WriteString("8. If the 'Information from Memory/Bio' contains information about " + userName + ", assume this is the user you are talking to.\n")
-	sb.WriteString("9. Use a natural, direct tone. DO NOT start every response with formal disclaimers or polite filler.\n")
-	sb.WriteString("10. Stay focused on the CURRENT message. DO NOT volunteer updates about your knowledge gaps or what you 'couldn't find'. If you can't find it, answer based on common sense or ask a short clarifying question.\n")
+	sb.WriteString("7. NEVER volunteer information about why search results might be missing or limited unless asked.\n")
+	sb.WriteString("8. 🚨 HYBRID FLIGHT SUMMARY: If flight results are present, provide ONLY a friendly 1-2 sentence lead-in intro (e.g. 'I found 35 flights starting at £77...'). DO NOT include the detailed list; it will be appended automatically.\n")
+	sb.WriteString("9. If the 'Information from Memory/Bio' contains information about " + userName + ", assume this is the user you are talking to.\n")
+	sb.WriteString("10. Use a natural, direct tone. DO NOT start every response with formal disclaimers or polite filler.\n")
+	sb.WriteString("11. Stay focused on the CURRENT message. DO NOT volunteer updates about your knowledge gaps or what you 'couldn't find'. If you can't find it, answer based on common sense or ask a short clarifying question.\n")
 
 	sb.WriteString("Please provide a clear, informative answer.\n\n")
 	sb.WriteString("IMPORTANT: If relevant information is found in either the 'Knowledge/Intelligence Results' or 'Information from Memory/Bio' sections, use it to provide a direct answer. Do NOT explain which section the info came from. Just answer the question naturally.\n")
@@ -539,7 +553,8 @@ func (nlg *NLGGenerator) buildTaskPrompt(req *NLGRequest) string {
 	sb.WriteString("3. DO NOT include confidence scores or metadata.\n")
 	sb.WriteString("4. DO NOT volunteer information about your knowledge gaps or mention what you 'couldn't find' unless it is absolutely necessary for the answer.\n")
 	sb.WriteString("5. Just tell the user what you did and show them the results. Be concise.\n")
-	sb.WriteString("6. 🚨 CRITICAL: ALWAYS prioritize current \"Task Results\" over any historical information in \"Information from Memory/Bio\". Current results are the ONLY source of truth for THIS request. NEVER use old or cached data from memory to fill in gaps if the current search returns nothing.\n\n")
+	sb.WriteString("6. 🚨 CRITICAL: ALWAYS prioritize current \"Task Results\" over any historical information in \"Information from Memory/Bio\". Current results are the ONLY source of truth for THIS request. NEVER use old or cached data from memory to fill in gaps if the current search returns nothing.\n")
+	sb.WriteString("7. 🚨 HYBRID FLIGHT SUMMARY: If flight results are present, provide ONLY a friendly 1-2 sentence lead-in intro (e.g. 'I found 35 flights starting at £77...'). DO NOT include the detailed list; it will be appended automatically.\n\n")
 
 	sb.WriteString("Please provide a helpful, direct summary of the task results.")
 
