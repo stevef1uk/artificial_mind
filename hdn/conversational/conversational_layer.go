@@ -429,8 +429,8 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 	}
 
 	responsePreview := response.Text
-	if len(responsePreview) > 100 {
-		responsePreview = responsePreview[:100] + "..."
+	if len(responsePreview) > 10000 {
+		responsePreview = responsePreview[:10000] + "..."
 	}
 	cl.reasoningTrace.AddStep(req.SessionID, "response_generation", fmt.Sprintf("Generated response (confidence: %.2f): %s", response.Confidence, responsePreview), map[string]interface{}{
 		"response_length": len(response.Text),
