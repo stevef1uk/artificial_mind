@@ -861,6 +861,22 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 			}
 		}
 
+		// Fallback: look into MCP 'content' array for image types
+		if screenshotB64 == "" {
+			if content, ok := resMap["content"].([]interface{}); ok {
+				for _, item := range content {
+					if imap, ok := item.(map[string]interface{}); ok {
+						if itype, ok := imap["type"].(string); ok && itype == "image" {
+							if idata, ok := imap["data"].(string); ok {
+								screenshotB64 = idata
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+
 		if screenshotB64 != "" {
 			go func(b64 string) {
 				raw := b64

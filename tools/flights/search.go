@@ -256,7 +256,7 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 			for _, f := range rawResults {
 				p := parsePrice(f.Price)
 				isRequestedAirport := false
-				if opts.Departure != "" && (strings.EqualFold(f.DepartureAirport, opts.Departure) || strings.EqualFold(f.DepartureAirport, origDep)) {
+				if opts.Departure != "" && strings.EqualFold(f.DepartureAirport, opts.Departure) {
 					isRequestedAirport = true
 				}
 
