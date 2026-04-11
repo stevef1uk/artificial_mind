@@ -148,13 +148,10 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		}
 	}
 
-	// 1. Calculate price ceiling based on cabin class
-	maxPrice := 800.0
-	cabinLower = strings.ToLower(opts.CabinClass)
-	if strings.Contains(cabinLower, "business") || strings.Contains(cabinLower, "first") || strings.Contains(cabinLower, "premium") {
-		maxPrice = 8000.0 // Allow much higher prices for premium cabins
-		log.Printf("💎 Premium cabin detected (%s), raising price cap to %.0f", opts.CabinClass, maxPrice)
-	}
+	// 1. Calculate price ceiling - use a very high safety ceiling for all routes
+	// Local constraints are now route-aware via outlier detection later.
+	maxPrice := 25000.0 
+	log.Printf("🛰️ Using route-adaptive safety cap: %.0f", maxPrice)
 
 	// 2. Extract flights using OCR on the shared screenshot
 	ocrFlights, _, _ := ExtractFlightsFromImage(screenshotPath, maxPrice)
@@ -188,14 +185,45 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		flightMap[genKey(f)] = f
 	}
 	for _, f := range minerFlights {
-		// Miner usually has better attributes but might miss time. 
-		// If it's a "close enough" match, we could merge, but for now just add.
+		// Miner usually has better attributes and price accuracy. 
+		// If Miner found it, overwrite OCR version.
 		flightMap[genKey(f)] = f 
 	}
 
-	var flights []FlightInfo
+	var rawResults []FlightInfo
 	for _, f := range flightMap {
-		flights = append(flights, f)
+		rawResults = append(rawResults, f)
+	}
+
+	// 4. OUTLIER FILTERING: Remove OCR hallucinations by checking relative price
+	// Approach: Mean-based filtering (discard prices > 2x mean)
+	var flights []FlightInfo
+	if len(rawResults) > 0 {
+		var prices []float64
+		for _, f := range rawResults {
+			p := parsePrice(f.Price)
+			if p > 0 && p < 99999 { prices = append(prices, p) }
+		}
+		
+		if len(prices) > 1 {
+			total := 0.0
+			for _, p := range prices { total += p }
+			mean := total / float64(len(prices))
+			threshold := mean * 2.0
+			log.Printf("📊 Mean price: %.2f. Threshold (2x): %.2f. Filtering outliers...", mean, threshold)
+
+			for _, f := range rawResults {
+				p := parsePrice(f.Price)
+				// Discard if > 2x mean, assuming multiple flights exist
+				if p <= threshold || p < 150 { // Always allow small prices
+					flights = append(flights, f)
+				} else {
+					log.Printf("⚠️ Dropping price outlier: %s %s (%.0f > 2x mean %.0f)", f.Airline, f.Price, p, mean)
+				}
+			}
+		} else {
+			flights = rawResults // Keep if only 1 flight found
+		}
 	}
 
 	// 4. Sort by price (cheapest first)
