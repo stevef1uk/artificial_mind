@@ -107,10 +107,6 @@ spec:
                   name: llm-config
                   key: OLLAMA_BASE_URL
                   optional: true
-            - name: NATS_URL
-              value: "nats://nats.agi.svc.cluster.local:4222"
-            - name: REDIS_URL
-              value: "redis://redis.agi.svc.cluster.local:6379"
             - name: HDN_URL
               value: "http://hdn-server-rpi58.agi.svc.cluster.local:8080"
             - name: MCP_ENDPOINTS
