@@ -739,6 +739,7 @@ func (s *APIServer) setupRoutes() {
 	s.router.HandleFunc("/api/v1/memory/consolidate", s.handleTriggerConsolidation).Methods("POST")
 
 	s.RegisterMCPKnowledgeServerRoutes()
+	s.RegisterConversationalRoutes()
 
 	s.router.HandleFunc("/api/v1/agents", s.handleListAgents).Methods("GET")
 	s.router.HandleFunc("/api/v1/agents", s.handleCreateAgent).Methods("POST")
@@ -835,9 +836,6 @@ func (s *APIServer) setupRoutes() {
 	s.router.HandleFunc("/api/v1/projects", s.handleCreateProject).Methods("POST")
 	s.router.HandleFunc("/api/v1/projects", s.handleListProjects).Methods("GET")
 
-	if s.conversationalAPI != nil {
-		s.conversationalAPI.RegisterRoutes(s.router)
-	}
 	s.router.HandleFunc("/api/v1/projects/{id}", s.handleGetProject).Methods("GET")
 	s.router.HandleFunc("/api/v1/projects/{id}", s.handleUpdateProject).Methods("PUT")
 	s.router.HandleFunc("/api/v1/projects/{id}", s.handleDeleteProject).Methods("DELETE")

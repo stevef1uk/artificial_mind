@@ -39,34 +39,34 @@ func (api *ConversationalAPI) SetSlotAcquisition(acquire SlotAcquisitionFunc) {
 // RegisterRoutes registers the conversational API routes
 func (api *ConversationalAPI) RegisterRoutes(router *mux.Router) {
 	// Main conversational endpoint
-	router.HandleFunc("/api/v1/chat", api.handleChat).Methods("POST")
-	router.HandleFunc("/api/v1/chat/stream", api.handleChatStream).Methods("POST")
+	router.HandleFunc("/api/v1/chat", api.HandleChat).Methods("POST")
+	router.HandleFunc("/api/v1/chat/stream", api.HandleChatStream).Methods("POST")
 
 	// Conversation management
-	router.HandleFunc("/api/v1/chat/sessions/{sessionId}/history", api.handleGetHistory).Methods("GET")
-	router.HandleFunc("/api/v1/chat/sessions/{sessionId}/summary", api.handleGetSessionSummary).Methods("GET")
-	router.HandleFunc("/api/v1/chat/sessions/{sessionId}/clear", api.handleClearSession).Methods("DELETE")
+	router.HandleFunc("/api/v1/chat/sessions/{sessionId}/history", api.HandleGetHistory).Methods("GET")
+	router.HandleFunc("/api/v1/chat/sessions/{sessionId}/summary", api.HandleGetSessionSummary).Methods("GET")
+	router.HandleFunc("/api/v1/chat/sessions/{sessionId}/clear", api.HandleClearSession).Methods("DELETE")
 
 	// Reasoning and thinking
-	router.HandleFunc("/api/v1/chat/sessions/{sessionId}/thinking", api.handleGetThinking).Methods("GET")
-	router.HandleFunc("/api/v1/chat/sessions/{sessionId}/reasoning", api.handleGetReasoning).Methods("GET")
-	router.HandleFunc("/api/v1/chat/sessions/{sessionId}/thoughts", api.handleGetThoughts).Methods("GET")
-	router.HandleFunc("/api/v1/chat/sessions/{sessionId}/thoughts/stream", api.handleGetThoughtsStream).Methods("GET")
-	router.HandleFunc("/api/v1/chat/sessions/{sessionId}/thoughts/express", api.handleExpressThoughts).Methods("POST")
+	router.HandleFunc("/api/v1/chat/sessions/{sessionId}/thinking", api.HandleGetThinking).Methods("GET")
+	router.HandleFunc("/api/v1/chat/sessions/{sessionId}/reasoning", api.HandleGetReasoning).Methods("GET")
+	router.HandleFunc("/api/v1/chat/sessions/{sessionId}/thoughts", api.HandleGetThoughts).Methods("GET")
+	router.HandleFunc("/api/v1/chat/sessions/{sessionId}/thoughts/stream", api.HandleGetThoughtsStream).Methods("GET")
+	router.HandleFunc("/api/v1/chat/sessions/{sessionId}/thoughts/express", api.HandleExpressThoughts).Methods("POST")
 
 	// Session management
-	router.HandleFunc("/api/v1/chat/sessions", api.handleListSessions).Methods("GET")
-	router.HandleFunc("/api/v1/chat/sessions/cleanup", api.handleCleanupSessions).Methods("POST")
+	router.HandleFunc("/api/v1/chat/sessions", api.HandleListSessions).Methods("GET")
+	router.HandleFunc("/api/v1/chat/sessions/cleanup", api.HandleCleanupSessions).Methods("POST")
 
 	// Simple text-only chat endpoint
-	router.HandleFunc("/api/v1/chat/text", api.handleChatText).Methods("POST")
+	router.HandleFunc("/api/v1/chat/text", api.HandleChatText).Methods("POST")
 
 	// Health check
-	router.HandleFunc("/api/v1/chat/health", api.handleHealth).Methods("GET")
+	router.HandleFunc("/api/v1/chat/health", api.HandleHealth).Methods("GET")
 }
 
-// handleChat handles conversational chat requests
-func (api *ConversationalAPI) handleChat(w http.ResponseWriter, r *http.Request) {
+// HandleChat handles conversational chat requests
+func (api *ConversationalAPI) HandleChat(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			log.Printf("🔥 [CONVERSATIONAL-API] Panic in /api/v1/chat: %v\n%s", rec, string(debug.Stack()))
@@ -147,8 +147,8 @@ func (api *ConversationalAPI) handleChat(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(finalResponse)
 }
 
-// handleChatStream handles streaming chat requests
-func (api *ConversationalAPI) handleChatStream(w http.ResponseWriter, r *http.Request) {
+// HandleChatStream handles streaming chat requests
+func (api *ConversationalAPI) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			log.Printf("🔥 [CONVERSATIONAL-API] Panic in /api/v1/chat/stream: %v\n%s", rec, string(debug.Stack()))
@@ -215,8 +215,8 @@ func (api *ConversationalAPI) handleChatStream(w http.ResponseWriter, r *http.Re
 	w.(http.Flusher).Flush()
 }
 
-// handleGetHistory retrieves conversation history for a session
-func (api *ConversationalAPI) handleGetHistory(w http.ResponseWriter, r *http.Request) {
+// HandleGetHistory retrieves conversation history for a session
+func (api *ConversationalAPI) HandleGetHistory(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	sessionID := vars["sessionId"]
 	if sessionID == "" {
@@ -249,8 +249,8 @@ func (api *ConversationalAPI) handleGetHistory(w http.ResponseWriter, r *http.Re
 	})
 }
 
-// handleGetSessionSummary retrieves session summary
-func (api *ConversationalAPI) handleGetSessionSummary(w http.ResponseWriter, r *http.Request) {
+// HandleGetSessionSummary retrieves session summary
+func (api *ConversationalAPI) HandleGetSessionSummary(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	sessionID := vars["sessionId"]
 	if sessionID == "" {
@@ -271,8 +271,8 @@ func (api *ConversationalAPI) handleGetSessionSummary(w http.ResponseWriter, r *
 	json.NewEncoder(w).Encode(summary)
 }
 
-// handleClearSession clears a conversation session
-func (api *ConversationalAPI) handleClearSession(w http.ResponseWriter, r *http.Request) {
+// HandleClearSession clears a conversation session
+func (api *ConversationalAPI) HandleClearSession(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	sessionID := vars["sessionId"]
 	if sessionID == "" {
@@ -297,8 +297,8 @@ func (api *ConversationalAPI) handleClearSession(w http.ResponseWriter, r *http.
 	})
 }
 
-// handleGetThinking retrieves current thinking process
-func (api *ConversationalAPI) handleGetThinking(w http.ResponseWriter, r *http.Request) {
+// HandleGetThinking retrieves current thinking process
+func (api *ConversationalAPI) HandleGetThinking(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	sessionID := vars["sessionId"]
 	if sessionID == "" {
@@ -319,8 +319,8 @@ func (api *ConversationalAPI) handleGetThinking(w http.ResponseWriter, r *http.R
 	json.NewEncoder(w).Encode(thinking)
 }
 
-// handleGetReasoning retrieves reasoning trace
-func (api *ConversationalAPI) handleGetReasoning(w http.ResponseWriter, r *http.Request) {
+// HandleGetReasoning retrieves reasoning trace
+func (api *ConversationalAPI) HandleGetReasoning(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	sessionID := vars["sessionId"]
 	if sessionID == "" {
@@ -341,8 +341,8 @@ func (api *ConversationalAPI) handleGetReasoning(w http.ResponseWriter, r *http.
 	json.NewEncoder(w).Encode(reasoning)
 }
 
-// handleListSessions lists active conversation sessions
-func (api *ConversationalAPI) handleListSessions(w http.ResponseWriter, r *http.Request) {
+// HandleListSessions lists active conversation sessions
+func (api *ConversationalAPI) HandleListSessions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	sessions, err := api.conversationalLayer.conversationMemory.GetActiveSessions(ctx)
 	if err != nil {
@@ -359,8 +359,8 @@ func (api *ConversationalAPI) handleListSessions(w http.ResponseWriter, r *http.
 	})
 }
 
-// handleCleanupSessions cleans up old sessions
-func (api *ConversationalAPI) handleCleanupSessions(w http.ResponseWriter, r *http.Request) {
+// HandleCleanupSessions cleans up old sessions
+func (api *ConversationalAPI) HandleCleanupSessions(w http.ResponseWriter, r *http.Request) {
 	// Get cleanup parameters
 	hours := 24 // Default to 24 hours
 	if h := r.URL.Query().Get("hours"); h != "" {
@@ -387,8 +387,8 @@ func (api *ConversationalAPI) handleCleanupSessions(w http.ResponseWriter, r *ht
 	})
 }
 
-// handleChatText handles simple text-only chat requests
-func (api *ConversationalAPI) handleChatText(w http.ResponseWriter, r *http.Request) {
+// HandleChatText handles simple text-only chat requests
+func (api *ConversationalAPI) HandleChatText(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			log.Printf("🔥 [CONVERSATIONAL-API] Panic in /api/v1/chat/text: %v\n%s", rec, string(debug.Stack()))
@@ -431,8 +431,8 @@ func (api *ConversationalAPI) handleChatText(w http.ResponseWriter, r *http.Requ
 	w.Write([]byte(response.Response))
 }
 
-// handleHealth provides health check for conversational API
-func (api *ConversationalAPI) handleHealth(w http.ResponseWriter, r *http.Request) {
+// HandleHealth provides health check for conversational API
+func (api *ConversationalAPI) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	// Check if the conversational layer is healthy
 	// For now, we'll just return a basic health status
 	health := map[string]interface{}{
@@ -457,8 +457,8 @@ func (api *ConversationalAPI) writeErrorResponse(w http.ResponseWriter, message 
 	})
 }
 
-// handleGetThoughts retrieves thought events for a session
-func (api *ConversationalAPI) handleGetThoughts(w http.ResponseWriter, r *http.Request) {
+// HandleGetThoughts retrieves thought events for a session
+func (api *ConversationalAPI) HandleGetThoughts(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	sessionID := vars["sessionId"]
 
@@ -488,8 +488,8 @@ func (api *ConversationalAPI) handleGetThoughts(w http.ResponseWriter, r *http.R
 	})
 }
 
-// handleGetThoughtsStream streams thought events for a session
-func (api *ConversationalAPI) handleGetThoughtsStream(w http.ResponseWriter, r *http.Request) {
+// HandleGetThoughtsStream streams thought events for a session
+func (api *ConversationalAPI) HandleGetThoughtsStream(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	sessionID := vars["sessionId"]
 
@@ -524,8 +524,8 @@ func (api *ConversationalAPI) handleGetThoughtsStream(w http.ResponseWriter, r *
 	w.(http.Flusher).Flush()
 }
 
-// handleExpressThoughts converts reasoning traces to natural language thoughts
-func (api *ConversationalAPI) handleExpressThoughts(w http.ResponseWriter, r *http.Request) {
+// HandleExpressThoughts converts reasoning traces to natural language thoughts
+func (api *ConversationalAPI) HandleExpressThoughts(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	sessionID := vars["sessionId"]
 

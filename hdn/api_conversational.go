@@ -7,6 +7,7 @@ import (
 	"hdn/conversational"
 	"hdn/interpreter"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -27,9 +28,14 @@ type SimpleChatLLM struct{}
 
 // initializeConversationalLayer initializes the conversational AI layer
 func (s *APIServer) initializeConversationalLayer() {
-
 	if s.llmClient == nil {
 		log.Printf("⚠️ [API] LLM client not available, skipping conversational layer initialization")
+		return
+	}
+
+	// Singleton pattern: don't re-initialize if already exists (avoids re-registering routes)
+	if s.conversationalAPI != nil {
+		log.Printf("💬 [API] Conversational interface already initialized, skipping")
 		return
 	}
 
@@ -47,6 +53,94 @@ func (s *APIServer) initializeConversationalLayer() {
 	s.conversationalAPI.SetSlotAcquisition(s.acquireExecutionSlot)
 
 	log.Printf("💬 [API] Conversational interface initialized with real LLM")
+}
+
+// RegisterConversationalRoutes registers proxy routes that wait for the layer to be initialized
+func (s *APIServer) RegisterConversationalRoutes() {
+	// Main conversational endpoint
+	s.router.HandleFunc("/api/v1/chat", s.handleChat).Methods("POST", "OPTIONS")
+	s.router.HandleFunc("/api/v1/chat/stream", s.handleChatStream).Methods("POST", "OPTIONS")
+
+	// Conversation management
+	s.router.HandleFunc("/api/v1/chat/sessions/{sessionId}/history", s.handleGetHistory).Methods("GET", "OPTIONS")
+	s.router.HandleFunc("/api/v1/chat/sessions/{sessionId}/summary", s.handleGetSessionSummary).Methods("GET", "OPTIONS")
+	s.router.HandleFunc("/api/v1/chat/sessions/{sessionId}/clear", s.handleClearSession).Methods("DELETE", "OPTIONS")
+
+	// Session management
+	s.router.HandleFunc("/api/v1/chat/sessions", s.handleListSessions).Methods("GET", "OPTIONS")
+
+	// Simple text-only chat endpoint
+	s.router.HandleFunc("/api/v1/chat/text", s.handleChatText).Methods("POST", "OPTIONS")
+
+	// Health check
+	s.router.HandleFunc("/api/v1/chat/health", s.handleChatHealth).Methods("GET", "OPTIONS")
+
+	log.Printf("✅ [API] Conversational proxy routes registered")
+}
+
+// Proxy handlers that check for initialization
+func (s *APIServer) handleChat(w http.ResponseWriter, r *http.Request) {
+	if s.conversationalAPI == nil {
+		http.Error(w, "Conversational API not yet initialized (waiting for LLM client)", http.StatusServiceUnavailable)
+		return
+	}
+	s.conversationalAPI.HandleChat(w, r)
+}
+
+func (s *APIServer) handleChatStream(w http.ResponseWriter, r *http.Request) {
+	if s.conversationalAPI == nil {
+		http.Error(w, "Conversational API not yet initialized", http.StatusServiceUnavailable)
+		return
+	}
+	s.conversationalAPI.HandleChatStream(w, r)
+}
+
+func (s *APIServer) handleGetHistory(w http.ResponseWriter, r *http.Request) {
+	if s.conversationalAPI == nil {
+		http.Error(w, "Conversational API not yet initialized", http.StatusServiceUnavailable)
+		return
+	}
+	s.conversationalAPI.HandleGetHistory(w, r)
+}
+
+func (s *APIServer) handleGetSessionSummary(w http.ResponseWriter, r *http.Request) {
+	if s.conversationalAPI == nil {
+		http.Error(w, "Conversational API not yet initialized", http.StatusServiceUnavailable)
+		return
+	}
+	s.conversationalAPI.HandleGetSessionSummary(w, r)
+}
+
+func (s *APIServer) handleClearSession(w http.ResponseWriter, r *http.Request) {
+	if s.conversationalAPI == nil {
+		http.Error(w, "Conversational API not yet initialized", http.StatusServiceUnavailable)
+		return
+	}
+	s.conversationalAPI.HandleClearSession(w, r)
+}
+
+func (s *APIServer) handleListSessions(w http.ResponseWriter, r *http.Request) {
+	if s.conversationalAPI == nil {
+		http.Error(w, "Conversational API not yet initialized", http.StatusServiceUnavailable)
+		return
+	}
+	s.conversationalAPI.HandleListSessions(w, r)
+}
+
+func (s *APIServer) handleChatText(w http.ResponseWriter, r *http.Request) {
+	if s.conversationalAPI == nil {
+		http.Error(w, "Conversational API not yet initialized", http.StatusServiceUnavailable)
+		return
+	}
+	s.conversationalAPI.HandleChatText(w, r)
+}
+
+func (s *APIServer) handleChatHealth(w http.ResponseWriter, r *http.Request) {
+	if s.conversationalAPI == nil {
+		http.Error(w, "Conversational API not yet initialized", http.StatusServiceUnavailable)
+		return
+	}
+	s.conversationalAPI.HandleHealth(w, r)
 }
 
 // GenerateResponse implements the conversational LLMClientInterface

@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"net/http"
 
 	mempkg "hdn/memory"
 	"hdn/interpreter"
@@ -179,15 +180,32 @@ func (s *APIServer) RegisterMCPKnowledgeServerRoutes() {
 
 	}
 
-	s.router.HandleFunc("/mcp", s.mcpKnowledgeServer.HandleRequest).Methods("POST", "GET", "OPTIONS")
-	s.router.HandleFunc("/api/v1/mcp", s.mcpKnowledgeServer.HandleRequest).Methods("POST", "GET", "OPTIONS")
+	s.router.HandleFunc("/mcp", s.handleMCPRequest).Methods("POST", "GET", "OPTIONS")
+	s.router.HandleFunc("/api/v1/mcp", s.handleMCPRequest).Methods("POST", "GET", "OPTIONS")
 
-	s.router.HandleFunc("/sse", s.mcpKnowledgeServer.HandleRequest).Methods("GET", "OPTIONS")
-	s.router.HandleFunc("/api/v1/sse", s.mcpKnowledgeServer.HandleRequest).Methods("GET", "OPTIONS")
+	s.router.HandleFunc("/sse", s.handleSSERequest).Methods("GET", "OPTIONS")
+	s.router.HandleFunc("/api/v1/sse", s.handleSSERequest).Methods("GET", "OPTIONS")
 
 	s.router.HandleFunc("/api/v1/scrape/screenshot", s.mcpKnowledgeServer.HandleScreenshot).Methods("GET")
 
-	log.Printf("✅ [MCP-KNOWLEDGE] MCP knowledge server registered at /mcp, /sse and /api/v1/mcp")
+	log.Printf("✅ [MCP-KNOWLEDGE] MCP knowledge proxy routes registered at /mcp and /sse")
+}
+
+// Proxy handlers for MCP
+func (s *APIServer) handleMCPRequest(w http.ResponseWriter, r *http.Request) {
+	if s.mcpKnowledgeServer == nil {
+		http.Error(w, "MCP knowledge server not yet initialized", http.StatusServiceUnavailable)
+		return
+	}
+	s.mcpKnowledgeServer.HandleRequest(w, r)
+}
+
+func (s *APIServer) handleSSERequest(w http.ResponseWriter, r *http.Request) {
+	if s.mcpKnowledgeServer == nil {
+		http.Error(w, "MCP knowledge server not yet initialized", http.StatusServiceUnavailable)
+		return
+	}
+	s.mcpKnowledgeServer.HandleSSESession(w, r)
 }
 
 // isSelfConnectionHDN checks if the endpoint is pointing to the same server (self-connection)

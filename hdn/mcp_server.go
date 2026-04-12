@@ -106,7 +106,7 @@ func (s *MCPKnowledgeServer) HandleRequest(w http.ResponseWriter, r *http.Reques
 	}
 
 	if r.Header.Get("Accept") == "text/event-stream" || r.URL.Query().Get("sse") == "true" || strings.HasSuffix(r.URL.Path, "/sse") {
-		s.handleSSESession(w, r)
+		s.HandleSSESession(w, r)
 		return
 	}
 
@@ -183,9 +183,9 @@ func (s *MCPKnowledgeServer) HandleRequest(w http.ResponseWriter, r *http.Reques
 	s.sendResponse(w, req.ID, result)
 }
 
-// handleSSESession establishes an MCP SSE session
+// HandleSSESession establishes an MCP SSE session
 // It sends the endpoint URL for subsequent POST requests
-func (s *MCPKnowledgeServer) handleSSESession(w http.ResponseWriter, r *http.Request) {
+func (s *MCPKnowledgeServer) HandleSSESession(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
