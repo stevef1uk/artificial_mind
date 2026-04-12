@@ -755,6 +755,21 @@
                 caption.style.fontSize = "1.2rem";
             };
 
+            // If the thought has an embedded screenshot, allow clicking to see it
+            if (thought.screenshot) {
+                const imgIcon = document.createElement('div');
+                imgIcon.innerHTML = `<img src="data:image/png;base64,${thought.screenshot}" style="width: 40px; height: 30px; object-fit: cover; border-radius: 4px; margin-top: 5px; border: 1px solid rgba(255,255,255,0.2);">`;
+                entry.appendChild(imgIcon);
+                
+                // When clicking a thought with a screenshot, update the main visualizer too
+                const oldOnClick = entry.onclick;
+                entry.onclick = () => {
+                   if (oldOnClick) oldOnClick();
+                   const mainImg = document.getElementById('screenshot-view');
+                   mainImg.src = `data:image/png;base64,${thought.screenshot}`;
+                };
+            }
+
             const time = new Date(thought.timestamp).toLocaleTimeString();
             entry.innerHTML = `
                 <div class="thought-text">${text}</div>
