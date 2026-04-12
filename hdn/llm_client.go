@@ -1050,9 +1050,9 @@ func (c *LLMClient) GenerateExecutableCode(taskName, description, language strin
 	prompt := c.buildCodePrompt(taskName, description, language, context)
 	log.Printf("🤖 [LLM] Generated code prompt length: %d characters", len(prompt))
 
-	// Call the LLM
-	log.Printf("🤖 [LLM] Calling LLM with provider: %s", c.config.LLMProvider)
-	response, err := c.callLLM(prompt)
+	// Call the LLM with high priority (as it's usually a synchronous tool/user request)
+	log.Printf("🤖 [LLM] Calling LLM with provider: %s (High Priority)", c.config.LLMProvider)
+	response, err := c.callLLMWithContextAndPriority(context.Background(), prompt, PriorityHigh)
 	if err != nil {
 		log.Printf("❌ [LLM] LLM call failed: %v", err)
 		return "", err
@@ -1078,9 +1078,9 @@ func (c *LLMClient) ExecuteTask(taskName, prompt string, context map[string]stri
 	executionPrompt := c.buildExecutionPrompt(taskName, prompt, context)
 	log.Printf("🤖 [LLM] Generated execution prompt length: %d characters", len(executionPrompt))
 
-	// Call the LLM
-	log.Printf("🤖 [LLM] Calling LLM for task execution")
-	response, err := c.callLLM(executionPrompt)
+	// Call the LLM with high priority
+	log.Printf("🤖 [LLM] Calling LLM for task execution (High Priority)")
+	response, err := c.callLLMWithContextAndPriority(context.Background(), executionPrompt, PriorityHigh)
 	if err != nil {
 		log.Printf("❌ [LLM] Task execution failed: %v", err)
 		return "", err
