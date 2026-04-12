@@ -2833,7 +2833,10 @@ func (s *APIServer) generateImageInternal(ctx context.Context, prompt string, so
 	// Determine generation host/port
 	genHost := os.Getenv("WHISPLAY_GEN_HOST")
 	if genHost == "" {
-		genHost = "192.168.1.60"
+		genHost = os.Getenv("IMAGING_HOST") // Fallback to primary imaging host
+	}
+	if genHost == "" {
+		genHost = "192.168.1.60" // Legacy default
 	}
 	genPort := os.Getenv("WHISPLAY_GEN_PORT")
 	if genPort == "" {

@@ -1058,6 +1058,9 @@ func (c *LLMClient) GenerateExecutableCode(taskName, description, language strin
 		return "", err
 	}
 	log.Printf("🤖 [LLM] Received response length: %d characters", len(response))
+	if len(response) < 10 {
+		log.Printf("⚠️ [LLM] VERY SHORT response received: '%s'", response)
+	}
 
 	// Extract code from response
 	code := c.extractCodeFromResponse(response, language)
@@ -1182,7 +1185,7 @@ func (c *LLMClient) extractCodeFromResponse(response, language string) string {
 	// Remove markdown code blocks if present
 	response = strings.TrimSpace(response)
 
-	// Look for code blocks
+	// Look for code blocks with backticks
 	if strings.Contains(response, "```") {
 		lines := strings.Split(response, "\n")
 		var codeLines []string
@@ -1202,12 +1205,27 @@ func (c *LLMClient) extractCodeFromResponse(response, language string) string {
 		}
 
 		if len(codeLines) > 0 {
-			return strings.Join(codeLines, "\n")
+			code := strings.TrimSpace(strings.Join(codeLines, "\n"))
+			if code != "" {
+				return code
+			}
 		}
 	}
 
-	// If no code blocks, return the response as-is
-	return response
+	// Heuristic fallback: if no backticks but response contains common code keywords
+	// like 'import', 'def', 'package', 'func', return it as-is but cleaned
+	lowerRes := strings.ToLower(response)
+	if strings.Contains(lowerRes, "import ") || strings.Contains(lowerRes, "def ") || 
+	   strings.Contains(lowerRes, "func ") || strings.Contains(lowerRes, "package ") {
+		return strings.TrimSpace(response)
+	}
+
+	// If no code blocks and no heuristics, return empty to prevent junk execution
+	if len(response) < 5 {
+		return ""
+	}
+	
+	return strings.TrimSpace(response)
 }
 
 func (c *LLMClient) buildExecutionPrompt(taskName, prompt string, context map[string]string) string {
