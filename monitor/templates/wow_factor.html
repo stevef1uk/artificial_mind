@@ -467,6 +467,11 @@
                 <div class="vision-overlay">Direct Vision Stream</div>
             </div>
 
+            <h2 class="panel-title">Final Result</h2>
+            <div id="final-result-display" style="flex-shrink: 0; padding: 15px; background: rgba(0, 242, 255, 0.05); border: 1px solid rgba(0, 242, 255, 0.2); border-radius: 10px; margin-bottom: 20px; font-size: 0.95rem; line-height: 1.5; color: var(--accent-color); white-space: pre-wrap; max-height: 400px; overflow-y: auto;">
+                Awaiting final synthesis...
+            </div>
+
             <h2 class="panel-title">Context Nodes</h2>
             <div id="memory-helix" class="memory-helix">
                 <!-- Memory tags will appear here -->
@@ -718,6 +723,12 @@
                             memories.appendChild(tag);
                         }
                     });
+
+                    // Update Final Result display from latest assistant message
+                    const lastAssistantMsg = history.data.history.find(h => h.role === 'assistant');
+                    if (lastAssistantMsg) {
+                        document.getElementById('final-result-display').textContent = lastAssistantMsg.content;
+                    }
                 }
 
                 // CHECK FOR SCREENSHOTS
