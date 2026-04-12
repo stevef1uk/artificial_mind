@@ -734,9 +734,6 @@ type ConversationalLLMAdapter struct {
 // SimpleChatFSM provides basic FSM interface for chat
 type SimpleChatFSM struct{}
 
-// SimpleChatHDN provides basic HDN interface for chat
-type SimpleChatHDN struct{ server *APIServer }
-
 // SimpleChatLLM provides basic LLM interface for chat
 type SimpleChatLLM struct{}
 

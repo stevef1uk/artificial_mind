@@ -3229,15 +3229,22 @@
                     resultDiv.innerHTML = `
                         <div class="workflow-item">
                             <div class="step-header">
-                                <span class="step-name">${isCodeRequest ? 'Intelligent Execution' : 'Chat'}</span>
-                                <span class="step-status status-completed">COMPLETED</span>
+                                <span class="step-name">Network Error</span>
+                                <span class="step-status status-failed">FAILED</span>
                             </div>
-                            <div class="step-description">Request: ${input}</div>
+                            <div class="step-description">Request failed to reach the server</div>
                             <div class="step-output">
-                                <p><strong>✅ Execution completed successfully!</strong></p>
-                                <p>Your request has been processed${isCodeRequest ? ' and artifacts have been created' : ''}.</p>
-                                ${isCodeRequest ? '<p>Check the <strong>Projects</strong> tab to see the generated files and results.</p>' : ''}
-                                <p><em>Note: UI display issue prevented immediate result showing, but execution was successful.</em></p>
+                                <p style="color: #dc3545;"><strong>🚨 Network Connection Failed</strong></p>
+                                <p>The browser was unable to connect to the Monitor UI backend at <code>${axios.defaults.baseURL || window.location.origin}</code>.</p>
+                                <p><strong>Details:</strong> ${error.message}</p>
+                                <p><strong>Possible reasons:</strong></p>
+                                <ul>
+                                    <li>The backend service is down or unreachable</li>
+                                    <li>The request was blocked by a firewall or adblocker</li>
+                                    <li>CORS policy prevented the request (check browser console)</li>
+                                    <li>The connection was closed prematurely by the server</li>
+                                </ul>
+                                <p><em>Check the browser's developer console (F12) for more detailed technical errors.</em></p>
                             </div>
                         </div>
                     `;

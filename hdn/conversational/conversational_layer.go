@@ -401,6 +401,7 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		"success":     result.Success,
 		"output_type": result.Type,
 		"error":       result.Error,
+		"raw_result":  result.Data["result"], // Persist for conversational recovery
 	})
 
 	// EXTRA DEBUG: Log result summary (safe)
@@ -408,6 +409,31 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		if resVal, ok := result.Data["result"]; ok {
 			summary := utils.SafeResultSummary(resVal, 500)
 			log.Printf("📊 [CONVERSATIONAL] [%s] Action result summary: %s", req.SessionID, summary)
+		}
+	}
+
+	// Step 4.5: RESULT RECOVERY - If current result is empty but user is asking for results, find them in the trace
+	if (result == nil || !result.Success) && (intent.Type == "query" || intent.Type == "general_conversation") {
+		lowerMsg := strings.ToLower(req.Message)
+		if strings.Contains(lowerMsg, "result") || strings.Contains(lowerMsg, "find") || strings.Contains(lowerMsg, "found") || strings.Contains(lowerMsg, "summarize") || (strings.Contains(lowerMsg, "show") && strings.Contains(lowerMsg, "flight")) {
+			log.Printf("🔍 [CONVERSATIONAL] [%s] Result recovery requested. Searching trace for last successful action...", req.SessionID)
+			trace := cl.reasoningTrace.GetTrace(req.SessionID)
+			if trace != nil {
+				for i := len(trace.ReasoningSteps) - 1; i >= 0; i-- {
+					step := trace.ReasoningSteps[i]
+					if step.Step == "action_execution" && step.Metadata["success"] == true {
+						log.Printf("✅ [CONVERSATIONAL] [%s] Recovered last successful result from trace step %d", req.SessionID, i)
+						// Create a mock result for the NLG generator
+						recoveredResult := &ActionResult{
+							Type:    step.Metadata["output_type"].(string),
+							Success: true,
+							Data:    map[string]interface{}{"result": step.Metadata["raw_result"]},
+						}
+						result = recoveredResult
+						break
+					}
+				}
+			}
 		}
 	}
 

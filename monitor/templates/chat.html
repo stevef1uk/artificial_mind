@@ -141,12 +141,8 @@
     <script>
     <script>
         // Persist session across refreshes
-        let sessionId = localStorage.getItem('last_chat_session_id');
-        if (!sessionId || sessionId.startsWith('chat_')) {
-            // Use the real HDN session we just verified if it's the most recent
-            sessionId = 'session_1775936038847863085'; 
-            localStorage.setItem('last_chat_session_id', sessionId);
-        }
+        let sessionId = localStorage.getItem('last_chat_session_id') || ('chat_' + Date.now());
+        localStorage.setItem('last_chat_session_id', sessionId);
 
         async function loadHistory() {
             try {

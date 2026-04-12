@@ -1,0 +1,319 @@
+[
+  {
+    "id": "tool_html_scraper",
+    "name": "HTML Scraper",
+    "description": "Parse HTML and extract title/headings/paragraphs/links",
+    "input_schema": {
+      "url": "string"
+    },
+    "output_schema": {
+      "items": "array"
+    },
+    "permissions": [
+      "net:read"
+    ],
+    "safety_level": "low",
+    "created_by": "system",
+    "exec": {
+      "type": "cmd",
+      "cmd": "/app/tools/html_scraper",
+      "args": [
+        "-url",
+        "{url}"
+      ]
+    }
+  },
+  {
+    "id": "tool_http_get",
+    "name": "HTTP GET",
+    "description": "Fetches a URL and returns response body",
+    "input_schema": {
+      "url": "string"
+    },
+    "output_schema": {
+      "status": "int",
+      "body": "string"
+    },
+    "permissions": [
+      "net:read"
+    ],
+    "safety_level": "low",
+    "created_by": "system",
+    "exec": {
+      "type": "cmd",
+      "cmd": "/app/tools/http_get",
+      "args": [
+        "-url",
+        "{url}"
+      ]
+    }
+  },
+  {
+    "id": "tool_html_scraper",
+    "name": "HTML Scraper",
+    "description": "Parse HTML and extract title/headings/paragraphs/links",
+    "input_schema": {
+      "url": "string"
+    },
+    "output_schema": {
+      "items": "array"
+    },
+    "permissions": [
+      "net:read"
+    ],
+    "safety_level": "low",
+    "created_by": "system",
+    "exec": {
+      "type": "cmd",
+      "cmd": "/app/tools/html_scraper",
+      "args": [
+        "-url",
+        "{url}"
+      ]
+    }
+  },
+  {
+    "id": "tool_json_parse",
+    "name": "JSON Parse",
+    "description": "Parse and pretty-print JSON from stdin or file",
+    "input_schema": {
+      "file": "string?",
+      "stdin": "string?"
+    },
+    "output_schema": {
+      "object": "json"
+    },
+    "permissions": [],
+    "safety_level": "low",
+    "created_by": "system",
+    "exec": {
+      "type": "cmd",
+      "cmd": "/app/tools/json_parse",
+      "args": []
+    }
+  },
+  {
+    "id": "tool_text_search",
+    "name": "Text Search",
+    "description": "Regex search over stdin text",
+    "input_schema": {
+      "pattern": "string",
+      "stdin": "string"
+    },
+    "output_schema": {
+      "matches": "string[]"
+    },
+    "permissions": [],
+    "safety_level": "low",
+    "created_by": "system",
+    "exec": {
+      "type": "cmd",
+      "cmd": "/app/tools/text_search",
+      "args": [
+        "-pattern",
+        "{pattern}"
+      ]
+    }
+  },
+  {
+    "id": "tool_file_read",
+    "name": "File Reader",
+    "description": "Read file contents",
+    "input_schema": {
+      "path": "string"
+    },
+    "output_schema": {
+      "content": "string"
+    },
+    "permissions": [
+      "fs:read"
+    ],
+    "safety_level": "medium",
+    "created_by": "system",
+    "exec": {
+      "type": "cmd",
+      "cmd": "/app/tools/file_read",
+      "args": [
+        "-path",
+        "{path}"
+      ]
+    }
+  },
+  {
+    "id": "tool_file_write",
+    "name": "File Writer",
+    "description": "Write string to file",
+    "input_schema": {
+      "path": "string",
+      "content": "string"
+    },
+    "output_schema": {
+      "written": "int"
+    },
+    "permissions": [
+      "fs:write"
+    ],
+    "safety_level": "high",
+    "created_by": "system",
+    "exec": {
+      "type": "cmd",
+      "cmd": "/app/tools/file_write",
+      "args": [
+        "-path",
+        "{path}",
+        "-content",
+        "{content}"
+      ]
+    }
+  },
+  {
+    "id": "tool_exec",
+    "name": "Shell Exec",
+    "description": "Run a shell command in sandbox",
+    "input_schema": {
+      "cmd": "string"
+    },
+    "output_schema": {
+      "stdout": "string",
+      "stderr": "string",
+      "exit_code": "int"
+    },
+    "permissions": [
+      "proc:exec"
+    ],
+    "safety_level": "high",
+    "created_by": "system",
+    "exec": {
+      "type": "cmd",
+      "cmd": "/app/tools/exec",
+      "args": [
+        "-cmd",
+        "{cmd}"
+      ]
+    }
+  },
+  {
+    "id": "tool_docker_list",
+    "name": "Docker List",
+    "description": "List containers or images",
+    "input_schema": {
+      "type": "string"
+    },
+    "output_schema": {
+      "items": "string[]"
+    },
+    "permissions": [
+      "docker"
+    ],
+    "safety_level": "medium",
+    "created_by": "system",
+    "exec": {
+      "type": "cmd",
+      "cmd": "/app/tools/docker_list",
+      "args": [
+        "-type",
+        "{type}"
+      ]
+    }
+  },
+  {
+    "id": "tool_codegen",
+    "name": "Codegen",
+    "description": "Generate code snippet from spec",
+    "input_schema": {
+      "spec": "string"
+    },
+    "output_schema": {
+      "code": "string"
+    },
+    "permissions": [
+      "llm"
+    ],
+    "safety_level": "medium",
+    "created_by": "system",
+    "exec": {
+      "type": "cmd",
+      "cmd": "/app/tools/codegen",
+      "args": [
+        "-spec",
+        "{spec}"
+      ]
+    }
+  },
+  {
+    "id": "tool_weather",
+    "name": "Weather Fetcher",
+    "description": "Fetch weather for anywhere in Europe using Open-Meteo. Defaults to Thonon-les-Bains area.",
+    "input_schema": {
+      "lat": "float",
+      "lon": "float",
+      "tz": "string"
+    },
+    "output_schema": {
+      "location": "json",
+      "current": "json",
+      "daily_stats": "json",
+      "hourly_range": "json"
+    },
+    "permissions": [
+      "net:read"
+    ],
+    "safety_level": "low",
+    "created_by": "system",
+    "exec": {
+      "type": "cmd",
+      "cmd": "/app/tools/weather",
+      "args": [
+        "-lat",
+        "{lat}",
+        "-lon",
+        "{lon}",
+        "-tz",
+        "{tz}"
+      ]
+    }
+  },
+  {
+    "id": "mcp_research_agent",
+    "name": "research_agent",
+    "description": "[chat-only] Perform research using the external MCP research server. This tool is restricted to chat access only and will be skipped by the planner.",
+    "input_schema": {
+      "topic": "string",
+      "depth": "int"
+    },
+    "output_schema": {
+      "result": "string"
+    },
+    "permissions": [
+      "net:read"
+    ],
+    "safety_level": "medium",
+    "created_by": "agent",
+    "exec": {
+      "type": "mcp_proxy",
+      "cmd": "https://k3s.sjfisher.com/webhook/40a534f4-2041-4eed-b317-738ad99b5cb0"
+    }
+  },
+  {
+    "id": "mcp_nemoclaw_query",
+    "name": "nemoclaw_query",
+    "description": "[chat-only] Query the powerful NVIDIA NemoClaw agentic AI via Telegram. Use this for extremely complex reasoning, strategic planning, or high-fidelity synthesis. This tool sends your prompt to the NemoClaw bot and waits for its high-quality reply (can take 30-180 seconds).",
+    "input_schema": {
+      "prompt": "string",
+      "chat_id": "string?"
+    },
+    "output_schema": {
+      "response": "string",
+      "status": "string"
+    },
+    "permissions": [
+      "net:read"
+    ],
+    "safety_level": "medium",
+    "created_by": "agent",
+    "exec": {
+      "type": "mcp_proxy",
+      "cmd": "nemoclaw_query"
+    }
+  }
+]

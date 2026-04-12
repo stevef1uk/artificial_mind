@@ -262,9 +262,17 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 				clean := make(map[string]interface{})
 				for mk, mv := range v {
 					switch mk {
-					case "cleaned_html", "raw_html", "screenshot", "cookies", "body", "response", "full_content":
-
+					case "cleaned_html", "raw_html", "screenshot", "cookies", "response", "full_content":
+						// Skip completely — these are almost always too large and lack high-value semantic content for NLG
 						continue
+					case "body", "text", "html", "content", "snippet":
+						// Smarter truncation: keep a prefix for context but drop the massive bulk
+						val := fmt.Sprintf("%v", mv)
+						if len(val) > 500 {
+							clean[mk] = val[:500] + "... [TRUNCATED]"
+						} else {
+							clean[mk] = val
+						}
 					default:
 						clean[mk] = stripLargeFieldRecursive(mv)
 					}
