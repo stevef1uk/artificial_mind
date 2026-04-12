@@ -660,10 +660,12 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 				}
 				_ = s.registerTool(ctx, t)
 			}
-			return
+			_ = f.Close()
 		}
-		_ = f.Close()
 	}
+
+	// ALWAYS continue to register ARM64 and default nucleus tools
+	// (Note: we removed the early 'return' from the JSON loop to allow this)
 
 	// Fallback: register a minimal nucleus set
 	defaults := []Tool{
