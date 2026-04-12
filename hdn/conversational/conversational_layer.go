@@ -419,8 +419,8 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 			log.Printf("🔍 [CONVERSATIONAL] [%s] Result recovery requested. Searching trace for last successful action...", req.SessionID)
 			trace := cl.reasoningTrace.GetTrace(req.SessionID)
 			if trace != nil {
-				for i := len(trace.Steps) - 1; i >= 0; i-- {
-					step := trace.Steps[i]
+				for i := len(trace.ReasoningSteps) - 1; i >= 0; i-- {
+					step := trace.ReasoningSteps[i]
 					if step.Step == "action_execution" && step.Metadata["success"] == true {
 						log.Printf("✅ [CONVERSATIONAL] [%s] Recovered last successful result from trace step %d", req.SessionID, i)
 						// Create a mock result for the NLG generator
