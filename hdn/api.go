@@ -726,16 +726,6 @@ func (s *APIServer) processEvent(evt eventbus.CanonicalEvent) {
 	}
 }
 
-// ConversationalLLMAdapter adapts the existing LLMClient to the conversational layer interface
-type ConversationalLLMAdapter struct {
-	client *LLMClient
-}
-
-// SimpleChatFSM provides basic FSM interface for chat
-type SimpleChatFSM struct{}
-
-// SimpleChatLLM provides basic LLM interface for chat
-type SimpleChatLLM struct{}
 
 func (s *APIServer) setupRoutes() {
 

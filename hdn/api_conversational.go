@@ -11,6 +11,20 @@ import (
 	"time"
 )
 
+// ConversationalLLMAdapter adapts the existing LLMClient to the conversational layer interface
+type ConversationalLLMAdapter struct {
+	client *LLMClient
+}
+
+// SimpleChatFSM provides basic FSM interface for chat
+type SimpleChatFSM struct{}
+
+// SimpleChatHDN provides basic HDN interface for chat
+type SimpleChatHDN struct{ server *APIServer }
+
+// SimpleChatLLM provides basic LLM interface for chat
+type SimpleChatLLM struct{}
+
 // initializeConversationalLayer initializes the conversational AI layer
 func (s *APIServer) initializeConversationalLayer() {
 
