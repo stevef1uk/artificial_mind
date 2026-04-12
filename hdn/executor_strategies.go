@@ -54,6 +54,26 @@ func (ie *IntelligentExecutor) ExecuteTaskIntelligently(ctx context.Context, req
 	descLower := strings.ToLower(strings.TrimSpace(req.Description))
 	taskLower := strings.ToLower(strings.TrimSpace(req.TaskName))
 
+	// Proactive image generation routing
+	isImageGen := (strings.Contains(descLower, "image") || strings.Contains(descLower, "picture") ||
+		strings.Contains(descLower, "draw") || strings.Contains(descLower, "artwork") ||
+		strings.Contains(descLower, "photo") || strings.Contains(descLower, "illustration")) &&
+		(strings.Contains(descLower, "create") || strings.Contains(descLower, "generate") ||
+			strings.Contains(descLower, "make") || strings.Contains(descLower, "draw") ||
+			strings.Contains(descLower, "show me") || strings.Contains(descLower, "render"))
+
+	if isImageGen && !strings.Contains(descLower, "pico") && !strings.Contains(descLower, "nemo") {
+		log.Printf("🖼️ [INTELLIGENT] Proactively routing to local image generation tool")
+		
+		if req.Context == nil {
+			req.Context = make(map[string]string)
+		}
+		// Set prompt to description
+		req.Context["prompt"] = req.Description
+		
+		return ie.executeExplicitTool(req, "tool_generate_image", start, workflowID)
+	}
+
 	if ie.shouldUseHypothesisTesting(req, descLower, taskLower) {
 		log.Printf("🧪 [INTELLIGENT] Detected hypothesis testing task - enhancing request")
 		req = ie.enhanceHypothesisRequest(req, descLower)

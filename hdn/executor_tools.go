@@ -430,6 +430,21 @@ func (ie *IntelligentExecutor) executeExplicitTool(req *ExecutionRequest, toolID
 				params["url"] = "http://example.com"
 			}
 		}
+	} else if toolID == "tool_generate_image" {
+		if p, ok := req.Context["prompt"]; ok && strings.TrimSpace(p) != "" {
+			params["prompt"] = p
+		} else {
+			params["prompt"] = req.Description
+		}
+		
+		if s, ok := req.Context["source_image"]; ok && strings.TrimSpace(s) != "" {
+			params["source_image"] = s
+		}
+	} else {
+		// Forward any generic context fields to the tool as parameters
+		for k, v := range req.Context {
+			params[k] = v
+		}
 	}
 
 	toolResp, err := ie.callTool(toolID, params)
