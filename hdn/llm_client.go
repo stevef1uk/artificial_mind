@@ -1009,13 +1009,13 @@ func NewLLMClient(config DomainConfig) *LLMClient {
 }
 
 // GenerateMethod generates a method - automatically uses async queue if enabled
-func (c *LLMClient) GenerateMethod(taskName, description string, context map[string]string) (*MethodDef, error) {
+func (c *LLMClient) GenerateMethod(taskName, description string, ctxMap map[string]string) (*MethodDef, error) {
 	log.Printf("🤖 [LLM] Generating method for task: %s", taskName)
 	log.Printf("🤖 [LLM] Description: %s", description)
-	log.Printf("🤖 [LLM] Context: %+v", context)
+	log.Printf("🤖 [LLM] Context: %+v", ctxMap)
 
 	// Create a prompt for the LLM to generate a method
-	prompt := c.buildMethodPrompt(taskName, description, context)
+	prompt := c.buildMethodPrompt(taskName, description, ctxMap)
 	log.Printf("🤖 [LLM] Generated prompt length: %d characters", len(prompt))
 
 	// Call the LLM (will use async queue if USE_ASYNC_LLM_QUEUE is set)
@@ -1040,14 +1040,14 @@ func (c *LLMClient) GenerateMethod(taskName, description string, context map[str
 }
 
 // GenerateExecutableCode generates executable code for a given task
-func (c *LLMClient) GenerateExecutableCode(taskName, description, language string, context map[string]string) (string, error) {
+func (c *LLMClient) GenerateExecutableCode(taskName, description, language string, ctxMap map[string]string) (string, error) {
 	log.Printf("🤖 [LLM] Generating executable code for task: %s", taskName)
 	log.Printf("🤖 [LLM] Language: %s", language)
 	log.Printf("🤖 [LLM] Description: %s", description)
-	log.Printf("🤖 [LLM] Context: %+v", context)
+	log.Printf("🤖 [LLM] Context: %+v", ctxMap)
 
 	// Create a prompt for code generation
-	prompt := c.buildCodePrompt(taskName, description, language, context)
+	prompt := c.buildCodePrompt(taskName, description, language, ctxMap)
 	log.Printf("🤖 [LLM] Generated code prompt length: %d characters", len(prompt))
 
 	// Call the LLM with high priority (as it's usually a synchronous tool/user request)
@@ -1069,13 +1069,13 @@ func (c *LLMClient) GenerateExecutableCode(taskName, description, language strin
 	return code, nil
 }
 
-func (c *LLMClient) ExecuteTask(taskName, prompt string, context map[string]string) (string, error) {
+func (c *LLMClient) ExecuteTask(taskName, prompt string, ctxMap map[string]string) (string, error) {
 	log.Printf("🤖 [LLM] Executing task: %s", taskName)
 	log.Printf("🤖 [LLM] Prompt: %s", prompt)
-	log.Printf("🤖 [LLM] Context: %+v", context)
+	log.Printf("🤖 [LLM] Context: %+v", ctxMap)
 
 	// Create a prompt for task execution
-	executionPrompt := c.buildExecutionPrompt(taskName, prompt, context)
+	executionPrompt := c.buildExecutionPrompt(taskName, prompt, ctxMap)
 	log.Printf("🤖 [LLM] Generated execution prompt length: %d characters", len(executionPrompt))
 
 	// Call the LLM with high priority
@@ -1090,11 +1090,11 @@ func (c *LLMClient) ExecuteTask(taskName, prompt string, context map[string]stri
 	return response, nil
 }
 
-func (c *LLMClient) buildMethodPrompt(taskName, description string, context map[string]string) string {
+func (c *LLMClient) buildMethodPrompt(taskName, description string, ctxMap map[string]string) string {
 	contextStr := ""
-	if len(context) > 0 {
+	if len(ctxMap) > 0 {
 		contextStr = "\nContext:\n"
-		for k, v := range context {
+		for k, v := range ctxMap {
 			contextStr += fmt.Sprintf("- %s: %s\n", k, v)
 		}
 	}
@@ -1127,7 +1127,7 @@ Your response:`, taskName, description, contextStr, taskName)
 }
 
 // buildCodePrompt creates a prompt for code generation
-func (c *LLMClient) buildCodePrompt(taskName, description, language string, context map[string]string) string {
+func (c *LLMClient) buildCodePrompt(taskName, description, language string, ctxMap map[string]string) string {
 	prompt := fmt.Sprintf(`🚫 CRITICAL RESTRICTION - MUST FOLLOW:
 - NEVER use Docker commands (docker run, docker build, docker exec, etc.) - Docker is NOT available
 - NEVER use subprocess.run with docker commands - this will cause FileNotFoundError
@@ -1147,7 +1147,7 @@ Context:
 
 	// Add file path information for data files
 	filePathInfo := ""
-	for key, value := range context {
+	for key, value := range ctxMap {
 		prompt += fmt.Sprintf("- %s: %s\n", key, value)
 		// Check if this looks like a data file reference
 		if (strings.Contains(strings.ToLower(key), "data") ||
@@ -1228,11 +1228,11 @@ func (c *LLMClient) extractCodeFromResponse(response, language string) string {
 	return strings.TrimSpace(response)
 }
 
-func (c *LLMClient) buildExecutionPrompt(taskName, prompt string, context map[string]string) string {
+func (c *LLMClient) buildExecutionPrompt(taskName, prompt string, ctxMap map[string]string) string {
 	contextStr := ""
-	if len(context) > 0 {
+	if len(ctxMap) > 0 {
 		contextStr = "\nContext:\n"
-		for k, v := range context {
+		for k, v := range ctxMap {
 			contextStr += fmt.Sprintf("- %s: %s\n", k, v)
 		}
 	}

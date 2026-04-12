@@ -125,7 +125,7 @@ func (f *SimpleChatFSM) TriggerEvent(eventName string, eventData map[string]inte
 
 func (f *SimpleChatFSM) IsHealthy() bool { return true }
 
-func (h *SimpleChatHDN) ExecuteTask(ctx context.Context, task string, context map[string]string) (*conversational.TaskResult, error) {
+func (h *SimpleChatHDN) ExecuteTask(ctx context.Context, task string, ctxMap map[string]string) (*conversational.TaskResult, error) {
 
 	state := State{
 		task: true,
@@ -135,7 +135,7 @@ func (h *SimpleChatHDN) ExecuteTask(ctx context.Context, task string, context ma
 
 	if len(result) == 0 {
 		log.Printf("⚠️ [SIMPLE-CHAT-HDN] No symbolic plan found for task, falling back to flexible interpretation: %s", task)
-		ir, err := h.InterpretNaturalLanguage(ctx, task, context)
+		ir, err := h.InterpretNaturalLanguage(ctx, task, ctxMap)
 		if err != nil {
 			return nil, err
 		}
@@ -158,7 +158,7 @@ func (h *SimpleChatHDN) ExecuteTask(ctx context.Context, task string, context ma
 	}, nil
 }
 
-func (h *SimpleChatHDN) PlanTask(ctx context.Context, task string, context map[string]string) (*conversational.PlanResult, error) {
+func (h *SimpleChatHDN) PlanTask(ctx context.Context, task string, ctxMap map[string]string) (*conversational.PlanResult, error) {
 	return &conversational.PlanResult{
 		Success: true,
 		Plan:    []string{task},
@@ -168,7 +168,7 @@ func (h *SimpleChatHDN) PlanTask(ctx context.Context, task string, context map[s
 	}, nil
 }
 
-func (h *SimpleChatHDN) LearnFromLLM(ctx context.Context, input string, context map[string]string) (*conversational.LearnResult, error) {
+func (h *SimpleChatHDN) LearnFromLLM(ctx context.Context, input string, ctxMap map[string]string) (*conversational.LearnResult, error) {
 	return &conversational.LearnResult{
 		Success: true,
 		Learned: fmt.Sprintf("Learned from: %s", input),
@@ -203,7 +203,7 @@ func (h *SimpleChatHDN) SaveEpisode(ctx context.Context, text string, metadata m
 	return err
 }
 
-func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input string, context map[string]string) (*conversational.InterpretResult, error) {
+func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input string, ctxMap map[string]string) (*conversational.InterpretResult, error) {
 	log.Printf("🔍 [SIMPLE-CHAT-HDN] InterpretNaturalLanguage called with input: %s", input)
 
 	if h.server == nil || h.server.interpreter == nil {
@@ -232,14 +232,14 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 
 	log.Printf("✅ [SIMPLE-CHAT-HDN] Using flexible interpreter with tool support")
 
-	sessionID, _ := context["session_id"]
+	sessionID, _ := ctxMap["session_id"]
 	if sessionID == "" {
 		sessionID = fmt.Sprintf("conv_%d", time.Now().UnixNano())
 	}
 
 	req := interpreter.NaturalLanguageRequest{
 		Input:     input,
-		Context:   context,
+		Context:   ctxMap,
 		SessionID: sessionID,
 	}
 

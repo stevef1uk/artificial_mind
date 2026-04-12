@@ -120,10 +120,10 @@ type FSMInterface interface {
 
 // HDNClientInterface defines the interface for HDN operations
 type HDNClientInterface interface {
-	ExecuteTask(ctx context.Context, task string, context map[string]string) (*TaskResult, error)
-	PlanTask(ctx context.Context, task string, context map[string]string) (*PlanResult, error)
-	LearnFromLLM(ctx context.Context, input string, context map[string]string) (*LearnResult, error)
-	InterpretNaturalLanguage(ctx context.Context, input string, context map[string]string) (*InterpretResult, error)
+	ExecuteTask(ctx context.Context, task string, ctxMap map[string]string) (*TaskResult, error)
+	PlanTask(ctx context.Context, task string, ctxMap map[string]string) (*PlanResult, error)
+	LearnFromLLM(ctx context.Context, input string, ctxMap map[string]string) (*LearnResult, error)
+	InterpretNaturalLanguage(ctx context.Context, input string, ctxMap map[string]string) (*InterpretResult, error)
 	SearchWeaviate(ctx context.Context, query string, collection string, limit int) (*InterpretResult, error)
 	SaveEpisode(ctx context.Context, text string, metadata map[string]interface{}) error
 }
