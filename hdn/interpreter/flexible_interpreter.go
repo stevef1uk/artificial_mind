@@ -321,22 +321,24 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 	if result.ToolCall != nil {
 		// Loop protection: Check for rapid repeated identical tool calls
 		paramSummary := utils.SafeResultSummary(result.ToolCall.Parameters, 500)
-		toolCallKey := fmt.Sprintf("%s:%s", result.ToolCall.ToolID, paramSummary)
+		// Include SessionID in the key to allow different sessions to run the same tool,
+		// but block retries within the same session.
+		toolCallKey := fmt.Sprintf("%s:%s:%s", req.SessionID, result.ToolCall.ToolID, paramSummary)
 		now := time.Now()
 
 		f.mu.Lock()
-		// Check if we've seen this exact tool call recently (within 2 seconds)
+		// Check if we've seen this exact tool call recently (within 5 minutes / 300s)
 		if lastSeen, exists := f.recentToolCalls[toolCallKey]; exists {
-			if now.Sub(lastSeen) < 2*time.Second {
+			if now.Sub(lastSeen) < 300*time.Second {
 				duration := now.Sub(lastSeen).Seconds()
 				f.mu.Unlock()
-				log.Printf("⚠️ [FLEXIBLE-INTERPRETER] Loop protection: Tool call '%s' executed recently (%.2fs ago), skipping to prevent loop", result.ToolCall.ToolID, duration)
+				log.Printf("⚠️ [FLEXIBLE-INTERPRETER] Loop protection: Tool call '%s' in session '%s' executed recently (%.2fs ago), BLOCKED to prevent redundant execution", result.ToolCall.ToolID, req.SessionID, duration)
 				result.ToolExecutionResult = &ToolExecutionResult{
 					Success: false,
-					Error:   fmt.Sprintf("Tool call '%s' executed too recently, possible loop detected", result.ToolCall.ToolID),
+					Error:   fmt.Sprintf("Tool call '%s' already executed or in progress for this session (%.2fs ago)", result.ToolCall.ToolID, duration),
 				}
 				result.Message = result.ToolExecutionResult.Error
-				result.Success = false
+				result.Success = true // Return success so NLG can explain the state
 				return result, nil
 			}
 		}
@@ -344,9 +346,9 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 		// Update the recent tool calls map
 		f.recentToolCalls[toolCallKey] = now
 
-		// Clean up old entries (older than 1 minute for better memory management)
+		// Clean up old entries (older than 10 minutes)
 		for key, timestamp := range f.recentToolCalls {
-			if now.Sub(timestamp) > 1*time.Minute {
+			if now.Sub(timestamp) > 10*time.Minute {
 				delete(f.recentToolCalls, key)
 			}
 		}

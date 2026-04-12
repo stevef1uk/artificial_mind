@@ -90,22 +90,33 @@ func init() {
 	Set_tool_codegen_hints()
 	Set_tool_exec_hints()
 	Set_mcp_search_flights_hints()
+	Set_mcp_read_google_data_hints()
 }
 
 func Set_mcp_search_flights_hints() {
 	SetPromptHints("mcp_search_flights", &PromptHintsConfig{
-		Keywords:      []string{"flight", "flights", "airline", "booking", "google flights", "travel", "plane", "ticket"},
-		PromptText:    "✈️ FOR FLIGHT SEARCH: You MUST use 'mcp_search_flights'. This is a specialized high-performance tool. 🚨 CRITICAL: Use the CURRENT YEAR if the user doesn't specify one. Prefer IATA airport codes over city names for the 'departure' and 'destination' parameters. Output the results in a clean markdown table.",
+		Keywords:      []string{"flight", "flights", "airline", "booking", "google flights", "travel", "plane", "ticket", "boarding pass"},
+		PromptText:    "✈️ FOR FLIGHT SEARCH: You MUST use 'mcp_search_flights'. This is a specialized high-performance tool. 🚨 CRITICAL: Use the CURRENT YEAR if the user doesn't specify one. Prefer IATA airport codes over city names for the 'departure' and 'destination' parameters. If the user mentions 'flights' and 'search' but provides no details, ask for them instead of searching for nothing.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"flight search", "find flights", "search flights", "book flight"},
 		RejectText:    true,
 	})
 }
 
+func Set_mcp_read_google_data_hints() {
+	SetPromptHints("mcp_read_google_data", &PromptHintsConfig{
+		Keywords:      []string{"email", "emails", "gmail", "mailbox", "inbox", "message", "subject", "sender"},
+		PromptText:    "📧 FOR GOOGLE DATA/EMAILS: Use 'mcp_read_google_data'. 🚨 CRITICAL: Use 'Subject' as a keyword filter to find specific emails. Do NOT confuse this with weather or other tools. If the user asks for 'my emails', fetch the latest ones.",
+		ForceToolCall: true,
+		AlwaysInclude: []string{"check email", "read emails", "gmail inbox"},
+		RejectText:    true,
+	})
+}
+
 func Set_tool_generate_image_hints() {
-	SetPromptHints("mcp_generate_image", &PromptHintsConfig{
+	SetPromptHints("tool_generate_image", &PromptHintsConfig{
 		Keywords:      []string{"image", "create image", "generate image", "make image", "picture", "drawing", "illustration", "visual", "photo", "artwork", "change", "modify", "update", "edit", "background", "foreground", "style"},
-		PromptText:    "🖼️ FOR IMAGE TASKS: Use 'mcp_generate_image'. 🚨 CRITICAL: If the user asks to 'change', 'modify', or 'update' an image, you MUST look for 'last_vision_path' in the context and provide it as the 'source_image' parameter. Do NOT try to use web search or other tools to modify images.",
+		PromptText:    "🖼️ FOR IMAGE TASKS: Use 'tool_generate_image'. 🚨 CRITICAL: If the user asks to 'change', 'modify', or 'update' an image, you MUST look for 'last_vision_path' in the context and provide it as the 'source_image' parameter. Do NOT try to use web search or other tools to modify images.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"create image", "generate image", "modify image", "change image", "update image"},
 		RejectText:    true,
@@ -115,7 +126,7 @@ func Set_tool_generate_image_hints() {
 func Set_mcp_smart_scrape_hints() {
 	SetPromptHints("mcp_smart_scrape", &PromptHintsConfig{
 		Keywords:      []string{"scrape", "browse", "crawl", "fetch", "visit"},
-		PromptText:    "⚠️ FOR WEB SCRAPING: Use 'mcp_smart_scrape'. 🚨 CRITICAL: NEVER use this tool for flights, weather, or image generation. Use the specialized 'mcp_search_flights', 'mcp_weather', or 'mcp_generate_image' tools instead.",
+		PromptText:    "⚠️ FOR WEB SCRAPING: Use 'mcp_smart_scrape'. 🚨 CRITICAL: NEVER use this tool for flights, weather, or image generation. Use the specialized 'mcp_search_flights', 'mcp_weather', or 'tool_generate_image' tools instead.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"scrape", "browse", "crawl"},
 		RejectText:    true,
@@ -754,7 +765,7 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 		"tool_docker_list":       {"docker", "container", "image", "list docker", "docker list"},
 		"tool_docker_build":      {"docker build", "build image", "dockerfile", "container build"},
 		"tool_docker_exec":       {"docker exec", "run docker", "execute docker", "container exec"},
-		"mcp_generate_image":    {"image", "generate image", "draw", "picture", "create image", "photo", "modify image", "change image", "background"},
+		"tool_generate_image":    {"image", "generate image", "draw", "picture", "create image", "photo", "modify image", "change image", "background"},
 		"mcp_weather":           {"weather", "forecast", "rain", "snow", "sunny", "cloudy"},
 		"mcp_nemoclaw_query":    {"nemoclaw", "nemo claw", "strategy", "reasoning", "complex", "think deep"},
 		"mcp_picoclaw_query":    {"picoclaw", "pico claw", "reasoning", "strategic", "local agent", "pico"},

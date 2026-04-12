@@ -232,10 +232,15 @@ func (h *SimpleChatHDN) InterpretNaturalLanguage(ctx context.Context, input stri
 
 	log.Printf("✅ [SIMPLE-CHAT-HDN] Using flexible interpreter with tool support")
 
+	sessionID, _ := context["session_id"]
+	if sessionID == "" {
+		sessionID = fmt.Sprintf("conv_%d", time.Now().UnixNano())
+	}
+
 	req := interpreter.NaturalLanguageRequest{
 		Input:     input,
 		Context:   context,
-		SessionID: fmt.Sprintf("conv_%d", time.Now().UnixNano()),
+		SessionID: sessionID,
 	}
 
 	result, err := flexibleInterpreter.InterpretAndExecute(ctx, &req)
