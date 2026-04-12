@@ -355,7 +355,15 @@ func (aqm *AsyncLLMQueueManager) EnqueueRequest(req *AsyncLLMRequest) error {
 		log.Printf("📥 [ASYNC-LLM] Enqueued HIGH priority request: %s (stack size: %d/%d)",
 			req.ID, len(aqm.highPriorityStack), aqm.maxHighPriorityQueue)
 	} else {
-		// Low-priority requests: enforce stricter limit to prevent backlog
+		// Low-priority requests: check if background LLM is disabled
+		disableBackgroundLLM := strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "1" ||
+			strings.TrimSpace(os.Getenv("DISABLE_BACKGROUND_LLM")) == "true"
+		if disableBackgroundLLM {
+			log.Printf("🔒 [ASYNC-LLM] Rejecting low priority request immediately (background LLM disabled): %s", req.ID)
+			return fmt.Errorf("background LLM processing is disabled")
+		}
+
+		// Enforce stricter limit to prevent backlog
 		if len(aqm.lowPriorityStack) >= aqm.maxLowPriorityQueue {
 			log.Printf("🚫 [ASYNC-LLM] LOW priority queue full (%d/%d), rejecting request: %s (backpressure)",
 				len(aqm.lowPriorityStack), aqm.maxLowPriorityQueue, req.ID)

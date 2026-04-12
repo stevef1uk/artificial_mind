@@ -862,10 +862,13 @@ func (nlg *NLGGenerator) formatToolResultRecursive(result interface{}, depth int
 			}
 		}
 
-		// 2. Special handling for email-like records
+		// 2. Special handling for email-like records - ensure we get content too!
 		from := getStringFromMapCaseInsensitive(v, "from")
 		subject := getStringFromMapCaseInsensitive(v, "subject")
-		if from != "" || subject != "" {
+		snippet := getStringFromMapCaseInsensitive(v, "snippet")
+		body := getStringFromMapCaseInsensitive(v, "body")
+
+		if from != "" || subject != "" || snippet != "" || body != "" {
 			if from != "" {
 				writeSafe("From: " + from)
 			}
@@ -875,7 +878,17 @@ func (nlg *NLGGenerator) formatToolResultRecursive(result interface{}, depth int
 				}
 				writeSafe("Subject: " + subject)
 			}
-			return
+			if snippet != "" {
+				writeSafe("\nSnippet: " + snippet)
+			} else if body != "" {
+				// Don't include both if snippet is present (usually it's a better summary)
+				if len(body) > 200 {
+					writeSafe("\nBody: " + body[:200] + "...")
+				} else {
+					writeSafe("\nBody: " + body)
+				}
+			}
+			// DO NOT RETURN HERE - we might want other fields too, or at least we don't return early and skip formatting logic
 		}
 
 		// 3. Fallback: format as key-value pairs

@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	mempkg "hdn/memory"
+	"hdn/interpreter"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -83,6 +84,21 @@ func NewMCPKnowledgeServer(domainKnowledge mempkg.DomainKnowledgeClient, vectorD
 		log.Printf("⚠️ [MCP-KNOWLEDGE] Failed to load skills from configuration: %v (continuing with hardcoded tools)", err)
 	} else {
 		log.Printf("✅ [MCP-KNOWLEDGE] Successfully loaded skills from configuration")
+
+		// Register skills prompt hints with the global interpreter registry
+		hints := server.skillRegistry.GetAllPromptHints()
+		for toolID, hintsConfig := range hints {
+			// Convert Skill prompt hints to interpreter.PromptHintsConfig
+			interpreterHints := &interpreter.PromptHintsConfig{
+				Keywords:      hintsConfig.Keywords,
+				PromptText:    hintsConfig.PromptText,
+				ForceToolCall: hintsConfig.ForceToolCall,
+				AlwaysInclude: hintsConfig.AlwaysInclude,
+				RejectText:    hintsConfig.RejectText,
+			}
+			interpreter.SetPromptHints(toolID, interpreterHints)
+			log.Printf("✅ [MCP-KNOWLEDGE] Registered prompt hints for dynamic skill: %s", toolID)
+		}
 	}
 
 	return server
