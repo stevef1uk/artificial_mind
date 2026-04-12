@@ -506,8 +506,8 @@ func (nlg *NLGGenerator) buildKnowledgePrompt(req *NLGRequest) string {
 	if req.Result != nil && req.Result.Success {
 		formattedData := nlg.formatResultData(req.Result.Data)
 		// Truncate massive results to protect LLM context
-		if len(formattedData) > 50000 {
-			formattedData = formattedData[:50000] + "... [RESULTS TRUNCATED]"
+		if len(formattedData) > 12000 {
+			formattedData = formattedData[:12000] + "... [RESULTS TRUNCATED TO PROTECT CONTEXT WINDOW]"
 		}
 
 		prompt += "\n\nKnowledge/Intelligence Results:\n" + formattedData + "\n\n"
@@ -560,8 +560,8 @@ func (nlg *NLGGenerator) buildTaskPrompt(req *NLGRequest) string {
 
 	if req.Result != nil && req.Result.Success {
 		resultSummary := nlg.formatResultData(req.Result.Data)
-		if len(resultSummary) > 50000 {
-			resultSummary = resultSummary[:50000] + "... [TRUNCATED]"
+		if len(resultSummary) > 12000 {
+			resultSummary = resultSummary[:12000] + "... [RESULTS TRUNCATED TO PROTECT CONTEXT WINDOW]"
 		}
 		sb.WriteString("\n\nTask Results:\n")
 		sb.WriteString(resultSummary)

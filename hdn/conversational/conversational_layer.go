@@ -524,9 +524,12 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 		saveMap["last_vision_path"] = vp
 	}
 
-	err = cl.conversationMemory.SaveContext(ctx, req.SessionID, saveMap)
+	// Detach from request context to ensure state is saved even if client disconnected
+	bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	err = cl.conversationMemory.SaveContext(bgCtx, req.SessionID, saveMap)
+	cancel()
 	if err != nil {
-		log.Printf("⚠️ [CONVERSATIONAL] Failed to save conversation context: %v", err)
+		log.Printf("⚠️ [CONVERSATIONAL] Failed to save conversation context for %s: %v", req.SessionID, err)
 	}
 
 	// Step 6b: Check if we should summarize the conversation
@@ -616,7 +619,11 @@ func (cl *ConversationalLayer) ProcessMessage(ctx context.Context, req *Conversa
 				Timestamp:  thought.Timestamp.Format(time.RFC3339Nano),
 				Metadata:   thought.Metadata,
 			}
-			if err := cl.thoughtExpression.StoreThoughtEvent(ctx, thoughtEvent); err != nil {
+			// Use background context to ensure thoughts are stored even if client times out
+			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			err := cl.thoughtExpression.StoreThoughtEvent(bgCtx, thoughtEvent)
+			cancel()
+			if err != nil {
 				log.Printf("⚠️ [CONVERSATIONAL] Failed to store thought event: %v", err)
 			}
 		}

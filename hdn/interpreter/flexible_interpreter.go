@@ -446,11 +446,14 @@ func (f *FlexibleInterpreter) InterpretAndExecuteWithPriority(ctx context.Contex
 						event.Result = sb.String()
 					}
 				}
-				if err := f.thoughtExpression.StoreThoughtEvent(ctx, event); err != nil {
+				// Detach from request context to ensure storage completes even if client times out
+				bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				if err := f.thoughtExpression.StoreThoughtEvent(bgCtx, event); err != nil {
 					log.Printf("⚠️ [FLEXIBLE-INTERPRETER] Failed to store ThoughtEvent after tool execution: %v", err)
 				} else {
 					log.Printf("💾 [FLEXIBLE-INTERPRETER] Stored ThoughtEvent for tool execution: %s", result.ToolCall.ToolID)
 				}
+				cancel()
 			}
 		}
 	} else {
