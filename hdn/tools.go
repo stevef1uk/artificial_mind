@@ -1258,6 +1258,76 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "spec, goal or task required"})
 			return
 		}
+
+		codegenMode := strings.ToLower(strings.TrimSpace(os.Getenv("CODEGEN_MODE")))
+		if codegenMode == "container" {
+			url, _ := getString(params, "url")
+			if url == "" {
+				url = "https://google.com" // Provide a default if the LLM didn't specify one
+			}
+
+			scraperURL := strings.TrimRight(strings.TrimSpace(os.Getenv("PLAYWRIGHT_SCRAPER_URL")), "/")
+			if scraperURL == "" {
+				scraperURL = "http://localhost:8085"
+			}
+
+			// 1. Kick off codegen session
+			startReqBody, _ := json.Marshal(map[string]interface{}{"url": url})
+			startResp, err := http.Post(scraperURL+"/api/codegen/start", "application/json", bytes.NewReader(startReqBody))
+			if err == nil && startResp.StatusCode == http.StatusOK {
+				var startData struct {
+					ID       string `json:"id"`
+					NoVNCURL string `json:"novnc_url"`
+				}
+				_ = json.NewDecoder(startResp.Body).Decode(&startData)
+				startResp.Body.Close()
+
+				if startData.ID != "" {
+					log.Printf("🛠️ [HDN] Tool Codegen container mode: Session %s started. Waiting for human on %s", startData.ID, startData.NoVNCURL)
+
+					// 2. Poll for completion
+					pollTimeout := 10 * time.Minute
+					startTime := time.Now()
+					for time.Since(startTime) < pollTimeout {
+						time.Sleep(3 * time.Second)
+						statusResp, err := http.Get(scraperURL + "/api/codegen/status?id=" + startData.ID)
+						if err != nil {
+							continue
+						}
+						var statusData struct {
+							Status string `json:"status"`
+							Error  string `json:"error"`
+						}
+						_ = json.NewDecoder(statusResp.Body).Decode(&statusData)
+						statusResp.Body.Close()
+
+						if statusData.Status == "completed" {
+							// 3. Get the script
+							resResp, err := http.Get(scraperURL + "/api/codegen/result?id=" + startData.ID)
+							if err == nil && resResp.StatusCode == http.StatusOK {
+								scriptBytes, _ := io.ReadAll(resResp.Body)
+								resResp.Body.Close()
+								_ = json.NewEncoder(w).Encode(map[string]interface{}{
+									"code":   string(scriptBytes),
+									"source": "human_codegen",
+								})
+								return
+							}
+							break
+						} else if statusData.Status == "failed" {
+							w.WriteHeader(http.StatusInternalServerError)
+							_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "codegen container failed: " + statusData.Error})
+							return
+						}
+					}
+					w.WriteHeader(http.StatusGatewayTimeout)
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "human codegen session timed out or failed to return script"})
+					return
+				}
+			}
+			log.Printf("⚠️ [HDN] Failed to start container codegen, falling back to LLM. Error: %v", err)
+		}
+
 		if s.llmClient == nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "LLM client not available for codegen"})
@@ -1280,7 +1350,7 @@ func (s *APIServer) handleInvokeTool(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"code": code})
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"code": code, "source": "llm_generated"})
 		return
 	case "tool_register":
 		toolRaw, ok := params["tool"]

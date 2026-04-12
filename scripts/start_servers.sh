@@ -328,7 +328,7 @@ fi
 
 if [ -f "$AGI_PROJECT_ROOT/bin/playwright-scraper" ]; then
     export CODEGEN_MODE="container"
-    export CODEGEN_OUTPUT_DIR="$AGI_PROJECT_ROOT/data/codegen"
+    export CODEGEN_OUTPUT_DIR="/tmp/agi_codegen"
     export PLAYWRIGHT_EXECUTABLE_PATH="/usr/bin/chromium"
     SCRAPER_PID=$(run_service "playwright_scraper" \
         "$AGI_PROJECT_ROOT" \
