@@ -136,7 +136,7 @@ func main() {
 	// Load .env file if it exists - look in project root
 	// Try multiple locations: AGI_PROJECT_ROOT, current dir, or walk up from binary/working dir
 	var envPath string
-	
+
 	// Check AGI_PROJECT_ROOT environment variable first (most reliable)
 	if projectRoot := os.Getenv("AGI_PROJECT_ROOT"); projectRoot != "" {
 		candidate := filepath.Join(projectRoot, ".env")
@@ -144,7 +144,7 @@ func main() {
 			envPath = candidate
 		}
 	}
-	
+
 	// If not found, try walking up from executable location
 	if envPath == "" {
 		if execPath, err := os.Executable(); err == nil {
@@ -159,7 +159,7 @@ func main() {
 			}
 		}
 	}
-	
+
 	// If still not found, try current working directory and walk up
 	if envPath == "" {
 		if wd, err := os.Getwd(); err == nil {
@@ -174,12 +174,12 @@ func main() {
 			}
 		}
 	}
-	
+
 	// Fallback to current directory
 	if envPath == "" {
 		envPath = ".env"
 	}
-	
+
 	// Try loading the .env file
 	if err := godotenv.Load(envPath); err != nil {
 		// .env file is optional, so we don't treat this as an error

@@ -72,7 +72,7 @@ func NewUncertaintyModel(initialConfidence float64, epistemicUncertainty, aleato
 // Uses geometric mean to combine uncertainties: confidence = 1 - sqrt(ep^2 + al^2) / sqrt(2)
 func (um *UncertaintyModel) updateCalibratedConfidence() {
 	// Combine uncertainties using Euclidean distance normalized to [0,1]
-	combinedUncertainty := math.Sqrt(um.EpistemicUncertainty*um.EpistemicUncertainty +
+	combinedUncertainty := math.Sqrt(um.EpistemicUncertainty*um.EpistemicUncertainty+
 		um.AleatoricUncertainty*um.AleatoricUncertainty) / math.Sqrt(2.0)
 	um.CalibratedConfidence = clamp(1.0-combinedUncertainty, 0.0, 1.0)
 }
@@ -80,7 +80,7 @@ func (um *UncertaintyModel) updateCalibratedConfidence() {
 // UpdateConfidence updates the confidence and records it in history
 func (um *UncertaintyModel) UpdateConfidence(newConfidence float64, source string) {
 	newConfidence = clamp(newConfidence, 0.0, 1.0)
-	
+
 	// Record snapshot
 	snapshot := ConfidenceSnapshot{
 		Confidence: newConfidence,
@@ -88,12 +88,12 @@ func (um *UncertaintyModel) UpdateConfidence(newConfidence float64, source strin
 		Source:     source,
 	}
 	um.ConfidenceHistory = append(um.ConfidenceHistory, snapshot)
-	
+
 	// Keep only last 100 snapshots to prevent unbounded growth
 	if len(um.ConfidenceHistory) > 100 {
 		um.ConfidenceHistory = um.ConfidenceHistory[len(um.ConfidenceHistory)-100:]
 	}
-	
+
 	// Update stability and volatility based on history
 	um.updateStabilityAndVolatility()
 	um.LastUpdated = time.Now()
@@ -106,7 +106,7 @@ func (um *UncertaintyModel) updateStabilityAndVolatility() {
 		um.Volatility = 0.0
 		return
 	}
-	
+
 	// Calculate variance in confidence values
 	var sum, sumSq float64
 	for _, snap := range um.ConfidenceHistory {
@@ -116,10 +116,10 @@ func (um *UncertaintyModel) updateStabilityAndVolatility() {
 	n := float64(len(um.ConfidenceHistory))
 	mean := sum / n
 	variance := (sumSq / n) - (mean * mean)
-	
+
 	// Volatility is normalized variance (0-1)
 	um.Volatility = clamp(variance*4.0, 0.0, 1.0) // Scale variance to [0,1]
-	
+
 	// Stability is inverse of volatility, but also considers recency
 	// More recent changes have more weight
 	recentVolatility := um.calculateRecentVolatility()
@@ -131,14 +131,14 @@ func (um *UncertaintyModel) calculateRecentVolatility() float64 {
 	if len(um.ConfidenceHistory) < 2 {
 		return 0.0
 	}
-	
+
 	// Use last 10 snapshots or all if fewer
 	start := 0
 	if len(um.ConfidenceHistory) > 10 {
 		start = len(um.ConfidenceHistory) - 10
 	}
 	recent := um.ConfidenceHistory[start:]
-	
+
 	var sum, sumSq float64
 	for _, snap := range recent {
 		sum += snap.Confidence
@@ -147,7 +147,7 @@ func (um *UncertaintyModel) calculateRecentVolatility() float64 {
 	n := float64(len(recent))
 	mean := sum / n
 	variance := (sumSq / n) - (mean * mean)
-	
+
 	return clamp(variance*4.0, 0.0, 1.0)
 }
 
@@ -156,19 +156,19 @@ func (um *UncertaintyModel) calculateRecentVolatility() float64 {
 func (um *UncertaintyModel) ApplyDecay() {
 	now := time.Now()
 	hoursElapsed := now.Sub(um.LastUpdated).Hours()
-	
+
 	if hoursElapsed <= 0 {
 		return
 	}
-	
+
 	// Increase epistemic uncertainty by decay rate
 	// More uncertainty = less confidence
 	epistemicIncrease := um.DecayRatePerHour * hoursElapsed
 	um.EpistemicUncertainty = clamp(um.EpistemicUncertainty+epistemicIncrease, 0.0, 1.0)
-	
+
 	// Update calibrated confidence
 	um.updateCalibratedConfidence()
-	
+
 	// Record decay in history
 	um.UpdateConfidence(um.CalibratedConfidence, "decay")
 }
@@ -188,7 +188,7 @@ func PropagateConfidenceThroughChain(inputConfidences []float64, chainLength int
 	if len(inputConfidences) == 0 {
 		return 0.5 // Default if no inputs
 	}
-	
+
 	// Calculate geometric mean of input confidences
 	// This is more conservative than arithmetic mean
 	var product float64 = 1.0
@@ -196,11 +196,11 @@ func PropagateConfidenceThroughChain(inputConfidences []float64, chainLength int
 		product *= clamp(conf, 0.0, 1.0)
 	}
 	geometricMean := math.Pow(product, 1.0/float64(len(inputConfidences)))
-	
+
 	// Apply chain length penalty: longer chains reduce confidence
 	// Each additional step reduces confidence by 5%
 	chainPenalty := math.Pow(0.95, float64(chainLength-1))
-	
+
 	propagatedConfidence := geometricMean * chainPenalty
 	return clamp(propagatedConfidence, 0.0, 1.0)
 }
@@ -211,7 +211,7 @@ func CombineUncertainties(models []*UncertaintyModel) *UncertaintyModel {
 	if len(models) == 0 {
 		return NewUncertaintyModel(0.5, 0.5, 0.5)
 	}
-	
+
 	// Average epistemic and aleatoric uncertainties
 	var sumEpistemic, sumAleatoric, sumConfidence float64
 	for _, m := range models {
@@ -219,14 +219,14 @@ func CombineUncertainties(models []*UncertaintyModel) *UncertaintyModel {
 		sumAleatoric += m.AleatoricUncertainty
 		sumConfidence += m.CalibratedConfidence
 	}
-	
+
 	n := float64(len(models))
 	combined := NewUncertaintyModel(
 		sumConfidence/n,
 		sumEpistemic/n,
 		sumAleatoric/n,
 	)
-	
+
 	// Average stability and volatility
 	var sumStability, sumVolatility float64
 	for _, m := range models {
@@ -235,7 +235,7 @@ func CombineUncertainties(models []*UncertaintyModel) *UncertaintyModel {
 	}
 	combined.Stability = sumStability / n
 	combined.Volatility = sumVolatility / n
-	
+
 	return combined
 }
 
@@ -249,7 +249,7 @@ func EstimateAleatoricUncertainty(domain string, goalType string) float64 {
 			return 0.3 // Higher aleatoric uncertainty
 		}
 	}
-	
+
 	// Goal types that involve exploration have more randomness
 	exploratoryTypes := []string{"concept_exploration", "gap_filling"}
 	for _, et := range exploratoryTypes {
@@ -257,7 +257,7 @@ func EstimateAleatoricUncertainty(domain string, goalType string) float64 {
 			return 0.2
 		}
 	}
-	
+
 	// Default: moderate aleatoric uncertainty
 	return 0.1
 }
@@ -266,7 +266,7 @@ func EstimateAleatoricUncertainty(domain string, goalType string) float64 {
 func EstimateEpistemicUncertainty(evidenceCount int, hasDefinition bool, hasExamples bool) float64 {
 	// Start with high epistemic uncertainty
 	epistemic := 0.6
-	
+
 	// Reduce based on evidence
 	if evidenceCount > 0 {
 		epistemic -= float64(evidenceCount) * 0.1
@@ -277,7 +277,7 @@ func EstimateEpistemicUncertainty(evidenceCount int, hasDefinition bool, hasExam
 	if hasExamples {
 		epistemic -= 0.1
 	}
-	
+
 	return clamp(epistemic, 0.0, 1.0)
 }
 
@@ -294,8 +294,8 @@ func clamp(value, min, max float64) float64 {
 
 // contains checks if a string contains a substring (case-insensitive)
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && 
-		(len(substr) == 0 || 
+	return len(s) >= len(substr) &&
+		(len(substr) == 0 ||
 			strings.Contains(strings.ToLower(s), strings.ToLower(substr)))
 }
 
@@ -308,11 +308,11 @@ func ApplyDecayToBelief(belief *Belief) bool {
 		aleatoricUncertainty := EstimateAleatoricUncertainty(belief.Domain, "")
 		belief.Uncertainty = NewUncertaintyModel(belief.Confidence, epistemicUncertainty, aleatoricUncertainty)
 	}
-	
+
 	belief.Uncertainty.ApplyDecay()
 	belief.Confidence = belief.Uncertainty.CalibratedConfidence
 	belief.LastUpdated = time.Now()
-	
+
 	// Return true if confidence is very low (below 0.2) - might want to remove
 	return belief.Confidence < 0.2
 }
@@ -326,10 +326,10 @@ func ApplyDecayToHypothesis(hypothesis *Hypothesis) bool {
 		aleatoricUncertainty := EstimateAleatoricUncertainty(hypothesis.Domain, "")
 		hypothesis.Uncertainty = NewUncertaintyModel(hypothesis.Confidence, epistemicUncertainty, aleatoricUncertainty)
 	}
-	
+
 	hypothesis.Uncertainty.ApplyDecay()
 	hypothesis.Confidence = hypothesis.Uncertainty.CalibratedConfidence
-	
+
 	// Return true if confidence is very low (below 0.2) and status is still "proposed"
 	return hypothesis.Confidence < 0.2 && hypothesis.Status == "proposed"
 }
@@ -342,11 +342,10 @@ func ApplyDecayToGoal(goal *CuriosityGoal) {
 		aleatoricUncertainty := EstimateAleatoricUncertainty(goal.Domain, goal.Type)
 		goal.Uncertainty = NewUncertaintyModel(0.5, epistemicUncertainty, aleatoricUncertainty)
 	}
-	
+
 	goal.Uncertainty.ApplyDecay()
 	// Update value based on uncertainty if not explicitly set
 	if goal.Value == 0 {
 		goal.Value = goal.Uncertainty.CalibratedConfidence
 	}
 }
-

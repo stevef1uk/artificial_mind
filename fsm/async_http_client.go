@@ -16,16 +16,16 @@ import (
 
 // AsyncHTTPRequest represents an async HTTP request with callback
 type AsyncHTTPRequest struct {
-	ID           string
-	Priority     RequestPriority
-	Method       string
-	URL          string
-	Headers      map[string]string
-	Body         []byte
-	Callback     func(*http.Response, error)
-	Context      context.Context
-	CreatedAt    time.Time
-	RequestType  string
+	ID          string
+	Priority    RequestPriority
+	Method      string
+	URL         string
+	Headers     map[string]string
+	Body        []byte
+	Callback    func(*http.Response, error)
+	Context     context.Context
+	CreatedAt   time.Time
+	RequestType string
 }
 
 // AsyncHTTPResponse represents a completed HTTP response
@@ -41,22 +41,22 @@ type AsyncHTTPClient struct {
 	// Priority stacks (LIFO)
 	highPriorityStack []*AsyncHTTPRequest
 	lowPriorityStack  []*AsyncHTTPRequest
-	
+
 	// Response queue
 	responseQueue chan *AsyncHTTPResponse
-	
+
 	// Worker pool
-	workerPool     chan struct{}
-	maxWorkers     int
-	
+	workerPool chan struct{}
+	maxWorkers int
+
 	// Synchronization
-	mu             sync.Mutex
-	requestMap     map[string]*AsyncHTTPRequest
-	shutdown       chan struct{}
-	wg             sync.WaitGroup
-	
+	mu         sync.Mutex
+	requestMap map[string]*AsyncHTTPRequest
+	shutdown   chan struct{}
+	wg         sync.WaitGroup
+
 	// HTTP client
-	httpClient     *http.Client
+	httpClient *http.Client
 }
 
 // RequestPriority indicates the priority of an HTTP request
@@ -81,14 +81,14 @@ func InitAsyncHTTPClient() *AsyncHTTPClient {
 				maxWorkers = max
 			}
 		}
-		
+
 		timeout := 30 * time.Second
 		if timeoutStr := os.Getenv("FSM_HTTP_TIMEOUT_SECONDS"); timeoutStr != "" {
 			if sec, err := strconv.Atoi(timeoutStr); err == nil && sec > 0 {
 				timeout = time.Duration(sec) * time.Second
 			}
 		}
-		
+
 		asyncHTTPClient = &AsyncHTTPClient{
 			highPriorityStack: make([]*AsyncHTTPRequest, 0),
 			lowPriorityStack:  make([]*AsyncHTTPRequest, 0),
@@ -99,18 +99,18 @@ func InitAsyncHTTPClient() *AsyncHTTPClient {
 			shutdown:          make(chan struct{}),
 			httpClient:        &http.Client{Timeout: timeout},
 		}
-		
+
 		log.Printf("🚀 [ASYNC-HTTP] Initialized async HTTP client with %d workers", maxWorkers)
-		
+
 		// Start queue processor
 		asyncHTTPClient.wg.Add(1)
 		go asyncHTTPClient.processQueue()
-		
+
 		// Start response handler
 		asyncHTTPClient.wg.Add(1)
 		go asyncHTTPClient.processResponses()
 	})
-	
+
 	return asyncHTTPClient
 }
 
@@ -118,17 +118,17 @@ func InitAsyncHTTPClient() *AsyncHTTPClient {
 func (ahc *AsyncHTTPClient) EnqueueRequest(req *AsyncHTTPRequest) error {
 	ahc.mu.Lock()
 	defer ahc.mu.Unlock()
-	
+
 	// Generate ID if not provided
 	if req.ID == "" {
 		req.ID = fmt.Sprintf("http_req_%d", time.Now().UnixNano())
 	}
-	
+
 	req.CreatedAt = time.Now()
-	
+
 	// Store in request map for callback routing
 	ahc.requestMap[req.ID] = req
-	
+
 	// Add to appropriate stack (LIFO - append to end, pop from end)
 	if req.Priority == PriorityHigh {
 		ahc.highPriorityStack = append(ahc.highPriorityStack, req)
@@ -137,14 +137,14 @@ func (ahc *AsyncHTTPClient) EnqueueRequest(req *AsyncHTTPRequest) error {
 		ahc.lowPriorityStack = append(ahc.lowPriorityStack, req)
 		log.Printf("📥 [ASYNC-HTTP] Enqueued LOW priority request: %s (stack size: %d)", req.ID, len(ahc.lowPriorityStack))
 	}
-	
+
 	return nil
 }
 
 // processQueue continuously processes requests from priority stacks
 func (ahc *AsyncHTTPClient) processQueue() {
 	defer ahc.wg.Done()
-	
+
 	for {
 		select {
 		case <-ahc.shutdown:
@@ -153,7 +153,7 @@ func (ahc *AsyncHTTPClient) processQueue() {
 		default:
 			// Try to get a request from stacks (LIFO - pop from end)
 			var req *AsyncHTTPRequest
-			
+
 			ahc.mu.Lock()
 			// Always check high priority first
 			if len(ahc.highPriorityStack) > 0 {
@@ -170,7 +170,7 @@ func (ahc *AsyncHTTPClient) processQueue() {
 				log.Printf("📤 [ASYNC-HTTP] Popped LOW priority request: %s", req.ID)
 			}
 			ahc.mu.Unlock()
-			
+
 			if req != nil {
 				// Acquire worker slot
 				select {
@@ -193,9 +193,9 @@ func (ahc *AsyncHTTPClient) processQueue() {
 func (ahc *AsyncHTTPClient) processRequest(req *AsyncHTTPRequest) {
 	defer ahc.wg.Done()
 	defer func() { <-ahc.workerPool }() // Release worker slot
-	
+
 	log.Printf("🔄 [ASYNC-HTTP] Processing request: %s (type: %s, method: %s, url: %s)", req.ID, req.RequestType, req.Method, req.URL)
-	
+
 	// Check if request was cancelled
 	select {
 	case <-req.Context.Done():
@@ -209,7 +209,7 @@ func (ahc *AsyncHTTPClient) processRequest(req *AsyncHTTPRequest) {
 		return
 	default:
 	}
-	
+
 	// Create HTTP request
 	httpReq, err := http.NewRequestWithContext(req.Context, req.Method, req.URL, bytes.NewReader(req.Body))
 	if err != nil {
@@ -221,23 +221,23 @@ func (ahc *AsyncHTTPClient) processRequest(req *AsyncHTTPRequest) {
 		})
 		return
 	}
-	
+
 	// Set headers
 	for k, v := range req.Headers {
 		httpReq.Header.Set(k, v)
 	}
-	
+
 	// Make the HTTP call
 	requestStart := time.Now()
 	resp, err := ahc.httpClient.Do(httpReq)
 	requestDuration := time.Since(requestStart)
-	
+
 	if err != nil {
 		log.Printf("❌ [ASYNC-HTTP] HTTP request failed: %v (duration: %v)", err, requestDuration)
 	} else {
 		log.Printf("✅ [ASYNC-HTTP] HTTP request completed: %s (status: %d, duration: %v)", req.ID, resp.StatusCode, requestDuration)
 	}
-	
+
 	// Send response to response queue
 	ahc.sendResponse(&AsyncHTTPResponse{
 		RequestID:   req.ID,
@@ -260,7 +260,7 @@ func (ahc *AsyncHTTPClient) sendResponse(resp *AsyncHTTPResponse) {
 // processResponses processes completed HTTP responses and calls callbacks
 func (ahc *AsyncHTTPClient) processResponses() {
 	defer ahc.wg.Done()
-	
+
 	for {
 		select {
 		case <-ahc.shutdown:
@@ -273,7 +273,7 @@ func (ahc *AsyncHTTPClient) processResponses() {
 				delete(ahc.requestMap, resp.RequestID)
 			}
 			ahc.mu.Unlock()
-			
+
 			if !exists {
 				log.Printf("⚠️ [ASYNC-HTTP] No request found for response: %s", resp.RequestID)
 				if resp.Response != nil {
@@ -281,7 +281,7 @@ func (ahc *AsyncHTTPClient) processResponses() {
 				}
 				continue
 			}
-			
+
 			// Call the callback function
 			log.Printf("📞 [ASYNC-HTTP] Calling callback for request: %s", resp.RequestID)
 			if req.Callback != nil {
@@ -318,7 +318,7 @@ func (ahc *AsyncHTTPClient) PostAsync(ctx context.Context, url string, contentTy
 		headers = make(map[string]string)
 	}
 	headers["Content-Type"] = contentType
-	
+
 	req := &AsyncHTTPRequest{
 		Method:      "POST",
 		URL:         url,
@@ -329,7 +329,7 @@ func (ahc *AsyncHTTPClient) PostAsync(ctx context.Context, url string, contentTy
 		Priority:    priority,
 		RequestType: "POST",
 	}
-	
+
 	return ahc.EnqueueRequest(req)
 }
 
@@ -337,7 +337,7 @@ func (ahc *AsyncHTTPClient) PostAsync(ctx context.Context, url string, contentTy
 func (ahc *AsyncHTTPClient) PostAsyncSync(ctx context.Context, url string, contentType string, body []byte, headers map[string]string, priority RequestPriority) (*http.Response, error) {
 	resultChan := make(chan *http.Response, 1)
 	errorChan := make(chan error, 1)
-	
+
 	callback := func(resp *http.Response, err error) {
 		if err != nil {
 			errorChan <- err
@@ -345,11 +345,11 @@ func (ahc *AsyncHTTPClient) PostAsyncSync(ctx context.Context, url string, conte
 		}
 		resultChan <- resp
 	}
-	
+
 	if err := ahc.PostAsync(ctx, url, contentType, body, headers, priority, callback); err != nil {
 		return nil, err
 	}
-	
+
 	// Wait for result
 	timeout := 5 * time.Minute
 	if deadline, ok := ctx.Deadline(); ok {
@@ -358,7 +358,7 @@ func (ahc *AsyncHTTPClient) PostAsyncSync(ctx context.Context, url string, conte
 			timeout = timeUntilDeadline
 		}
 	}
-	
+
 	select {
 	case resp := <-resultChan:
 		return resp, nil
@@ -373,21 +373,21 @@ func (ahc *AsyncHTTPClient) PostAsyncSync(ctx context.Context, url string, conte
 
 // Post makes a POST request (uses async if enabled, sync otherwise)
 func Post(ctx context.Context, url string, contentType string, body []byte, headers map[string]string) (*http.Response, error) {
-	useAsync := strings.TrimSpace(os.Getenv("USE_ASYNC_HTTP_QUEUE")) == "1" || 
-	           strings.TrimSpace(os.Getenv("USE_ASYNC_HTTP_QUEUE")) == "true"
-	
+	useAsync := strings.TrimSpace(os.Getenv("USE_ASYNC_HTTP_QUEUE")) == "1" ||
+		strings.TrimSpace(os.Getenv("USE_ASYNC_HTTP_QUEUE")) == "true"
+
 	if useAsync {
 		client := InitAsyncHTTPClient()
 		priority := PriorityLow // Default to low priority for FSM background tasks
 		return client.PostAsyncSync(ctx, url, contentType, body, headers, priority)
 	}
-	
+
 	// Fallback to synchronous HTTP call
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if headers != nil {
 		for k, v := range headers {
 			req.Header.Set(k, v)
@@ -396,7 +396,7 @@ func Post(ctx context.Context, url string, contentType string, body []byte, head
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	
+
 	client := &http.Client{Timeout: 30 * time.Second}
 	return client.Do(req)
 }
@@ -413,7 +413,7 @@ func (ahc *AsyncHTTPClient) DoAsyncSync(ctx context.Context, req *http.Request, 
 		}
 		req.Body.Close()
 	}
-	
+
 	// Extract headers
 	headers := make(map[string]string)
 	for k, v := range req.Header {
@@ -421,10 +421,10 @@ func (ahc *AsyncHTTPClient) DoAsyncSync(ctx context.Context, req *http.Request, 
 			headers[k] = v[0]
 		}
 	}
-	
+
 	resultChan := make(chan *http.Response, 1)
 	errorChan := make(chan error, 1)
-	
+
 	callback := func(resp *http.Response, err error) {
 		if err != nil {
 			errorChan <- err
@@ -432,7 +432,7 @@ func (ahc *AsyncHTTPClient) DoAsyncSync(ctx context.Context, req *http.Request, 
 		}
 		resultChan <- resp
 	}
-	
+
 	asyncReq := &AsyncHTTPRequest{
 		Method:      req.Method,
 		URL:         req.URL.String(),
@@ -443,11 +443,11 @@ func (ahc *AsyncHTTPClient) DoAsyncSync(ctx context.Context, req *http.Request, 
 		Priority:    priority,
 		RequestType: req.Method,
 	}
-	
+
 	if err := ahc.EnqueueRequest(asyncReq); err != nil {
 		return nil, err
 	}
-	
+
 	// Wait for result
 	timeout := 5 * time.Minute
 	if deadline, ok := ctx.Deadline(); ok {
@@ -456,7 +456,7 @@ func (ahc *AsyncHTTPClient) DoAsyncSync(ctx context.Context, req *http.Request, 
 			timeout = timeUntilDeadline
 		}
 	}
-	
+
 	select {
 	case resp := <-resultChan:
 		return resp, nil
@@ -471,17 +471,16 @@ func (ahc *AsyncHTTPClient) DoAsyncSync(ctx context.Context, req *http.Request, 
 
 // Do makes an HTTP request (uses async if enabled, sync otherwise)
 func Do(ctx context.Context, req *http.Request) (*http.Response, error) {
-	useAsync := strings.TrimSpace(os.Getenv("USE_ASYNC_HTTP_QUEUE")) == "1" || 
-	           strings.TrimSpace(os.Getenv("USE_ASYNC_HTTP_QUEUE")) == "true"
-	
+	useAsync := strings.TrimSpace(os.Getenv("USE_ASYNC_HTTP_QUEUE")) == "1" ||
+		strings.TrimSpace(os.Getenv("USE_ASYNC_HTTP_QUEUE")) == "true"
+
 	if useAsync {
 		client := InitAsyncHTTPClient()
 		priority := PriorityLow // Default to low priority for FSM background tasks
 		return client.DoAsyncSync(ctx, req, priority)
 	}
-	
+
 	// Fallback to synchronous HTTP call
 	client := &http.Client{Timeout: 30 * time.Second}
 	return client.Do(req)
 }
-

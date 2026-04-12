@@ -21,7 +21,7 @@ type GoalManagerClient struct {
 func NewGoalManagerClient(baseURL string, rc *redis.Client) *GoalManagerClient {
 	return &GoalManagerClient{
 		baseURL: baseURL,
-		client: &http.Client{Timeout: 10 * time.Second},
+		client:  &http.Client{Timeout: 10 * time.Second},
 		redis:   rc,
 	}
 }
@@ -39,8 +39,8 @@ func (gmc *GoalManagerClient) PostCuriosityGoal(goal CuriosityGoal, source strin
 		"status":      goal.Status,
 		"confidence":  goal.Value,
 		"context": map[string]interface{}{
-			"domain":       goal.Domain,
-			"source":       source,
+			"domain": goal.Domain,
+			"source": source,
 		},
 	}
 
