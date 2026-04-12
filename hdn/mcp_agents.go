@@ -342,31 +342,56 @@ func (s *MCPKnowledgeServer) picoclawQuery(ctx context.Context, arguments map[st
 
 	log.Printf("🤖 [PICOCLAW] Message sent (ID: %s), waiting for response...", messageID)
 
+	var finalResponse string
 	for {
 		var respData map[string]interface{}
 		if err := conn.ReadJSON(&respData); err != nil {
+			// If we already have a response and the connection closed, return it.
+			// Otherwise return error.
+			if finalResponse != "" {
+				log.Printf("✅ [PICOCLAW] Connection closed, returning collected response (%d bytes)", len(finalResponse))
+				return map[string]interface{}{
+					"response": finalResponse,
+					"status":   "success",
+				}, nil
+			}
 			return nil, fmt.Errorf("websocket read error: %v", err)
 		}
 
 		respType, _ := respData["type"].(string)
+		log.Printf("📥 [PICOCLAW] Received message type: %s", respType)
 
-		if respType == "message.create" {
+		switch respType {
+		case "message.create":
 			payload, _ := respData["payload"].(map[string]interface{})
 			content, _ := payload["content"].(string)
-			log.Printf("✅ [PICOCLAW] Received response (%d bytes): %s", len(content), content)
-			return map[string]interface{}{
-				"response": content,
-				"status":   "success",
-			}, nil
-		} else if respType == "error" {
+			log.Printf("✅ [PICOCLAW] Received message chunk (%d bytes)", len(content))
+			// Pico Protocol sometimes sends full content in each message.create during a turn, 
+			// or separate chunks. In the current implementation, it's typically the full message 
+			// produced so far. We'll update our finalResponse with the latest.
+			finalResponse = content
+
+		case "typing.stop":
+			log.Printf("🏁 [PICOCLAW] Agent finished turn (typing.stop received)")
+			if finalResponse != "" {
+				return map[string]interface{}{
+					"response": finalResponse,
+					"status":   "success",
+				}, nil
+			}
+			// If we got a stop but no message yet, keep waiting (might be a slight delay)
+
+		case "typing.start":
+			log.Printf("⏳ [PICOCLAW] Agent is typing...")
+
+		case "error":
 			payload, _ := respData["payload"].(map[string]interface{})
 			msg, _ := payload["message"].(string)
 			log.Printf("❌ [PICOCLAW] Server returned error: %s", msg)
 			return nil, fmt.Errorf("picoclaw error: %s", msg)
-		} else if respType == "typing.start" {
-			log.Printf("⏳ [PICOCLAW] Agent is typing...")
-		} else {
-			log.Printf("📥 [PICOCLAW] Received non-terminal message type: %s", respType)
+
+		default:
+			log.Printf("ℹ️ [PICOCLAW] Received non-terminal message type: %s", respType)
 		}
 	}
 }
