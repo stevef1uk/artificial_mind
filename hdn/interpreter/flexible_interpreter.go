@@ -142,6 +142,44 @@ func (f *FlexibleInterpreter) InterpretWithPriority(ctx context.Context, req *Na
 		}
 	}
 
+	// Proactive Image Generation Hijacking
+	isImageGen := (strings.Contains(inputLower, "image") || strings.Contains(inputLower, "picture") ||
+		strings.Contains(inputLower, "draw") || strings.Contains(inputLower, "artwork") ||
+		strings.Contains(inputLower, "photo") || strings.Contains(inputLower, "illustration")) &&
+		(strings.Contains(inputLower, "create") || strings.Contains(inputLower, "generate") ||
+			strings.Contains(inputLower, "make") || strings.Contains(inputLower, "draw") ||
+			strings.Contains(inputLower, "show me") || strings.Contains(inputLower, "render"))
+
+	if isImageGen && !strings.Contains(inputLower, "pico") && !strings.Contains(inputLower, "nemo") {
+		for _, t := range tools {
+			if strings.Contains(strings.ToLower(t.ID), "tool_generate_image") || (strings.Contains(strings.ToLower(t.ID), "generate_image") && !strings.Contains(strings.ToLower(t.ID), "mcp")) {
+				log.Printf("🖼️ [FLEXIBLE-INTERPRETER] Proactively routing to local image generation tool: %s", t.ID)
+
+				toolCall := &ToolCall{
+					ToolID:     t.ID,
+					Parameters: map[string]interface{}{"prompt": req.Input},
+				}
+
+				// Check for source image in context if available
+				if s, ok := req.Context["source_image"]; ok && s != "" {
+					toolCall.Parameters["source_image"] = s
+				} else if s, ok := req.Context["last_vision_path"]; ok && s != "" {
+					toolCall.Parameters["source_image"] = s
+				}
+
+				result := &FlexibleInterpretationResult{
+					Success:       true,
+					ResponseType:  ResponseTypeToolCall,
+					Message:       "Detected image generation intent, routing directly to local NPU tool.",
+					SessionID:     req.SessionID,
+					InterpretedAt: time.Now(),
+					ToolCall:      toolCall,
+				}
+				return result, nil
+			}
+		}
+	}
+
 	if prioritizeAvatar {
 		// Force AvatarContext tool selection
 		for _, t := range tools {
