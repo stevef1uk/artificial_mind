@@ -866,6 +866,7 @@ func (s *APIServer) setupRoutes() {
 	s.router.HandleFunc("/api/v1/knowledge/query", s.handleKnowledgeQuery).Methods("POST")
 
 	s.router.HandleFunc("/api/v1/nemoclaw/response", s.handleNemoClawResponse).Methods("POST")
+	s.router.HandleFunc("/api/v1/picoclaw/response", s.handlePicoClawResponse).Methods("POST")
 }
 
 func (s *APIServer) handleNemoClawResponse(w http.ResponseWriter, r *http.Request) {
@@ -889,6 +890,37 @@ func (s *APIServer) handleNemoClawResponse(w http.ResponseWriter, r *http.Reques
 	err := s.redis.Set(r.Context(), key, req.Response, 10*time.Minute).Err()
 	if err != nil {
 		log.Printf("❌ [API] Failed to save NemoClaw response to Redis: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+}
+
+// handlePicoClawResponse receives the async reply from PicoClaw (posted by PicoClaw itself or
+// the n8n workflow that forwards its Telegram reply) and stores it in Redis for picoclawQuery to pick up.
+func (s *APIServer) handlePicoClawResponse(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ChatID   string `json:"chat_id"`
+		Response string `json:"response"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.ChatID == "" || req.Response == "" {
+		http.Error(w, "chat_id and response are required", http.StatusBadRequest)
+		return
+	}
+
+	cleanChatID := strings.TrimPrefix(req.ChatID, "tg_chat_")
+	key := fmt.Sprintf("hdn:picoclaw:response:%s", cleanChatID)
+	log.Printf("📥 [API] Received PicoClaw response for chat %s (clean: %s), saving to Redis key: %s", req.ChatID, cleanChatID, key)
+
+	err := s.redis.Set(r.Context(), key, req.Response, 10*time.Minute).Err()
+	if err != nil {
+		log.Printf("❌ [API] Failed to save PicoClaw response to Redis: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

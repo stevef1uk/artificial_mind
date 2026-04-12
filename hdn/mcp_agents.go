@@ -16,8 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 )
 
 // deepResearch performs multi-step autonomous research
@@ -259,7 +257,10 @@ Format the output in high-quality Markdown.`, topic, string(resultsJSON))
 	}, nil
 }
 
-// picoclawQuery handles reasoning queries to the PicoClaw agentic AI via Telegram
+// picoclawQuery handles reasoning queries to the PicoClaw agentic AI via Telegram.
+// It sends the prompt to a configured Telegram chat (PicoClaw's inbox) and waits for
+// the response to appear in Redis, written by the /api/v1/picoclaw/response callback
+// that PicoClaw (or the n8n workflow forwarding its reply) calls.
 func (s *MCPKnowledgeServer) picoclawQuery(ctx context.Context, arguments map[string]interface{}) (interface{}, error) {
 
 	prompt, _ := arguments["prompt"].(string)
@@ -281,10 +282,9 @@ func (s *MCPKnowledgeServer) picoclawQuery(ctx context.Context, arguments map[st
 	}
 
 	if prompt == "" {
-
 		for k, v := range arguments {
-			if s, ok := v.(string); ok && s != "" && k != "chat_id" {
-				prompt = s
+			if sv, ok := v.(string); ok && sv != "" && k != "chat_id" {
+				prompt = sv
 				log.Printf("📥 [PICOCLAW] Auto-detected '%s' as prompt from unknown param: %s", prompt, k)
 				break
 			}
@@ -295,80 +295,111 @@ func (s *MCPKnowledgeServer) picoclawQuery(ctx context.Context, arguments map[st
 		return nil, fmt.Errorf("prompt, topic, query, or message required (found: %v)", arguments)
 	}
 
-	prompt = strings.ReplaceAll(prompt, "your_chat_id_here", "")
-	prompt = strings.ReplaceAll(prompt, "YOUR_CHAT_ID", "")
 	prompt = strings.TrimSpace(prompt)
 
-	wsHost := os.Getenv("PICOCLAW_WS_HOST")
-	if wsHost == "" {
-		wsHost = "192.168.1.60"
+	// Determine the Telegram chat ID for PicoClaw.
+	// Use override from the call arguments first, then env var.
+	chatID, _ := arguments["chat_id"].(string)
+	if chatID == "" {
+		chatID = os.Getenv("PICOCLAW_TELEGRAM_CHAT_ID")
 	}
-	wsPort := os.Getenv("PICOCLAW_WS_PORT")
-	if wsPort == "" {
-		wsPort = "18790"
-	}
-	wsToken := os.Getenv("PICOCLAW_WS_TOKEN")
-	if wsToken == "" {
-		wsToken = "test-token"
+	if chatID == "" {
+		return nil, fmt.Errorf("PICOCLAW_TELEGRAM_CHAT_ID environment variable not set; cannot route to PicoClaw via Telegram")
 	}
 
-	sessionID := "hdn-" + uuid.New().String()[:8]
-	wsURL := fmt.Sprintf("ws://%s:%s/pico/ws?token=%s&session_id=%s", wsHost, wsPort, wsToken, sessionID)
+	log.Printf("🤖 [PICOCLAW] Sending query to PicoClaw via Telegram chat %s | Prompt: %s", chatID, prompt)
 
-	log.Printf("🤖 [PICOCLAW] Redirecting query to PicoClaw via WebSocket: %s | Prompt: %s", wsURL, prompt)
+	// Send the prompt as a Telegram message to PicoClaw's channel.
+	webhookURL := os.Getenv("TELEGRAM_OUTBOUND_WEBHOOK")
+	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 
-	dialer := websocket.Dialer{
-		HandshakeTimeout: 10 * time.Second,
+	if webhookURL == "" && botToken == "" {
+		return nil, fmt.Errorf("neither TELEGRAM_OUTBOUND_WEBHOOK nor TELEGRAM_BOT_TOKEN is set; cannot send Telegram message to PicoClaw")
 	}
 
-	conn, _, err := dialer.DialContext(ctx, wsURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to picoclaw websocket at %s: %v", wsURL, err)
+	// Build the outgoing message payload.
+	var sendErr error
+	if webhookURL != "" {
+		payload := map[string]interface{}{"chat_id": chatID, "message": prompt}
+		jsonData, _ := json.Marshal(payload)
+		req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(jsonData))
+		if err != nil {
+			sendErr = fmt.Errorf("failed to build webhook request: %w", err)
+		} else {
+			req.Header.Set("Content-Type", "application/json")
+			client := &http.Client{Timeout: 10 * time.Second}
+			resp, err := client.Do(req)
+			if err != nil {
+				sendErr = fmt.Errorf("failed to call Telegram webhook: %w", err)
+			} else {
+				resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					sendErr = fmt.Errorf("Telegram webhook returned status %d", resp.StatusCode)
+				}
+			}
+		}
 	}
-	defer conn.Close()
 
-	messageID := uuid.New().String()
-	sendMsg := map[string]interface{}{
-		"type": "message.send",
-		"id":   messageID,
-		"payload": map[string]interface{}{
-			"content": prompt,
-		},
+	// Fallback to direct Telegram Bot API if webhook failed or not configured.
+	if sendErr != nil || webhookURL == "" {
+		if botToken == "" {
+			if sendErr != nil {
+				return nil, fmt.Errorf("Telegram gateway failed (%v) and TELEGRAM_BOT_TOKEN not set", sendErr)
+			}
+			return nil, fmt.Errorf("TELEGRAM_BOT_TOKEN not set")
+		}
+		apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
+		payload := map[string]interface{}{"chat_id": chatID, "text": prompt}
+		jsonData, _ := json.Marshal(payload)
+		req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(jsonData))
+		if err != nil {
+			return nil, fmt.Errorf("failed to build Telegram API request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to send Telegram message to PicoClaw: %w", err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("Telegram Bot API returned status %d when sending to PicoClaw", resp.StatusCode)
+		}
 	}
 
-	if err := conn.WriteJSON(sendMsg); err != nil {
-		return nil, fmt.Errorf("failed to send websocket message: %v", err)
-	}
+	log.Printf("✅ [PICOCLAW] Message sent to PicoClaw via Telegram (chat: %s). Polling Redis for response...", chatID)
 
-	log.Printf("🤖 [PICOCLAW] Message sent (ID: %s), waiting for response...", messageID)
+	// Poll Redis for the response. PicoClaw (or n8n) should call
+	// POST /api/v1/picoclaw/response with {"chat_id": "<chatID>", "response": "..."}
+	// which stores the answer at hdn:picoclaw:response:<chatID>.
+	cleanChatID := strings.TrimPrefix(chatID, "tg_chat_")
+	redisKey := fmt.Sprintf("hdn:picoclaw:response:%s", cleanChatID)
 
-	for {
-		var respData map[string]interface{}
-		if err := conn.ReadJSON(&respData); err != nil {
-			return nil, fmt.Errorf("websocket read error: %v", err)
+	pollInterval := 3 * time.Second
+	timeout := 3 * time.Minute
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("picoclaw query cancelled: %v", ctx.Err())
+		default:
 		}
 
-		respType, _ := respData["type"].(string)
-
-		if respType == "message.create" {
-			payload, _ := respData["payload"].(map[string]interface{})
-			content, _ := payload["content"].(string)
-			log.Printf("✅ [PICOCLAW] Received response (%d bytes): %s", len(content), content)
+		val, err := s.redis.GetDel(ctx, redisKey).Result()
+		if err == nil && val != "" {
+			log.Printf("✅ [PICOCLAW] Received response (%d bytes) from Redis key %s", len(val), redisKey)
 			return map[string]interface{}{
-				"response": content,
+				"response": val,
 				"status":   "success",
 			}, nil
-		} else if respType == "error" {
-			payload, _ := respData["payload"].(map[string]interface{})
-			msg, _ := payload["message"].(string)
-			log.Printf("❌ [PICOCLAW] Server returned error: %s", msg)
-			return nil, fmt.Errorf("picoclaw error: %s", msg)
-		} else if respType == "typing.start" {
-			log.Printf("⏳ [PICOCLAW] Agent is typing...")
-		} else {
-			log.Printf("📥 [PICOCLAW] Received non-terminal message type: %s", respType)
 		}
+
+		log.Printf("⏳ [PICOCLAW] No response yet in Redis (%s), retrying in %v...", redisKey, pollInterval)
+		time.Sleep(pollInterval)
 	}
+
+	return nil, fmt.Errorf("picoclaw query timed out after %v waiting for response in Redis key %s", timeout, redisKey)
 }
 
 // nemoclawQuery handles strategic queries to the Nemoclaw agentic AI via n8n webhook and waits for a response in Redis

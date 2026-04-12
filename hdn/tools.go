@@ -721,8 +721,8 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 		},
 		{
 			ID:          "picoclaw_query",
-			Name:        "PicoClaw WebSocket Query",
-			Description: "Query the PicoClaw local agentic AI via WebSocket for autonomous reasoning and multi-step tasks using Native Pico Protocol. Fast bidirectional communication with real-time feedback.",
+			Name:        "PicoClaw Telegram Query",
+			Description: "Query the PicoClaw agentic AI (deployed on k3s) via Telegram. Sends your prompt to PicoClaw's Telegram channel and waits for its response (up to 3 minutes).",
 			InputSchema: map[string]string{
 				"prompt": "string",
 			},
