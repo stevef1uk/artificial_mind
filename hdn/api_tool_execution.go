@@ -255,7 +255,7 @@ func (s *APIServer) sendTelegramMessage(ctx context.Context, params map[string]i
 			log.Printf("✅ [TELEGRAM] Successfully sent message via gateway")
 			return map[string]interface{}{"success": true, "gateway": true}, nil
 		}
-		
+
 		body, _ := io.ReadAll(resp.Body)
 		log.Printf("⚠️ [TELEGRAM] Gateway failed (status %d): %s. Falling back to direct API...", resp.StatusCode, string(body))
 	}
