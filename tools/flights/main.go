@@ -151,7 +151,7 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		"LHR": "LON", "LGW": "LON", "LTN": "LON", "STN": "LON", "LCY": "LON",
 		"CDG": "PAR", "ORY": "PAR", "BVA": "PAR",
 		"EWR": "NYC", "JFK": "NYC", "LGA": "NYC",
-		"GIG": "RIO", "SDU": "RIO",
+		"GIG": "RIO", "SDU": "RIO", "GRU": "RIO", "VCP": "RIO", "SAO": "RIO",
 	}
 
 	// 1. Resolve full names to codes using mapping
