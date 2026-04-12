@@ -915,11 +915,6 @@ func (s *APIServer) SetLLMClient(client *LLMClient) {
 		s.llmWrapper.client = s.llmClient
 	}
 
-	if s.conversationalAPI != nil {
-		s.conversationalAPI.RegisterRoutes(s.router)
-		log.Printf("💬 [API] Conversational routes registered")
-	}
-
 	s.SyncPromptHints()
 }
 

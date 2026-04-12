@@ -1034,7 +1034,16 @@ func (cl *ConversationalLayer) executeAction(ctx context.Context, action *Action
 		// Construct a prompt that encourages flexible tool usage
 		directQuery := fmt.Sprintf("Answer the user's query about '%s'. For latest news, recent updates, or real-time information, you can use mcp_search_weaviate with collection='WikipediaArticle', OR use mcp_scrape_url/mcp_smart_scrape if you have a specific URL. If it is a definition or general concept, use mcp_get_concept. Original query for context: %s", coreQuery, originalMessage)
 		log.Printf("🔍 [CONVERSATIONAL] Flexible knowledge query: %s (extracted from: %s)", directQuery, searchText)
-		interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, directQuery, hdnContext)
+		
+		// Use a copy of context to avoid polluting the main context with temporary flags
+		newsContext := make(map[string]string)
+		for k, v := range hdnContext {
+			newsContext[k] = v
+		}
+		newsContext["conversation_only"] = "true"
+		newsContext["knowledge_sources"] = "wiki,news"
+
+		interpretResult, err := cl.hdnClient.InterpretNaturalLanguage(ctx, directQuery, newsContext)
 		if err != nil {
 			return nil, fmt.Errorf("knowledge query failed: %w", err)
 		}
