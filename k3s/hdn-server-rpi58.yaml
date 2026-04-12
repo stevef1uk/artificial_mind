@@ -166,7 +166,7 @@ spec:
                   name: telegram-bot-secret
                   key: TELEGRAM_OUTBOUND_WEBHOOK
             - name: PICOCLAW_WS_HOST
-              value: "192.168.1.60"
+              value: "picoclaw.agi.svc.cluster.local"
             - name: PICOCLAW_WS_PORT
               value: "18790"
             - name: PICOCLAW_WS_TOKEN
