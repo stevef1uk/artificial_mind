@@ -72,7 +72,7 @@ func (s *MCPKnowledgeServer) GetAllPromptHints() map[string]*PromptHintsConfig {
 
 	hints["picoclaw_query"] = &PromptHintsConfig{
 		Keywords:      []string{"picoclaw", "pico", "reasoning", "strategic", "local agent"},
-		PromptText:    "⚠️ FOR STRATEGIC/REASONING REQUESTS: Use mcp_picoclaw_query for autonomous planning and multi-step reasoning via the PicoClaw agent (communicates via Telegram).",
+		PromptText:    "⚠️ FOR STRATEGIC/REASONING REQUESTS: Use mcp_picoclaw_query for autonomous planning and multi-step reasoning via the local RPi agent.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"picoclaw"},
 	}
@@ -363,7 +363,7 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 		},
 		{
 			Name:        "picoclaw_query",
-			Description: "[chat-only] Query the PicoClaw agentic AI (deployed on k3s) via Telegram. Sends your prompt to PicoClaw's Telegram channel and waits for its response (up to 3 minutes).",
+			Description: "[chat-only] Query the PicoClaw local agentic AI via WebSocket using the Native Pico Protocol. This tool offers real-time bidirectional communication for complex strategic tasks and autonomous reasoning.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

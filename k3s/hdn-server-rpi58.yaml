@@ -165,8 +165,12 @@ spec:
                 secretKeyRef:
                   name: telegram-bot-secret
                   key: TELEGRAM_OUTBOUND_WEBHOOK
-            - name: PICOCLAW_TELEGRAM_CHAT_ID
-              value: ""  # Set to the Telegram chat ID for the PicoClaw bot channel
+            - name: PICOCLAW_WS_HOST
+              value: "192.168.1.60"
+            - name: PICOCLAW_WS_PORT
+              value: "18790"
+            - name: PICOCLAW_WS_TOKEN
+              value: "test-token"
             - name: ARTIFACTS_DIR
               value: "/app/artifacts"
             - name: UNPACK_WORK_DIR
