@@ -77,19 +77,36 @@ spec:
             console.log("Stage 1: Navigating to search URL...");
             await page.goto("%s", { waitUntil: 'networkidle', timeout: 60000 });
             
-            // Handle Google Consent Dialog
-            try {
-              const buttons = await page.$$('button');
-              for (const button of buttons) {
-                const text = await button.innerText();
-                if (text.includes('Accept') || text.includes('Agree')) {
-                  await button.click();
-                  console.log('Dismissed consent dialog');
-                  await page.waitForTimeout(2000);
-                  break;
-                }
+            // Handle Google Consent Dialog (including iframes)
+            console.log("Stage 1.5: Searching for consent buttons...");
+            const dismissConsent = async (frame) => {
+              const selectors = [
+                'button:has-text("Accept all")', 
+                'button:has-text("I agree")',
+                'button:has-text("Agree")',
+                'button#L2AGLb',
+                '.VfPpkd-LgbsSe'
+              ];
+              for (const selector of selectors) {
+                try {
+                  const btn = await frame.$(selector);
+                  if (btn) {
+                    await btn.click();
+                    console.log(`✅ Dismissed consent via ${selector}`);
+                    return true;
+                  }
+                } catch (e) {}
               }
-            } catch (e) {}
+              return false;
+            };
+
+            // Check main page and all iframes
+            if (!await dismissConsent(page)) {
+              for (const frame of page.frames()) {
+                if (await dismissConsent(frame)) break;
+              }
+            }
+            await page.waitForTimeout(3000);
 
             // Navigate to the final results URL (if different)
             await page.goto("%s", { waitUntil: 'networkidle', timeout: 60000 });

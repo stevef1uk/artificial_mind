@@ -19,14 +19,20 @@ Present Date: %s
 Query: %s
 
 Return a JSON object with these fields ONLY:
-- departure (3-letter IATA airport code, e.g. "LHR". Be precise: Geneva is "GVA", Paris is "CDG", London is "LON" or "LHR" or "LGW")
+- departure (3-letter IATA airport code, e.g. "LHR")
 - destination (3-letter IATA airport code, e.g. "CDG")
 - start_date (YYYY-MM-DD)
 - end_date (ONLY if a return flight or stay duration was specifically mentioned. Otherwise, leave it empty. YYYY-MM-DD or empty.)
 - cabin (Default to "Economy". Use "Business" or "First" if specifically mentioned.)
 
 IMPORTANT: If no year is specified in the query, you MUST use %d.
-TRIPLE-CHECK AIRPORT CODES: "Geneva" must be "GVA". "Lisbon" must be "LIS".
+IMPORTANT airport mapping:
+- Geneva -> GVA
+- London Gatwick or Gatwick -> LGW (NEVER use LHR for Gatwick)
+- London Heathrow or Heathrow -> LHR
+- London Center or London -> LON
+- Lisbon -> LIS
+- Paris -> CDG or ORY
 
 ONLY return JSON.`, currentDate, query, currentYear)
 
