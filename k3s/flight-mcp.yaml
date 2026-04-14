@@ -83,7 +83,7 @@ spec:
 
             // 2. Direct Search URL (Most stable for K3s)
             console.log("Stage 2: Navigating to search results...");
-            await page.goto("%s&sort=price_asc");
+            await page.goto("%s");
             await page.waitForLoadState("networkidle", { timeout: 30000 });
             await page.bypassConsent(); // Handle secondary consent wall
             
