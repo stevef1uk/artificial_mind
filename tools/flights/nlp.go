@@ -19,17 +19,14 @@ Present Date: %s
 Query: %s
 
 Return a JSON object with these fields ONLY:
-- departure (airport code, e.g. "LHR")
-- destination (airport code, e.g. "CDG")
+- departure (3-letter IATA airport code, e.g. "LHR". Be precise: Geneva is "GVA", Paris is "CDG", London is "LON" or "LHR" or "LGW")
+- destination (3-letter IATA airport code, e.g. "CDG")
 - start_date (YYYY-MM-DD)
 - end_date (ONLY if a return flight or stay duration was specifically mentioned. Otherwise, leave it empty. YYYY-MM-DD or empty.)
 - cabin (Default to "Economy". Use "Business" or "First" if specifically mentioned.)
 
 IMPORTANT: If no year is specified in the query, you MUST use %d.
-EXAMPLES:
-- "Find morning flights to JFK" -> cabin: "Economy"
-- "Business class to PAR" -> cabin: "Business"
-- "LHR to CDG tomorrow" -> cabin: "Economy"
+TRIPLE-CHECK AIRPORT CODES: "Geneva" must be "GVA". "Lisbon" must be "LIS".
 
 ONLY return JSON.`, currentDate, query, currentYear)
 

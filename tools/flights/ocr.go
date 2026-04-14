@@ -44,7 +44,7 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 	priceRegex := regexp.MustCompile(`([€£$E]|EUR|GBP)\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)`)
 	durationRegex := regexp.MustCompile(`\d{1,2}h\s*\d{0,2}m?`)
 	stopRegex := regexp.MustCompile(`(?i)(non-stop|\d+\s*stop)`)
-	routeRegex := regexp.MustCompile(`\b([A-Z]{3})\b[[:space:]\-\–\—]+\b([A-Z]{3})\b`)
+	routeRegex := regexp.MustCompile(`\b([A-Z]{3})\b[[:space:]\-–—]+\b([A-Z]{3})\b`)
 
 	airlines := []string{
 		"Virgin Atlantic", "British Airways", "Air France", "Delta", "KLM", "United", 
