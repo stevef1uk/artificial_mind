@@ -355,15 +355,15 @@ func MinerExtractFlights(data string, opts SearchOptions) ([]FlightInfo, error) 
 
 ### RULES:
 1. RETURN ONLY A VALID JSON ARRAY OF FLIGHT OBJECTS.
-2. FIELDS: airline, price (include currency symbol e.g. €4509), departure_time, arrival_time (24h format), origin (IATA code e.g. LIS), destination (IATA code e.g. GIG), duration.
-3. DO NOT HALLUCINATE. DO NOT CREATE "EXAMPLE" DATA. ONLY EXTRACT WHAT IS PRESENT IN THE DATA SOURCE.
+2. FIELDS: airline, price (include currency symbol e.g. €450), departure_time, arrival_time (24h format), origin (IATA code e.g. LIS), destination (IATA code e.g. GIG), duration.
+3. DO NOT HALLUCINATE. DO NOT APPROXIMATE. IF YOU SEE €232, RETURN €232. DO NOT CHANGE NUMBERS.
 4. IF THE DATA SOURCE DOES NOT MATCH %s TO %s (or its members), OR NO FLIGHTS ARE FOUND, RETURN [].
 5. IGNORE ALL BAG POLICY WARNINGS AND COMPUTER HARDWARE.
 
 JSON RESULT:`, opts.Departure, opts.Destination, opts.CabinClass, snippet, opts.Departure, opts.Destination)
 
 	model := os.Getenv("LLM_MODEL")
-	if model == "" { model = "qwen2.5-coder:7b" }
+	if model == "" { model = "qwen3:14b" }
 
 
 	log.Printf("🤖 Calling LLM Miner with model %s (snippet length: %d)...", model, len(snippet))

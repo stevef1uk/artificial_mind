@@ -41,7 +41,7 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 	timeRegex := regexp.MustCompile(`(\d{1,2}[:.]\d{2})\s*(?:AM|PM|am|pm)?`)
 	// Strict price regex: must start with symbol and have 2-4 digits. 
 	// Avoid matching single digits or long sequences that might be DURATIONS like 2h 8m 6s.
-	priceRegex := regexp.MustCompile(`(?:^|[s])([€£$])s*(d{1,3}(?:[.,]d{3})*(?:[.,]d{2})?)b`)
+	priceRegex := regexp.MustCompile(`([€£$])\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)`)
 	durationRegex := regexp.MustCompile(`\d{1,2}h\s*\d{0,2}m?`)
 	stopRegex := regexp.MustCompile(`(?i)(non-stop|\d+\s*stop)`)
 	routeRegex := regexp.MustCompile(`\b([A-Z]{3})\b\s*-\s*\b([A-Z]{3})\b`)
@@ -52,7 +52,7 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 		"Iberia", "Swiss", "Aer Lingus", "TAP", "Austrian", "SAS", "Finnair", "LOT", 
 		"Azul", "Gol", "LATAM", "Latam Airlines", "Air Europa", "Royal Air Maroc", "Condor", "Iberia Express",
 		"Brussels Airlines", "ITA Airways", "JetBlue", "Norse", "Vueling", "Ryanair", "EasyJet", "easyJet",
-		"AirFrance", "BritishAirways", "Transavia", "Wizz Air", "Eurowings", "Norwegian",
+		"AirFrance", "BritishAirways", "Transavia", "Wizz Air", "Eurowings", "Norwegian", "Air Baltic",
 	}
 
 	for i, line := range lines {
