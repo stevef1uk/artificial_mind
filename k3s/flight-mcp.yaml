@@ -87,17 +87,41 @@ spec:
             await page.waitForLoadState("networkidle", { timeout: 60000 });
             await page.bypassConsent();
             
-            // FORCE ONE-WAY in the UI if Google defaulted to Round Trip
-            await page.evaluate(async () => {
-                const dropdowns = Array.from(document.querySelectorAll("[role=button]"));
-                const tripBtn = dropdowns.find(d => d.textContent.includes("Round trip") || d.textContent.includes("Aller-retour"));
-                if (tripBtn) {
-                    tripBtn.click();
-                    await new Promise(r => setTimeout(r, 500));
-                    const oneWayOpt = Array.from(document.querySelectorAll("li")).find(li => li.textContent.includes("One way") || li.textContent.includes("Aller simple"));
-                    if (oneWayOpt) oneWayOpt.click();
+            // FORCE ONE-WAY if requested (Google often defaults to roundtrip)
+            const isOneWay = %t;
+            if (isOneWay) {
+                console.log("Forcing One-Way trip type via UI...");
+                try {
+                    // Search for the trip type button (text-based is most robust across regions)
+                    const tripBtn = await page.$("xpath=//button[contains(., 'Round trip') or contains(., 'Aller-retour') or contains(., 'ida y vuelta')]");
+                    if (tripBtn) {
+                        await tripBtn.click();
+                        await page.waitForTimeout(1000);
+                        const oneWayOpt = await page.$("xpath=//li[contains(., 'One way') or contains(., 'Aller simple') or contains(., 'Solo ida')]");
+                        if (oneWayOpt) {
+                            await oneWayOpt.click();
+                            console.log("✅ Successfully selected One Way");
+                            await page.waitForLoadState("networkidle", { timeout: 10000 });
+                            await page.waitForTimeout(2000);
+                        }
+                    } else {
+                        // Fallback to class-based combobox
+                        const dropdown = await page.$(".VfPpkd-TkwUic[role=\"combobox\"]");
+                        if (dropdown) {
+                            await dropdown.click();
+                            await page.waitForTimeout(1000);
+                            const options = await page.$$("li[role=\"option\"]");
+                            if (options.length > 1) {
+                                await options[1].click(); // 'One way' is usually the second option
+                                console.log("✅ Successfully selected One Way (via class fallback)");
+                                await page.waitForLoadState("networkidle", { timeout: 10000 });
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.log("⚠️ One-way toggle error: " + e.message);
                 }
-            });
+            }
             await page.waitForTimeout(3000);
 
             // Wait for flight items specifically (pI9Vpc is the Google flight row class)
