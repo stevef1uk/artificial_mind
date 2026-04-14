@@ -74,20 +74,28 @@ spec:
             await page.setViewportSize({ width: 1920, height: 2500 });
             await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
             
-            // 1. Initial load to clear consent and set locale
+            // 1. Initial load to clear consent
             console.log("Stage 1: Clearing consent...");
             await page.goto("%s");
-            await page.waitForLoadState("networkidle", { timeout: 30000 });
+            await page.waitForLoadState("networkidle", { timeout: 60000 });
             await page.bypassConsent();
             await page.waitForTimeout(5000);
 
-            // 2. Direct Search URL
+            // 2. Search Results
             console.log("Stage 2: Navigating to search results...");
             await page.goto("%s");
-            await page.waitForLoadState("networkidle", { timeout: 30000 });
+            await page.waitForLoadState("networkidle", { timeout: 60000 });
             await page.bypassConsent();
             
-            await page.waitForTimeout(8000);
+            // Wait for flight items specifically (pI9Vpc is the Google flight row class)
+            try {
+              await page.waitForSelector('li.pI9Vpc', { timeout: 30000 });
+              console.log("✅ Flights rendered");
+            } catch (e) {
+                console.log("⚠️ Selector timeout - Using safety wait");
+            }
+            
+            await page.waitForTimeout(15000); // Higher patience for RPI
             await page.screenshot({ path: '/app/artifacts/latest_screenshot.png', fullPage: false });
             console.log('HTML_START');
             console.log(await page.content());
