@@ -92,8 +92,8 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 				DepartureAirport: "Unknown", ArrivalAirport: "Unknown",
 			}
 
-			// Look ahead up to 12 lines to find flight details.
-			start, end := i, i+12
+			// Look ahead a tiny bit (max 4 lines) to find flight details belonging to this row.
+			start, end := i, i+4
 			if start < 0 { start = 0 }
 			if end > len(lines) { end = len(lines) }
 
@@ -111,7 +111,7 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 				}
 			}
 
-			// Priority 2: Check surrounding lines
+			// Priority 2: Check surrounding lines (very close only)
 			for j := start; j < end; j++ {
 				l := lines[j]
 				
@@ -129,8 +129,8 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 					break
 				}
 				
-				// RECOVERY: Only stop if we see a likely NEW flight starting (time match on a much later line)
-				if j > i+3 && timeRegex.MatchString(l) {
+				// RECOVERY: Stop if we see the start of a NEW flight row (another time)
+				if j > i && timeRegex.MatchString(l) {
 					break
 				}
 				
