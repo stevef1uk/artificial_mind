@@ -142,7 +142,6 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		await page.waitForSelector("div[role=listitem]", { timeout: 30000 });
 	`, rootURL, searchURL, actionScript)
 	}
-	}
 
 	screenshotPath := getScreenshotPath()
 	body, _ := json.Marshal(map[string]interface{}{
