@@ -92,31 +92,48 @@ spec:
             if (isOneWay) {
                 console.log("Forcing One-Way trip type via UI...");
                 try {
-                    // Search for the trip type button (text-based is most robust across regions)
-                    const tripBtn = await page.$("xpath=//button[contains(., 'Round trip') or contains(., 'Aller-retour') or contains(., 'ida y vuelta')]");
+                    // 1. Find the dropdown button that shows the current trip type
+                    const tripSelectors = [
+                        "xpath=//button[contains(., 'Round trip') or contains(., 'Aller-retour') or contains(., 'ida y vuelta')]",
+                        "button[aria-haspopup='listbox']",
+                        ".VfPpkd-TkwUic[role='combobox']"
+                    ];
+                    
+                    let tripBtn = null;
+                    for (const sel of tripSelectors) {
+                        tripBtn = await page.$(sel);
+                        if (tripBtn) break;
+                    }
+
                     if (tripBtn) {
                         await tripBtn.click();
                         await page.waitForTimeout(1000);
-                        const oneWayOpt = await page.$("xpath=//li[contains(., 'One way') or contains(., 'Aller simple') or contains(., 'Solo ida')]");
-                        if (oneWayOpt) {
-                            await oneWayOpt.click();
-                            console.log("✅ Successfully selected One Way");
-                            await page.waitForLoadState("networkidle", { timeout: 10000 });
-                            await page.waitForTimeout(2000);
-                        }
-                    } else {
-                        // Fallback to class-based combobox
-                        const dropdown = await page.$(".VfPpkd-TkwUic[role=\"combobox\"]");
-                        if (dropdown) {
-                            await dropdown.click();
-                            await page.waitForTimeout(1000);
-                            const options = await page.$$("li[role=\"option\"]");
-                            if (options.length > 1) {
-                                await options[1].click(); // 'One way' is usually the second option
-                                console.log("✅ Successfully selected One Way (via class fallback)");
-                                await page.waitForLoadState("networkidle", { timeout: 10000 });
+                        
+                        // 2. Select 'One way' from the list
+                        const options = await page.$$("li[role='option'], li");
+                        let found = false;
+                        for (const opt of options) {
+                            const text = await opt.innerText();
+                            if (text.includes("One way") || text.includes("Aller simple") || text.includes("Solo ida")) {
+                                await opt.click();
+                                found = true;
+                                console.log("✅ Successfully selected One Way");
+                                break;
                             }
                         }
+                        
+                        if (!found && options.length > 1) {
+                            // Fallback to second option if text match fails
+                            await options[1].click();
+                            console.log("✅ Selected second option as 'One Way' fallback");
+                        }
+                        
+                        if (found || options.length > 1) {
+                            await page.waitForLoadState("networkidle", { timeout: 10000 });
+                            await page.waitForTimeout(3000); // Critical: let results refresh
+                        }
+                    } else {
+                        console.log("⚠️ Could not find trip type dropdown button.");
                     }
                 } catch (e) {
                     console.log("⚠️ One-way toggle error: " + e.message);
