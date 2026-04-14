@@ -71,42 +71,45 @@ spec:
           value: "/app/artifacts"
         - name: FLIGHT_SCRAPER_SCRIPT
           value: |
-            await page.setViewportSize({ width: 1920, height: 2500 });
+            await page.setViewportSize({ width: 1280, height: 1600 });
             await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
             
-            // 1. Initial load to clear consent and set locale
-            console.log("Stage 1: Clearing consent...");
-            await page.goto("%s");
-            await page.waitForLoadState("networkidle", { timeout: 30000 }); // More patience for Pi
-            await page.bypassConsent();
-            await page.waitForTimeout(5000); // 5s wait after consent
-
-            // 2. Direct Search URL (Most stable for K3s)
-            console.log("Stage 2: Navigating to search results...");
-            await page.goto("%s");
-            await page.waitForLoadState("networkidle", { timeout: 30000 });
-            await page.bypassConsent(); // Handle secondary consent wall
+            console.log("Stage 1: Navigating to search URL...");
+            await page.goto("%s", { waitUntil: 'networkidle', timeout: 60000 });
             
-            // 3. High-Patience Result Detection
-            console.log("Stage 3: Waiting for result elements...");
+            // Handle Google Consent Dialog
             try {
-                // Wait for any indicator of results: listitems, tabs, or specific text
-                await page.waitForSelector("div[role=listitem], .pI9Vpc, [jsname=I897t], [aria-label^=Flight], .nS495e", { timeout: 60000 });
-                console.log("✅ Results detected!");
-            } catch (e) {
-                console.log("⚠️ Results timeout - taking safety screenshot anyway.");
-            }
+              const buttons = await page.$$('button');
+              for (const button of buttons) {
+                const text = await button.innerText();
+                if (text.includes('Accept') || text.includes('Agree')) {
+                  await button.click();
+                  console.log('Dismissed consent dialog');
+                  await page.waitForTimeout(2000);
+                  break;
+                }
+              }
+            } catch (e) {}
 
-            // 4. Scroll & Expand (Force lazy loading of all results)
-            console.log("Stage 4: Scrolling to force lazy-load...");
-            await page.mouse.wheel(0, 1500);
-            await page.waitForTimeout(3000);
-            await page.mouse.wheel(0, -1500);
-            await page.waitForTimeout(2000);
-            await page.keyboard.press("Escape"); // Crush any overlays
-            await page.waitForTimeout(2000);
+            // Navigate to the final results URL (if different)
+            await page.goto("%s", { waitUntil: 'networkidle', timeout: 60000 });
             
-            await page.waitForTimeout(5000); // Small buffer for final render
+            // Scroll to trigger lazy-load
+            await page.evaluate(() => window.scrollBy(0, 400));
+            await page.waitForTimeout(10000); // 10s wait for Pi rendering
+            
+            // Wait for flight items to appear
+            try {
+              await page.waitForSelector('li.pI9Vpc', { timeout: 15000 });
+              console.log('✅ Results visible');
+            } catch (e) {
+              console.log('⚠️ Result selector timeout - Proceeding with safety screenshot');
+            }
+            
+            await page.screenshot({ path: '/app/artifacts/latest_screenshot.png', fullPage: false });
+            console.log('HTML_START');
+            console.log(await page.content());
+            console.log('HTML_END');
         
         volumeMounts:
         - name: dshm
