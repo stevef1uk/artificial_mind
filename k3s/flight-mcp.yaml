@@ -71,7 +71,7 @@ spec:
           value: "/app/artifacts"
         - name: FLIGHT_SCRAPER_SCRIPT
           value: |
-            await page.setViewportSize({ width: 1920, height: 2500 });
+            await page.setViewportSize({ width: 2560, height: 1600 });
             await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
             
             // 1. Initial load to clear consent

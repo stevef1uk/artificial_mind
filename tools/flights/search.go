@@ -108,7 +108,7 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	} else {
 		log.Printf("📜 Using default built-in scrape script...")
 		tsConfig = fmt.Sprintf(`
-		await page.setViewportSize({ width: 1920, height: 2500 });
+		await page.setViewportSize({ width: 2560, height: 1600 });
 		await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
 		
 		// 1. Initial load to clear consent and set locale
@@ -338,17 +338,17 @@ func MinerExtractFlights(data string, opts SearchOptions) ([]FlightInfo, error) 
 	cleaned = reNoisy.ReplaceAllString(cleaned, "")
 
 	snippet := cleaned
-	if len(cleaned) > 25000 {
+	if len(cleaned) > 12000 {
 		pos := strings.Index(cleaned, "Top departing options")
 		if pos == -1 { pos = strings.Index(cleaned, "Best departing flights") }
 		if pos != -1 {
 			start := pos - 500
 			if start < 0 { start = 0 }
-			end := start + 25000
+			end := start + 12000
 			if end > len(cleaned) { end = len(cleaned) }
 			snippet = cleaned[start:end]
 		} else {
-			snippet = cleaned[:25000]
+			snippet = cleaned[:12000]
 		}
 	}
 	prompt := fmt.Sprintf(`### TASK: EXTRACT FLIGHT RESULTS TO JSON
