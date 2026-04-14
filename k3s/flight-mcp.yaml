@@ -87,6 +87,19 @@ spec:
             await page.waitForLoadState("networkidle", { timeout: 60000 });
             await page.bypassConsent();
             
+            // FORCE ONE-WAY in the UI if Google defaulted to Round Trip
+            await page.evaluate(async () => {
+                const dropdowns = Array.from(document.querySelectorAll("[role=button]"));
+                const tripBtn = dropdowns.find(d => d.textContent.includes("Round trip") || d.textContent.includes("Aller-retour"));
+                if (tripBtn) {
+                    tripBtn.click();
+                    await new Promise(r => setTimeout(r, 500));
+                    const oneWayOpt = Array.from(document.querySelectorAll("li")).find(li => li.textContent.includes("One way") || li.textContent.includes("Aller simple"));
+                    if (oneWayOpt) oneWayOpt.click();
+                }
+            });
+            await page.waitForTimeout(3000);
+
             // Wait for flight items specifically (pI9Vpc is the Google flight row class)
             try {
               await page.waitForSelector('li.pI9Vpc', { timeout: 30000 });
