@@ -103,9 +103,10 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	if isOneWaySearch {
 		actionScript = `
 		// FORCE ONE-WAY trip type (Google often defaults to roundtrip)
-		await page.locator("xpath=//button[contains(., 'Round trip') or contains(., 'Aller-retour') or contains(., 'ida y vuelta')]").first().click();
+		// Using indexed XPath to avoid strict mode violations in standard page.click()
+		await page.click("xpath=(//button[contains(., 'Round trip') or contains(., 'Aller-retour') or contains(., 'ida y vuelta')])[1]");
 		await page.waitForTimeout(1000);
-		await page.locator("xpath=//li[contains(., 'One way') or contains(., 'Aller simple') or contains(., 'Solo ida')]").first().click();
+		await page.click("xpath=(//li[contains(., 'One way') or contains(., 'Aller simple') or contains(., 'Solo ida')])[1]");
 		await page.waitForLoadState("networkidle");
 		await page.waitForTimeout(2000);
 		`

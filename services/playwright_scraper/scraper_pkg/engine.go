@@ -444,6 +444,18 @@ func ExecuteEngine(page pw.Page, operations []PlaywrightOperation, logger Logger
 			}
 			time.Sleep(300 * time.Millisecond)
 
+		case "locatorFirst":
+			if err := page.Locator(op.Selector).First().Click(); err != nil {
+				logger.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(300 * time.Millisecond)
+
+		case "locatorFirstFill":
+			if err := page.Locator(op.Selector).First().Fill(op.Value); err != nil {
+				logger.Printf("   ⚠️ Failed: %v", err)
+			}
+			time.Sleep(300 * time.Millisecond)
+
 		case "locatorFill":
 			if err := page.Locator(op.Selector).Fill(op.Value); err != nil {
 				logger.Printf("   ⚠️ Failed: %v", err)
