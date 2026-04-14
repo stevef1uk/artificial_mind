@@ -82,15 +82,15 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	log.Printf("🛂 Cabin selection: '%s' -> Query suffix: '%s', Param: '%s'", opts.CabinClass, cabinQuery, cabinParam)
 
 	queryText := fmt.Sprintf("flights from %s to %s on %s%s", opts.Departure, opts.Destination, opts.StartDate, cabinQuery)
-	oneWayParams := "&tt=oneway&it=oneway"
+	tripParams := "&tt=oneway&it=oneway"
 	
 	if opts.EndDate != "" && opts.EndDate != opts.StartDate {
 		queryText = fmt.Sprintf("flights from %s to %s on %s return %s%s", opts.Departure, opts.Destination, opts.StartDate, opts.EndDate, cabinQuery)
-		oneWayParams = "" // It's a real round trip
+		tripParams = "&tt=roundtrip"
 	}
 	
 	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=%s&hl=%s&gl=%s&curr=%s%s%s", 
-		strings.ReplaceAll(queryText, " ", "+"), opts.Language, opts.Region, opts.Currency, cabinParam, oneWayParams)
+		strings.ReplaceAll(queryText, " ", "+"), opts.Language, opts.Region, opts.Currency, cabinParam, tripParams)
 	rootURL := fmt.Sprintf("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s", opts.Language, opts.Region, opts.Currency)
 
 	// 2. Build the navigation script (PREFER environment variable from YAML for rapid iteration)
