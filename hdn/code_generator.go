@@ -740,6 +740,7 @@ Code:`
 					toolInstructions += "\n🚨 CRITICAL: Always use the HDN_URL environment variable with the provided default URL!\n"
 					toolInstructions += "- Call tool via POST request: `requests.post(f'{hdn_url}/api/v1/tools/{tool_id}/invoke', json={params})`\n"
 					toolInstructions += "- Example for tool_http_get: `requests.post(f'{hdn_url}/api/v1/tools/tool_http_get/invoke', json={'url': 'https://example.com'})`\n"
+					toolInstructions += "- 🚨 IMPORTANT: Most tools return a DICTIONARY with specific keys (like 'result' or 'output'). Do NOT assume they return a list unless the schema explicitly says 'array'!\n"
 					toolInstructions += "- 🚨 MUST DO: You MUST explicitly include `import requests`, `import json`, and `import os` at the top of your code!\n"
 					toolInstructions += "- PREFER using available tools over writing custom code when a tool can accomplish the task!\n"
 					toolInstructions += "🚨 CRITICAL: For ANY task involving extracting news, headlines, or content from a webpage, YOU MUST USE `mcp_smart_scrape` with a clear goal. It is the ONLY tool that handles cookie consent walls and dynamic content properly!\n"

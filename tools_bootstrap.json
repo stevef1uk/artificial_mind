@@ -276,9 +276,9 @@
   {
     "id": "mcp_research_agent",
     "name": "research_agent",
-    "description": "USE THIS for complex, multi-step research or deep analysis tasks that require browsing multiple sources. NOT for simple facts. Input 'query' should be a detailed research goal. 'depth' ranges from 1 (fast/broad) to 3 (comprehensive/deep). Pass 'max_tokens' if you only need a concise overview (e.g., for speech).",
+    "description": "Perform comprehensive multi-step research using the external n8n research agent. Returns a SINGLE JSON object containing a 'result' string with the full report. IMPORTANT: This tool returns an object, NOT a list of items.",
     "input_schema": {
-      "query": "string",
+      "topic": "string",
       "depth": "int",
       "max_tokens": "int"
     },

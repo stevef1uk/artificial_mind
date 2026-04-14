@@ -154,7 +154,11 @@ await page.evaluate(r => { window.__searchResults = r; }, items);
 					domainPart = strings.SplitN(domainPart, "›", 2)[0]
 					domainPart = strings.TrimSpace(domainPart)
 					if domainPart != "" && !strings.Contains(domainPart, " ") {
-						fullURL = "https://" + domainPart
+						if strings.HasPrefix(domainPart, "http://") || strings.HasPrefix(domainPart, "https://") {
+							fullURL = domainPart
+						} else {
+							fullURL = "https://" + domainPart
+						}
 					}
 				}
 				if title != "" && fullURL != "" {

@@ -96,11 +96,15 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	// 2. Build the navigation script (PREFER environment variable from YAML for rapid iteration)
 	envScript := os.Getenv("FLIGHT_SCRAPER_SCRIPT")
 	var tsConfig string
+	isOneWaySearch := opts.EndDate == "" || opts.EndDate == opts.StartDate
 
 	if envScript != "" {
 		log.Printf("📜 Using custom scrape script from environment variable...")
-		// Use fmt.Sprintf if the script contains %s placeholders for URLs
-		if strings.Contains(envScript, "%s") {
+		// Use fmt.Sprintf if the script contains %s or %t placeholders
+		placeholderCount := strings.Count(envScript, "%s") + strings.Count(envScript, "%t")
+		if placeholderCount == 3 {
+			tsConfig = fmt.Sprintf(envScript, rootURL, searchURL, isOneWaySearch)
+		} else if placeholderCount == 2 {
 			tsConfig = fmt.Sprintf(envScript, rootURL, searchURL)
 		} else {
 			tsConfig = envScript
@@ -162,7 +166,7 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 			window.scrollTo(0, 0);
 		});
 		await page.waitForTimeout(2000);
-	`, rootURL, searchURL, isOneWay)
+	`, rootURL, searchURL, isOneWaySearch)
 	}
 
 	screenshotPath := getScreenshotPath()

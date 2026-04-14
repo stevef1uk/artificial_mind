@@ -704,7 +704,7 @@ func (s *APIServer) BootstrapSeedTools(ctx context.Context) {
 		{
 			ID:          "mcp_research_agent",
 			Name:        "research_agent",
-			Description: "[chat-only] Perform research using the external MCP research server. This tool is restricted to chat access only and will be skipped by the planner.",
+			Description: "Perform comprehensive multi-step research using the external n8n research agent. Returns a SINGLE JSON object containing a 'result' string with the full report. IMPORTANT: This tool returns an object, NOT a list of items.",
 			InputSchema: map[string]string{
 				"topic": "string",
 				"depth": "int",
