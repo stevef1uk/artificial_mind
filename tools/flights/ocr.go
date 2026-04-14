@@ -51,8 +51,8 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 		"American", "Icelandair", "Lufthansa", "Turkish Airlines", "Emirates", "Qatar",
 		"Iberia", "Swiss", "Aer Lingus", "TAP", "Austrian", "SAS", "Finnair", "LOT", 
 		"Azul", "Gol", "LATAM", "Latam Airlines", "Air Europa", "Royal Air Maroc", "Condor", "Iberia Express",
-		"Brussels Airlines", "ITA Airways", "JetBlue", "Norse", "Vueling", "Ryanair", "EasyJet", "easyJet", "easydet",
-		"AirFrance", "BritishAirways", "Transavia", "Wizz Air", "Eurowings", "Norwegian", "Air Baltic", "Swiss Railways",
+		"Brussels Airlines", "ITA Airways", "JetBlue", "Norse", "Vueling", "Ryanair", "EasyJet", "easyJet", "easydet", "BA Euroflyer",
+		"AirFrance", "BritishAirways", "Transavia", "Wizz Air", "Eurowings", "Norwegian", "Air Baltic",
 	}
 
 	for i, line := range lines {
