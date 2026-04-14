@@ -102,23 +102,18 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	actionScript := ""
 	if isOneWaySearch {
 		actionScript = `
-		// FORCE ONE-WAY via Browser-Side DOM Logic (Most robust against selector timeouts)
+		// Toggle trip type to One Way
 		await page.evaluate(async () => {
 			const btns = Array.from(document.querySelectorAll('button'));
 			const tripBtn = btns.find(b => b.textContent.includes('Round trip') || b.textContent.includes('Aller-retour') || b.textContent.includes('ida y vuelta'));
 			if (tripBtn) {
 				tripBtn.click();
-				// Short internal wait for dropdown to render
 				await new Promise(r => setTimeout(r, 1000));
 				const items = Array.from(document.querySelectorAll('li[role="option"], li'));
 				const oneWay = items.find(i => i.textContent.includes('One way') || i.textContent.includes('Aller simple') || i.textContent.includes('Solo ida'));
-				if (oneWay) {
-					oneWay.click();
-					console.log("✅ Successfully toggled to One Way in-browser");
-				}
+				if (oneWay) oneWay.click();
 			}
 		});
-		await page.waitForLoadState("networkidle");
 		await page.waitForTimeout(2000);
 		`
 	}
