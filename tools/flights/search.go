@@ -135,6 +135,19 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		// 3. Scroll and Expand to ensure all results load
 		console.log("Stage 3: Deep scrolling and expanding results...");
 		await page.evaluate(async () => {
+			// ONLY FORCE ONE-WAY if the tool specifically requested it
+			if (%t) {
+				const dropdowns = Array.from(document.querySelectorAll("[role=button]"));
+				const tripBtn = dropdowns.find(d => d.textContent.includes("Round trip") || d.textContent.includes("Aller-retour"));
+				if (tripBtn) {
+					tripBtn.click();
+					await new Promise(r => setTimeout(r, 500));
+					const oneWayOpt = Array.from(document.querySelectorAll("li")).find(li => li.textContent.includes("One way") || li.textContent.includes("Aller simple"));
+					if (oneWayOpt) oneWayOpt.click();
+					await new Promise(r => setTimeout(r, 2000));
+				}
+			}
+
 			for (let i = 0; i < 5; i++) {
 				window.scrollBy(0, 1000);
 				await new Promise(r => setTimeout(r, 800));
@@ -149,7 +162,7 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 			window.scrollTo(0, 0);
 		});
 		await page.waitForTimeout(2000);
-	`, rootURL, searchURL)
+	`, rootURL, searchURL, isOneWay)
 	}
 
 	screenshotPath := getScreenshotPath()
