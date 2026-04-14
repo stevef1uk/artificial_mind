@@ -128,6 +128,42 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		await page.waitForLoadState("networkidle", { timeout: 15000 });
 		await page.bypassConsent(); // Redundant check in case search triggers it
 		
+		// FORCE ONE-WAY if the tool specifically requested it (Google often defaults to roundtrip)
+		if (%t) {
+			console.log("Forcing One-Way trip type via UI...");
+			try {
+				// Click the trip type dropdown using text match (most reliable across versions)
+				const tripBtn = await page.$("xpath=//button[contains(., 'Round trip') or contains(., 'Aller-retour') or contains(., 'ida y vuelta')]");
+				if (tripBtn) {
+					await tripBtn.click();
+					await page.waitForTimeout(1000);
+					// Click 'One way' in the list
+					const oneWayOpt = await page.$("xpath=//li[contains(., 'One way') or contains(., 'Aller simple') or contains(., 'Solo ida')]");
+					if (oneWayOpt) {
+						await oneWayOpt.click();
+						console.log("✅ Successfully selected One Way");
+						await page.waitForLoadState("networkidle", { timeout: 10000 });
+						await page.waitForTimeout(2000); // Give it extra time to refresh results
+					}
+				} else {
+					// Fallback to the combobox class
+					const dropdown = await page.$(".VfPpkd-TkwUic[role=\"combobox\"]");
+					if (dropdown) {
+						await dropdown.click();
+						await page.waitForTimeout(1000);
+						const oneWayOpt = await page.$("li[role=\"option\"]:nth-child(2)");
+						if (oneWayOpt) {
+							await oneWayOpt.click();
+							console.log("✅ Successfully selected One Way (via class fallback)");
+							await page.waitForLoadState("networkidle", { timeout: 10000 });
+						}
+					}
+				}
+			} catch (e) {
+				console.log("⚠️ One-way toggle error: " + e.message);
+			}
+		}
+
 		// Final check for results - USE SIMPLE CSS (No quotes for regex safety)
 		console.log("Waiting for results table...");
 		try {
@@ -139,18 +175,6 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		// 3. Scroll and Expand to ensure all results load
 		console.log("Stage 3: Deep scrolling and expanding results...");
 		await page.evaluate(async () => {
-			// ONLY FORCE ONE-WAY if the tool specifically requested it
-			if (%t) {
-				const dropdowns = Array.from(document.querySelectorAll("[role=button]"));
-				const tripBtn = dropdowns.find(d => d.textContent.includes("Round trip") || d.textContent.includes("Aller-retour"));
-				if (tripBtn) {
-					tripBtn.click();
-					await new Promise(r => setTimeout(r, 500));
-					const oneWayOpt = Array.from(document.querySelectorAll("li")).find(li => li.textContent.includes("One way") || li.textContent.includes("Aller simple"));
-					if (oneWayOpt) oneWayOpt.click();
-					await new Promise(r => setTimeout(r, 2000));
-				}
-			}
 
 			for (let i = 0; i < 5; i++) {
 				window.scrollBy(0, 1000);
