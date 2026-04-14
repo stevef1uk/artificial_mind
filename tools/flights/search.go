@@ -98,12 +98,25 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	var tsConfig string
 	isOneWaySearch := opts.EndDate == "" || opts.EndDate == opts.StartDate
 
+	// Construct the dynamic action script based on goal
+	actionScript := ""
+	if isOneWaySearch {
+		actionScript = `
+		// FORCE ONE-WAY trip type (Google often defaults to roundtrip)
+		await page.click("xpath=//button[contains(., 'Round trip') or contains(., 'Aller-retour') or contains(., 'ida y vuelta')]");
+		await page.waitForTimeout(1000);
+		await page.click("xpath=//li[contains(., 'One way') or contains(., 'Aller simple') or contains(., 'Solo ida')]");
+		await page.waitForLoadState("networkidle");
+		await page.waitForTimeout(2000);
+		`
+	}
+
 	if envScript != "" {
 		log.Printf("📜 Using custom scrape script from environment variable...")
-		// Use fmt.Sprintf if the script contains %s or %t placeholders
-		placeholderCount := strings.Count(envScript, "%s") + strings.Count(envScript, "%t")
+		// The new template style expects: 1. rootURL, 2. searchURL, 3. actionScript
+		placeholderCount := strings.Count(envScript, "%s")
 		if placeholderCount == 3 {
-			tsConfig = fmt.Sprintf(envScript, rootURL, searchURL, isOneWaySearch)
+			tsConfig = fmt.Sprintf(envScript, rootURL, searchURL, actionScript)
 		} else if placeholderCount == 2 {
 			tsConfig = fmt.Sprintf(envScript, rootURL, searchURL)
 		} else {
@@ -115,82 +128,20 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		await page.setViewportSize({ width: 2560, height: 1600 });
 		await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
 		
-		// 1. Initial load to clear consent and set locale
-		console.log("Stage 1: Clearing consent on Travel Flights...");
 		await page.goto("%s");
-		try { await page.waitForLoadState("networkidle", { timeout: 10000 }); } catch(e) {}
+		await page.waitForLoadState("networkidle");
 		await page.bypassConsent();
 		await page.waitForTimeout(2000); 
 
-		// 2. Perform the search - use the MOST stable entry point
-		console.log("Stage 2: Performing search via direct URL...");
 		await page.goto("%s&sort=price_asc");
-		await page.waitForLoadState("networkidle", { timeout: 15000 });
-		await page.bypassConsent(); // Redundant check in case search triggers it
+		await page.waitForLoadState("networkidle");
+		await page.bypassConsent();
 		
-		// FORCE ONE-WAY if the tool specifically requested it (Google often defaults to roundtrip)
-		if (%t) {
-			console.log("Forcing One-Way trip type via UI...");
-			try {
-				// Click the trip type dropdown using text match (most reliable across versions)
-				const tripBtn = await page.$("xpath=//button[contains(., 'Round trip') or contains(., 'Aller-retour') or contains(., 'ida y vuelta')]");
-				if (tripBtn) {
-					await tripBtn.click();
-					await page.waitForTimeout(1000);
-					// Click 'One way' in the list
-					const oneWayOpt = await page.$("xpath=//li[contains(., 'One way') or contains(., 'Aller simple') or contains(., 'Solo ida')]");
-					if (oneWayOpt) {
-						await oneWayOpt.click();
-						console.log("✅ Successfully selected One Way");
-						await page.waitForLoadState("networkidle", { timeout: 10000 });
-						await page.waitForTimeout(2000); // Give it extra time to refresh results
-					}
-				} else {
-					// Fallback to the combobox class
-					const dropdown = await page.$(".VfPpkd-TkwUic[role=\"combobox\"]");
-					if (dropdown) {
-						await dropdown.click();
-						await page.waitForTimeout(1000);
-						const oneWayOpt = await page.$("li[role=\"option\"]:nth-child(2)");
-						if (oneWayOpt) {
-							await oneWayOpt.click();
-							console.log("✅ Successfully selected One Way (via class fallback)");
-							await page.waitForLoadState("networkidle", { timeout: 10000 });
-						}
-					}
-				}
-			} catch (e) {
-				console.log("⚠️ One-way toggle error: " + e.message);
-			}
-		}
+		%s
 
-		// Final check for results - USE SIMPLE CSS (No quotes for regex safety)
-		console.log("Waiting for results table...");
-		try {
-			await page.waitForSelector("div[role=listitem], .pI9Vpc, .nS495e", { timeout: 30000 });
-		} catch (e) {
-			console.log("Results selector timeout - taking screenshot anyway");
-		}
-		
-		// 3. Scroll and Expand to ensure all results load
-		console.log("Stage 3: Deep scrolling and expanding results...");
-		await page.evaluate(async () => {
-
-			for (let i = 0; i < 5; i++) {
-				window.scrollBy(0, 1000);
-				await new Promise(r => setTimeout(r, 800));
-			}
-			// Attempt to click expansion buttons for 'Other flights'
-			const buttons = Array.from(document.querySelectorAll("button"));
-			const moreBtn = buttons.find(b => b.textContent.includes("More flights") || b.textContent.includes("Other departing flights") || b.ariaLabel?.includes("Show more"));
-			if (moreBtn) moreBtn.click();
-			
-			window.scrollBy(0, 2000);
-			await new Promise(r => setTimeout(r, 1000));
-			window.scrollTo(0, 0);
-		});
-		await page.waitForTimeout(2000);
-	`, rootURL, searchURL, isOneWaySearch)
+		await page.waitForSelector("div[role=listitem]", { timeout: 30000 });
+	`, rootURL, searchURL, actionScript)
+	}
 	}
 
 	screenshotPath := getScreenshotPath()
@@ -591,9 +542,22 @@ JSON RESULT:`, opts.Departure, opts.Destination, opts.CabinClass, snippet, opts.
 }
 
 func parsePrice(priceStr string) float64 {
-	priceStr = strings.ReplaceAll(priceStr, ",", "")
+	// 1. Remove thousands separators. 
+    // In many regions, comma is a decimal, but on Google Flights with hl=en, 
+    // comma is usually a thousands separator.
+    // However, if we see something like "1.379", it might be thousands.
+    // Let's be smart: if there's a comma followed by 3 digits at the end, it's thousands.
+    
+    // Simple heuristic: remove commas always, but if there's a dot, keep it as the primary decimal
+	clean := strings.ReplaceAll(priceStr, ",", "")
+    if !strings.Contains(clean, ".") && strings.Contains(priceStr, ",") {
+        // If there's no dot but there was a comma, maybe the comma WAS the decimal?
+        // e.g. "137,00" -> "137.00"
+        clean = strings.ReplaceAll(priceStr, ",", ".")
+    }
+
 	re := regexp.MustCompile(`[\d.]+`)
-	match := re.FindString(priceStr)
+	match := re.FindString(clean)
 	if match == "" {
 		return 999999
 	}

@@ -31,10 +31,6 @@ spec:
       labels:
         app: flight-mcp
     spec:
-      # Optional: Pin to rpi58 node if desired
-      # nodeSelector:
-      #   kubernetes.io/hostname: rpi58
-
       containers:
       - name: mcp-server
         image: stevef1uk/flight-mcp:secure
@@ -74,86 +70,26 @@ spec:
             await page.setViewportSize({ width: 2560, height: 1600 });
             await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
             
-            // 1. Initial load to clear consent
-            console.log("Stage 1: Clearing consent...");
+            // 1. Initial load for consent
             await page.goto("%s");
-            await page.waitForLoadState("networkidle", { timeout: 60000 });
+            await page.waitForLoadState("networkidle");
             await page.bypassConsent();
-            await page.waitForTimeout(5000);
+            await page.waitForTimeout(2000); 
 
-            // 2. Search Results
-            console.log("Stage 2: Navigating to search results...");
-            await page.goto("%s");
-            await page.waitForLoadState("networkidle", { timeout: 60000 });
+            // 2. Search URL
+            await page.goto("%s&sort=price_asc");
+            await page.waitForLoadState("networkidle");
             await page.bypassConsent();
             
-            // FORCE ONE-WAY if requested (Google often defaults to roundtrip)
-            const isOneWay = %t;
-            if (isOneWay) {
-                console.log("Forcing One-Way trip type via UI...");
-                try {
-                    // 1. Find the dropdown button that shows the current trip type
-                    const tripSelectors = [
-                        "xpath=//button[contains(., 'Round trip') or contains(., 'Aller-retour') or contains(., 'ida y vuelta')]",
-                        "button[aria-haspopup='listbox']",
-                        ".VfPpkd-TkwUic[role='combobox']"
-                    ];
-                    
-                    let tripBtn = null;
-                    for (const sel of tripSelectors) {
-                        tripBtn = await page.$(sel);
-                        if (tripBtn) break;
-                    }
+            // Linear Action Block (Injected by Go)
+            %s
 
-                    if (tripBtn) {
-                        await tripBtn.click();
-                        await page.waitForTimeout(1000);
-                        
-                        // 2. Select 'One way' from the list
-                        const options = await page.$$("li[role='option'], li");
-                        let found = false;
-                        for (const opt of options) {
-                            const text = await opt.innerText();
-                            if (text.includes("One way") || text.includes("Aller simple") || text.includes("Solo ida")) {
-                                await opt.click();
-                                found = true;
-                                console.log("✅ Successfully selected One Way");
-                                break;
-                            }
-                        }
-                        
-                        if (!found && options.length > 1) {
-                            // Fallback to second option if text match fails
-                            await options[1].click();
-                            console.log("✅ Selected second option as 'One Way' fallback");
-                        }
-                        
-                        if (found || options.length > 1) {
-                            await page.waitForLoadState("networkidle", { timeout: 10000 });
-                            await page.waitForTimeout(3000); // Critical: let results refresh
-                        }
-                    } else {
-                        console.log("⚠️ Could not find trip type dropdown button.");
-                    }
-                } catch (e) {
-                    console.log("⚠️ One-way toggle error: " + e.message);
-                }
-            }
-            await page.waitForTimeout(3000);
-
-            // Wait for flight items specifically (pI9Vpc is the Google flight row class)
-            try {
-              await page.waitForSelector('li.pI9Vpc', { timeout: 30000 });
-              console.log("✅ Flights rendered");
-            } catch (e) {
-                console.log("⚠️ Selector timeout - Using safety wait");
-            }
-            
-            await page.waitForTimeout(15000); // Higher patience for RPI
+            // 3. Extraction readiness
+            await page.waitForSelector("div[role=listitem]", { timeout: 30000 });
+            await page.evaluate(() => { window.scrollBy(0, 1000); });
+            await page.waitForTimeout(2000);
             await page.screenshot({ path: '/app/artifacts/latest_screenshot.png', fullPage: false });
-            console.log('HTML_START');
             console.log(await page.content());
-            console.log('HTML_END');
         
         volumeMounts:
         - name: dshm
@@ -162,8 +98,6 @@ spec:
           mountPath: /app/artifacts
 
         livenessProbe:
-          # Note: mcp-go doesn't have a built-in health check endpoint yet, 
-          # so we'll just check if the port is open
           tcpSocket:
             port: 8080
           initialDelaySeconds: 15
