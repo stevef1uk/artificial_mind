@@ -356,9 +356,10 @@ func MinerExtractFlights(data string, opts SearchOptions) ([]FlightInfo, error) 
 ### RULES:
 1. RETURN ONLY A VALID JSON ARRAY OF FLIGHT OBJECTS.
 2. FIELDS: airline, price (include currency symbol e.g. €450), departure_time, arrival_time (24h format), origin (IATA code e.g. LIS), destination (IATA code e.g. GIG), duration.
-3. DO NOT HALLUCINATE. DO NOT APPROXIMATE. IF YOU SEE €232, RETURN €232. DO NOT CHANGE NUMBERS.
+3. DO NOT HALLUCINATE. DO NOT MIX DATA. ONLY pair a price with the departure time on the SAME ROW.
 4. IF THE DATA SOURCE DOES NOT MATCH %s TO %s (or its members), OR NO FLIGHTS ARE FOUND, RETURN [].
-5. IGNORE ALL BAG POLICY WARNINGS AND COMPUTER HARDWARE.
+5. IGNORE ALL BAG POLICY WARNINGS.
+6. EXCLUDE ALL TRAINS/RAILWAYS: DO NOT return results operated by "Swiss Railways", "SBB", or containing "Train".
 
 JSON RESULT:`, opts.Departure, opts.Destination, opts.CabinClass, snippet, opts.Departure, opts.Destination)
 
