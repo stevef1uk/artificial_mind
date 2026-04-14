@@ -23,7 +23,7 @@ func ExtractFlightsFromImage(imagePath string, maxPrice float64, opts SearchOpti
     flights := ParseFlightText(text, maxPrice)
     
     if len(flights) == 0 && len(text) > 100 {
-        log.Printf("⚠️ Regular OCR parse failed. Using Miner on OCR text... Sample: %s", text[:500])
+        log.Println("⚠️ Regular OCR parse failed. Using Miner on OCR text...")
         results, err := MinerExtractFromText(text, opts)
         return results, text, err
     }
@@ -54,9 +54,6 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 		"Brussels Airlines", "ITA Airways", "JetBlue", "Norse", "Vueling", "Ryanair", "EasyJet", "easyJet", "easydet",
 		"AirFrance", "BritishAirways", "Transavia", "Wizz Air", "Eurowings", "Norwegian", "Air Baltic", "Swiss Railways",
 	}
-
-	// Loose price fallback (just digits if no symbol found, 2-4 digits)
-	loosePriceRegex := regexp.MustCompile(`\b(\d{2,4})\b`)
 
 	for i, line := range lines {
 		matches := timeRegex.FindAllStringSubmatch(line, -1)
@@ -113,11 +110,6 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 				if p := parsePrice(val); p > 10 && (maxPrice <= 0 || p < maxPrice) {
 					flight.Price = normalizePrice(symbol, val)
 				}
-			} else if lm := loosePriceRegex.FindStringSubmatch(line); len(lm) > 0 && !durationRegex.MatchString(line) {
-				val := lm[1]
-				if p := parsePrice(val); p > 10 && p < 5000 {
-					flight.Price = normalizePrice("", val)
-				}
 			}
 
 			// Priority 2: Check surrounding lines
@@ -133,11 +125,6 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 					symbol, val := pm[1], strings.ReplaceAll(pm[2], ",", "")
 					if p := parsePrice(val); p > 10 && (maxPrice <= 0 || p < maxPrice) {
 						flight.Price = normalizePrice(symbol, val)
-					}
-				} else if lm := loosePriceRegex.FindStringSubmatch(l); len(lm) > 0 && flight.Price == "Unknown" && !durationRegex.MatchString(l) {
-					val := lm[1]
-					if p := parsePrice(val); p > 15 && p < 5000 { // Stricter threshold for loose matches
-						flight.Price = normalizePrice("", val)
 					}
 				}
 				if dm := durationRegex.FindStringSubmatch(l); len(dm) > 0 && flight.Duration == "Unknown" {
