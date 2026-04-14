@@ -71,65 +71,23 @@ spec:
           value: "/app/artifacts"
         - name: FLIGHT_SCRAPER_SCRIPT
           value: |
-            await page.setViewportSize({ width: 1280, height: 1600 });
+            await page.setViewportSize({ width: 1920, height: 2500 });
             await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
             
-            const dismissConsent = async (frameOrPage) => {
-              const selectors = [
-                'button:has-text("Accept all")', 
-                'button:has-text("I agree")',
-                'button:has-text("Agree")',
-                'button:has-text("Tout accepter")',
-                'button#L2AGLb',
-                'div[role="none"] button'
-              ];
-              for (const selector of selectors) {
-                try {
-                  const btns = await frameOrPage.$$(selector);
-                  for (const btn of btns) {
-                    const text = await btn.innerText();
-                    if (text.includes('Accept') || text.includes('Agree') || text.includes('accepter') || text.includes('Ok')) {
-                      await btn.click();
-                      console.log(`✅ Dismissed consent via ${selector} (${text})`);
-                      await page.waitForTimeout(2000);
-                      return true;
-                    }
-                  }
-                } catch (e) {}
-              }
-              return false;
-            };
+            // 1. Initial load to clear consent and set locale
+            console.log("Stage 1: Clearing consent...");
+            await page.goto("%s");
+            await page.waitForLoadState("networkidle", { timeout: 30000 });
+            await page.bypassConsent();
+            await page.waitForTimeout(5000);
 
-            const fullDismiss = async () => {
-              await dismissConsent(page);
-              for (const frame of page.frames()) {
-                await dismissConsent(frame);
-              }
-            };
-
-            console.log("Stage 1: Landing...");
-            await page.goto("%s", { waitUntil: 'networkidle', timeout: 60000 });
-            await fullDismiss();
-
-            console.log("Stage 2: Search URL...");
-            await page.goto("%s", { waitUntil: 'networkidle', timeout: 60000 });
-            await fullDismiss();
+            // 2. Direct Search URL
+            console.log("Stage 2: Navigating to search results...");
+            await page.goto("%s");
+            await page.waitForLoadState("networkidle", { timeout: 30000 });
+            await page.bypassConsent();
             
-            // Scroll to trigger lazy-load
-            await page.evaluate(() => window.scrollBy(0, 400));
-            await page.waitForTimeout(10000); // 10s wait for Pi rendering
-            
-            // Final check for Modal
-            await fullDismiss();
-            
-            // Wait for flight items to appear
-            try {
-              await page.waitForSelector('li.pI9Vpc', { timeout: 15000 });
-              console.log('✅ Results visible');
-            } catch (e) {
-              console.log('⚠️ Result selector timeout - Proceeding anyway');
-            }
-            
+            await page.waitForTimeout(8000);
             await page.screenshot({ path: '/app/artifacts/latest_screenshot.png', fullPage: false });
             console.log('HTML_START');
             console.log(await page.content());
