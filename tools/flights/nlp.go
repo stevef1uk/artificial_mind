@@ -13,28 +13,26 @@ import (
 func ExtractOptionsFromQuery(query string) (SearchOptions, error) {
 	currentYear := time.Now().Year()
 	currentDate := time.Now().Format("2006-01-02 (Monday)")
-	prompt := fmt.Sprintf(`Task: Extract flight search parameters from the natural language query.
-Present Date: %s
+	prompt := fmt.Sprintf(`### TASK: Extract flight search parameters from the natural language query.
+### CONTEXT:
+- Present Date: %s
+- IMPORTANT: If no year is specified in the query, you MUST use %d.
+- Mapping Precision: 
+  * Geneva -> GVA
+  * London Gatwick or Gatwick -> LGW (NEVER default to Heathrow/LHR if Gatwick mentioned)
+  * London -> LON (or LHR if Heathrow mentioned)
+  * Lisbon -> LIS
 
-Query: %s
+### USER QUERY:
+%s
 
-Return a JSON object with these fields ONLY:
-- departure (3-letter IATA airport code, e.g. "LHR")
-- destination (3-letter IATA airport code, e.g. "CDG")
-- start_date (YYYY-MM-DD)
-- end_date (ONLY if a return flight or stay duration was specifically mentioned. Otherwise, leave it empty. YYYY-MM-DD or empty.)
-- cabin (Default to "Economy". Use "Business" or "First" if specifically mentioned.)
+### RULES:
+1. Return a VALID JSON object with: departure, destination, start_date, end_date, cabin.
+2. end_date: Return date (YYYY-MM-DD). LEAVE EMPTY for one-way trips. 
+3. IMPORTANT: If the user says "take a plane back to the UK", "return home to London", or "flying back tomorrow", this is a ONE-WAY trip unless a stay duration or second date is explicitly mentioned.
+4. Default cabin is "Economy".
 
-IMPORTANT: If no year is specified in the query, you MUST use %d.
-IMPORTANT airport mapping:
-- Geneva -> GVA
-- London Gatwick or Gatwick -> LGW (NEVER use LHR for Gatwick)
-- London Heathrow or Heathrow -> LHR
-- London Center or London -> LON
-- Lisbon -> LIS
-- Paris -> CDG or ORY
-
-ONLY return JSON.`, currentDate, query, currentYear)
+JSON RESULT:`, currentDate, currentYear, query)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
