@@ -21,9 +21,8 @@ func SearchFlights(opts SearchOptions) ([]FlightInfo, string, error) {
 	}
 	log.Printf("🛰️ Using Playwright Service at: %s", scraperURL)
 
-	// If it's a round trip, we perform two separate one-way searches to be more reliable
-	// (Google Flights Round-Trip UI is complex to scrape with single screenshots)
-	if opts.StartDate != "" && opts.EndDate != "" && opts.EndDate != opts.StartDate {
+	isOneWay := opts.EndDate == "" || opts.EndDate == opts.StartDate
+	if !isOneWay {
 		log.Printf("🔄 Round-trip detected. Performing dual-pass search...")
 		
 		// 1. Search Departing Leg
@@ -83,10 +82,15 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	log.Printf("🛂 Cabin selection: '%s' -> Query suffix: '%s', Param: '%s'", opts.CabinClass, cabinQuery, cabinParam)
 
 	queryText := fmt.Sprintf("flights from %s to %s on %s%s", opts.Departure, opts.Destination, opts.StartDate, cabinQuery)
-	if opts.EndDate != "" {
+	oneWayParams := "&tt=oneway&it=oneway"
+	
+	if opts.EndDate != "" && opts.EndDate != opts.StartDate {
 		queryText = fmt.Sprintf("flights from %s to %s on %s return %s%s", opts.Departure, opts.Destination, opts.StartDate, opts.EndDate, cabinQuery)
+		oneWayParams = "" // It's a real round trip
 	}
-	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=%s&hl=%s&gl=%s&curr=%s%s", strings.ReplaceAll(queryText, " ", "+"), opts.Language, opts.Region, opts.Currency, cabinParam)
+	
+	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=%s&hl=%s&gl=%s&curr=%s%s%s", 
+		strings.ReplaceAll(queryText, " ", "+"), opts.Language, opts.Region, opts.Currency, cabinParam, oneWayParams)
 	rootURL := fmt.Sprintf("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s", opts.Language, opts.Region, opts.Currency)
 
 	// 2. Build the navigation script (PREFER environment variable from YAML for rapid iteration)
