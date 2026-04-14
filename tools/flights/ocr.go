@@ -100,7 +100,6 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 			normalizePrice := func(sym, val string) string {
 				if sym == "E" || sym == "EUR" { sym = "€" }
 				if sym == "GBP" { sym = "£" }
-				if sym == "" { sym = "€" } // Default to Euro if missing but digit found
 				return sym + val
 			}
 
@@ -115,6 +114,12 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 			// Priority 2: Check surrounding lines
 			for j := start; j < end; j++ {
 				l := lines[j]
+				
+				// EXCLUSION: Skip trains/railways
+				if strings.Contains(strings.ToLower(l), "railway") || strings.Contains(strings.ToLower(l), "train") || strings.Contains(l, "SBB") {
+					flight.Airline = "Train/Skipped"
+					break
+				}
 				
 				// RECOVERY: Only stop if we see a likely NEW flight starting (time match on a much later line)
 				if j > i+3 && timeRegex.MatchString(l) {
@@ -146,7 +151,7 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 				}
 			}
 
-			if flight.Price != "Unknown" {
+			if flight.Price != "Unknown" && flight.Airline != "Train/Skipped" {
 				flights = append(flights, flight)
 				log.Printf("✅ Found Flight: %s %s at %s (%s to %s)", flight.Airline, flight.Price, flight.DepartureTime, flight.DepartureAirport, flight.ArrivalAirport)
 			}
