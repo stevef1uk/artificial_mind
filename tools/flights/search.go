@@ -359,7 +359,7 @@ func MinerExtractFlights(data string, opts SearchOptions) ([]FlightInfo, error) 
 3. DO NOT HALLUCINATE. DO NOT MIX DATA. ONLY pair a price with the departure time on the SAME ROW.
 4. IF THE DATA SOURCE DOES NOT MATCH %s TO %s (or its members), OR NO FLIGHTS ARE FOUND, RETURN [].
 5. IGNORE ALL BAG POLICY WARNINGS.
-6. EXCLUDE ALL TRAINS/RAILWAYS: DO NOT return results operated by "Swiss Railways", "SBB", or containing "Train".
+6. EXCLUDE NON-AIRCRAFT RESULTS: DO NOT return any results operated by trains, buses, railways, or coaches (e.g. SBB, SNCF, National Express, Renfe, Amtrak, etc). Only return legitimate airline flights.
 
 JSON RESULT:`, opts.Departure, opts.Destination, opts.CabinClass, snippet, opts.Departure, opts.Destination)
 

@@ -115,9 +115,17 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 			for j := start; j < end; j++ {
 				l := lines[j]
 				
-				// EXCLUSION: Skip trains/railways
-				if strings.Contains(strings.ToLower(l), "railway") || strings.Contains(strings.ToLower(l), "train") || strings.Contains(l, "SBB") {
-					flight.Airline = "Train/Skipped"
+				// EXCLUSION: Skip trains/railways/buses globally
+				lowerLine := strings.ToLower(l)
+				nonFlightKeywords := []string{"railway", "train", "sbb", "sncf", "renfe", "amtrak", "bus", "coach", "national express"}
+				isNonFlight := false
+				for _, kw := range nonFlightKeywords {
+					if strings.Contains(lowerLine, kw) {
+						isNonFlight = true; break
+					}
+				}
+				if isNonFlight {
+					flight.Airline = "Non-Flight/Skipped"
 					break
 				}
 				
@@ -151,7 +159,7 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 				}
 			}
 
-			if flight.Price != "Unknown" && flight.Airline != "Train/Skipped" {
+			if flight.Price != "Unknown" && flight.Airline != "Non-Flight/Skipped" {
 				flights = append(flights, flight)
 				log.Printf("✅ Found Flight: %s %s at %s (%s to %s)", flight.Airline, flight.Price, flight.DepartureTime, flight.DepartureAirport, flight.ArrivalAirport)
 			}
