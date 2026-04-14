@@ -37,11 +37,11 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 	var flights []FlightInfo
 
 	// Regexes optimized for Google Flights OCR
-	// Support both HH:MM and HH.MM formats
-	timeRegex := regexp.MustCompile(`(\d{1,2}[:.]\d{2})\s*(?:AM|PM|am|pm)?`)
-	// Strict price regex: must start with symbol and have 2-4 digits. 
-	// Avoid matching single digits or long sequences that might be DURATIONS like 2h 8m 6s.
-	priceRegex := regexp.MustCompile(`([€£$])\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)`)
+	// Support HH:MM, HH.MM, and HH MM formats
+	timeRegex := regexp.MustCompile(`(\d{1,2}[:. ]\d{2})\s*(?:AM|PM|am|pm)?`)
+	// Strict price regex: must start with symbol and have digits.
+	// Allow 'E' and 'EUR' as common OCR / text variants for €
+	priceRegex := regexp.MustCompile(`([€£$E]|EUR|GBP)\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)`)
 	durationRegex := regexp.MustCompile(`\d{1,2}h\s*\d{0,2}m?`)
 	stopRegex := regexp.MustCompile(`(?i)(non-stop|\d+\s*stop)`)
 	routeRegex := regexp.MustCompile(`\b([A-Z]{3})\b\s*-\s*\b([A-Z]{3})\b`)
@@ -65,9 +65,14 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 				arr = matches[1][1]
 			}
 			
-			// Normalize times: "10.25" -> "10:25"
-			dep = strings.ReplaceAll(dep, ".", ":")
-			arr = strings.ReplaceAll(arr, ".", ":")
+			// Normalize times: "10.25" or "10 25" -> "10:25"
+			normalizeTime := func(t string) string {
+				t = strings.ReplaceAll(t, ".", ":")
+				t = strings.ReplaceAll(t, " ", ":")
+				return t
+			}
+			dep = normalizeTime(dep)
+			arr = normalizeTime(arr)
 
 			// RECOVERY: Validate time components (Prevent 0895 or 1081)
 			isValidTime := func(t string) bool {
@@ -92,11 +97,17 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 			if start < 0 { start = 0 }
 			if end > len(lines) { end = len(lines) }
 
+			normalizePrice := func(sym, val string) string {
+				if sym == "E" || sym == "EUR" { sym = "€" }
+				if sym == "GBP" { sym = "£" }
+				return sym + val
+			}
+
 			// Priority 1: Check same line for price (most accurate)
 			if pm := priceRegex.FindStringSubmatch(line); len(pm) > 0 {
 				symbol, val := pm[1], strings.ReplaceAll(pm[2], ",", "")
 				if p := parsePrice(val); p > 10 && (maxPrice <= 0 || p < maxPrice) {
-					flight.Price = symbol + val
+					flight.Price = normalizePrice(symbol, val)
 				}
 			}
 
@@ -112,7 +123,7 @@ func ParseFlightText(text string, maxPrice float64) []FlightInfo {
 				if pm := priceRegex.FindStringSubmatch(l); len(pm) > 0 && flight.Price == "Unknown" {
 					symbol, val := pm[1], strings.ReplaceAll(pm[2], ",", "")
 					if p := parsePrice(val); p > 10 && (maxPrice <= 0 || p < maxPrice) {
-						flight.Price = symbol + val
+						flight.Price = normalizePrice(symbol, val)
 					}
 				}
 				if dm := durationRegex.FindStringSubmatch(l); len(dm) > 0 && flight.Duration == "Unknown" {
