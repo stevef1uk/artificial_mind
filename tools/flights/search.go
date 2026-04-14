@@ -82,7 +82,10 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 
 	log.Printf("🛂 Cabin selection: '%s' -> Query suffix: '%s', Param: '%s'", opts.CabinClass, cabinQuery, cabinParam)
 
-	queryText := fmt.Sprintf("flights from %s to %s on %s return %s%s", opts.Departure, opts.Destination, opts.StartDate, opts.EndDate, cabinQuery)
+	queryText := fmt.Sprintf("flights from %s to %s on %s%s", opts.Departure, opts.Destination, opts.StartDate, cabinQuery)
+	if opts.EndDate != "" {
+		queryText = fmt.Sprintf("flights from %s to %s on %s return %s%s", opts.Departure, opts.Destination, opts.StartDate, opts.EndDate, cabinQuery)
+	}
 	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=%s&hl=%s&gl=%s&curr=%s%s", strings.ReplaceAll(queryText, " ", "+"), opts.Language, opts.Region, opts.Currency, cabinParam)
 	rootURL := fmt.Sprintf("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s", opts.Language, opts.Region, opts.Currency)
 

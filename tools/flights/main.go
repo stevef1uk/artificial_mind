@@ -148,22 +148,22 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		"LONDON": "LON", "PARIS": "PAR", "NEW YORK": "NYC", "NYC": "NYC",
 		"LISBON": "LIS", "LISBOA": "LIS", "RIO": "RIO", "RIO DE JANEIRO": "RIO",
 		"RIO DE JENERIO": "RIO", "SAO PAULO": "SAO", "TOKYO": "TYO",
-		"LHR": "LON", "LGW": "LON", "LTN": "LON", "STN": "LON", "LCY": "LON",
-		"CDG": "PAR", "ORY": "PAR", "BVA": "PAR",
-		"EWR": "NYC", "JFK": "NYC", "LGA": "NYC",
-		"GIG": "RIO", "SDU": "RIO", "GRU": "RIO", "VCP": "RIO", "SAO": "RIO",
 	}
 
 	// 1. Resolve full names to codes using mapping
-	if code, ok := cityMappings[strings.ToUpper(opts.Departure)]; ok {
-		opts.Departure = code
-	}
-	if code, ok := cityMappings[strings.ToUpper(opts.Destination)]; ok {
-		opts.Destination = code
-	}
+    iataRegex := regexp.MustCompile(`^[A-Z]{3}$`)
+	if !iataRegex.MatchString(strings.ToUpper(opts.Departure)) {
+	    if code, ok := cityMappings[strings.ToUpper(opts.Departure)]; ok {
+		    opts.Departure = code
+	    }
+    }
+	if !iataRegex.MatchString(strings.ToUpper(opts.Destination)) {
+	    if code, ok := cityMappings[strings.ToUpper(opts.Destination)]; ok {
+		    opts.Destination = code
+	    }
+    }
 
 	// 2. If still not a 3-letter code, use LLM to resolve (e.g. "San Francisco" -> "SFO")
-	iataRegex := regexp.MustCompile(`^[A-Z]{3}$`)
 	if !iataRegex.MatchString(strings.ToUpper(opts.Departure)) || !iataRegex.MatchString(strings.ToUpper(opts.Destination)) {
 		log.Printf("🏙️ Resolving vague city names via NLP: %s -> %s", opts.Departure, opts.Destination)
 		q := fmt.Sprintf("flight from %s to %s", opts.Departure, opts.Destination)

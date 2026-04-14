@@ -170,7 +170,7 @@ spec:
             - name: PICOCLAW_WS_PORT
               value: "18790"
             - name: PICOCLAW_WS_TOKEN
-              value: "pico-picoclaw-secret-123"
+              value: "picoclaw-secret-123"
             - name: ARTIFACTS_DIR
               value: "/app/artifacts"
             - name: UNPACK_WORK_DIR
