@@ -379,7 +379,7 @@ JSON RESULT:`, opts.Departure, opts.Destination, opts.CabinClass, snippet, opts.
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{
-		Timeout: 60 * time.Second,
+		Timeout: 120 * time.Second,
 	}
 	resp, err := client.Do(req)
 	if err != nil { 
