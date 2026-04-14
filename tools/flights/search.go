@@ -102,11 +102,22 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	actionScript := ""
 	if isOneWaySearch {
 		actionScript = `
-		// FORCE ONE-WAY trip type (Google often defaults to roundtrip)
-		// Using indexed XPath to avoid strict mode violations in standard page.click()
-		await page.click("xpath=(//button[contains(., 'Round trip') or contains(., 'Aller-retour') or contains(., 'ida y vuelta')])[1]");
-		await page.waitForTimeout(1000);
-		await page.click("xpath=(//li[contains(., 'One way') or contains(., 'Aller simple') or contains(., 'Solo ida')])[1]");
+		// FORCE ONE-WAY via Browser-Side DOM Logic (Most robust against selector timeouts)
+		await page.evaluate(async () => {
+			const btns = Array.from(document.querySelectorAll('button'));
+			const tripBtn = btns.find(b => b.textContent.includes('Round trip') || b.textContent.includes('Aller-retour') || b.textContent.includes('ida y vuelta'));
+			if (tripBtn) {
+				tripBtn.click();
+				// Short internal wait for dropdown to render
+				await new Promise(r => setTimeout(r, 1000));
+				const items = Array.from(document.querySelectorAll('li[role="option"], li'));
+				const oneWay = items.find(i => i.textContent.includes('One way') || i.textContent.includes('Aller simple') || i.textContent.includes('Solo ida'));
+				if (oneWay) {
+					oneWay.click();
+					console.log("✅ Successfully toggled to One Way in-browser");
+				}
+			}
+		});
 		await page.waitForLoadState("networkidle");
 		await page.waitForTimeout(2000);
 		`
