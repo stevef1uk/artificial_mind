@@ -22,7 +22,7 @@ Return a JSON object with these fields ONLY:
 - departure (airport code, e.g. "LHR")
 - destination (airport code, e.g. "CDG")
 - start_date (YYYY-MM-DD)
-- end_date (YYYY-MM-DD)
+- end_date (ONLY if a return flight or stay duration was specifically mentioned. Otherwise, leave it empty. YYYY-MM-DD or empty.)
 - cabin (Default to "Economy". Use "Business" or "First" if specifically mentioned.)
 
 IMPORTANT: If no year is specified in the query, you MUST use %d.

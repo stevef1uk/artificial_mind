@@ -23,7 +23,7 @@ func SearchFlights(opts SearchOptions) ([]FlightInfo, string, error) {
 
 	// If it's a round trip, we perform two separate one-way searches to be more reliable
 	// (Google Flights Round-Trip UI is complex to scrape with single screenshots)
-	if opts.StartDate != "" && opts.EndDate != "" {
+	if opts.StartDate != "" && opts.EndDate != "" && opts.EndDate != opts.StartDate {
 		log.Printf("🔄 Round-trip detected. Performing dual-pass search...")
 		
 		// 1. Search Departing Leg
