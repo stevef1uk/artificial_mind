@@ -39,12 +39,12 @@ func SearchFlights(opts SearchOptions) ([]FlightInfo, string, error) {
 		}
 
 		// 2. Search Returning Leg
-		log.Printf("🛬 Searching RETURNING leg: %s -> %s (%s)", opts.Destination, opts.Departure, opts.EndDate)
 		retOpts := opts
 		retOpts.Departure = opts.Destination
 		retOpts.Destination = opts.Departure
 		retOpts.StartDate = opts.EndDate
-		retOpts.EndDate = ""
+		retOpts.EndDate = "" // Treat as one-way
+		log.Printf("🛬 Searching RETURNING leg: %s -> %s (%s)", retOpts.Departure, retOpts.Destination, retOpts.StartDate)
 		retFlights, _, err := SearchFlightsWithScraper(scraperURL, retOpts)
 		if err != nil {
 			log.Printf("⚠️ Warning: Returning leg search failed: %v. Returning only departing flights.", err)
