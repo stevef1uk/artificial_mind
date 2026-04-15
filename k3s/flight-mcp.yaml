@@ -65,31 +65,6 @@ spec:
           value: "/app/artifacts/latest_screenshot.png"
         - name: ARTIFACTS_DIR
           value: "/app/artifacts"
-        - name: FLIGHT_SCRAPER_SCRIPT
-          value: |
-            await page.setViewportSize({ width: 2560, height: 1600 });
-            await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
-            
-            // 1. Initial load for consent
-            await page.goto("%s");
-            await page.waitForLoadState("networkidle");
-            await page.bypassConsent();
-            await page.waitForTimeout(2000); 
-
-            // 2. Search URL
-            await page.goto("%s&sort=price_asc");
-            await page.waitForLoadState("networkidle");
-            await page.bypassConsent();
-            
-            // Linear Action Block (Injected by Go)
-            %s
-
-            // 3. Extraction readiness
-            await page.waitForSelector("div[role=listitem]", { timeout: 30000 });
-            await page.evaluate(() => { window.scrollBy(0, 1000); });
-            await page.waitForTimeout(2000);
-            await page.screenshot({ path: '/app/artifacts/latest_screenshot.png', fullPage: false });
-            console.log(await page.content());
         
         volumeMounts:
         - name: dshm
