@@ -35,7 +35,7 @@ spec:
       - name: mcp-server
         image: stevef1uk/flight-mcp:secure
         imagePullPolicy: Always
-        args: ["--transport", "http", "--port", "8080", "-lang", "en", "-region", "FR"]
+        args: ["--transport", "http", "--port", "8080", "--lang=en-GB", "--region=GB", "--currency=GBP"]
         ports:
         - containerPort: 8080
           name: http
