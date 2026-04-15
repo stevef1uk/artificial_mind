@@ -13,10 +13,25 @@ import (
 func ExtractOptionsFromQuery(query string) (SearchOptions, error) {
 	currentYear := time.Now().Year()
 	currentDate := time.Now().Format("2006-01-02 (Monday)")
+
+	// Calculate "this Friday" and "next Friday"
+	today := time.Now()
+	daysUntilFriday := int(time.Friday - today.Weekday())
+	if daysUntilFriday < 0 {
+		daysUntilFriday += 7 // Next Friday if already passed
+	}
+	thisFriday := today.AddDate(0, 0, daysUntilFriday)
+	thisFridayStr := thisFriday.Format("2006-01-02")
+
 	prompt := fmt.Sprintf(`### TASK: Extract flight search parameters from the natural language query.
 ### CONTEXT:
 - Present Date: %s
 - IMPORTANT: If no year is specified in the query, you MUST use %d.
+- SPECIAL DATE MAPPING:
+  * "tomorrow" = %s
+  * "this Friday" = %s (NOT next Friday!)
+  * "next Friday" = the Friday AFTER this Friday
+  * "this weekend" = Saturday and Sunday of THIS week
 - Mapping Precision: 
   * Geneva -> GVA
   * London Gatwick or Gatwick -> LGW (NEVER default to Heathrow/LHR if Gatwick mentioned)
@@ -32,7 +47,7 @@ func ExtractOptionsFromQuery(query string) (SearchOptions, error) {
 3. IMPORTANT: If the user says "take a plane back to the UK", "return home to London", or "flying back tomorrow", this is a ONE-WAY trip unless a stay duration or second date is explicitly mentioned.
 4. Default cabin is "Economy".
 
-JSON RESULT:`, currentDate, currentYear, query)
+JSON RESULT:`, currentDate, currentYear, time.Now().AddDate(0, 0, 1).Format("2006-01-02"), thisFridayStr, query)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
