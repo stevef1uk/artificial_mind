@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -23,7 +24,7 @@ var globalOptions *SearchOptions
 func main() {
 	// log to Stderr to avoid polluting Stdout which might be used for MCP transport
 	log.Println("🚀 FLIGHT MCP VERSION 58 STARTING...")
-    
+
 	transportType := flag.String("transport", "sse", "Transport type (stdio, sse, or http)")
 	port := flag.Int("port", 8080, "Port for network transport")
 	lang := flag.String("lang", "en", "Google Flights language code (hl)")
@@ -52,7 +53,7 @@ func main() {
 		mcp.WithString("end_date", mcp.Description("Return date (YYYY-MM-DD)")),
 		mcp.WithString("cabin", mcp.Description("Travel class (Economy, Business, First)")),
 	), searchFlightsHandler)
-    
+
 	if *transportType == "sse" {
 		sseServer := server.NewSSEServer(s, server.WithBaseURL(fmt.Sprintf("http://localhost:%d", *port)))
 		log.Printf("Starting SSE server on :%d", *port)
@@ -75,7 +76,7 @@ func main() {
 func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args, _ := request.Params.Arguments.(map[string]interface{})
 	log.Printf("🛠️ Received tool arguments: %+v", args)
-	
+
 	// Safe argument extraction
 	getStr := func(key string) string {
 		if v, ok := args[key].(string); ok {
@@ -106,10 +107,18 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		extracted, err := ExtractOptionsFromQuery(query)
 		if err == nil {
 			// If extracted fields are non-empty, prioritize them over potentially hallucinated args
-			if extracted.Departure != "" { opts.Departure = extracted.Departure }
-			if extracted.Destination != "" { opts.Destination = extracted.Destination }
-			if extracted.StartDate != "" { opts.StartDate = extracted.StartDate }
-			if extracted.EndDate != "" { opts.EndDate = extracted.EndDate }
+			if extracted.Departure != "" {
+				opts.Departure = extracted.Departure
+			}
+			if extracted.Destination != "" {
+				opts.Destination = extracted.Destination
+			}
+			if extracted.StartDate != "" {
+				opts.StartDate = extracted.StartDate
+			}
+			if extracted.EndDate != "" {
+				opts.EndDate = extracted.EndDate
+			}
 			if extracted.CabinClass != "" {
 				// Only overwrite if the current cabin is Economy OR the extracted one is a premium class
 				// This prevents a 'Business' argument from being clobbered by a default 'Economy' extraction
@@ -117,7 +126,7 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 					opts.CabinClass = extracted.CabinClass
 				}
 			}
-            
+
 			// Manual high-confidence override for cabin
 			lowQuery := strings.ToLower(query)
 			if strings.Contains(lowQuery, "business") {
@@ -129,7 +138,7 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 			log.Printf("⚠️ Query extraction failed: %v", err)
 		}
 	}
-    
+
 	// Normalizer: ensure dates are in YYYY-MM-DD format before search
 	dateRegex := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 	if (opts.StartDate != "" && !dateRegex.MatchString(opts.StartDate)) || (opts.EndDate != "" && !dateRegex.MatchString(opts.EndDate)) {
@@ -137,8 +146,12 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		q := fmt.Sprintf("flights from %s to %s starting %s returning %s", opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
 		extracted, err := ExtractOptionsFromQuery(q)
 		if err == nil {
-			if extracted.StartDate != "" { opts.StartDate = extracted.StartDate }
-			if extracted.EndDate != "" { opts.EndDate = extracted.EndDate }
+			if extracted.StartDate != "" {
+				opts.StartDate = extracted.StartDate
+			}
+			if extracted.EndDate != "" {
+				opts.EndDate = extracted.EndDate
+			}
 		}
 	}
 
@@ -151,17 +164,17 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 	}
 
 	// 1. Resolve full names to codes using mapping
-    iataRegex := regexp.MustCompile(`^[A-Z]{3}$`)
+	iataRegex := regexp.MustCompile(`^[A-Z]{3}$`)
 	if !iataRegex.MatchString(strings.ToUpper(opts.Departure)) {
-	    if code, ok := cityMappings[strings.ToUpper(opts.Departure)]; ok {
-		    opts.Departure = code
-	    }
-    }
+		if code, ok := cityMappings[strings.ToUpper(opts.Departure)]; ok {
+			opts.Departure = code
+		}
+	}
 	if !iataRegex.MatchString(strings.ToUpper(opts.Destination)) {
-	    if code, ok := cityMappings[strings.ToUpper(opts.Destination)]; ok {
-		    opts.Destination = code
-	    }
-    }
+		if code, ok := cityMappings[strings.ToUpper(opts.Destination)]; ok {
+			opts.Destination = code
+		}
+	}
 
 	// 2. If still not a 3-letter code, use LLM to resolve (e.g. "San Francisco" -> "SFO")
 	if !iataRegex.MatchString(strings.ToUpper(opts.Departure)) || !iataRegex.MatchString(strings.ToUpper(opts.Destination)) {
@@ -169,8 +182,12 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		q := fmt.Sprintf("flight from %s to %s", opts.Departure, opts.Destination)
 		extracted, err := ExtractOptionsFromQuery(q)
 		if err == nil {
-			if iataRegex.MatchString(extracted.Departure) { opts.Departure = extracted.Departure }
-			if iataRegex.MatchString(extracted.Destination) { opts.Destination = extracted.Destination }
+			if iataRegex.MatchString(extracted.Departure) {
+				opts.Departure = extracted.Departure
+			}
+			if iataRegex.MatchString(extracted.Destination) {
+				opts.Destination = extracted.Destination
+			}
 		}
 	}
 
@@ -188,37 +205,37 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 	}
 	opts.StartDate = dateFix(opts.StartDate)
 	opts.EndDate = dateFix(opts.EndDate)
-	
+
 	// 4. Final broadening (e.g. LHR -> LON)
 	// ONLY broaden if we don't have a specific 3-letter code, or if the user's intent was general.
 	// But actually, Google Flights is better if we search LON instead of LHR for variety.
-    // HOWEVER, if the user is complaining about 'regression', maybe they want their specific airport.
+	// HOWEVER, if the user is complaining about 'regression', maybe they want their specific airport.
 	origDep, origDest := opts.Departure, opts.Destination
-    
-    // Heuristic: If it's already a 3-letter IATA, don't broaden UNLESS it's a known city group and we want to be helpful. 
-    // Let's refine this: broaden but KEEP the original for the validation filter.
+
+	// Heuristic: If it's already a 3-letter IATA, don't broaden UNLESS it's a known city group and we want to be helpful.
+	// Let's refine this: broaden but KEEP the original for the validation filter.
 	if city, ok := cityMappings[strings.ToUpper(opts.Departure)]; ok {
-        // Only broaden if it WASN'T a 3-letter code (i.e., it was 'London')
-        if len(origDep) != 3 {
-		    opts.Departure = city
-        }
+		// Only broaden if it WASN'T a 3-letter code (i.e., it was 'London')
+		if len(origDep) != 3 {
+			opts.Departure = city
+		}
 	}
 	if city, ok := cityMappings[strings.ToUpper(opts.Destination)]; ok {
-        if len(origDest) != 3 {
-		    opts.Destination = city
-        }
+		if len(origDest) != 3 {
+			opts.Destination = city
+		}
 	}
-	
+
 	if opts.Departure != origDep || opts.Destination != origDest {
 		log.Printf("🏙️  Broadening search: %s -> %s to %s -> %s", origDep, origDest, opts.Departure, opts.Destination)
 	}
 
-    // FINAL CABIN HARDENING: Priority detection for Business/First class
-    if lowQuery := strings.ToLower(getStr("query")); strings.Contains(lowQuery, "business") {
-        opts.CabinClass = "Business"
-    } else if strings.Contains(lowQuery, "first") {
-        opts.CabinClass = "First"
-    }
+	// FINAL CABIN HARDENING: Priority detection for Business/First class
+	if lowQuery := strings.ToLower(getStr("query")); strings.Contains(lowQuery, "business") {
+		opts.CabinClass = "Business"
+	} else if strings.Contains(lowQuery, "first") {
+		opts.CabinClass = "First"
+	}
 
 	log.Printf("🔍 Searching for %s flights: %s -> %s (%s to %s)", opts.CabinClass, opts.Departure, opts.Destination, opts.StartDate, opts.EndDate)
 
@@ -230,7 +247,7 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 	// VALIDATION FILTER: Remove hallucinated results (e.g. search for LON->PAR returns Delhi)
 	validDeparture := strings.ToUpper(opts.Departure)
 	validDestination := strings.ToUpper(opts.Destination)
-	
+
 	// Create a membership map for the city groups
 	cityMembers := map[string][]string{
 		"LON": {"LHR", "LGW", "LTN", "STN", "LCY", "SEN", "LUT"},
@@ -244,12 +261,16 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		"WAS": {"IAD", "DCA", "BWI"},
 		"TYO": {"NRT", "HND"},
 	}
-	
+
 	isMember := func(code, group string) bool {
-		if code == group { return true }
+		if code == group {
+			return true
+		}
 		if members, ok := cityMembers[group]; ok {
 			for _, m := range members {
-				if code == m { return true }
+				if code == m {
+					return true
+				}
 			}
 		}
 		return false
@@ -259,15 +280,15 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 	for _, f := range flights {
 		dep := strings.ToUpper(f.DepartureAirport)
 		arr := strings.ToUpper(f.ArrivalAirport)
-		
+
 		// If both are unknown or at least one matches the city group, keep it
 		// For round trips, we accept flights in both directions
-		matchesNormal := (dep == "UNKNOWN" || dep == "" || isMember(dep, validDeparture)) && 
-						 (arr == "UNKNOWN" || arr == "" || isMember(arr, validDestination))
-		
-		matchesReverse := (dep == "UNKNOWN" || dep == "" || isMember(dep, validDestination)) && 
-						  (arr == "UNKNOWN" || arr == "" || isMember(arr, validDeparture))
-		
+		matchesNormal := (dep == "UNKNOWN" || dep == "" || isMember(dep, validDeparture)) &&
+			(arr == "UNKNOWN" || arr == "" || isMember(arr, validDestination))
+
+		matchesReverse := (dep == "UNKNOWN" || dep == "" || isMember(dep, validDestination)) &&
+			(arr == "UNKNOWN" || arr == "" || isMember(arr, validDeparture))
+
 		if matchesNormal || matchesReverse {
 			filtered = append(filtered, f)
 		} else {
@@ -294,15 +315,84 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 	// Generate structured JSON for the reasoning engine
 	jsonData, _ := json.MarshalIndent(flights, "", "  ")
 
+	// Check if roundtrip (has both [DEPART] and [RETURN] flights)
+	isRoundtrip := false
+	hasDepart := false
+	hasReturn := false
+	for _, f := range flights {
+		if strings.HasPrefix(f.Airline, "[DEPART]") {
+			hasDepart = true
+		}
+		if strings.HasPrefix(f.Airline, "[RETURN]") {
+			hasReturn = true
+		}
+	}
+	isRoundtrip = hasDepart && hasReturn
+
 	// Generate a clean summary for the chat response
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("SUCCESS: Found %d flight options for your trip from %s to %s (Dates: %s to %s).\n\n", len(flights), opts.Departure, opts.Destination, opts.StartDate, opts.EndDate))
-	sb.WriteString("Flight Details (Departing):\n")
-	for i, f := range flights {
-		sb.WriteString(fmt.Sprintf("• %s: %s (Time: %s - %s) Route: %s -> %s\n", f.Airline, f.Price, f.DepartureTime, f.ArrivalTime, f.DepartureAirport, f.ArrivalAirport))
-		if i == 7 { // Show top 8 in text summary for better coverage
-			sb.WriteString("\n... [Full list of all %d flights available in DATA_JSON block below]")
-			break
+
+	if isRoundtrip {
+		// For roundtrips, calculate total costs and show best combinations
+		var depFlights, retFlights []FlightInfo
+		for _, f := range flights {
+			if strings.HasPrefix(f.Airline, "[DEPART]") {
+				f.Airline = strings.TrimPrefix(f.Airline, "[DEPART] ")
+				depFlights = append(depFlights, f)
+			} else if strings.HasPrefix(f.Airline, "[RETURN]") {
+				f.Airline = strings.TrimPrefix(f.Airline, "[RETURN] ")
+				retFlights = append(retFlights, f)
+			}
+		}
+
+		// Find cheapest combination
+		var bestCombo struct {
+			dep   FlightInfo
+			ret   FlightInfo
+			total float64
+		}
+		bestCombo.total = 999999
+
+		for _, dep := range depFlights {
+			for _, ret := range retFlights {
+				total := parsePrice(dep.Price) + parsePrice(ret.Price)
+				if total < bestCombo.total {
+					bestCombo.total = total
+					bestCombo.dep = dep
+					bestCombo.ret = ret
+				}
+			}
+		}
+
+		sb.WriteString(fmt.Sprintf("✈️ ROUNDTRIP: %s to %s (%s to %s)\n", opts.Departure, opts.Destination, opts.StartDate, opts.EndDate))
+		sb.WriteString(fmt.Sprintf("📅 Outbound: %s | Return: %s\n\n", opts.StartDate, opts.EndDate))
+
+		sb.WriteString("💰 CHEAPEST TOTAL: ")
+		if bestCombo.total < 999999 {
+			sb.WriteString(fmt.Sprintf("£%.0f (%s outbound + %s return)\n\n", bestCombo.total, bestCombo.dep.Price, bestCombo.ret.Price))
+		}
+
+		sb.WriteString("🛫 OUTBOUND FLIGHTS (Cheapest First):\n")
+		sort.Slice(depFlights, func(i, j int) bool { return parsePrice(depFlights[i].Price) < parsePrice(depFlights[j].Price) })
+		for i, f := range depFlights {
+			sb.WriteString(fmt.Sprintf("   %d. %s %s | %s-%s | %s\n", i+1, f.Airline, f.Price, f.DepartureTime, f.ArrivalTime, f.Stops))
+		}
+
+		sb.WriteString("\n🛬 RETURN FLIGHTS (Cheapest First):\n")
+		sort.Slice(retFlights, func(i, j int) bool { return parsePrice(retFlights[i].Price) < parsePrice(retFlights[j].Price) })
+		for i, f := range retFlights {
+			sb.WriteString(fmt.Sprintf("   %d. %s %s | %s-%s | %s\n", i+1, f.Airline, f.Price, f.DepartureTime, f.ArrivalTime, f.Stops))
+		}
+
+		if len(depFlights) > 3 || len(retFlights) > 3 {
+			sb.WriteString(fmt.Sprintf("\n💡 Tip: Combine any outbound with any return flight. Total = outbound + return price.\n"))
+		}
+	} else {
+		// One-way format
+		sb.WriteString(fmt.Sprintf("✅ ONE-WAY: %s to %s on %s\n\n", opts.Departure, opts.Destination, opts.StartDate))
+		sb.WriteString("🛫 Available Flights (Cheapest First):\n")
+		for i, f := range flights {
+			sb.WriteString(fmt.Sprintf("   %d. %s %s | %s-%s | %s\n", i+1, f.Airline, f.Price, f.DepartureTime, f.ArrivalTime, f.Stops))
 		}
 	}
 
