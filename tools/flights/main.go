@@ -369,7 +369,10 @@ func searchFlightsHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 
 		sb.WriteString("💰 CHEAPEST TOTAL: ")
 		if bestCombo.total < 999999 {
-			sb.WriteString(fmt.Sprintf("£%.0f (%s outbound + %s return)\n\n", bestCombo.total, bestCombo.dep.Price, bestCombo.ret.Price))
+			depPriceNum := parsePrice(bestCombo.dep.Price)
+			retPriceNum := parsePrice(bestCombo.ret.Price)
+			sb.WriteString(fmt.Sprintf("£%.0f (Outbound: %s=%.0f + Return: %s=%.0f)\n\n",
+				bestCombo.total, bestCombo.dep.Price, depPriceNum, bestCombo.ret.Price, retPriceNum))
 		}
 
 		sb.WriteString("🛫 OUTBOUND FLIGHTS (Cheapest First):\n")
