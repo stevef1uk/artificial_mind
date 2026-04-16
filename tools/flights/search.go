@@ -24,7 +24,7 @@ func SearchFlights(opts SearchOptions) ([]FlightInfo, string, error) {
 	isOneWay := opts.EndDate == "" || opts.EndDate == opts.StartDate
 	if !isOneWay {
 		log.Printf("🔄 Round-trip detected. Performing dual-pass search...")
-		
+
 		// 1. Search Departing Leg
 		log.Printf("🛫 Searching DEPARTING leg: %s -> %s (%s)", opts.Departure, opts.Destination, opts.StartDate)
 		depOpts := opts
@@ -34,7 +34,9 @@ func SearchFlights(opts SearchOptions) ([]FlightInfo, string, error) {
 			return nil, "", fmt.Errorf("departing leg failed: %v", err)
 		}
 		for i := range depFlights {
-            if depFlights[i].Airline == "" { depFlights[i].Airline = "Unknown" }
+			if depFlights[i].Airline == "" {
+				depFlights[i].Airline = "Unknown"
+			}
 			depFlights[i].Airline = "[DEPART] " + depFlights[i].Airline
 		}
 
@@ -51,7 +53,9 @@ func SearchFlights(opts SearchOptions) ([]FlightInfo, string, error) {
 			return depFlights, screenshotPath, nil
 		}
 		for i := range retFlights {
-            if retFlights[i].Airline == "" { retFlights[i].Airline = "Unknown" }
+			if retFlights[i].Airline == "" {
+				retFlights[i].Airline = "Unknown"
+			}
 			retFlights[i].Airline = "[RETURN] " + retFlights[i].Airline
 		}
 
@@ -61,13 +65,13 @@ func SearchFlights(opts SearchOptions) ([]FlightInfo, string, error) {
 
 	return SearchFlightsWithScraper(scraperURL, opts)
 }
- 
+
 // SearchFlightsWithScraper performs a synchronous scrape request to the Playwright service
 func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightInfo, string, error) {
 	cabinQuery := ""
 	cabinParam := ""
 	cabinLower := strings.ToLower(opts.CabinClass)
-	
+
 	if strings.Contains(cabinLower, "business") {
 		cabinQuery = " business class"
 		cabinParam = "&tf=sc:b"
@@ -83,13 +87,13 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 
 	queryText := fmt.Sprintf("flights from %s to %s on %s%s", opts.Departure, opts.Destination, opts.StartDate, cabinQuery)
 	tripParams := "&tt=oneway&it=oneway"
-	
+
 	if opts.EndDate != "" && opts.EndDate != opts.StartDate {
 		queryText = fmt.Sprintf("flights from %s to %s on %s return %s%s", opts.Departure, opts.Destination, opts.StartDate, opts.EndDate, cabinQuery)
 		tripParams = "&tt=roundtrip"
 	}
-	
-	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=%s&hl=%s&gl=%s&curr=%s%s%s", 
+
+	searchURL := fmt.Sprintf("https://www.google.com/travel/flights?q=%s&hl=%s&gl=%s&curr=%s%s%s",
 		strings.ReplaceAll(queryText, " ", "+"), opts.Language, opts.Region, opts.Currency, cabinParam, tripParams)
 	rootURL := fmt.Sprintf("https://www.google.com/travel/flights?hl=%s&gl=%s&curr=%s", opts.Language, opts.Region, opts.Currency)
 
@@ -180,7 +184,7 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	if screenshotPath != "" {
 		// File should be on PVC shared path
 		log.Printf("📸 Scraper saved screenshot to shared path: %s", screenshotPath)
-		
+
 		// MAINTAIN LATEST: Copy to latest_screenshot.png so Monitor UI (wow_factor.html) shows it
 		dir := strings.TrimSuffix(screenshotPath, regexp.MustCompile(`screenshot_.*\.png`).FindString(screenshotPath))
 		if dir != "" {
@@ -195,12 +199,12 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 
 	// 1. Calculate price ceiling - use a very high safety ceiling for all routes
 	// Local constraints are now route-aware via outlier detection later.
-	maxPrice := 25000.0 
+	maxPrice := 25000.0
 	log.Printf("🛰️ Using route-adaptive safety cap: %.0f", maxPrice)
 
 	// 2. Extract flights using OCR on the shared screenshot
 	ocrFlights, _, _ := ExtractFlightsFromImage(screenshotPath, maxPrice, opts)
-	
+
 	// 3. Always attempt SMART Miner on HTML to ensure nothing was missed (like EasyJet)
 	var minerFlights []FlightInfo
 	if html, ok := result["cleaned_html"].(string); ok && html != "" {
@@ -209,7 +213,7 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 			minerFlights, _ = MinerExtractFlights(html, opts)
 		}
 	}
-	
+
 	// 3. Combine and de-duplicate
 	flightMap := make(map[string]FlightInfo)
 	genKey := func(f FlightInfo) string {
@@ -226,7 +230,7 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		arrTime := strings.ReplaceAll(f.ArrivalTime, ".", ":")
 		return fmt.Sprintf("%s-%s-%s-%.0f", airline, depTime, arrTime, price)
 	}
-	
+
 	for _, f := range ocrFlights {
 		flightMap[genKey(f)] = f
 	}
@@ -234,25 +238,33 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		key := genKey(f)
 		// SMART MERGE: if Miner found it but has missing fields, keep existing OCR fields
 		if existing, ok := flightMap[key]; ok {
-			if (f.Airline == "" || f.Airline == "Unknown") && existing.Airline != "" { f.Airline = existing.Airline }
+			if (f.Airline == "" || f.Airline == "Unknown") && existing.Airline != "" {
+				f.Airline = existing.Airline
+			}
 			if (f.Duration == "" || strings.Contains(strings.ToLower(f.Duration), "unknown") || strings.Contains(strings.ToLower(f.Duration), "specified")) && existing.Duration != "" {
 				f.Duration = existing.Duration
 			}
-			if (f.DepartureAirport == "" || f.DepartureAirport == "Unknown") && existing.DepartureAirport != "" { f.DepartureAirport = existing.DepartureAirport }
-			if (f.ArrivalAirport == "" || f.ArrivalAirport == "Unknown") && existing.ArrivalAirport != "" { f.ArrivalAirport = existing.ArrivalAirport }
-            
-            // Miner price is usually better normalized, stick with it unless 0
-            if f.Price == "" || f.Price == "0" { 
-                f.Price = existing.Price 
-            } else if !strings.ContainsAny(f.Price, "£$€") && strings.ContainsAny(existing.Price, "£$€") {
-                // Restore currency symbol from OCR if Miner dropped it
-                reSym := regexp.MustCompile(`[£$€]`)
-                sym := reSym.FindString(existing.Price)
-                if sym == "" { sym = "£" }
-                f.Price = sym + f.Price
-            }
+			if (f.DepartureAirport == "" || f.DepartureAirport == "Unknown") && existing.DepartureAirport != "" {
+				f.DepartureAirport = existing.DepartureAirport
+			}
+			if (f.ArrivalAirport == "" || f.ArrivalAirport == "Unknown") && existing.ArrivalAirport != "" {
+				f.ArrivalAirport = existing.ArrivalAirport
+			}
+
+			// Miner price is usually better normalized, stick with it unless 0
+			if f.Price == "" || f.Price == "0" {
+				f.Price = existing.Price
+			} else if !strings.ContainsAny(f.Price, "£$€") && strings.ContainsAny(existing.Price, "£$€") {
+				// Restore currency symbol from OCR if Miner dropped it
+				reSym := regexp.MustCompile(`[£$€]`)
+				sym := reSym.FindString(existing.Price)
+				if sym == "" {
+					sym = "£"
+				}
+				f.Price = sym + f.Price
+			}
 		}
-		flightMap[key] = f 
+		flightMap[key] = f
 	}
 
 	var rawResults []FlightInfo
@@ -267,12 +279,16 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 		var prices []float64
 		for _, f := range rawResults {
 			p := parsePrice(f.Price)
-			if p > 0 && p < 99999 { prices = append(prices, p) }
+			if p > 0 && p < 99999 {
+				prices = append(prices, p)
+			}
 		}
-		
+
 		if len(prices) > 1 {
 			total := 0.0
-			for _, p := range prices { total += p }
+			for _, p := range prices {
+				total += p
+			}
 			mean := total / float64(len(prices))
 			threshold := mean * 4.0 // Softened from 2x to 4x to avoid dropping valid premium/last-minute flights
 			log.Printf("📊 Mean price: %.2f. Threshold (4x): %.2f. Filtering outliers...", mean, threshold)
@@ -285,7 +301,7 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 				}
 
 				// Discard if > 4x mean, UNLESS it's the specific airport requested (high trust)
-				if p <= threshold || p < 150 || isRequestedAirport { 
+				if p <= threshold || p < 150 || isRequestedAirport {
 					flights = append(flights, f)
 				} else {
 					log.Printf("⚠️ Dropping price outlier: %s %s (%.0f > 4x mean %.0f)", f.Airline, f.Price, p, mean)
@@ -316,7 +332,6 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 	return flights, screenshotPath, nil
 }
 
-
 // MinerExtractFlights uses AI to extract flight data from raw HTML snippets
 func MinerExtractFlights(data string, opts SearchOptions) ([]FlightInfo, error) {
 	if len(data) == 0 {
@@ -338,12 +353,18 @@ func MinerExtractFlights(data string, opts SearchOptions) ([]FlightInfo, error) 
 	snippet := cleaned
 	if len(cleaned) > 12000 {
 		pos := strings.Index(cleaned, "Top departing options")
-		if pos == -1 { pos = strings.Index(cleaned, "Best departing flights") }
+		if pos == -1 {
+			pos = strings.Index(cleaned, "Best departing flights")
+		}
 		if pos != -1 {
 			start := pos - 500
-			if start < 0 { start = 0 }
+			if start < 0 {
+				start = 0
+			}
 			end := start + 12000
-			if end > len(cleaned) { end = len(cleaned) }
+			if end > len(cleaned) {
+				end = len(cleaned)
+			}
 			snippet = cleaned[start:end]
 		} else {
 			snippet = cleaned[:12000]
@@ -352,13 +373,14 @@ func MinerExtractFlights(data string, opts SearchOptions) ([]FlightInfo, error) 
 	prompt := fmt.Sprintf(`### TASK: EXTRACT FLIGHT RESULTS TO JSON
 ### TARGET ROUTE: %s to %s (%s)
 ### CITY GROUPS: LIS=Lisbon, RIO=GIG/SDU, LON=LHR/LGW/LTN/STN, PAR=CDG/ORY, NYC=JFK/EWR/LGA
+### CRITICAL: DO NOT HALLUCINATE PRICES - USE ONLY THE EXACT PRICES SHOWN IN THE DATA!
 ### DATA SOURCE (HTML/TEXT):
 %s
 
 ### RULES:
 1. RETURN ONLY A VALID JSON ARRAY OF FLIGHT OBJECTS.
 2. FIELDS: airline, price (include currency symbol e.g. €450), departure_time, arrival_time (24h format), origin (IATA code e.g. LIS), destination (IATA code e.g. GIG), duration.
-3. DO NOT HALLUCINATE. DO NOT MIX DATA. ONLY pair a price with the departure time on the SAME ROW.
+3. DO NOT HALLUCINATE. ONLY use prices you can see in the data. If you cannot find a price, return [].
 4. IF THE DATA SOURCE DOES NOT MATCH %s TO %s (or its members), OR NO FLIGHTS ARE FOUND, RETURN [].
 5. IGNORE ALL BAG POLICY WARNINGS.
 6. EXCLUDE NON-AIRCRAFT RESULTS: DO NOT return any results operated by trains, buses, railways, or coaches (e.g. SBB, SNCF, National Express, Renfe, Amtrak, etc). Only return legitimate airline flights.
@@ -366,8 +388,9 @@ func MinerExtractFlights(data string, opts SearchOptions) ([]FlightInfo, error) 
 JSON RESULT:`, opts.Departure, opts.Destination, opts.CabinClass, snippet, opts.Departure, opts.Destination)
 
 	model := os.Getenv("LLM_MODEL")
-	if model == "" { model = "qwen3:14b" }
-
+	if model == "" {
+		model = "qwen3:14b"
+	}
 
 	log.Printf("🤖 Calling LLM Miner with model %s (snippet length: %d)...", model, len(snippet))
 
@@ -385,9 +408,9 @@ JSON RESULT:`, opts.Departure, opts.Destination, opts.CabinClass, snippet, opts.
 		Timeout: 120 * time.Second,
 	}
 	resp, err := client.Do(req)
-	if err != nil { 
+	if err != nil {
 		log.Printf("❌ LLM Miner request failed or timed out: %v", err)
-		return nil, err 
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -405,7 +428,7 @@ JSON RESULT:`, opts.Departure, opts.Destination, opts.CabinClass, snippet, opts.
 	cleanResp = strings.TrimPrefix(cleanResp, "```")
 	cleanResp = strings.TrimSuffix(cleanResp, "```")
 	cleanResp = strings.TrimSpace(cleanResp)
-	
+
 	if idx := strings.Index(cleanResp, "["); idx != -1 {
 		cleanResp = cleanResp[idx:]
 		if last := strings.LastIndex(cleanResp, "]"); last != -1 {
@@ -419,7 +442,7 @@ JSON RESULT:`, opts.Departure, opts.Destination, opts.CabinClass, snippet, opts.
 	}
 
 	log.Printf("🤖 LLM Miner cleaned JSON: %s", cleanResp)
-	
+
 	var jsonData interface{}
 	if err := json.Unmarshal([]byte(cleanResp), &jsonData); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal Miner JSON: %v", err)
@@ -456,7 +479,9 @@ JSON RESULT:`, opts.Departure, opts.Destination, opts.CabinClass, snippet, opts.
 					for _, val := range m {
 						if child, ok := val.(map[string]interface{}); ok {
 							searchMap(child)
-							if len(rawFlights) > 0 { return }
+							if len(rawFlights) > 0 {
+								return
+							}
 						}
 					}
 				}
@@ -468,16 +493,20 @@ JSON RESULT:`, opts.Departure, opts.Destination, opts.CabinClass, snippet, opts.
 	var flights []FlightInfo
 	for _, item := range rawFlights {
 		m, ok := item.(map[string]interface{})
-		if !ok { continue }
+		if !ok {
+			continue
+		}
 
 		f := FlightInfo{}
-		
+
 		// Recursive helper to find a key in nested maps
 		var findVal func(obj interface{}, key string) string
 		findVal = func(obj interface{}, key string) string {
 			m, ok := obj.(map[string]interface{})
-			if !ok { return "" }
-			
+			if !ok {
+				return ""
+			}
+
 			keyLower := strings.ToLower(key)
 
 			// 1. Try exact match first
@@ -485,22 +514,26 @@ JSON RESULT:`, opts.Departure, opts.Destination, opts.CabinClass, snippet, opts.
 				if child, ok := v.(map[string]interface{}); ok {
 					// Special case: if we found a map for "price", look for "amount" inside it
 					if strings.Contains(strings.ToLower(key), "price") {
-						if amt, ok := child["amount"]; ok { return fmt.Sprintf("%v", amt) }
-						if total, ok := child["total"]; ok { return fmt.Sprintf("%v", total) }
+						if amt, ok := child["amount"]; ok {
+							return fmt.Sprintf("%v", amt)
+						}
+						if total, ok := child["total"]; ok {
+							return fmt.Sprintf("%v", total)
+						}
 					}
 					// If it's a map but not price-related, just continue searching inside
 				} else {
 					return fmt.Sprintf("%v", v)
 				}
 			}
-			
+
 			// 2. Try case-insensitive substring match in current level
 			for k, v := range m {
 				if strings.Contains(strings.ToLower(k), keyLower) {
 					return fmt.Sprintf("%v", v)
 				}
 			}
-			
+
 			// 3. Recurse into children
 			for _, v := range m {
 				if child, ok := v.(map[string]interface{}); ok {
@@ -513,31 +546,53 @@ JSON RESULT:`, opts.Departure, opts.Destination, opts.CabinClass, snippet, opts.
 		}
 
 		f.Airline = findVal(m, "airline")
-		
+
 		// Priority price check
 		f.Price = findVal(m, "price")
-		if f.Price == "" { f.Price = findVal(m, "amount") }
-		if f.Price == "" { f.Price = findVal(m, "total") }
-		if f.Price == "" { f.Price = findVal(m, "cost") }
-		
+		if f.Price == "" {
+			f.Price = findVal(m, "amount")
+		}
+		if f.Price == "" {
+			f.Price = findVal(m, "total")
+		}
+		if f.Price == "" {
+			f.Price = findVal(m, "cost")
+		}
+
 		f.DepartureTime = findVal(m, "departure_time")
-		if f.DepartureTime == "" { f.DepartureTime = findVal(m, "time") }
-		
+		if f.DepartureTime == "" {
+			f.DepartureTime = findVal(m, "time")
+		}
+
 		f.ArrivalTime = findVal(m, "arrival_time")
 		f.Duration = findVal(m, "duration")
 		f.Stops = findVal(m, "stops")
-		
+
 		// Robust Airport search
 		f.DepartureAirport = extractIATA(findVal(m, "departure_airport"))
-		if f.DepartureAirport == "" { f.DepartureAirport = extractIATA(findVal(m, "origin")) }
-		if f.DepartureAirport == "" { f.DepartureAirport = extractIATA(findVal(m, "from")) }
-		if f.DepartureAirport == "" { f.DepartureAirport = extractIATA(findVal(m, "dep")) }
+		if f.DepartureAirport == "" {
+			f.DepartureAirport = extractIATA(findVal(m, "origin"))
+		}
+		if f.DepartureAirport == "" {
+			f.DepartureAirport = extractIATA(findVal(m, "from"))
+		}
+		if f.DepartureAirport == "" {
+			f.DepartureAirport = extractIATA(findVal(m, "dep"))
+		}
 
 		f.ArrivalAirport = extractIATA(findVal(m, "arrival_airport"))
-		if f.ArrivalAirport == "" { f.ArrivalAirport = extractIATA(findVal(m, "destination")) }
-		if f.ArrivalAirport == "" { f.ArrivalAirport = extractIATA(findVal(m, "to")) }
-		if f.ArrivalAirport == "" { f.ArrivalAirport = extractIATA(findVal(m, "arr")) }
-		if f.ArrivalAirport == "" { f.ArrivalAirport = extractIATA(findVal(m, "dest")) }
+		if f.ArrivalAirport == "" {
+			f.ArrivalAirport = extractIATA(findVal(m, "destination"))
+		}
+		if f.ArrivalAirport == "" {
+			f.ArrivalAirport = extractIATA(findVal(m, "to"))
+		}
+		if f.ArrivalAirport == "" {
+			f.ArrivalAirport = extractIATA(findVal(m, "arr"))
+		}
+		if f.ArrivalAirport == "" {
+			f.ArrivalAirport = extractIATA(findVal(m, "dest"))
+		}
 
 		if f.Price != "" && f.Airline != "" {
 			flights = append(flights, f)
@@ -548,19 +603,19 @@ JSON RESULT:`, opts.Departure, opts.Destination, opts.CabinClass, snippet, opts.
 }
 
 func parsePrice(priceStr string) float64 {
-	// 1. Remove thousands separators. 
-    // In many regions, comma is a decimal, but on Google Flights with hl=en, 
-    // comma is usually a thousands separator.
-    // However, if we see something like "1.379", it might be thousands.
-    // Let's be smart: if there's a comma followed by 3 digits at the end, it's thousands.
-    
-    // Simple heuristic: remove commas always, but if there's a dot, keep it as the primary decimal
+	// 1. Remove thousands separators.
+	// In many regions, comma is a decimal, but on Google Flights with hl=en,
+	// comma is usually a thousands separator.
+	// However, if we see something like "1.379", it might be thousands.
+	// Let's be smart: if there's a comma followed by 3 digits at the end, it's thousands.
+
+	// Simple heuristic: remove commas always, but if there's a dot, keep it as the primary decimal
 	clean := strings.ReplaceAll(priceStr, ",", "")
-    if !strings.Contains(clean, ".") && strings.Contains(priceStr, ",") {
-        // If there's no dot but there was a comma, maybe the comma WAS the decimal?
-        // e.g. "137,00" -> "137.00"
-        clean = strings.ReplaceAll(priceStr, ",", ".")
-    }
+	if !strings.Contains(clean, ".") && strings.Contains(priceStr, ",") {
+		// If there's no dot but there was a comma, maybe the comma WAS the decimal?
+		// e.g. "137,00" -> "137.00"
+		clean = strings.ReplaceAll(priceStr, ",", ".")
+	}
 
 	re := regexp.MustCompile(`[\d.]+`)
 	match := re.FindString(clean)
@@ -574,12 +629,14 @@ func parsePrice(priceStr string) float64 {
 
 func extractIATA(s string) string {
 	s = strings.TrimSpace(strings.ToUpper(s))
-	if s == "" { return "" }
-    
-    // If already looks like a code, just clean it
-    if len(s) == 3 && regexp.MustCompile(`^[A-Z]{3}$`).MatchString(s) {
-        return s
-    }
+	if s == "" {
+		return ""
+	}
+
+	// If already looks like a code, just clean it
+	if len(s) == 3 && regexp.MustCompile(`^[A-Z]{3}$`).MatchString(s) {
+		return s
+	}
 
 	var iata string
 	re := regexp.MustCompile(`\(([A-Z]{3})\)`)
@@ -592,8 +649,8 @@ func extractIATA(s string) string {
 		}
 	}
 
-    // HEURISTIC: If no 3-letter code found, but it looks like a city name,
-    // we could map it, but for now we just return "" and let the smart merge use OCR code.
+	// HEURISTIC: If no 3-letter code found, but it looks like a city name,
+	// we could map it, but for now we just return "" and let the smart merge use OCR code.
 
 	if iata != "" {
 		// Common OCR corrections for airport codes
@@ -604,6 +661,6 @@ func extractIATA(s string) string {
 			return corr
 		}
 	}
-	
+
 	return iata
 }

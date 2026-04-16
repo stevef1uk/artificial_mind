@@ -14,28 +14,44 @@ func ExtractOptionsFromQuery(query string) (SearchOptions, error) {
 	currentYear := time.Now().Year()
 	currentDate := time.Now().Format("2006-01-02 (Monday)")
 
-	// Calculate "this Friday" and "next Friday"
+	// Calculate date mappings
 	today := time.Now()
+
+	// Tomorrow
+	tomorrow := today.AddDate(0, 0, 1)
+	tomorrowStr := tomorrow.Format("2006-01-02")
+
+	// This Friday (days until Friday, add 7 if negative)
 	daysUntilFriday := int(time.Friday - today.Weekday())
-	if daysUntilFriday < 0 {
-		daysUntilFriday += 7 // Next Friday if already passed
+	if daysUntilFriday <= 0 {
+		daysUntilFriday += 7
 	}
 	thisFriday := today.AddDate(0, 0, daysUntilFriday)
 	thisFridayStr := thisFriday.Format("2006-01-02")
 
+	// Next Friday (this Friday + 7 days)
+	nextFriday := thisFriday.AddDate(0, 0, 7)
+	nextFridayStr := nextFriday.Format("2006-01-02")
+
+	// This weekend (Saturday and Sunday)
+	saturday := today.AddDate(0, 0, (int(time.Saturday)-int(today.Weekday())+7)%7)
+	sunday := saturday.AddDate(0, 0, 1)
+	weekendStr := saturday.Format("2006-01-02") + " and " + sunday.Format("2006-01-02")
+
 	prompt := fmt.Sprintf(`### TASK: Extract flight search parameters from the natural language query.
 ### CONTEXT:
-- Present Date: %s
-- IMPORTANT: If no year is specified in the query, you MUST use %d.
-- SPECIAL DATE MAPPING:
+- Present Date: %s (%s)
+- Year: %d
+- TODAY IS: %s
+- SPECIFIC DATE MAPPINGS (use these EXACT values):
   * "tomorrow" = %s
-  * "this Friday" = %s (NOT next Friday!)
-  * "next Friday" = the Friday AFTER this Friday
-  * "this weekend" = Saturday and Sunday of THIS week
-- Mapping Precision: 
+  * "this Friday" = %s (the upcoming Friday, NOT next week's!)
+  * "next Friday" = %s (the Friday AFTER this Friday)
+  * "this weekend" = %s
+- Airport Codes:
   * Geneva -> GVA
-  * London Gatwick or Gatwick -> LGW (NEVER default to Heathrow/LHR if Gatwick mentioned)
-  * London -> LON (or LHR if Heathrow mentioned)
+  * London Gatwick or Gatwick -> LGW
+  * London -> LON
   * Lisbon -> LIS
 
 ### USER QUERY:
@@ -44,10 +60,10 @@ func ExtractOptionsFromQuery(query string) (SearchOptions, error) {
 ### RULES:
 1. Return a VALID JSON object with: departure, destination, start_date, end_date, cabin.
 2. end_date: Return date (YYYY-MM-DD). LEAVE EMPTY for one-way trips. 
-3. IMPORTANT: If the user says "take a plane back to the UK", "return home to London", or "flying back tomorrow", this is a ONE-WAY trip unless a stay duration or second date is explicitly mentioned.
+3. If user says "tomorrow" and also mentions "next Friday", use tomorrow as departure and next Friday as return.
 4. Default cabin is "Economy".
 
-JSON RESULT:`, currentDate, currentYear, time.Now().AddDate(0, 0, 1).Format("2006-01-02"), thisFridayStr, query)
+JSON RESULT:`, currentDate, today.Weekday(), currentYear, today.Format("2006-01-02"), tomorrowStr, thisFridayStr, nextFridayStr, weekendStr, query)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
