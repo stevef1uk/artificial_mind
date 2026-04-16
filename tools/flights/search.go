@@ -251,17 +251,41 @@ func SearchFlightsWithScraper(scraperURL string, opts SearchOptions) ([]FlightIn
 				f.ArrivalAirport = existing.ArrivalAirport
 			}
 
-			// Miner price is usually better normalized, stick with it unless 0
+			// Miner price is usually better normalized, BUT validate for hallucinations
+			// If miner price is suspiciously low compared to OCR mean, prefer OCR
 			if f.Price == "" || f.Price == "0" {
 				f.Price = existing.Price
-			} else if !strings.ContainsAny(f.Price, "£$€") && strings.ContainsAny(existing.Price, "£$€") {
-				// Restore currency symbol from OCR if Miner dropped it
-				reSym := regexp.MustCompile(`[£$€]`)
-				sym := reSym.FindString(existing.Price)
-				if sym == "" {
-					sym = "£"
+			} else {
+				minerPrice := parsePrice(f.Price)
+				// Get mean of OCR prices for comparison
+				var ocrPrices []float64
+				for _, of := range ocrFlights {
+					if parsePrice(of.Price) > 10 {
+						ocrPrices = append(ocrPrices, parsePrice(of.Price))
+					}
 				}
-				f.Price = sym + f.Price
+				var ocrMean float64
+				if len(ocrPrices) > 0 {
+					sum := 0.0
+					for _, p := range ocrPrices {
+						sum += p
+					}
+					ocrMean = sum / float64(len(ocrPrices))
+				}
+
+				// If miner price is less than 30% of OCR mean, it's likely hallucinated - use OCR
+				if ocrMean > 0 && minerPrice < ocrMean*0.3 {
+					log.Printf("⚠️ Suspiciously low miner price £%.0f (OCR mean: £%.0f) - using OCR", minerPrice, ocrMean)
+					f.Price = existing.Price
+				} else if !strings.ContainsAny(f.Price, "£$€") && strings.ContainsAny(existing.Price, "£$€") {
+					// Restore currency symbol from OCR if Miner dropped it
+					reSym := regexp.MustCompile(`[£$€]`)
+					sym := reSym.FindString(existing.Price)
+					if sym == "" {
+						sym = "£"
+					}
+					f.Price = sym + f.Price
+				}
 			}
 		}
 		flightMap[key] = f
