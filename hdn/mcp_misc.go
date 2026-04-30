@@ -351,7 +351,24 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 	case "weather":
 		return s.callExternalHDNTool(ctx, "tool_weather", args)
 
-	case "secret_scanner":
+	case "browse_web":
+		url, _ := args["url"].(string)
+		instructions, _ := args["instructions"].(string)
+		if url == "" || instructions == "" {
+			return nil, fmt.Errorf("url and instructions parameters required")
+		}
+
+		// Convert actions array to JS if provided
+		tsConfig := ""
+		if actions, ok := args["actions"].([]interface{}); ok && len(actions) > 0 {
+			log.Printf("🩹 [MCP-BROWSE] Converting actions array to JS...")
+			tsConfig = convertStepsToJS(map[string]interface{}{"actions": actions})
+		}
+
+		async, _ := args["async"].(bool)
+		return s.scrapeWithConfig(ctx, url, instructions, tsConfig, async, nil, true, nil)
+
+	case "secret_scanner", "secret_scan":
 		path, _ := args["path"].(string)
 		text, _ := args["text"].(string)
 

@@ -661,7 +661,10 @@ func (s *MCPKnowledgeServer) wrapMCPResponse(result interface{}) interface{} {
 func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, arguments map[string]interface{}) (interface{}, error) {
 	startTime := time.Now()
 
+	// Handle prefixes from different MCP clients (e.g. PicoClaw adds mcp_server-name_)
 	toolName = strings.TrimPrefix(toolName, "mcp_")
+	toolName = strings.TrimPrefix(toolName, "hdn-server_")
+	toolName = strings.TrimPrefix(toolName, "hdn_server_")
 
 	if arguments != nil {
 		if inner, ok := arguments["arguments"].(map[string]interface{}); ok {
@@ -720,8 +723,7 @@ func (s *MCPKnowledgeServer) callTool(ctx context.Context, toolName string, argu
 			result, err = s.saveAvatarContext(ctx, arguments)
 		case "save_episode":
 			result, err = s.saveEpisode(ctx, arguments)
-		case "scrape_url", "execute_code", "read_file", "smart_scrape", "weather":
-
+		case "scrape_url", "execute_code", "read_file", "smart_scrape", "weather", "secret_scanner", "secret_scan", "browse_web":
 			result, err = s.executeToolWrapper(ctx, toolName, arguments)
 		case "deep_research":
 			result, err = s.deepResearch(ctx, arguments)
