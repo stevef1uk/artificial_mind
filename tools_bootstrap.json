@@ -321,5 +321,31 @@
         "{prompt}"
       ]
     }
+  },
+  {
+    "id": "tool_secret_scanner",
+    "name": "Secret Scanner",
+    "description": "Scan streaming content or a file for known secret key formats. Returns a status message and an array of exposed keys (type, last 4 digits, line, and offset).",
+    "input_schema": {
+      "path": "string?",
+      "stdin": "string?"
+    },
+    "output_schema": {
+      "status": "string",
+      "exposed_keys": "array"
+    },
+    "permissions": [
+      "fs:read"
+    ],
+    "safety_level": "medium",
+    "created_by": "system",
+    "exec": {
+      "type": "cmd",
+      "cmd": "/app/bin/tools/secret_scanner",
+      "args": [
+        "-path",
+        "{path}"
+      ]
+    }
   }
 ]
