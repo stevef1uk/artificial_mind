@@ -70,6 +70,7 @@ COPY --from=secure-build /out/encrypted_files.zip ./hdn-server.enc
 # app config
 COPY hdn/config.json ./config.json
 COPY hdn/domain.json ./domain.json
+COPY tools_bootstrap.json ./tools_bootstrap.json
 # n8n/MCP skills configuration
 RUN mkdir -p ./config
 COPY config/n8n_mcp_skills.yaml ./config/n8n_mcp_skills.yaml

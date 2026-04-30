@@ -453,6 +453,23 @@ func (s *MCPKnowledgeServer) listTools() (interface{}, error) {
 				},
 			},
 		},
+		{
+			Name:        "secret_scanner",
+			Description: "Scan a file or text for exposed API keys, secrets, and credentials. Supports common formats like OpenAI, AWS, GCP, GitHub, etc.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional: Path to the file to scan. If omitted, you must provide text via stdin.",
+					},
+					"text": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional: Raw text content to scan if path is not provided.",
+					},
+				},
+			},
+		},
 	}
 
 	tools = append(tools, MCPKnowledgeTool{

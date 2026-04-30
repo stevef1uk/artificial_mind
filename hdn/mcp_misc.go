@@ -351,6 +351,62 @@ func (s *MCPKnowledgeServer) executeToolWrapper(ctx context.Context, toolName st
 	case "weather":
 		return s.callExternalHDNTool(ctx, "tool_weather", args)
 
+	case "secret_scanner":
+		path, _ := args["path"].(string)
+		text, _ := args["text"].(string)
+
+		projectRoot := os.Getenv("AGI_PROJECT_ROOT")
+		if projectRoot == "" {
+			if wd, err := os.Getwd(); err == nil {
+				projectRoot = wd
+			}
+		}
+
+		candidates := []string{
+			"/app/bin/tools/secret_scanner",
+			filepath.Join(projectRoot, "bin", "tools", "secret_scanner"),
+			"bin/tools/secret_scanner",
+		}
+
+		bin := ""
+		for _, c := range candidates {
+			if _, err := os.Stat(c); err == nil {
+				bin = c
+				break
+			}
+		}
+
+		if bin == "" {
+			return nil, fmt.Errorf("secret_scanner binary not found")
+		}
+
+		var cmd *exec.Cmd
+		if path != "" {
+			cmd = exec.CommandContext(ctx, bin, "-path", path)
+		} else {
+			cmd = exec.CommandContext(ctx, bin)
+			cmd.Stdin = strings.NewReader(text)
+		}
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return nil, fmt.Errorf("secret scanner failed: %v - %s", err, string(output))
+		}
+
+		var result map[string]interface{}
+		if err := json.Unmarshal(output, &result); err != nil {
+			return map[string]interface{}{
+				"content": []map[string]interface{}{
+					{
+						"type": "text",
+						"text": string(output),
+					},
+				},
+			}, nil
+		}
+
+		return result, nil
+
 	default:
 		return nil, fmt.Errorf("unknown internal tool: %s", toolName)
 	}
