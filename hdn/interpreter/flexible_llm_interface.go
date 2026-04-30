@@ -90,33 +90,22 @@ func init() {
 	Set_tool_codegen_hints()
 	Set_tool_exec_hints()
 	Set_mcp_search_flights_hints()
-	Set_mcp_read_google_data_hints()
 }
 
 func Set_mcp_search_flights_hints() {
 	SetPromptHints("mcp_search_flights", &PromptHintsConfig{
-		Keywords:      []string{"flight", "flights", "airline", "booking", "google flights", "travel", "plane", "ticket", "boarding pass"},
-		PromptText:    "✈️ FOR FLIGHT SEARCH: You MUST use 'mcp_search_flights'. This is a specialized high-performance tool. 🚨 CRITICAL: Use the CURRENT YEAR if the user doesn't specify one. Prefer IATA airport codes over city names for the 'departure' and 'destination' parameters. If the user mentions 'flights' and 'search' but provides no details, ask for them instead of searching for nothing.",
+		Keywords:      []string{"flight", "flights", "airline", "booking", "google flights", "travel", "plane", "ticket"},
+		PromptText:    "✈️ FOR FLIGHT SEARCH: You MUST use 'mcp_search_flights'. This is a specialized high-performance tool. 🚨 CRITICAL: Use the CURRENT YEAR if the user doesn't specify one. Prefer IATA airport codes over city names for the 'departure' and 'destination' parameters. Output the results in a clean markdown table.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"flight search", "find flights", "search flights", "book flight"},
 		RejectText:    true,
 	})
 }
 
-func Set_mcp_read_google_data_hints() {
-	SetPromptHints("mcp_read_google_data", &PromptHintsConfig{
-		Keywords:      []string{"email", "emails", "gmail", "mailbox", "inbox", "message", "subject", "sender", "read mail", "check mail", "mail from"},
-		PromptText:    "📧 FOR GOOGLE DATA/EMAILS: Use 'mcp_read_google_data'. 🚨 CRITICAL: This is for EMAILS only. Do NOT confuse this with weather tools. Use 'Subject' or 'from' as keyword filters. If you are looking for specific recent communications, set 'q' to a relevant search term like 'from:user@example.com'.",
-		ForceToolCall: true,
-		AlwaysInclude: []string{"check email", "read emails", "gmail inbox", "latest emails"},
-		RejectText:    true,
-	})
-}
-
 func Set_tool_generate_image_hints() {
-	SetPromptHints("tool_generate_image", &PromptHintsConfig{
+	SetPromptHints("mcp_generate_image", &PromptHintsConfig{
 		Keywords:      []string{"image", "create image", "generate image", "make image", "picture", "drawing", "illustration", "visual", "photo", "artwork", "change", "modify", "update", "edit", "background", "foreground", "style"},
-		PromptText:    "🖼️ FOR IMAGE TASKS: Use 'tool_generate_image'. 🚨 CRITICAL: If the user asks to 'change', 'modify', or 'update' an image, you MUST look for 'last_vision_path' in the context and provide it as the 'source_image' parameter. Do NOT try to use web search or other tools to modify images.",
+		PromptText:    "🖼️ FOR IMAGE TASKS: Use 'mcp_generate_image'. 🚨 CRITICAL: If the user asks to 'change', 'modify', or 'update' an image, you MUST look for 'last_vision_path' in the context and provide it as the 'source_image' parameter. Do NOT try to use web search or other tools to modify images.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"create image", "generate image", "modify image", "change image", "update image"},
 		RejectText:    true,
@@ -126,7 +115,7 @@ func Set_tool_generate_image_hints() {
 func Set_mcp_smart_scrape_hints() {
 	SetPromptHints("mcp_smart_scrape", &PromptHintsConfig{
 		Keywords:      []string{"scrape", "browse", "crawl", "fetch", "visit"},
-		PromptText:    "⚠️ FOR WEB SCRAPING: Use 'mcp_smart_scrape'. 🚨 CRITICAL: NEVER use this tool for flights, weather, or image generation. Use the specialized 'mcp_search_flights', 'mcp_weather', or 'tool_generate_image' tools instead.",
+		PromptText:    "⚠️ FOR WEB SCRAPING: Use 'mcp_smart_scrape'. 🚨 CRITICAL: NEVER use this tool for flights, weather, or image generation. Use the specialized 'mcp_search_flights', 'mcp_weather', or 'mcp_generate_image' tools instead.",
 		ForceToolCall: true,
 		AlwaysInclude: []string{"scrape", "browse", "crawl"},
 		RejectText:    true,
@@ -496,13 +485,8 @@ func (f *FlexibleLLMAdapter) validateAndEnforceHints(input string, response stri
 		}
 
 		if hasTool && hints.ForceToolCall {
-			// CRITICAL: Overwrite existing response if it's NOT a tool call OR if the tool call is 'tool_codegen'
-			// which often mistakenly hijacks imaging or specialized task requests.
-			shouldOverride := parsedResponse.Type == ResponseTypeText ||
-				parsedResponse.Type == ResponseTypeCodeArtifact ||
-				(parsedResponse.Type == ResponseTypeToolCall && (MatchToolIDs(parsedResponse.ToolCall.ToolID, "tool_codegen") || MatchToolIDs(parsedResponse.ToolCall.ToolID, "mcp_smart_scrape")))
-
-			if hints.RejectText && shouldOverride {
+			// Reject text AND code responses if configured for a specific tool
+			if hints.RejectText && (parsedResponse.Type == ResponseTypeText || parsedResponse.Type == ResponseTypeCodeArtifact) {
 				// Force tool call — extract parameters from input where possible
 				params := map[string]interface{}{}
 				if actualToolID == "tool_generate_image" {
@@ -752,32 +736,31 @@ func (f *FlexibleLLMAdapter) filterRelevantTools(input string, tools []Tool) []T
 	commonKeywords := []string{"query", "neo4j", "http", "file", "read", "write", "exec", "docker", "code", "generate", "search", "scrape", "email", "emails", "research", "deep", "comprehensive"}
 
 	// Keywords that suggest specific tool usage
-	// Keywords that suggest specific tool usage - these are legacy mappings.
-	// We prioritize keywords from the promptHintsRegistry (initially set by skills).
 	toolKeywords := map[string][]string{
 		"mcp_query_neo4j":           {"neo4j", "query", "cypher", "knowledge", "graph", "database", "knowledge base"},
 		"mcp_get_concept":           {"concept", "get concept", "retrieve concept", "knowledge"},
 		"mcp_find_related_concepts": {"related", "related concepts", "find related", "connections"},
 		"mcp_search_weaviate":       {"weaviate", "search", "vector", "semantic", "similar", "episodes", "memories", "wikipedia", "wiki", "news"},
-		"tool_http_get":             {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
-		"tool_html_scraper":         {"scrape", "html", "web", "website", "article", "news", "page", "parse html"},
-		"tool_file_read":            {"read", "file", "load", "open", "readfile", "read file", "content", "text"},
-		"tool_file_write":           {"write", "file", "save", "store", "output", "write file", "save file", "create file"},
-		"tool_ls":                   {"list", "directory", "dir", "files", "ls", "list files", "directory listing"},
-		"tool_exec":                 {"exec", "execute", "command", "shell", "run", "cmd", "system", "bash", "sh", "kubectl", "cluster", "monitor", "monitoring"},
-		"tool_codegen":              {"codegen", "write code", "generate code", "program", "script", "implement", "design", "build"}, // Removed 'create' and 'generate' to avoid hijacking imaging
-		"tool_json_parse":           {"json", "parse", "parse json", "decode", "unmarshal"},
-		"tool_text_search":          {"search", "find", "text", "pattern", "match", "grep", "filter"},
-		"tool_docker_list":          {"docker", "container", "image", "list docker", "docker list"},
-		"tool_docker_build":         {"docker build", "build image", "dockerfile", "container build"},
-		"tool_docker_exec":          {"docker exec", "run docker", "execute docker", "container exec"},
-		"tool_generate_image":       {"image", "generate image", "draw", "picture", "create image", "photo", "modify image", "change image", "background"},
-		"mcp_weather":               {"weather", "forecast", "rain", "snow", "sunny", "cloudy"},
-		"mcp_nemoclaw_query":        {"nemoclaw", "nemo claw", "strategy", "reasoning", "complex", "think deep"},
-		"mcp_picoclaw_query":        {"picoclaw", "pico claw", "reasoning", "strategic", "local agent", "pico"},
-		"tool_telegram_send":        {"telegram", "message", "send telegram", "notify"},
-		"tool_ssh_executor":         {"ssh", "remote", "server", "ssh command"},
-		"tool_wiki_bootstrapper":    {"wiki", "bootstrap", "knowledge base"},
+		// Note: mcp_read_google_data keywords are now loaded from configuration
+		"tool_http_get":          {"http", "url", "fetch", "get", "request", "api", "endpoint", "download", "retrieve", "web"},
+		"tool_html_scraper":      {"scrape", "html", "web", "website", "article", "news", "page", "parse html"},
+		"tool_file_read":         {"read", "file", "load", "open", "readfile", "read file", "content", "text"},
+		"tool_file_write":        {"write", "file", "save", "store", "output", "write file", "save file", "create file"},
+		"tool_ls":                {"list", "directory", "dir", "files", "ls", "list files", "directory listing"},
+		"tool_exec":              {"exec", "execute", "command", "shell", "run", "cmd", "system", "bash", "sh", "kubectl", "cluster", "monitor", "monitoring"},
+		"tool_codegen":           {"generate", "code", "create", "write code", "generate code", "program", "script", "implement", "design", "build"},
+		"tool_json_parse":        {"json", "parse", "parse json", "decode", "unmarshal"},
+		"tool_text_search":       {"search", "find", "text", "pattern", "match", "grep", "filter"},
+		"tool_docker_list":       {"docker", "container", "image", "list docker", "docker list"},
+		"tool_docker_build":      {"docker build", "build image", "dockerfile", "container build"},
+		"tool_docker_exec":       {"docker exec", "run docker", "execute docker", "container exec"},
+		"mcp_generate_image":    {"image", "generate image", "draw", "picture", "create image", "photo", "modify image", "change image", "background"},
+		"mcp_weather":           {"weather", "forecast", "rain", "snow", "sunny", "cloudy"},
+		"mcp_nemoclaw_query":    {"nemoclaw", "nemo claw", "strategy", "reasoning", "complex", "think deep"},
+		"mcp_picoclaw_query":    {"picoclaw", "pico claw", "reasoning", "strategic", "local agent", "pico"},
+		"tool_telegram_send":     {"telegram", "message", "send telegram", "notify"},
+		"tool_ssh_executor":      {"ssh", "remote", "server", "ssh command"},
+		"tool_wiki_bootstrapper": {"wiki", "bootstrap", "knowledge base"},
 	}
 
 	// First pass: include tools that match keywords
