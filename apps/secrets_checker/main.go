@@ -336,25 +336,15 @@ func checkFile(repoName, filePath string) bool {
 	if len(scanResult.ExposedKeys) > 0 {
 		baseName := filepath.Base(filePath)
 		
-		// Filter out common documentation placeholders
-		hasRealSecret := false
+		var details []string
 		for _, key := range scanResult.ExposedKeys {
-			val := strings.ToLower(key.Last4)
-			if !strings.Contains(val, "here") && !strings.Contains(val, "repl") && !strings.Contains(val, "your") {
-				hasRealSecret = true
-				break
+			if isFalsePositive(key) {
+				continue
 			}
+			details = append(details, fmt.Sprintf("(Line %d: %s)", key.LineNo, key.Type))
 		}
 		
-		if hasRealSecret {
-			var details []string
-			for _, key := range scanResult.ExposedKeys {
-				val := strings.ToLower(key.Last4)
-				if !strings.Contains(val, "here") && !strings.Contains(val, "repl") && !strings.Contains(val, "your") {
-					details = append(details, fmt.Sprintf("(Line %d: %s)", key.LineNo, key.Type))
-				}
-			}
-			
+		if len(details) > 0 {
 			detailStr := strings.Join(details, ", ")
 			log.Printf("⚠️ [%s] found in %s: %s", repoName, baseName, detailStr)
 			
@@ -364,6 +354,28 @@ func checkFile(repoName, filePath string) bool {
 			return true
 		}
 	}
+	return false
+}
+
+func isFalsePositive(key FoundKey) bool {
+	val := strings.ToLower(key.Last4)
+	
+	// Common placeholders
+	placeholders := []string{"here", "repl", "your", "dummy", "example", "token", "password", "secret", "-123"}
+	for _, p := range placeholders {
+		if strings.Contains(val, p) {
+			return true
+		}
+	}
+
+	// Filter out K3s manifest references
+	if key.Type == "Generic Secret" {
+		// If it's very short or looks like a reference
+		if len(key.Last4) < 8 {
+			return true
+		}
+	}
+
 	return false
 }
 
