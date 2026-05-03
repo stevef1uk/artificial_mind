@@ -237,8 +237,14 @@ func findGitRepos(root string) []string {
 }
 
 func scanRepo(repoPath string) {
-	repoName := filepath.Base(repoPath)
-	log.Printf("[%s] Scanning repository...", repoName)
+	// Identify repo name and owner from path (e.g. repos/user/repo)
+	rel, _ := filepath.Rel(config.MonitorDir, repoPath)
+	displayName := rel
+	if displayName == "." || displayName == "" {
+		displayName = filepath.Base(repoPath)
+	}
+
+	log.Printf("[%s] Scanning repository...", displayName)
 
 	stateMu.Lock()
 	lastCommit := state.LastCommits[repoPath]
@@ -248,13 +254,13 @@ func scanRepo(repoPath string) {
 	headCmd := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD")
 	headOutput, err := headCmd.Output()
 	if err != nil {
-		log.Printf("[%s] Error getting HEAD: %v", repoName, err)
+		log.Printf("[%s] Error getting HEAD: %v", displayName, err)
 		return
 	}
 	currentHead := strings.TrimSpace(string(headOutput))
 
 	if currentHead == lastCommit {
-		log.Printf("[%s] No new commits since last scan (%s)", repoName, currentHead[:8])
+		log.Printf("[%s] No new commits since last scan (%s)", displayName, currentHead[:8])
 		return
 	}
 
@@ -272,7 +278,7 @@ func scanRepo(repoPath string) {
 		filesCmd := exec.Command("git", "-C", repoPath, "ls-tree", "-r", "--name-only", "HEAD")
 		filesOutput, err := filesCmd.Output()
 		if err != nil {
-			log.Printf("[%s] Error getting files: %v", repoName, err)
+			log.Printf("[%s] Error getting files: %v", displayName, err)
 			return
 		}
 		files = strings.Split(strings.TrimSpace(string(filesOutput)), "\n")
@@ -280,7 +286,7 @@ func scanRepo(repoPath string) {
 		filesCmd := exec.Command("git", "-C", repoPath, "diff", "--name-only", diffRange)
 		filesOutput, err := filesCmd.Output()
 		if err != nil {
-			log.Printf("[%s] Error getting changed files: %v", repoName, err)
+			log.Printf("[%s] Error getting changed files: %v", displayName, err)
 			return
 		}
 		files = strings.Split(strings.TrimSpace(string(filesOutput)), "\n")
@@ -297,7 +303,7 @@ func scanRepo(repoPath string) {
 			continue
 		}
 
-		checkFile(repoName, fullPath)
+		checkFile(displayName, fullPath)
 	}
 
 	stateMu.Lock()
