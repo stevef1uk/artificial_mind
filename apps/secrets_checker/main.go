@@ -144,7 +144,9 @@ func sendFinalTelegramAlert() {
 	for repo, files := range repoMap {
 		sb.WriteString(fmt.Sprintf("📦 *%s*\n", escapeMarkdown(repo)))
 		for file := range files {
-			sb.WriteString(fmt.Sprintf("  • `%s`\n", escapeMarkdown(file)))
+			// In MarkdownV2, characters inside code blocks don't need escaping
+			// but the backtick itself does (though highly unlikely in a filename)
+			sb.WriteString(fmt.Sprintf("  • `%s`\n", file))
 		}
 		sb.WriteString("\n")
 	}
@@ -378,7 +380,9 @@ func sendTelegramAlert(message string) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("Telegram API returned status %d", resp.StatusCode)
+		var errBody bytes.Buffer
+		errBody.ReadFrom(resp.Body)
+		log.Printf("Telegram API returned status %d: %s", resp.StatusCode, errBody.String())
 	}
 }
 
