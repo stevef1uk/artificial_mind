@@ -48,7 +48,7 @@ spec:
                   name: secure-vendor
                   key: token
             - name: FORCE_SCAN
-              value: "true" # Set to "true" to force a full re-scan
+              value: "false" # Set to "true" to force a full re-scan
             volumeMounts:
             - name: data
               mountPath: /app/repos
