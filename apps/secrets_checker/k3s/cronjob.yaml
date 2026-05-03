@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: secrets-checker-pvc
+  namespace: agi
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: secrets-checker
+  namespace: agi
+spec:
+  schedule: "0 */6 * * *" # Every 6 hours
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: secrets-checker
+            image: stevef1uk/secrets-checker:latest # User will build and push this
+            env:
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: telegram-bot-secret
+                  key: TELEGRAM_BOT_TOKEN
+            - name: TELEGRAM_CHAT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: telegram-bot-secret
+                  key: TELEGRAM_CHAT_ID
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-token # Ensure this secret exists if needed
+                  key: token
+                  optional: true
+            volumeMounts:
+            - name: data
+              mountPath: /app/repos
+            - name: data
+              mountPath: /app/state.json
+              subPath: state.json
+          volumes:
+          - name: data
+            persistentVolumeClaim:
+              claimName: secrets-checker-pvc
+          restartPolicy: OnFailure

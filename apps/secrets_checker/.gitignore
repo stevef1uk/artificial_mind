@@ -1,0 +1,4 @@
+repos/
+state.json
+scan_output.log
+secrets_checker
