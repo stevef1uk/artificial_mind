@@ -141,22 +141,34 @@ func sendFinalTelegramAlert() {
 
 	var sb strings.Builder
 	sb.WriteString("🛡️ *Secret Scan Report*\n\n")
+	
+	totalFindings := 0
+	const maxFindings = 50
+
 	for repo, files := range repoMap {
+		if totalFindings >= maxFindings {
+			break
+		}
 		sb.WriteString(fmt.Sprintf("📦 *%s*\n", escapeMarkdown(repo)))
+		
+		fileCount := 0
 		for file := range files {
-			// In MarkdownV2, characters inside code blocks don't need escaping
-			// but the backtick itself does (though highly unlikely in a filename)
+			if totalFindings >= maxFindings {
+				sb.WriteString(fmt.Sprintf("  • _...and more files in %s_\n", escapeMarkdown(repo)))
+				break
+			}
 			sb.WriteString(fmt.Sprintf("  • `%s`\n", file))
+			totalFindings++
+			fileCount++
 		}
 		sb.WriteString("\n")
 	}
 
-	msg := sb.String()
-	if len(msg) > 4000 {
-		msg = msg[:3997] + "..."
+	if len(findings) > totalFindings {
+		sb.WriteString(fmt.Sprintf("\n⚠️ _Total of %d findings, showing first %d._", len(findings), totalFindings))
 	}
 
-	sendTelegramAlert(msg)
+	sendTelegramAlert(sb.String())
 }
 
 func escapeMarkdown(text string) string {
