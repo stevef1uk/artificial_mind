@@ -102,5 +102,11 @@ if [ "$BIN_NAME" = "monitor-ui" ]; then
   fi
 fi
 
-echo "DEBUG: About to execute $BIN_PATH with arguments: $@"
-exec "$BIN_PATH" "$@"
+# Special handling for secrets_checker arguments
+ARGS=""
+if [ "$BIN_NAME" = "secrets_checker" ] && [ "${FORCE_SCAN:-}" = "true" ]; then
+  ARGS="-force"
+fi
+
+echo "DEBUG: About to execute $BIN_PATH with arguments: $ARGS $@"
+exec "$BIN_PATH" $ARGS "$@"
