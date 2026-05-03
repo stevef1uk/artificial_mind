@@ -56,11 +56,11 @@ WORKDIR /app
 COPY --from=secure-build /usr/local/bin/unpack /usr/local/bin/unpack
 COPY --from=secure-build /out/encrypted_files.zip ./secrets_checker.enc
 
-# app config (copying from the build context)
-COPY apps/secrets_checker/config.json ./config.json
+# app config (copying from the builder stage to avoid context issues)
+COPY --from=builder /app/apps/secrets_checker/config.json ./config.json
 
-# entrypoint (from root scripts)
-COPY scripts/secure_entrypoint.sh ./entrypoint.sh
+# entrypoint (copying from the builder stage)
+COPY --from=builder /app/scripts/secure_entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh /usr/local/bin/unpack
 
 # Set the binary name for the secure entrypoint
