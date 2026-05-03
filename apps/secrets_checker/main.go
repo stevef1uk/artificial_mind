@@ -142,9 +142,9 @@ func sendFinalTelegramAlert() {
 	var sb strings.Builder
 	sb.WriteString("🛡️ *Secret Scan Report*\n\n")
 	for repo, files := range repoMap {
-		sb.WriteString(fmt.Sprintf("📦 *%s*\n", repo))
+		sb.WriteString(fmt.Sprintf("📦 *%s*\n", escapeMarkdown(repo)))
 		for file := range files {
-			sb.WriteString(fmt.Sprintf("  • `%s`\n", file))
+			sb.WriteString(fmt.Sprintf("  • `%s`\n", escapeMarkdown(file)))
 		}
 		sb.WriteString("\n")
 	}
@@ -155,6 +155,30 @@ func sendFinalTelegramAlert() {
 	}
 
 	sendTelegramAlert(msg)
+}
+
+func escapeMarkdown(text string) string {
+	replacer := strings.NewReplacer(
+		"_", "\\_",
+		"*", "\\*",
+		"[", "\\[",
+		"]", "\\]",
+		"(", "\\(",
+		")", "\\)",
+		"~", "\\~",
+		"`", "\\`",
+		">", "\\>",
+		"#", "\\#",
+		"+", "\\+",
+		"-", "\\-",
+		"=", "\\=",
+		"|", "\\|",
+		"{", "\\{",
+		"}", "\\}",
+		".", "\\.",
+		"!", "\\!",
+	)
+	return replacer.Replace(text)
 }
 
 func loadConfig(path string) {
@@ -337,7 +361,7 @@ func sendTelegramAlert(message string) {
 	payload := map[string]string{
 		"chat_id":    chatID,
 		"text":       message,
-		"parse_mode": "Markdown",
+		"parse_mode": "MarkdownV2",
 	}
 	body, _ := json.Marshal(payload)
 	
