@@ -1,14 +1,15 @@
 FROM golang:1.23-alpine AS builder
 WORKDIR /app
-# Copy the module files from the correct subpath
-COPY apps/secrets_checker/go.mod ./apps/secrets_checker/
-RUN cd apps/secrets_checker && go mod download
 
-# Copy the entire source (from root context)
+# Copy the entire source first to ensure we have everything
 COPY . .
 
-# Build the binary from the sub-directory
-RUN cd apps/secrets_checker && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o ../../bin/secrets_checker .
+# Build the binary
+RUN cd apps/secrets_checker && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/secrets_checker .
+
+# Move assets to a flat location in the builder for easy access
+RUN cp apps/secrets_checker/config.json /app/config.json && \
+    cp scripts/secure_entrypoint.sh /app/entrypoint.sh
 
 # Use prebuilt secure-packager image
 FROM stevef1uk/secure-packager:latest AS packager
@@ -23,7 +24,7 @@ COPY --from=packager /app/issue-token /usr/local/bin/issue-token
 RUN chmod +x /usr/local/bin/packager /usr/local/bin/unpack /usr/local/bin/issue-token
 
 # Copy built binary from builder
-COPY --from=builder /app/bin/secrets_checker /app/secrets_checker
+COPY --from=builder /app/secrets_checker /app/secrets_checker
 
 # Copy secure keys from root context
 ARG CUSTOMER_PUBLIC_KEY=secure/customer_public.pem
@@ -56,11 +57,11 @@ WORKDIR /app
 COPY --from=secure-build /usr/local/bin/unpack /usr/local/bin/unpack
 COPY --from=secure-build /out/encrypted_files.zip ./secrets_checker.enc
 
-# app config (copying from the builder stage to avoid context issues)
-COPY --from=builder /app/apps/secrets_checker/config.json ./config.json
+# app config (copying from the flat location in builder)
+COPY --from=builder /app/config.json ./config.json
 
-# entrypoint (copying from the builder stage)
-COPY --from=builder /app/scripts/secure_entrypoint.sh ./entrypoint.sh
+# entrypoint (copying from the flat location in builder)
+COPY --from=builder /app/entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh /usr/local/bin/unpack
 
 # Set the binary name for the secure entrypoint
