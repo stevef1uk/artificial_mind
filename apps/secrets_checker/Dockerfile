@@ -1,12 +1,14 @@
 FROM golang:1.23-alpine AS builder
 WORKDIR /app
-COPY go.mod ./
-# No go.sum yet, so we'll skip copying it if it doesn't exist
-RUN go mod download
+# Copy the module files from the correct subpath
+COPY apps/secrets_checker/go.mod ./apps/secrets_checker/
+RUN cd apps/secrets_checker && go mod download
 
+# Copy the entire source (from root context)
 COPY . .
-# Build the binary for arm64 (RPi) and amd64
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o bin/secrets_checker .
+
+# Build the binary from the sub-directory
+RUN cd apps/secrets_checker && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o ../../bin/secrets_checker .
 
 # Use prebuilt secure-packager image
 FROM stevef1uk/secure-packager:latest AS packager
@@ -23,8 +25,7 @@ RUN chmod +x /usr/local/bin/packager /usr/local/bin/unpack /usr/local/bin/issue-
 # Copy built binary from builder
 COPY --from=builder /app/bin/secrets_checker /app/secrets_checker
 
-# Expect secure keys to be available in the build context (root)
-# We assume the build is run from the root of artificial_mind
+# Copy secure keys from root context
 ARG CUSTOMER_PUBLIC_KEY=secure/customer_public.pem
 ARG VENDOR_PUBLIC_KEY=secure/vendor_public.pem
 COPY ${CUSTOMER_PUBLIC_KEY} /keys/customer_public.pem
@@ -55,7 +56,7 @@ WORKDIR /app
 COPY --from=secure-build /usr/local/bin/unpack /usr/local/bin/unpack
 COPY --from=secure-build /out/encrypted_files.zip ./secrets_checker.enc
 
-# app config
+# app config (copying from the build context)
 COPY apps/secrets_checker/config.json ./config.json
 
 # entrypoint (from root scripts)
