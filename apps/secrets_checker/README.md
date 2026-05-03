@@ -1,40 +1,53 @@
-# Secrets Checker
+# Secrets Checker 🛡️
 
-A high-efficiency Go program that monitors Git repositories for leaked secrets, integrating with PicoClaw's MCP secret scanner.
+An autonomous, secure, and containerized Git repository secret-scanning system with Telegram alerting.
 
 ## Features
+- **Differential Scanning**: Only scans new commits since the last run.
+- **Internal Engine**: High-performance regex-based scanning (no network dependencies).
+- **Telegram Alerting**: Real-time summary alerts for found secrets.
+- **Secure Image Protection**: Encrypted binary at rest, decrypted at runtime via `secure-packager`.
+- **Persistent State**: Maintains scan state on a Kubernetes PVC.
 
-- **Concurrent Scanning**: Uses Go routines to scan multiple repositories and files in parallel.
-- **Incremental Checks**: Tracks the last scanned commit for each repository to avoid redundant scans.
-- **Auto-Discovery**: Automatically fetches and clones/updates repositories for configured GitHub users.
-- **MCP Integration**: Calls the `mcp_hdn-server_secret_scanner` tool for robust secret detection.
+## 🛠️ Build Instructions
 
-## Local Testing
+The build **must** be executed from the root of the `artificial_mind` repository to correctly include the secure keys and entrypoint scripts.
 
-1.  Ensure you have an MCP server running at `http://localhost:8080/mcp` (or update `config.json`).
-2.  Configure your target GitHub users in `config.json`.
-3.  Run the program:
-    ```bash
-    go run main.go
-    ```
-
-## Configuration
-
-Edit `config.json`:
-
-```json
-{
-  "github_users": ["your-username", "another-username"],
-  "monitor_dir": "repos",
-  "mcp_server_url": "http://localhost:8080/mcp",
-  "state_file": "state.json",
-  "concurrency": 10
-}
+```bash
+cd ~/dev/artificial_mind
+git pull
+docker build -t stevef1uk/secrets-checker:latest -f apps/secrets_checker/Dockerfile .
+docker push stevef1uk/secrets-checker:latest
 ```
 
-## K3s Deployment
+## 🚀 Deployment (k3s)
 
-The program is ready for k3s. Build and push the image, then deploy using your standard k3s workflow.
+### 1. Prerequisite Secrets
+Ensure the following secrets exist in the `agi` namespace:
+- `secure-customer-private`: Your private key for decryption.
+- `secure-vendor`: Your license token for the unpacker.
+- `telegram-bot-secret`: Bot token and chat ID.
+- `github-token` (Optional): To avoid API rate limits.
 
-> [!NOTE]
-> Ensure the container has network access to the MCP server.
+### 2. Apply Manifests
+Apply the CronJob and Persistent Volume Claim:
+```bash
+kubectl apply -f apps/secrets_checker/k3s/cronjob.yaml
+```
+
+### 3. Manual Test Run
+To trigger a scan immediately:
+```bash
+kubectl delete job secrets-checker-manual-test -n agi || true
+kubectl create job --from=cronjob/secrets-checker secrets-checker-manual-test -n agi
+```
+
+## 📊 Monitoring
+- **Logs**: `kubectl logs -n agi -l job-name=secrets-checker-manual-test`
+- **PVC Content**: State and clones are stored on the `secrets-checker-pvc`.
+
+## ⚙️ Configuration
+Modify `config.json` to change:
+- `github_users`: List of users/orgs to monitor.
+- `concurrency`: Number of simultaneous repository scans.
+- `stale_threshold_days`: Ignore repos not pushed to in X days.
