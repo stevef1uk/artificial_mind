@@ -48,8 +48,14 @@ spec:
             - name: data
               mountPath: /app/state.json
               subPath: state.json
+            - name: customer-key
+              mountPath: /keys
+              readOnly: true
           volumes:
           - name: data
             persistentVolumeClaim:
               claimName: secrets-checker-pvc
+          - name: customer-key
+            secret:
+              secretName: secure-customer-private
           restartPolicy: OnFailure
