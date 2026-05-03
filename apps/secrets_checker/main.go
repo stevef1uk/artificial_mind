@@ -151,12 +151,18 @@ func sendFinalTelegramAlert() {
 		}
 		sb.WriteString(fmt.Sprintf("📦 <b>%s</b>\n", htmlEscape(repo)))
 		
-		for file := range files {
+		for fileDetails := range files {
 			if totalFindings >= maxFindings {
-				sb.WriteString(fmt.Sprintf("  • <i>...and more files in %s</i>\n", htmlEscape(repo)))
+				sb.WriteString(fmt.Sprintf("  • <i>...and more findings in %s</i>\n", htmlEscape(repo)))
 				break
 			}
-			sb.WriteString(fmt.Sprintf("  • <code>%s</code>\n", htmlEscape(file)))
+			// fileDetails is in format "filename|details"
+			parts := strings.SplitN(fileDetails, "|", 2)
+			fileName := parts[0]
+			details := ""
+			if len(parts) > 1 { details = parts[1] }
+
+			sb.WriteString(fmt.Sprintf("  • <code>%s</code> %s\n", htmlEscape(fileName), htmlEscape(details)))
 			totalFindings++
 		}
 		sb.WriteString("\n")
@@ -341,9 +347,19 @@ func checkFile(repoName, filePath string) bool {
 		}
 		
 		if hasRealSecret {
-			log.Printf("⚠️ [%s] found in %s", repoName, baseName)
+			var details []string
+			for _, key := range scanResult.ExposedKeys {
+				val := strings.ToLower(key.Last4)
+				if !strings.Contains(val, "here") && !strings.Contains(val, "repl") && !strings.Contains(val, "your") {
+					details = append(details, fmt.Sprintf("(Line %d: %s)", key.LineNo, key.Type))
+				}
+			}
+			
+			detailStr := strings.Join(details, ", ")
+			log.Printf("⚠️ [%s] found in %s: %s", repoName, baseName, detailStr)
+			
 			findingsMu.Lock()
-			findings = append(findings, fmt.Sprintf("%s|%s", repoName, baseName))
+			findings = append(findings, fmt.Sprintf("%s|%s|%s", repoName, baseName, detailStr))
 			findingsMu.Unlock()
 			return true
 		}
