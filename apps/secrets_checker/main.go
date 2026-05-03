@@ -50,6 +50,9 @@ var (
 	state   State
 	stateMu sync.Mutex
 	scanner *InternalScanner
+
+	findings   []string
+	findingsMu sync.Mutex
 )
 
 func main() {
@@ -112,7 +115,46 @@ func main() {
 	wg.Wait()
 
 	saveState()
+	// Final summary alert
+	sendFinalTelegramAlert()
+
 	log.Println("Scan completed.")
+}
+
+func sendFinalTelegramAlert() {
+	findingsMu.Lock()
+	defer findingsMu.Unlock()
+
+	if len(findings) == 0 {
+		return
+	}
+
+	// Group findings by repo to keep it clean
+	repoMap := make(map[string]map[string]bool)
+	for _, f := range findings {
+		parts := strings.SplitN(f, "|", 2)
+		if len(parts) < 2 { continue }
+		repo, file := parts[0], parts[1]
+		if repoMap[repo] == nil { repoMap[repo] = make(map[string]bool) }
+		repoMap[repo][file] = true
+	}
+
+	var sb strings.Builder
+	sb.WriteString("🛡️ *Secret Scan Report*\n\n")
+	for repo, files := range repoMap {
+		sb.WriteString(fmt.Sprintf("📦 *%s*\n", repo))
+		for file := range files {
+			sb.WriteString(fmt.Sprintf("  • `%s`\n", file))
+		}
+		sb.WriteString("\n")
+	}
+
+	msg := sb.String()
+	if len(msg) > 4000 {
+		msg = msg[:3997] + "..."
+	}
+
+	sendTelegramAlert(msg)
 }
 
 func loadConfig(path string) {
@@ -261,15 +303,25 @@ func checkFile(repoName, filePath string) bool {
 	}
 
 	if len(scanResult.ExposedKeys) > 0 {
-		msg := fmt.Sprintf("⚠️ [%s] FOUND SECRETS in %s!\n", repoName, filepath.Base(filePath))
-		log.Print(msg)
+		baseName := filepath.Base(filePath)
+		
+		// Filter out common documentation placeholders
+		hasRealSecret := false
 		for _, key := range scanResult.ExposedKeys {
-			detail := fmt.Sprintf("   - Type: %s, Line: %d, Last4: %s\n", key.Type, key.LineNo, key.Last4)
-			log.Print(detail)
-			msg += detail
+			val := strings.ToLower(key.Last4)
+			if !strings.Contains(val, "here") && !strings.Contains(val, "repl") && !strings.Contains(val, "your") {
+				hasRealSecret = true
+				break
+			}
 		}
-		sendTelegramAlert(msg)
-		return true
+		
+		if hasRealSecret {
+			log.Printf("⚠️ [%s] found in %s", repoName, baseName)
+			findingsMu.Lock()
+			findings = append(findings, fmt.Sprintf("%s|%s", repoName, baseName))
+			findingsMu.Unlock()
+			return true
+		}
 	}
 	return false
 }
@@ -283,8 +335,9 @@ func sendTelegramAlert(message string) {
 
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
 	payload := map[string]string{
-		"chat_id": chatID,
-		"text":    message,
+		"chat_id":    chatID,
+		"text":       message,
+		"parse_mode": "Markdown",
 	}
 	body, _ := json.Marshal(payload)
 	
