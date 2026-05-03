@@ -165,7 +165,8 @@ func sendFinalTelegramAlert() {
 	}
 
 	if len(findings) > totalFindings {
-		sb.WriteString(fmt.Sprintf("\n⚠️ _Total of %d findings, showing first %d._", len(findings), totalFindings))
+		footer := fmt.Sprintf("\n⚠️ Total of %d findings, showing first %d.", len(findings), totalFindings)
+		sb.WriteString(escapeMarkdown(footer))
 	}
 
 	sendTelegramAlert(sb.String())
