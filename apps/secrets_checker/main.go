@@ -140,7 +140,7 @@ func sendFinalTelegramAlert() {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("🛡️ *Secret Scan Report*\n\n")
+	sb.WriteString("🛡️ <b>Secret Scan Report</b>\n\n")
 	
 	totalFindings := 0
 	const maxFindings = 50
@@ -149,51 +149,31 @@ func sendFinalTelegramAlert() {
 		if totalFindings >= maxFindings {
 			break
 		}
-		sb.WriteString(fmt.Sprintf("📦 *%s*\n", escapeMarkdown(repo)))
+		sb.WriteString(fmt.Sprintf("📦 <b>%s</b>\n", htmlEscape(repo)))
 		
-		fileCount := 0
 		for file := range files {
 			if totalFindings >= maxFindings {
-				sb.WriteString(fmt.Sprintf("  • _...and more files in %s_\n", escapeMarkdown(repo)))
+				sb.WriteString(fmt.Sprintf("  • <i>...and more files in %s</i>\n", htmlEscape(repo)))
 				break
 			}
-			sb.WriteString(fmt.Sprintf("  • `%s`\n", file))
+			sb.WriteString(fmt.Sprintf("  • <code>%s</code>\n", htmlEscape(file)))
 			totalFindings++
-			fileCount++
 		}
 		sb.WriteString("\n")
 	}
 
 	if len(findings) > totalFindings {
-		footer := fmt.Sprintf("\n⚠️ Total of %d findings, showing first %d.", len(findings), totalFindings)
-		sb.WriteString(escapeMarkdown(footer))
+		sb.WriteString(fmt.Sprintf("\n⚠️ <i>Total of %d findings, showing first %d.</i>", len(findings), totalFindings))
 	}
 
 	sendTelegramAlert(sb.String())
 }
 
-func escapeMarkdown(text string) string {
-	replacer := strings.NewReplacer(
-		"_", "\\_",
-		"*", "\\*",
-		"[", "\\[",
-		"]", "\\]",
-		"(", "\\(",
-		")", "\\)",
-		"~", "\\~",
-		"`", "\\`",
-		">", "\\>",
-		"#", "\\#",
-		"+", "\\+",
-		"-", "\\-",
-		"=", "\\=",
-		"|", "\\|",
-		"{", "\\{",
-		"}", "\\}",
-		".", "\\.",
-		"!", "\\!",
-	)
-	return replacer.Replace(text)
+func htmlEscape(text string) string {
+	text = strings.ReplaceAll(text, "&", "&amp;")
+	text = strings.ReplaceAll(text, "<", "&lt;")
+	text = strings.ReplaceAll(text, ">", "&gt;")
+	return text
 }
 
 func loadConfig(path string) {
@@ -382,7 +362,7 @@ func sendTelegramAlert(message string) {
 	payload := map[string]string{
 		"chat_id":    chatID,
 		"text":       message,
-		"parse_mode": "MarkdownV2",
+		"parse_mode": "HTML",
 	}
 	body, _ := json.Marshal(payload)
 	
