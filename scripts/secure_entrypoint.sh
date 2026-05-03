@@ -26,8 +26,11 @@ elif [ -f /app/monitor-ui.enc ]; then
 elif [ -f /app/wiki-summarizer.enc ]; then
   ZIP_PATH=/app/wiki-summarizer.enc
   BIN_NAME=wiki-summarizer
+elif [ -f /app/secrets_checker.enc ]; then
+  ZIP_PATH=/app/secrets_checker.enc
+  BIN_NAME=secrets_checker
 else
-  echo "No encrypted payload found. Expected one of: principles.enc, hdn-server.enc, goal-manager.enc, data-processor.enc, knowledge-builder.enc, fsm-server.enc, monitor-ui.enc, wiki-summarizer.enc" >&2
+  echo "No encrypted payload found. Expected one of: principles.enc, hdn-server.enc, goal-manager.enc, data-processor.enc, knowledge-builder.enc, fsm-server.enc, monitor-ui.enc, wiki-summarizer.enc, secrets_checker.enc" >&2
   exit 1
 fi
 
