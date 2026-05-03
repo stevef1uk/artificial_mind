@@ -4,6 +4,9 @@ WORKDIR /app
 # Copy the entire source first to ensure we have everything
 COPY . .
 
+# Debug: List files to see what's actually here
+RUN find . -maxdepth 2
+
 # Build the binary
 RUN cd apps/secrets_checker && CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/secrets_checker .
 
