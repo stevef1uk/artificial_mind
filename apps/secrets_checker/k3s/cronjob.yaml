@@ -39,9 +39,14 @@ spec:
             - name: GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: github-token # Ensure this secret exists if needed
+                  name: github-token
                   key: token
                   optional: true
+            - name: SECURE_VENDOR_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: secure-vendor
+                  key: token
             volumeMounts:
             - name: data
               mountPath: /app/repos
