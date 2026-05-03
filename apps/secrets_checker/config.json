@@ -1,0 +1,9 @@
+{
+  "github_users": ["stevef1uk", "picoclawbot"],
+  "monitor_dir": "repos",
+  "mcp_server_url": "http://localhost:8080/mcp",
+  "state_file": "state.json",
+  "concurrency": 10,
+  "stale_threshold_days": 30,
+  "max_repos_per_user": 20
+}
