@@ -51,10 +51,23 @@ spec:
         env:
         - name: SCRAPER_URL
           value: "http://playwright-scraper.agi.svc.cluster.local:8085"
+        - name: OPENAI_BASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: llm-config
+              key: OPENAI_BASE_URL
+              optional: true
         - name: OLLAMA_URL
-          value: "http://ollama.agi.svc.cluster.local:11434"
+          valueFrom:
+            secretKeyRef:
+              name: llm-config
+              key: OLLAMA_BASE_URL
+              optional: true
         - name: LLM_MODEL
-          value: "qwen2.5-coder:7b"
+          valueFrom:
+            secretKeyRef:
+              name: llm-config
+              key: LLM_MODEL
         - name: TZ
           value: "Europe/Paris"
         - name: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD

@@ -7,7 +7,7 @@ spec:
   type: ClusterIP
   ports:
   - port: 8085
-    targetPort: 8085
+    targetPort: 8080
     name: http
 ---
 apiVersion: v1
@@ -20,8 +20,8 @@ subsets:
   # Update this IP to where your llama.cpp server is running
   # For local Mac: use host.docker.internal or the actual IP
   # For Raspberry Pi: use the Pi's IP address
-  - ip: 192.168.1.45  # Update this to your llama.cpp server's IP
+  - ip: 192.168.1.53  # Update this to your llama.cpp server's IP
   ports:
-  - port: 8085
+  - port: 8080
     name: http
 

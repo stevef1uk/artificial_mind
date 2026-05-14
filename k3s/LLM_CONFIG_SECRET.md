@@ -30,7 +30,7 @@ kubectl patch secret llm-config -n agi --type='json' \
 
 # Change model
 kubectl patch secret llm-config -n agi --type='json' \
-  -p='[{"op": "replace", "path": "/data/LLM_MODEL", "value": "'$(echo -n "gemma-3-1b-it-q4_k_m.gguf" | base64)'"}]'
+  -p='[{"op": "replace", "path": "/data/LLM_MODEL", "value": "'$(echo -n "qwen3-coder" | base64)'"}]'
 
 # Change base URL
 kubectl patch secret llm-config -n agi --type='json' \
@@ -58,7 +58,7 @@ kubectl rollout restart deployment fsm-server-rpi58 -n agi
 
 ### LLM_MODEL
 The model name as it appears in your LLM server. Examples:
-- `"gemma-3-1b-it-q4_k_m.gguf"` (llama.cpp)
+- `"qwen3-coder"` (llama.cpp)
 - `"gemma3:latest"` (Ollama)
 - `"gpt-4"` (OpenAI)
 
@@ -66,7 +66,7 @@ The model name as it appears in your LLM server. Examples:
 Base URL for OpenAI-compatible servers:
 - `"http://llama-server.agi.svc.cluster.local:8085"` (llama.cpp in cluster)
 - `"https://api.openai.com"` (OpenAI API)
-- `"http://192.168.1.45:8085"` (External llama.cpp server)
+- `"http://192.168.1.53:8080"` (External llama.cpp server)
 
 ### OLLAMA_BASE_URL
 Base URL for Ollama servers:

@@ -415,11 +415,11 @@ data:
     {
       "llm_provider": "openai",
       "llm_api_key": "",
-      "mcp_endpoint": "http://hdn-server-rpi58.agi.svc.cluster.local:8086/mcp",
+      "mcp_endpoint": "http://flight-mcp.agi.svc.cluster.local:8080/mcp",
       "settings": {
-        "model": "gemma-3-1b-it-q4_k_m.gguf",
+        "model": "qwen3-coder",
         "temperature": "0.7",
-        "max_tokens": "1000",
+        "max_tokens": "4000",
         "llm_timeout_seconds": "300",
         "openai_url": "http://llama-server.agi.svc.cluster.local:8085"
       },
